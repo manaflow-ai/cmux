@@ -239,7 +239,7 @@ struct CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func pendingRevocationFailureBlocksHostRegistrationAndCachedFallback() async throws {
+    func pendingRevocationFailureStopsAfterAuthenticatedRegistration() async throws {
         let fixture = try HostRuntimeFixture()
         let pendingRevocations = CmxIrohPendingRevocationOutbox(
             secureStore: TestSecureCredentialStore()
@@ -269,7 +269,7 @@ struct CmxIrohHostRuntimeTests {
             try await runtime.start()
         }
 
-        #expect(await broker.observedRegistrationCount() == 0)
+        #expect(await broker.observedRegistrationCount() == 1)
         #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
         #expect(
             try await pendingRevocations.pending(

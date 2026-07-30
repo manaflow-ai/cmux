@@ -76,4 +76,29 @@ import Testing
         #expect(MobileIOSAppNamespace(pairedMacInstanceTag: "invalid tag") == nil)
         #expect(MobileIOSAppNamespace(pairedMacInstanceTag: " feature-a ") == nil)
     }
+
+    @Test func legacyBackupAdoptionIsLimitedToUnambiguousOwners() throws {
+        let appStore = try #require(
+            MobileIOSAppNamespace(bundleIdentifier: "com.cmux.app")
+        )
+        let tagged = try #require(
+            MobileIOSAppNamespace(bundleIdentifier: "dev.cmux.ios.feature-a")
+        )
+        #expect(appStore.legacyBackupScope == .unscoped)
+        #expect(
+            tagged.legacyBackupScope
+                == .scoped("ios:v2:ZmVhdHVyZS1h")
+        )
+        for bundleIdentifier in [
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ] {
+            #expect(
+                MobileIOSAppNamespace(
+                    bundleIdentifier: bundleIdentifier
+                )?.legacyBackupScope == nil
+            )
+        }
+    }
 }

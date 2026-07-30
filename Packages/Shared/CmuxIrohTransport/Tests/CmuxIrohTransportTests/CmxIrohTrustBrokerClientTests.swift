@@ -57,6 +57,50 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func postRegistrationRequestsCarryExactBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        _ = try await client.register(prepared: prepared, signer: signer)
+        _ = try await client.discover()
+
+        let requests = await transport.requests()
+        let discovery = try #require(requests.last)
+        #expect(
+            discovery.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == "123e4567-e89b-42d3-a456-426614174010"
+        )
+        #expect(
+            Int64(
+                discovery.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+                ) ?? ""
+            ) != nil
+        )
+        #expect(
+            discovery.value(
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )?.count == 86
+        )
+        #expect(
+            requests.dropLast().allSatisfy {
+                $0.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+                ) == nil
+            }
+        )
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),

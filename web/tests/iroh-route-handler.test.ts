@@ -407,13 +407,16 @@ describe("Iroh route boundary", () => {
 
   test("forwards the exact app namespace to every mutation", async () => {
     const received: string[] = [];
+    const receivedBindingIDs: string[] = [];
     const namespaced = (
       _userId: string,
       _raw: unknown,
       _now?: Date,
       clientNamespace?: string,
+      bindingProof?: { bindingId: string },
     ) => {
       received.push(clientNamespace ?? "");
+      receivedBindingIDs.push(bindingProof?.bindingId ?? "");
       return Effect.succeed({});
     };
     const namespacedBroker = broker({
@@ -432,6 +435,12 @@ describe("Iroh route boundary", () => {
       const base = authedPost("/api/devices/iroh", {});
       const headers = new Headers(base.headers);
       headers.set("x-cmux-app-namespace", "dev.cmux.app.demo");
+      headers.set(
+        "x-cmux-iroh-binding-id",
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+      headers.set("x-cmux-iroh-request-time", "1785384000");
+      headers.set("x-cmux-iroh-request-signature", "A".repeat(86));
       const response = await handleIrohRoute(
         new Request(base, { headers }),
         operation,
@@ -440,6 +449,9 @@ describe("Iroh route boundary", () => {
       expect(response.status).toBe(operation === "revoke" ? 200 : 201);
     }
     expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+    expect(receivedBindingIDs).toEqual(
+      Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
+    );
   });
 
   test("maps DB-authoritative quota failures to typed 429 with Retry-After", async () => {

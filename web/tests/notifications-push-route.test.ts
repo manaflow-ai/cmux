@@ -148,7 +148,7 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  dbTest("selects tokens from only the requested app namespace", async () => {
+  dbTest("selects one exact namespace while preserving legacy account fanout", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`
       insert into device_tokens (
@@ -192,6 +192,23 @@ describe("notifications push route", () => {
       {
         deviceToken: "a".repeat(64),
         bundleId: "dev.cmux.app.internal",
+        environment: "production",
+      },
+    ]);
+
+    const legacyTargets = await pushRoute.selectNotificationPushTargets(
+      realCloudDb(),
+      "user-1",
+    );
+    expect(legacyTargets).toEqual([
+      {
+        deviceToken: "a".repeat(64),
+        bundleId: "dev.cmux.app.internal",
+        environment: "production",
+      },
+      {
+        deviceToken: "b".repeat(64),
+        bundleId: "dev.cmux.app.demo",
         environment: "production",
       },
     ]);
