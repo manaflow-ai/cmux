@@ -3770,8 +3770,8 @@ def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
                 {
                     "session_id": dead_session_id,
                     "turn_id": "abandoned-turn",
-                    "notification_type": "idle_prompt",
-                    "message": "Claude is waiting for your input",
+                    "notification_type": "permission_prompt",
+                    "message": "Claude needs permission",
                     "cwd": "/tmp",
                 },
                 dead_env,
@@ -3887,6 +3887,254 @@ def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
                     "The replacement turn did not transition from Running to "
                     f"Idle:\ncommands={stop_commands!r}"
                 )
+
+
+def verify_background_work_drain_reaches_idle(cli_path: str) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"background-drain-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "background-drain-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        env["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        env.pop("CMUX_SOCKET_CAPABILITY", None)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "background-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "background-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "waiting for background work",
+                "background_tasks": [{"id": "task-1", "status": "running"}],
+                "session_crons": [],
+            },
+            env,
+        )
+        state = json.loads(state_path.read_text())
+        running_record = state.get("sessions", {}).get(session_id)
+        if (
+            running_record is None
+            or running_record.get("agentLifecycle") != "running"
+            or running_record.get("runtimeStatus") != "running"
+            or running_record.get("hadPendingBackgroundWorkAtStop") is not True
+        ):
+            raise RuntimeError(
+                "A Stop with live background work did not remain Running:\n"
+                f"record={running_record!r}\nstate={state!r}"
+            )
+
+        drained_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "background-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "background work completed",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+        drained_commands = server.commands[drained_start:]
+        if not has_command_with(
+            drained_commands,
+            "set_status claude_code Idle "
+            "--icon=pause.circle.fill --color=#8E8E93 "
+            f"--tab={workspace_id}",
+            f"--panel={surface_id}",
+            f"--pid={os.getpid()}",
+        ):
+            raise RuntimeError(
+                "The first Stop proving background work drained did not publish "
+                f"Idle:\ncommands={drained_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        drained_record = state.get("sessions", {}).get(session_id)
+        if (
+            drained_record is None
+            or drained_record.get("agentLifecycle") != "idle"
+            or drained_record.get("runtimeStatus") != "idle"
+            or drained_record.get("hadPendingBackgroundWorkAtStop") is not False
+        ):
+            raise RuntimeError(
+                "A drained background task left a sticky Running outcome:\n"
+                f"record={drained_record!r}\nstate={state!r}"
+            )
+
+
+def verify_notification_outcomes_do_not_invent_waiting_state(
+    cli_path: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"notification-outcomes-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = Path(server.root.name) / "notification-outcomes-state.json"
+        env = hook_environment(server, workspace_id, surface_id, state_path)
+        env["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        env.pop("CMUX_SOCKET_CAPABILITY", None)
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "completed-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": session_id,
+                "turn_id": "completed-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "completed normally",
+                "background_tasks": [],
+                "session_crons": [],
+            },
+            env,
+        )
+
+        reminder_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            {
+                "session_id": session_id,
+                "turn_id": "completed-turn",
+                "notification_type": "idle_prompt",
+                "message": "Claude is waiting for your input",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        reminder_commands = server.commands[reminder_start:]
+        if has_command_with(
+            reminder_commands,
+            "set_agent_lifecycle claude_code needsInput",
+            f"--tab={workspace_id}",
+        ) or has_command_with(
+            reminder_commands,
+            "set_status claude_code Needs input",
+            f"--tab={workspace_id}",
+        ):
+            raise RuntimeError(
+                "A non-blocking idle reminder invented a Needs input state:\n"
+                f"commands={reminder_commands!r}"
+            )
+        if not has_command_with(
+            reminder_commands,
+            '"method":"feed.push"',
+            '"_cmux_agent_lifecycle":"idle"',
+        ):
+            raise RuntimeError(
+                "An idle reminder did not publish the accepted Idle lifecycle "
+                f"to Feed:\ncommands={reminder_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        idle_record = state.get("sessions", {}).get(session_id)
+        if (
+            idle_record is None
+            or idle_record.get("agentLifecycle") != "idle"
+            or idle_record.get("runtimeStatus") != "idle"
+        ):
+            raise RuntimeError(
+                "An idle reminder overwrote the terminal Idle outcome:\n"
+                f"record={idle_record!r}\nstate={state!r}"
+            )
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "failed-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        error_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            {
+                "session_id": session_id,
+                "turn_id": "failed-turn",
+                "notification_type": "api_error",
+                "message": "Credit balance is too low",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        error_commands = server.commands[error_start:]
+        if not has_command_with(
+            error_commands,
+            "set_status claude_code Claude Code error "
+            "--icon=exclamationmark.triangle.fill --color=#FF453A "
+            f"--priority=100 --tab={workspace_id}",
+            f"--panel={surface_id}",
+            f"--pid={os.getpid()}",
+        ):
+            raise RuntimeError(
+                "An API error notification did not publish Error:\n"
+                f"commands={error_commands!r}"
+            )
+        if has_command_with(
+            error_commands,
+            "set_status claude_code Needs input",
+            f"--tab={workspace_id}",
+        ):
+            raise RuntimeError(
+                "An API error notification was mislabeled Needs input:\n"
+                f"commands={error_commands!r}"
+            )
+
+        state = json.loads(state_path.read_text())
+        error_record = state.get("sessions", {}).get(session_id)
+        if (
+            error_record is None
+            or error_record.get("agentLifecycle") != "needsInput"
+            or error_record.get("runtimeStatus") != "error"
+            or error_record.get("lastNotificationStatus") != "error"
+            or error_record.get("lastBody") != "Credit balance is too low"
+        ):
+            raise RuntimeError(
+                "An API error notification did not persist a terminal Error "
+                f"outcome:\nrecord={error_record!r}\nstate={state!r}"
+            )
 
 
 def verify_authoritative_terminal_event_upgrades_legacy_active_owner(
@@ -4370,6 +4618,8 @@ def main() -> int:
         )
         verify_retired_clear_source_cannot_reclaim_stopped_successor(cli_path)
         verify_new_prompt_replaces_dead_needs_input_owner(cli_path)
+        verify_background_work_drain_reaches_idle(cli_path)
+        verify_notification_outcomes_do_not_invent_waiting_state(cli_path)
         verify_authoritative_terminal_event_upgrades_legacy_active_owner(
             cli_path,
             "Stop",

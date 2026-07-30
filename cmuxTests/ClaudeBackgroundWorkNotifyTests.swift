@@ -469,8 +469,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // The idle nag is an attention channel, not evidence that Claude is
+        // blocked on a decision. It must preserve the terminal Idle outcome.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle idle_prompt must not invent a Needs input pill; saw \(snapshot)")
+        #expect(snapshot.contains {
+            $0.contains(#""_cmux_agent_lifecycle":"idle""#)
+        }, "Idle idle_prompt must publish the accepted Idle lifecycle; saw \(snapshot)")
     }
 }
