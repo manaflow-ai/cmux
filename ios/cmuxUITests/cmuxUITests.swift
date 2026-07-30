@@ -414,19 +414,6 @@ final class cmuxUITests: XCTestCase {
             "MobileWorkspaceGroupRenameButton-seed-group-1"
         ]
         XCTAssertTrue(rename.waitForExistence(timeout: 3))
-        let anchorWorkspaceID = "workspace-seed-4"
-        for identifier in [
-            "MobileWorkspacePinButton-\(anchorWorkspaceID)",
-            "MobileWorkspaceCustomizeButton-\(anchorWorkspaceID)",
-            "MobileWorkspaceRenameButton-\(anchorWorkspaceID)",
-            "MobileWorkspaceReadStateMenuButton-\(anchorWorkspaceID)",
-            "MobileWorkspaceDeleteMenuButton-\(anchorWorkspaceID)",
-        ] {
-            XCTAssertTrue(
-                app.descendants(matching: .any)[identifier].exists,
-                "Group context menu must preserve anchor workspace action \(identifier)."
-            )
-        }
         guard rename.exists else { return }
         rename.tap()
 
@@ -445,6 +432,34 @@ final class cmuxUITests: XCTestCase {
         attachment.name = "workspace-group-rename-alert"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupContextMenuPreservesAnchorWorkspaceActions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+
+        for actionLabel in [
+            "Pin",
+            "Customize",
+            "Rename",
+            "Mark as Read",
+            "Delete",
+        ] {
+            XCTAssertTrue(
+                app.buttons[actionLabel].exists,
+                "Group context menu must preserve anchor workspace action \(actionLabel)."
+            )
+        }
     }
 
     @MainActor
