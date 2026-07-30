@@ -1,10 +1,10 @@
 /**
  * Single source of truth for cmux download links.
  *
- * `DOWNLOAD_URL` is the native macOS terminal release asset. Windows and Linux
- * ship the cross-platform cmux browser workspace instead; their stable assets
- * are kept in `PLATFORM_DOWNLOADS` so landing pages, menus, and tests share the
- * same URLs.
+ * `DOWNLOAD_URL` is the native macOS terminal release asset. The
+ * cross-platform cmux Browser assets live in the public `cmux-v2`
+ * distribution repository. Stable platform pages use `PLATFORM_DOWNLOADS`;
+ * the all-platform nightly page uses `BROWSER_NIGHTLY_DOWNLOADS`.
  *
  * `DOWNLOAD_CONFIRMATION_PATH` is the locale-agnostic in-app route that every
  * Download CTA navigates to (same-tab). That page auto-triggers the real
@@ -29,32 +29,90 @@ export const DOWNLOAD_INTENT_PARAM = "dl";
 
 export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNLOAD_INTENT_PARAM}=1`;
 
+export const BROWSER_DISTRIBUTION_URL =
+  "https://github.com/manaflow-ai/cmux-v2";
+export const BROWSER_NIGHTLY_RELEASE_URL =
+  `${BROWSER_DISTRIBUTION_URL}/releases/tag/nightly`;
+
+/**
+ * Fixed nightly asset URLs. The updater uses the same release tag and asset
+ * names, so a website download and an in-app update always enter one channel.
+ */
+export const BROWSER_NIGHTLY_DOWNLOADS = {
+  macos: {
+    primary: {
+      artifact: "dmg",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-macos-arm64.dmg`,
+    },
+    portable: {
+      artifact: "update-zip",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-macos-arm64.zip`,
+    },
+  },
+  windows: {
+    primary: {
+      artifact: "installer",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-windows-x64-installer.exe`,
+    },
+    portable: {
+      artifact: "portable-zip",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-windows-x64.zip`,
+    },
+  },
+  linux: {
+    primary: {
+      artifact: "deb",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-linux-x64.deb`,
+    },
+    portable: {
+      artifact: "portable-zip",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/download/nightly/cmux-linux-x64.zip`,
+    },
+  },
+} as const;
+
+export type BrowserNightlyPlatform = keyof typeof BROWSER_NIGHTLY_DOWNLOADS;
+export type BrowserNightlyAvailability = Readonly<
+  Record<BrowserNightlyPlatform, boolean>
+>;
+
+/**
+ * Flip each platform only after its public assets and native signature pass
+ * anonymous download/install verification. Pending platforms remain visible
+ * on `/browser`, but their download controls are non-interactive.
+ */
+export const BROWSER_NIGHTLY_AVAILABILITY = {
+  macos: false,
+  windows: false,
+  linux: false,
+} as const satisfies BrowserNightlyAvailability;
+
 /**
  * Stable cross-platform cmux browser artifacts. GitHub's `latest` redirect
  * keeps these URLs release-independent while the asset names stay fixed by
- * cmux-browser's release workflow.
+ * cmux Browser's release workflow.
  */
 export const PLATFORM_DOWNLOADS = {
   windows: {
     page: "/windows",
     primary: {
       artifact: "installer",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/latest/download/cmux-windows-x64-installer.exe`,
     },
     portable: {
       artifact: "portable-zip",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64.zip",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/latest/download/cmux-windows-x64.zip`,
     },
   },
   linux: {
     page: "/linux",
     primary: {
       artifact: "deb",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.deb",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/latest/download/cmux-linux-x64.deb`,
     },
     portable: {
       artifact: "portable-zip",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.zip",
+      url: `${BROWSER_DISTRIBUTION_URL}/releases/latest/download/cmux-linux-x64.zip`,
     },
   },
 } as const;
