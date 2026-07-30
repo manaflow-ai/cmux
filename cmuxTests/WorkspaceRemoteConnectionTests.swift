@@ -1,6 +1,7 @@
 import Darwin
 import Combine
 import XCTest
+import CmuxControlSocket
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -18,6 +19,23 @@ import CmuxTerminal
 /// legacy `runProcessOverrideForTesting` static signature so the scripted
 /// bodies stay byte-identical.
 private typealias RemoteProcessScript = (_ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)
+
+@MainActor
+private final class ManualRemotePTYLifecycleCommitLease:
+    ControlRemotePTYLifecycleCommitLease
+{
+    var isCurrent = true
+    var afterOperation: (@MainActor () -> Void)?
+
+    func commitIfCurrent(
+        _ operation: @MainActor @Sendable () -> Bool
+    ) -> Bool {
+        guard isCurrent else { return false }
+        let didApply = operation()
+        afterOperation?()
+        return didApply
+    }
+}
 
 /// Test fake for the coordinator's injected process-runner seam: scripts each
 /// subprocess invocation. `@unchecked Sendable` because the scripts capture
@@ -1410,6 +1428,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                relayPort: config.relayPort
+            )
+        )
         let detached = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
 
         wait(for: [cleanupRequested], timeout: 1.0)
@@ -1424,6 +1448,168 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(detached.panelId))
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: config.displayTarget
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+    }
+
+    @MainActor
+    func testTerminalEndClearsReadinessPendingRemoteConfiguration() throws {
+        let workspace = Workspace()
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                authority: .relayPort(64_016)
+            )
+        )
+        XCTAssertNotNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panelID])
+
+        workspace.clearRemoteTerminalSessionPhase(surfaceId: panelID)
+
+        XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panelID])
+    }
+
+    @MainActor
+    func testPendingPersistentReadinessRetainsCommitLease() throws {
+        let workspace = Workspace()
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let lease = ManualRemotePTYLifecycleCommitLease()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "pending-lease"
+        )
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                commitLease: lease
+            )
+        )
+        lease.isCurrent = false
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.remoteTerminalSessionStatesBySurfaceId[panel.id])
+        XCTAssertNil(workspace.pendingRemoteTerminalConnectionsBySurfaceId[panel.id])
+    }
+
+    @MainActor
+    func testPersistentReadinessPresentsAfterCommitLeaseIsReleased() throws {
+        let workspace = Workspace()
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let lease = ManualRemotePTYLifecycleCommitLease()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "bounded-readiness-commit"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        lease.afterOperation = {
+            XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        }
+
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                authority: .persistentTransport(config.proxyBrokerTransportKey),
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                commitLease: lease
+            )
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+    }
+
+    @MainActor
+    func testDockOwnedRemoteTerminalLifecycleSurvivesConnectedAndEndedRoundTrips() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64016,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let dock = workspace.dockSplit
+        defer { dock.closeAllPanels() }
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+
+        let launchingTransfer = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
+        XCTAssertNotNil(dock.attachDetachedSurface(launchingTransfer, inPane: dockPane, focus: false))
+        XCTAssertTrue(dock.markRemoteTerminalSessionConnected(panelId: panelID, relayPort: config.relayPort))
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelID,
+                relayPort: config.relayPort,
+                allowUntracked: true
+            )
+        )
+        XCTAssertTrue(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: config.destination
+        )
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        let connectedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))
+        XCTAssertEqual(connectedTransfer.remoteTerminalSessionPhase, .connected)
+        XCTAssertNotNil(workspace.attachDetachedSurface(connectedTransfer, inPane: workspacePane, focus: false))
+        XCTAssertTrue(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        let redetachedTransfer = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
+        XCTAssertNotNil(dock.attachDetachedSurface(redetachedTransfer, inPane: dockPane, focus: false))
+        XCTAssertTrue(dock.markRemoteTerminalSessionEnded(panelId: panelID, relayPort: config.relayPort))
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionEnded(
+                surfaceId: panelID,
+                relayPort: config.relayPort,
+                allowUntracked: true
+            )
+        )
+
+        let endedTransfer = try XCTUnwrap(dock.detachSurface(panelId: panelID))
+        XCTAssertEqual(endedTransfer.remoteTerminalSessionPhase, .ended)
+        XCTAssertNotNil(workspace.attachDetachedSurface(endedTransfer, inPane: workspacePane, focus: false))
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertFalse(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
     }
 
     @MainActor
@@ -2775,7 +2961,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() {
+    func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -2792,6 +2978,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        let remoteSurfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: remoteSurfaceId,
+                relayPort: 64007
+            )
+        )
 
         let proxyError = "Remote proxy to cmux-macmini unavailable: Failed to start local daemon proxy: daemon RPC timeout waiting for hello response (retry in 3s)"
         workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")
@@ -2828,6 +3021,74 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "unavailable"
+        )
+    }
+
+    @MainActor
+    func testClearingProxyArtifactsPreservesSSHNotificationsForSameHost() {
+        let store = TerminalNotificationStore.shared
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        AppDelegate.shared = appDelegate
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_019,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-notification-isolation.sock",
+                terminalStartupCommand: "ssh dev@example.com"
+            ),
+            autoConnect: false
+        )
+
+        let proxyNotificationID = UUID()
+        let sshNotificationID = UUID()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: proxyNotificationID,
+                tabId: workspace.id,
+                surfaceId: nil,
+                correlationKey: "remote-host:example.com:proxy",
+                title: "Remote Proxy Unavailable",
+                subtitle: "dev@example.com",
+                body: "proxy unavailable",
+                createdAt: Date(),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: sshNotificationID,
+                tabId: workspace.id,
+                surfaceId: nil,
+                correlationKey: "remote-host:example.com",
+                title: "Remote SSH Error",
+                subtitle: "dev@example.com",
+                body: "authentication failed",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+
+        workspace.clearProxyOnlyRemoteSidebarArtifacts()
+
+        XCTAssertEqual(
+            store.notifications.map(\.id),
+            [sshNotificationID],
+            "Proxy recovery must not clear unrelated SSH errors for the same host"
         )
     }
 

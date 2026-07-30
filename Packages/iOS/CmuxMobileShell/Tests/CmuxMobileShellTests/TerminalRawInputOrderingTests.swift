@@ -150,6 +150,61 @@ import Testing
     }
 
     @MainActor
+    @Test func pooledMacSwitchClearsPreviousInputPipeline() async throws {
+        let previousRouter = RoutingHostRouter()
+        await previousRouter.setHoldAllTerminalInputs(true)
+        let store = try await makeRoutingConnectedStore(
+            router: previousRouter,
+            hostCapabilities: [
+                MobileShellComposite.terminalInputOrderedCapability,
+            ],
+            routeKind: .iroh
+        )
+        let previousClient = try #require(store.remoteClient)
+
+        for character in ["a", "z", "i", "z"] {
+            await store.submitTerminalRawInput(
+                Data(character.utf8),
+                surfaceID: RoutingHostRouter.terminalA
+            )
+        }
+        #expect(await waitForTerminalInputCount(
+            4,
+            router: previousRouter
+        ))
+
+        let nextRouter = RoutingHostRouter()
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "next-mac",
+            router: nextRouter
+        )
+        let nextSubscription = try #require(
+            store.secondaryMacSubscriptions["next-mac"]
+        )
+        nextSubscription.detachKeepingClient()
+        store.secondaryMacSubscriptions["next-mac"] = nil
+        store.adoptPooledRemoteClient(nextSubscription.client)
+
+        await store.submitTerminalRawInput(
+            Data("!".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+
+        #expect(await waitForTerminalInputCount(
+            1,
+            router: nextRouter
+        ))
+        #expect(
+            await nextRouter.recordedTerminalInputs().map(\.text)
+                == ["!"]
+        )
+        await previousRouter.releaseAllTerminalInputs()
+        await previousClient.disconnect()
+        await nextSubscription.client.disconnect()
+    }
+
+    @MainActor
     @Test func pipelinedFailureUsesOperationalErrorPath() async throws {
         let router = RoutingHostRouter()
         await router.setRejectTerminalInput(at: 0)

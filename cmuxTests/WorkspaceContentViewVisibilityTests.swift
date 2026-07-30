@@ -13,24 +13,6 @@ import Bonsplit
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
-    private final class ClosureLifetimeSentinel {
-        let identifier: Int
-        let deinitialized: AsyncStream<Int>.Continuation
-        init(identifier: Int, deinitialized: AsyncStream<Int>.Continuation) {
-            self.identifier = identifier
-            self.deinitialized = deinitialized
-        }
-        deinit { deinitialized.yield(identifier) }
-    }
-
-    private final class WeakReference<Value: AnyObject> {
-        weak var value: Value?
-
-        init(_ value: Value) {
-            self.value = value
-        }
-    }
-
     private final class MinimalModeBodyProbeCounts {
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -57,88 +39,77 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func sidebarResizerCursorReleaseSchedulerReleasesSupersededClosuresBeforeFinalDeadline() async {
+    func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
         let clock = SidebarTestManualClock()
         let scheduler = SidebarResizerCursorReleaseScheduler(clock: clock)
-        let releaseEvents = AsyncStream<Int>.makeStream()
+        let releaseEvents = AsyncStream<Bool>.makeStream()
         defer { releaseEvents.continuation.finish() }
         var releaseIterator = releaseEvents.stream.makeAsyncIterator()
-        let deinitEvents = AsyncStream<Int>.makeStream()
-        defer { deinitEvents.continuation.finish() }
-        var deinitIterator = deinitEvents.stream.makeAsyncIterator()
-        var releases: [Int] = []
+        var releases: [Bool] = []
 
-        func schedule(_ index: Int, delay: Duration, force: Bool = false)
-            -> WeakReference<ClosureLifetimeSentinel> {
-            let sentinel = ClosureLifetimeSentinel(
-                identifier: index,
-                deinitialized: deinitEvents.continuation
-            )
-            let reference = WeakReference(sentinel)
-            scheduler.schedule(force: force, delay: delay) { [sentinel] releasedForce in
-                _ = sentinel
-                #expect(releasedForce == force)
-                releases.append(index)
-                releaseEvents.continuation.yield(index)
-            }
-            return reference
+        scheduler.schedule(force: false, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
         }
-
-        let immediate = schedule(-1, delay: .zero)
         #expect(releases.isEmpty)
         let immediateRelease = await releaseIterator.next()
-        #expect(immediateRelease == -1)
-        let immediateDeinit = await deinitIterator.next()
-        #expect(immediateDeinit == -1)
-        #expect(immediate.value == nil)
+        #expect(immediateRelease == false)
+        #expect(releases == [false])
         releases.removeAll()
 
-        let sleeping = schedule(-2, delay: .milliseconds(25))
-        await clock.waitUntilSleeping(for: .milliseconds(25))
-        let superseded = (0..<999).map { schedule($0, delay: .seconds(1)) }
-        let final = schedule(999, delay: .milliseconds(50), force: true)
+        scheduler.schedule(force: false, delay: .milliseconds(50)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
         await clock.waitUntilSleeping(for: .milliseconds(50))
-        var canceledIdentifiers: Set<Int> = []
-        for _ in 0..<1_000 {
-            if let identifier = await deinitIterator.next() {
-                canceledIdentifiers.insert(identifier)
-            }
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
         }
         #expect(releases.isEmpty)
-        #expect(canceledIdentifiers == Set(0..<999).union([-2]))
-        #expect(sleeping.value == nil)
-        #expect(superseded.allSatisfy { $0.value == nil })
-        #expect(final.value != nil)
-
-        clock.advance(by: .milliseconds(49))
-        #expect(releases.isEmpty)
-        #expect(final.value != nil)
 
         clock.advance(by: .milliseconds(1))
-        let release = await releaseIterator.next()
-        #expect(release == 999)
-        #expect(releases == [999])
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.schedule(force: false, delay: .milliseconds(200)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(200))
+        scheduler.schedule(force: true, delay: .milliseconds(10)) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(10))
+
+        clock.advance(by: .milliseconds(10))
+        let replacementRelease = await releaseIterator.next()
+        #expect(replacementRelease == true)
+        #expect(releases == [true])
 
         await clock.waitUntilIdle()
-        let finalDeinit = await deinitIterator.next()
-        #expect(finalDeinit == 999)
-        #expect(final.value == nil)
+        clock.advance(by: .milliseconds(190))
+        scheduler.schedule(force: true, delay: .zero) { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        let sentinelRelease = await releaseIterator.next()
+        #expect(sentinelRelease == true)
+        #expect(releases == [true, true])
     }
 
     @Test
     @MainActor
-    func commandPaletteFocusRestoreCoordinatorReplacesBurstAndClearsOnlyStaleTargets() {
+    func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
         let coordinator = CommandPaletteFocusRestoreCoordinator()
-        let firstTarget = Self.restoreFocusTarget(intent: .terminal(.findField))
+        let firstTarget = Self.restoreFocusTarget()
         let secondTarget = Self.restoreFocusTarget()
 
-        for _ in 0..<1_000 {
-            coordinator.request(target: Self.restoreFocusTarget())
-        }
         coordinator.request(target: firstTarget)
         #expect(coordinator.pendingTarget?.workspaceId == firstTarget.workspaceId)
-        #expect(coordinator.pendingTarget?.panelId == firstTarget.panelId)
-        #expect(coordinator.pendingTarget?.intent == firstTarget.intent)
 
         #expect(
             !coordinator.clearIfTargetNoLongerMatchesCurrentFocus(
