@@ -66,6 +66,7 @@ struct SSHStartupManualReconnectTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
         let startupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        #expect(!startupCommand.contains("workspace.remote.terminal_session_connected"))
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -522,6 +523,32 @@ struct SSHStartupManualReconnectTests {
         #expect(workspace.isRemoteTerminalSurface(panel.id))
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
+    }
+
+    @MainActor
+    @Test func reconnectingConfirmedSurfaceStartsANewLivenessGeneration() throws {
+        let workspace = Workspace()
+        let configuration = Self.makeRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panelId = try #require(workspace.focusedTerminalPanel?.id)
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panelId,
+                relayPort: configuration.relayPort
+            )
+        )
+        #expect(workspace.hasAuthoritativelyConnectedRemoteTerminal)
+
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panelId))
+
+        #expect(workspace.remoteTerminalSessionStatesBySurfaceId[panelId]?.phase == .launching)
+        #expect(!workspace.hasAuthoritativelyConnectedRemoteTerminal)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Auxiliary daemon reconnecting",
+            target: configuration.displayTarget
+        )
+        #expect(workspace.remoteConnectionState == .reconnecting)
     }
 
     @MainActor

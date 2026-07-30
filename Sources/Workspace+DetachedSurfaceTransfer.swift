@@ -53,6 +53,10 @@ extension Workspace {
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
         var agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
+        var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
+        var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
+        var remoteTerminalLifecycleID: UUID? = nil
+        var remoteTerminalAttemptID: UUID? = nil
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
@@ -99,6 +103,10 @@ extension Workspace {
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
+                remoteTerminalSessionPhase: remoteTerminalSessionPhase,
+                remoteTerminalAuthority: remoteTerminalAuthority,
+                remoteTerminalLifecycleID: remoteTerminalLifecycleID,
+                remoteTerminalAttemptID: remoteTerminalAttemptID,
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration

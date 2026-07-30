@@ -290,6 +290,9 @@ extension CMUXCLI {
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
+        let lifecycleLaunching = remoteRelayPort > 0
+            ? buildSSHTerminalSessionLaunchingShellCommand()
+            : ":"
         let lifecycleRetirement = retryPTYAttachStatus
             ? buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort, lifecycleOnly: true)
             : ":"
@@ -365,6 +368,8 @@ extension CMUXCLI {
             "CMUX_SSH_CHILD_PID=; CMUX_SSH_AUTH_PID=; CMUX_SSH_PENDING_SIGNAL=; CMUX_SSH_PENDING_SIGNAL_NAME=",
         ] + backoffBuilder.stateInitializationLines + [
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
+            "cmux_ssh_register_attempt() { \(lifecycleLaunching); }",
+            "cmux_ssh_begin_attempt() { CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || return 1; export CMUX_SSH_ATTEMPT_ID; cmux_ssh_attempt_registration_retry=0; while ! cmux_ssh_register_attempt; do cmux_ssh_attempt_registration_retry=$((cmux_ssh_attempt_registration_retry + 1)); if [ \"$cmux_ssh_attempt_registration_retry\" -ge 3 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleCleanup); }",
             "cmux_ssh_retire_for_signal() { cmux_ssh_signal_status=\"$1\"; CMUX_SSH_SESSION_ENDED=1; cmux_ssh_cleanup_password; \(lifecycleRetirement); trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; cmux_ssh_signal_name=\"$2\"; if [ -n \"${CMUX_SSH_AUTH_PID:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$CMUX_SSH_AUTH_PID\" \"$CMUX_SSH_STARTUP_PID\"; wait \"$CMUX_SSH_AUTH_PID\" 2>/dev/null || true; CMUX_SSH_AUTH_PID=; \(backoffBuilder.signalHandlerBranches) elif [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; CMUX_SSH_PENDING_SIGNAL_NAME=\"$cmux_ssh_signal_name\"; return; fi; cmux_ssh_retire_for_signal \"$cmux_ssh_signal_status\"; }",
@@ -373,6 +378,7 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
             "while :; do",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
         if hasOneTimeCommand {
             scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
@@ -386,13 +392,16 @@ extension CMUXCLI {
             // Advertise per attempt whether another 251|254|255 retry is queued so
             // ssh-pty-attach only suppresses its pty_attach_end cleanup while a
             // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
-            // and keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines /
-            // SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
+            // and SSHPTYAttachRetryScriptBuilder.
             scriptLines += [
                 "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_retry\" -lt \"$cmux_ssh_reconnect_limit\" ]; then CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1; else CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=0; fi",
                 "  export CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY",
             ]
         }
+        scriptLines += [
+            "  cmux_ssh_begin_attempt || exit 1",
+            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+        ]
         if isShellSnippet {
             scriptLines += [
                 "  (",
@@ -490,11 +499,36 @@ extension CMUXCLI {
             "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
             "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
             "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
+            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
             "elif command -v cmux >/dev/null 2>&1",
             "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
             "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
+            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\" --lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\"\(lifecycleOnlyFlag) >/dev/null 2>&1 || true;",
+            "fi",
+        ].joined(separator: " ")
+    }
+
+    private func buildSSHTerminalSessionLaunchingShellCommand() -> String {
+        let arguments =
+            "rpc workspace.remote.terminal_session_launching " +
+            "\"{\\\"workspace_id\\\":\\\"${CMUX_WORKSPACE_ID}\\\"," +
+            "\\\"surface_id\\\":\\\"${CMUX_SURFACE_ID}\\\"," +
+            "\\\"terminal_lifecycle_id\\\":\\\"${CMUX_TERMINAL_LIFECYCLE_ID}\\\"," +
+            "\\\"attempt_id\\\":\\\"${CMUX_SSH_ATTEMPT_ID}\\\"}\""
+        return [
+            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
+            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
+            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
+            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
+            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" \(arguments) >/dev/null 2>&1;",
+            "elif command -v cmux >/dev/null 2>&1",
+            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
+            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
+            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 cmux --socket \"${CMUX_SOCKET_PATH}\" \(arguments) >/dev/null 2>&1;",
+            "else",
+            "false;",
             "fi",
         ].joined(separator: " ")
     }
