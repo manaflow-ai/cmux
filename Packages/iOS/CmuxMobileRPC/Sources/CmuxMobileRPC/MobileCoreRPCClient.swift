@@ -100,7 +100,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             independentEventFactory = nil
         }
         self.session = MobileCoreRPCSession(
-            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptKey: MobileRPCConnectAttemptKey(
+                route: route
+            ),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
@@ -111,7 +113,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             },
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
-            transportConnectObserver: transportConnectObserver
+            transportConnectObserver: transportConnectObserver,
+            initialTransportSessionPurpose: sessionPurpose
         )
     }
 
@@ -122,12 +125,47 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Retire this client and await both its installed transport close and any
+    /// transport factory admission that raced retirement. A cancellation-
+    /// ignoring abandoned dial is handed to the shared route registry after a
+    /// bounded cleanup interval. Installed transports retain that same global
+    /// lease until their exact close task finishes. The registry permits one
+    /// recovery dial and blocks further route admission while two physical
+    /// cleanups remain unresolved.
+    public func disconnectAndWaitForTransportDrain() async {
+        retire()
+        await session.tearDown(error: .connectionClosed)
+        async let sessionDrain: Void = session.waitForTransportDrain()
+        async let admissionDrain: Void =
+            lifecycleGate.waitForRetiredTransportDisposals()
+        _ = await (sessionDrain, admissionDrain)
+    }
+
+    /// Returns whether `otherRoute` competes for this client's exact physical
+    /// connection lease. Shell handoffs use this before the target reports its
+    /// logical Mac identity, so anonymous and refreshed Iroh routes still
+    /// release an existing same-peer owner before dialing.
+    public func sharesPhysicalTransportRoute(
+        with otherRoute: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: route)
+            == MobileRPCConnectAttemptKey(route: otherRoute)
+    }
+
     /// Synchronously prevent this client from allocating another transport.
     /// Shell ownership changes call this before scheduling actor-isolated
     /// teardown, closing the window where an already-queued RPC could reopen a
     /// client that is no longer authoritative.
     public func retire() {
         lifecycleGate.retire()
+    }
+
+    /// Reclassifies this client's live transport when shell ownership moves
+    /// between the focused render role and the warm control pool.
+    public func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        await session.updateTransportSessionPurpose(purpose)
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -678,11 +716,5 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
-    }
-}
-
-private extension CmxAttachRoute {
-    var mobileRPCConnectAttemptKey: String {
-        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

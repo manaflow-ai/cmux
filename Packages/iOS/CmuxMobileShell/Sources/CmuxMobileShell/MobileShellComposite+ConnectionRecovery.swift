@@ -487,7 +487,7 @@ extension MobileShellComposite {
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+            instanceTagExpectation: macInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
@@ -534,7 +534,7 @@ extension MobileShellComposite {
             name: name,
             routes: routes,
             pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+            instanceTagExpectation: macInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
             legacyTailscaleRoutes: legacyTailscaleRoutes,

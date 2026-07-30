@@ -317,11 +317,17 @@ struct WorkspaceShellView: View {
                 )
             }
         }
+        // Root-mounted on purpose (the presenter's contract): layoutContent
+        // lives inside the workspaces tab, so a presenter mounted there is
+        // unmounted while the user sits on another tab and misses every
+        // status transition that happens in the meantime.
+        .connectionStatusToastPresenter(store: store)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
+        .connectionStatusToastPresenter(store: store)
         #endif
     }
 
@@ -427,7 +433,6 @@ struct WorkspaceShellView: View {
             )
         }
         #endif
-        .connectionStatusToastPresenter(store: store)
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
