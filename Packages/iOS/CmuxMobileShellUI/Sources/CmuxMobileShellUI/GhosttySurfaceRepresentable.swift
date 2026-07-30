@@ -210,6 +210,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
+        private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -485,6 +486,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()
+            pendingReplayViewportAnchor = nil
             liveFontTask?.cancel()
             liveFontTask = nil
             viewportReportScheduler?.cancel()
@@ -571,6 +573,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return false
             }
 
+            // Capture reads the post-reflow scrollbar, so Ghostty's resize pin
+            // remap is authoritative and anchor math never sees reflow as append drift.
+            let capturedViewportAnchor =
+                await surfaceView.captureVerifiedReplayViewportAnchor()
+            guard !Task.isCancelled else { return }
+            let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
+            if frame.anchor == .screen, frame.activeScreen == .primary {
+                if let capturedViewportAnchor {
+                    pendingReplayViewportAnchor = capturedViewportAnchor
+                }
+                replayViewportAnchor = pendingReplayViewportAnchor
+            } else {
+                pendingReplayViewportAnchor = nil
+                replayViewportAnchor = nil
+            }
+
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
@@ -589,9 +607,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     ?? surfaceView.terminalConfigTheme.cursor
             )
             guard !Task.isCancelled else { return false }
-            return finishVerifiedReplay(
+            return await finishVerifiedReplay(
                 transactionID: transaction.id,
                 observed: observed,
+                viewportAnchor: replayViewportAnchor,
                 chunk: chunk,
                 surfaceView: surfaceView,
                 store: store
@@ -618,15 +637,29 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private func finishVerifiedReplay(
             transactionID: UInt64,
             observed: MobileTerminalRenderGridFrame?,
+            viewportAnchor: VerifiedReplayCapturedViewportAnchor?,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
-        ) -> Bool {
+        ) async -> Bool {
             switch verifiedReplayState.complete(
                 transactionID: transactionID,
                 observedFrame: observed
             ) {
             case .reveal:
+                if let viewportAnchor {
+                    let restored = await surfaceView.restoreVerifiedReplayViewportAnchor(
+                        viewportAnchor
+                    )
+                    guard !Task.isCancelled else { return false }
+                    if restored {
+                        pendingReplayViewportAnchor = nil
+                        // Restore and re-fence happen under render suppression,
+                        // so the renderer identity cannot change before reveal.
+                        _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                        guard !Task.isCancelled else { return false }
+                    }
+                }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID
                 ) else {
