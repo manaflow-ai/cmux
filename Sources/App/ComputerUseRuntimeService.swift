@@ -603,6 +603,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         [
             "session": sessionID,
             "kind": event.kind.rawValue,
+            "frame_sequence": Int64(clamping: event.frameSequence),
             "x": event.x,
             "y": event.y,
             "key_code": Int(event.keyCode),

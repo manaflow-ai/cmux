@@ -10,7 +10,9 @@ final class ApplicationSurfaceInputPump {
     private var drainTask: Task<Void, Never>?
     private var possiblyPressedKeyCodes: Set<UInt16> = []
     private var possiblyPressedLeftMouseLocation: CGPoint?
+    private var possiblyPressedLeftMouseFrameSequence: UInt64?
     private var possiblyPressedRightMouseLocation: CGPoint?
+    private var possiblyPressedRightMouseFrameSequence: UInt64?
 
     init(
         maximumQueuedEventCount: Int = 64,
@@ -78,6 +80,7 @@ final class ApplicationSurfaceInputPump {
         if let point = possiblyPressedLeftMouseLocation {
             releases.append(ApplicationSurfaceInputEvent(
                 kind: .leftMouseUp,
+                frameSequence: possiblyPressedLeftMouseFrameSequence ?? 0,
                 x: point.x,
                 y: point.y
             ))
@@ -85,13 +88,16 @@ final class ApplicationSurfaceInputPump {
         if let point = possiblyPressedRightMouseLocation {
             releases.append(ApplicationSurfaceInputEvent(
                 kind: .rightMouseUp,
+                frameSequence: possiblyPressedRightMouseFrameSequence ?? 0,
                 x: point.x,
                 y: point.y
             ))
         }
         possiblyPressedKeyCodes.removeAll(keepingCapacity: true)
         possiblyPressedLeftMouseLocation = nil
+        possiblyPressedLeftMouseFrameSequence = nil
         possiblyPressedRightMouseLocation = nil
+        possiblyPressedRightMouseFrameSequence = nil
         return releases
     }
 
@@ -141,12 +147,16 @@ final class ApplicationSurfaceInputPump {
             possiblyPressedKeyCodes.insert(event.keyCode)
         case .leftMouseDown:
             possiblyPressedLeftMouseLocation = CGPoint(x: event.x, y: event.y)
+            possiblyPressedLeftMouseFrameSequence = event.frameSequence
         case .rightMouseDown:
             possiblyPressedRightMouseLocation = CGPoint(x: event.x, y: event.y)
+            possiblyPressedRightMouseFrameSequence = event.frameSequence
         case .leftMouseDragged where possiblyPressedLeftMouseLocation != nil:
             possiblyPressedLeftMouseLocation = CGPoint(x: event.x, y: event.y)
+            possiblyPressedLeftMouseFrameSequence = event.frameSequence
         case .rightMouseDragged where possiblyPressedRightMouseLocation != nil:
             possiblyPressedRightMouseLocation = CGPoint(x: event.x, y: event.y)
+            possiblyPressedRightMouseFrameSequence = event.frameSequence
         default:
             break
         }
@@ -162,8 +172,10 @@ final class ApplicationSurfaceInputPump {
             possiblyPressedKeyCodes.remove(event.keyCode)
         case .leftMouseUp:
             possiblyPressedLeftMouseLocation = nil
+            possiblyPressedLeftMouseFrameSequence = nil
         case .rightMouseUp:
             possiblyPressedRightMouseLocation = nil
+            possiblyPressedRightMouseFrameSequence = nil
         default:
             break
         }

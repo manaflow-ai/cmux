@@ -28,12 +28,13 @@ public final class CmuxRemoteFrameView: NSView {
 
     /// Pixel dimensions of the currently adopted frame transport.
     public private(set) var framePixelSize = CGSize.zero
+    /// Sequence of the frame currently installed in the presentation layer.
+    public private(set) var presentedFrameSequence: UInt64?
 
     private var frameLayer: CALayer?
     private var framePipeline: SimulatorFramePresentationPipeline?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
     private var presentationTimer: DispatchSourceTimer?
-    private var lastFrameSequence: UInt64?
     private var hostWindowVisible = false
     private var isActive = true
     private var isTornDown = false
@@ -74,7 +75,7 @@ public final class CmuxRemoteFrameView: NSView {
         stopPresentationTimer()
         retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
-        lastFrameSequence = nil
+        presentedFrameSequence = nil
 
         let frameLayer = CALayer()
         frameLayer.contentsGravity = .resizeAspect
@@ -115,7 +116,7 @@ public final class CmuxRemoteFrameView: NSView {
         frameLayer = nil
         frameTransportDescriptor = nil
         framePixelSize = .zero
-        lastFrameSequence = nil
+        presentedFrameSequence = nil
     }
 
     /// Permanently stops presentation and clears callbacks.
@@ -178,7 +179,7 @@ public final class CmuxRemoteFrameView: NSView {
             isActive,
             let pipeline = framePipeline,
             let presentation = pipeline.displayTick(),
-            presentation.sequence != lastFrameSequence,
+            presentation.sequence != presentedFrameSequence,
             let frameLayer
         else {
             return
@@ -187,8 +188,8 @@ public final class CmuxRemoteFrameView: NSView {
         CATransaction.setDisableActions(true)
         frameLayer.contents = presentation.image
         CATransaction.commit()
-        let isFirstFrame = lastFrameSequence == nil
-        lastFrameSequence = presentation.sequence
+        let isFirstFrame = presentedFrameSequence == nil
+        presentedFrameSequence = presentation.sequence
         onFramePresented?()
         if isFirstFrame {
             onFirstFrame?()

@@ -529,6 +529,7 @@ final class ApplicationCaptureView: NSView {
         guard scrollX != 0 || scrollY != 0 else { return }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: .scroll,
+            frameSequence: remoteFrameView.presentedFrameSequence ?? 0,
             x: point.x,
             y: point.y,
             modifiers: UInt64(event.modifierFlags.rawValue),
@@ -599,6 +600,7 @@ final class ApplicationCaptureView: NSView {
         }
         guard inputPump.enqueue(ApplicationSurfaceInputEvent(
             kind: kind,
+            frameSequence: remoteFrameView.presentedFrameSequence ?? 0,
             x: point.x,
             y: point.y,
             modifiers: UInt64(event.modifierFlags.rawValue),
