@@ -74,8 +74,8 @@ struct MobilePrimaryTabScaffold<
                         action: taskComposerAction,
                         diameter: iOS26BottomControlDiameter
                     )
-                    .padding(.trailing, iOS26TaskComposerTrailingPadding)
-                    .padding(.bottom, iOS26BottomControlMargin)
+                    .padding(.trailing, iOS26BottomControlInset)
+                    .padding(.bottom, iOS26TaskComposerBottomPadding)
                 }
             }
             .ignoresSafeArea(.container, edges: .bottom)
@@ -87,13 +87,14 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
-    /// The Search role owns the 62-point trailing control in the iPhone tab
-    /// bar. New Task remains an action and occupies the adjacent slot instead
-    /// of masquerading as another navigation tab.
+    /// A tab-view bottom accessory always adds a full-width plate, which is
+    /// intended for mini-player content. Compose remains a standalone action
+    /// aligned with the detached Search control instead.
     private var iOS26BottomControlDiameter: CGFloat { 62 }
-    private var iOS26BottomControlMargin: CGFloat { 21 }
-    private var iOS26TaskComposerTrailingPadding: CGFloat {
-        iOS26BottomControlDiameter + 12 + 20
+    private var iOS26BottomControlInset: CGFloat { 21 }
+    private var iOS26BottomControlSpacing: CGFloat { 12 }
+    private var iOS26TaskComposerBottomPadding: CGFloat {
+        iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
     }
 
     private var tabSelection: Binding<MobilePrimaryTab> {
