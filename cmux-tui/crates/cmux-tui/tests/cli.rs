@@ -1606,7 +1606,10 @@ fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
         false,
         &[("CMUX_TUI_TEST_STALL_AFTER_BOOTSTRAP_READY_MS", "3000")],
     );
-    let command = format!(": #{}", "x".repeat(128 * 1024));
+    // Linux caps one execve argument below 128 KiB even when the aggregate
+    // ARG_MAX is larger. This still exceeds the bootstrap pipe capacity, so
+    // the host blocks on the Launch write without failing the CLI spawn first.
+    let command = format!(": #{}", "x".repeat(96 * 1024));
     let mut create = Command::new(bin())
         .args(["--socket"])
         .arg(&server.socket)
