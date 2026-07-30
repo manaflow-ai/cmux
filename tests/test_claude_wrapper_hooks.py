@@ -624,6 +624,29 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     )
 
 
+def test_matcherless_turn_hooks_run_for_every_turn(failures: list[str]) -> None:
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--dangerously-skip-permissions"],
+    )
+    expect(code == 0, f"matcherless hooks: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    hooks = settings.get("hooks", {})
+
+    # Claude Code does not support matchers for these once-per-turn events.
+    # Supplying even an empty matcher can silently prevent UserPromptSubmit
+    # from running, leaving text-only turns with no Running transition.
+    for event_name in ("UserPromptSubmit", "Stop"):
+        groups = hooks.get(event_name, [])
+        expect(bool(groups), f"matcherless hooks: missing {event_name} hook", failures)
+        for group in groups:
+            expect(
+                "matcher" not in group,
+                f"matcherless hooks: {event_name} must omit matcher, got {group}",
+                failures,
+            )
+
+
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
     code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
         socket_state="live",
@@ -1944,6 +1967,7 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_matcherless_turn_hooks_run_for_every_turn(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
