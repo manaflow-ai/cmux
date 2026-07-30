@@ -296,6 +296,8 @@ public actor StackClientApp {
         let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
         let sessionHolder = WebAuthenticationSessionHolder()
         let gate = AuthFlowCancellationGate<URL>()
+        let prefersEphemeralWebBrowserSession =
+            oauthBrowserSessionPrivacy == .ephemeral
 
         // The continuation resumes with the provider's callback URL only; the
         // token exchange runs AFTER it, structured in this task, so a cancel
@@ -340,7 +342,7 @@ public actor StackClientApp {
                 }
 
                 session.prefersEphemeralWebBrowserSession =
-                    oauthBrowserSessionPrivacy == .ephemeral
+                    prefersEphemeralWebBrowserSession
 
                 #if os(iOS) || os(macOS)
                 if let provider = presentationContextProvider {

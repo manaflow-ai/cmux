@@ -24,6 +24,18 @@ import Testing
         )
     }
 
+    @Test func invalidIdentityDoesNotFallBackToAnotherApp() {
+        #expect(CmxPairingURLScheme.scheme(forIOSBundleIdentifier: "") == nil)
+        #expect(CmxPairingURLScheme.scheme(forIOSBundleIdentifier: "invalid bundle") == nil)
+        #if !os(iOS)
+        #expect(
+            CmxPairingURLScheme.resolvedCurrent(
+                environment: ["CMUX_TAG": "invalid tag"]
+            ) == nil
+        )
+        #endif
+    }
+
     @Test func parserAcceptsNamespacedSchemes() {
         #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.internal"))
         #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.demo"))

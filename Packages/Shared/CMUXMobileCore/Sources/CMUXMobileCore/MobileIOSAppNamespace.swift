@@ -25,6 +25,24 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
         self.bundleIdentifier = trimmed
     }
 
+    /// Resolves the exact iOS bundle paired with one Mac app instance.
+    ///
+    /// Tagged Mac builds pair with the same tagged iOS development bundle.
+    /// The stable Mac instance pairs with the public App Store bundle. Invalid
+    /// tags fail closed instead of aliasing another installed iOS app.
+    public init?(pairedMacInstanceTag instanceTag: String?) {
+        let tag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let instanceTag, instanceTag != tag {
+            return nil
+        }
+        let bundleIdentifier = if tag.isEmpty || tag == "default" {
+            "com.cmux.app"
+        } else {
+            "dev.cmux.ios.\(tag)"
+        }
+        self.init(bundleIdentifier: bundleIdentifier)
+    }
+
     /// The exact Keychain access group this app must claim after signing.
     public func keychainAccessGroup(teamIdentifier: String) -> String {
         "\(teamIdentifier).\(bundleIdentifier)"

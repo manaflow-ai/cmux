@@ -269,6 +269,43 @@ describe("Iroh trust broker registration", () => {
     expect(retired?.revokedAt).toEqual(NOW);
     expect(retired?.revokedReason).toBe("slot_reincarnated");
   });
+
+  test("keeps the same device and tag in separate app namespace slots", async () => {
+    const repository = new MemoryRepository();
+    const deviceId = randomUUID();
+    const internal = makeFixture({
+      repository,
+      deviceId,
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    await Effect.runPromise(internal.broker.register(
+      USER_A,
+      await internal.signedRegistration(),
+      NOW,
+      "dev.cmux.app.internal",
+    ));
+    const internalBindingId = repository.bindings[0]!.id;
+
+    const demo = makeFixture({
+      repository,
+      deviceId,
+      registrationClientNamespace: "dev.cmux.app.demo",
+    });
+    await Effect.runPromise(demo.broker.register(
+      USER_A,
+      await demo.signedRegistration(),
+      NOW,
+      "dev.cmux.app.demo",
+    ));
+
+    const active = repository.bindings.filter((row) => !row.revokedAt);
+    expect(active).toHaveLength(2);
+    expect(active.map((row) => row.clientNamespace).sort()).toEqual([
+      "dev.cmux.app.demo",
+      "dev.cmux.app.internal",
+    ]);
+    expect(repository.bindings.find((row) => row.id === internalBindingId)?.revokedAt).toBeNull();
+  });
 });
 
 describe("Iroh discovery and grants", () => {
@@ -813,10 +850,11 @@ class MemoryRepository implements IrohRepositoryShape {
     const directPorts = (input.payload as IrohRegistrationPayload & {
       directPorts?: TestDirectPorts;
     }).directPorts;
-    // The slot is keyed on (user, device, tag). A reinstall, sign-out/in, or key
-    // rotation reuses that slot.
+    // The slot is keyed on (user, namespace, device, tag). A reinstall,
+    // sign-out/in, or key rotation inside one app reuses that slot.
     const existing = this.bindings.find((row) =>
       row.userId === input.userId &&
+      row.clientNamespace === input.payload.clientNamespace &&
       row.deviceUuid === input.payload.deviceId &&
       row.tag === input.payload.tag &&
       !row.revokedAt);
@@ -1087,6 +1125,7 @@ function makeFixture(options: {
   relayPreference?: RelayPreference;
   registrationPathHints?: IrohRegistrationPayload["pathHints"];
   registrationDirectPorts?: TestDirectPorts;
+  registrationClientNamespace?: string;
   developmentBindingLimits?: {
     account: number;
     device: number;
@@ -1161,7 +1200,7 @@ function makeFixture(options: {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
-        clientNamespace: "legacy",
+        clientNamespace: options.registrationClientNamespace ?? "legacy",
         tag: "stable",
         platform,
         displayName: "Test Mac",
@@ -1188,7 +1227,7 @@ function makeFixture(options: {
         endpointId,
         identityGeneration,
         payloadSha256: sha256(payloadBytes),
-      }, NOW)) as { challenge_id: string; nonce: string };
+      }, NOW, payload.clientNamespace)) as { challenge_id: string; nonce: string };
       return {
         challengeId: challenge.challenge_id,
         nonce: challenge.nonce,

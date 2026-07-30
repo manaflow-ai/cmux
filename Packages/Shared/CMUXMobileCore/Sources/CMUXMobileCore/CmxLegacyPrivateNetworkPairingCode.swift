@@ -14,7 +14,10 @@ public struct CmxLegacyPrivateNetworkPairingCode: Sendable {
     /// ticket has no Tailscale route to disclose.
     public func encode(_ ticket: CmxAttachTicket) throws -> URL? {
         let tailscaleRoutes = ticket.routes.filter { $0.kind == .tailscale }
-        guard !tailscaleRoutes.isEmpty else { return nil }
+        guard !tailscaleRoutes.isEmpty,
+              let scheme = CmxPairingURLScheme.current else {
+            return nil
+        }
 
         let legacyTicket = try CmxAttachTicket(
             version: ticket.version,
@@ -35,7 +38,7 @@ public struct CmxLegacyPrivateNetworkPairingCode: Sendable {
         encoder.dateEncodingStrategy = .iso8601
         let payload = base64URLEncode(try encoder.encode(legacyTicket))
         return URL(
-            string: "\(CmxPairingURLScheme.current)://attach?v=\(legacyTicket.version)&payload=\(payload)"
+            string: "\(scheme)://attach?v=\(legacyTicket.version)&payload=\(payload)"
         )
     }
 

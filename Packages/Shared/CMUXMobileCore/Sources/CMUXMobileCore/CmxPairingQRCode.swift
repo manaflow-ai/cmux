@@ -63,7 +63,8 @@ public struct CmxPairingQRCode: Sendable {
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode
     ) -> String? {
-        guard routeDisclosureMode == .legacyPrivateNetworkCompatibility,
+        guard let scheme = CmxPairingURLScheme.current,
+              routeDisclosureMode == .legacyPrivateNetworkCompatibility,
               let routes = encodableRoutes(of: ticket) else {
             return nil
         }
@@ -92,7 +93,7 @@ public struct CmxPairingQRCode: Sendable {
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
         // release build, and the system camera can no longer hand a beta/prod
         // code to a dev build that also claimed the scheme.
-        return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
+        return "\(scheme)://attach?" + items.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the minimal grammar under the

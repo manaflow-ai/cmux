@@ -63,4 +63,17 @@ import Testing
         #expect(MobileIOSAppNamespace(bundleIdentifier: "dev.cmux.ios.*") == nil)
         #expect(MobileIOSAppNamespace(bundleIdentifier: "dev cmux ios") == nil)
     }
+
+    @Test func macInstanceTagResolvesOneExactIOSBundle() {
+        #expect(
+            MobileIOSAppNamespace(pairedMacInstanceTag: "feature-a")?.bundleIdentifier
+                == "dev.cmux.ios.feature-a"
+        )
+        #expect(
+            MobileIOSAppNamespace(pairedMacInstanceTag: "default")?.bundleIdentifier
+                == "com.cmux.app"
+        )
+        #expect(MobileIOSAppNamespace(pairedMacInstanceTag: "invalid tag") == nil)
+        #expect(MobileIOSAppNamespace(pairedMacInstanceTag: " feature-a ") == nil)
+    }
 }

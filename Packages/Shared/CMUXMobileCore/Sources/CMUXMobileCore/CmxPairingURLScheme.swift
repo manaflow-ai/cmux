@@ -7,12 +7,21 @@ import Foundation
 /// schemes so an old QR remains scannable inside an already-open app, but new
 /// apps never register those shared schemes with iOS.
 ///
-/// lint:allow namespace-type — the build channel's URL scheme is a pure
-/// compile-time constant set with no per-instance state to inject; these
-/// scheme strings and the stateless pairing-scheme predicates are a genuine
-/// namespace, like the sanctioned FFI/seam holders.
-public struct CmxPairingURLScheme {
-    private init() {}
+public struct CmxPairingURLScheme: Equatable, Sendable {
+    public let rawValue: String
+
+    public init?(iOSBundleIdentifier: String?) {
+        guard let namespace = MobileIOSAppNamespace(
+            bundleIdentifier: iOSBundleIdentifier
+        ) else {
+            return nil
+        }
+        rawValue = namespace.pairingURLScheme
+    }
+
+    private init(namespace: MobileIOSAppNamespace) {
+        rawValue = namespace.pairingURLScheme
+    }
 
     /// Historical shared Release scheme. Parse-only in new iOS builds.
     public static let release = "cmux-ios"
@@ -24,16 +33,12 @@ public struct CmxPairingURLScheme {
     public static let all: [String] = [release, development]
 
     /// The scheme this build emits in pairing QRs and attach URLs.
-    public static var current: String {
-        if let iOSBundleIdentifier = resolvedIOSBundleIdentifier(),
-           let namespace = MobileIOSAppNamespace(bundleIdentifier: iOSBundleIdentifier) {
-            return namespace.pairingURLScheme
-        }
-        return release
+    public static var current: String? {
+        resolvedCurrent()?.rawValue
     }
 
-    public static func scheme(forIOSBundleIdentifier bundleIdentifier: String) -> String {
-        MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)?.pairingURLScheme ?? release
+    public static func scheme(forIOSBundleIdentifier bundleIdentifier: String) -> String? {
+        CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.rawValue
     }
 
     public static func isPairingScheme(_ scheme: String?) -> Bool {
@@ -77,20 +82,23 @@ public struct CmxPairingURLScheme {
             || normalized.hasPrefix("cmux-ios-dev.cmux.app.")
     }
 
-    private static func resolvedIOSBundleIdentifier(
+    static func resolvedCurrent(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String? {
+    ) -> CmxPairingURLScheme? {
         #if os(iOS)
-        return bundle.bundleIdentifier
-        #else
-        if let tag = environment["CMUX_TAG"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !tag.isEmpty,
-           tag != "default" {
-            return "dev.cmux.ios.\(tag)"
+        guard let namespace = MobileIOSAppNamespace(
+            bundleIdentifier: bundle.bundleIdentifier
+        ) else {
+            return nil
         }
-        return "com.cmux.app"
+        #else
+        guard let namespace = MobileIOSAppNamespace(
+            pairedMacInstanceTag: environment["CMUX_TAG"]
+        ) else {
+            return nil
+        }
         #endif
+        return CmxPairingURLScheme(namespace: namespace)
     }
 }

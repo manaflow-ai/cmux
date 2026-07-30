@@ -116,7 +116,8 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
+        guard let scheme = CmxPairingURLScheme.current,
+              let url = URL(string: "\(scheme)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
