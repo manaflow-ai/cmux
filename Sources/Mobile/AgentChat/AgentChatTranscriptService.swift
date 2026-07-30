@@ -12,7 +12,7 @@ final class AgentChatTranscriptService {
     static let eventTopic = "chat.message"
 
     let registry: AgentChatSessionRegistry
-    let resolver: AgentChatTranscriptResolver
+    private let resolver: AgentChatTranscriptResolver
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
@@ -21,10 +21,15 @@ final class AgentChatTranscriptService {
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
-    /// Hook delivery never runs Codex's recursive fallback scan.
+    /// Hook delivery never runs Codex or OMP fallback scans.
     private var failedResolutions: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
+
+    struct ResolvedTranscriptBinding {
+        let record: AgentChatSessionRecord
+        let path: String
+    }
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -243,19 +248,46 @@ final class AgentChatTranscriptService {
         registry.record(sessionID: sessionID)
     }
 
-    /// Whether an ended session can still serve history without expensive
-    /// fallback scans. Live sessions stay visible before their JSONL exists;
-    /// ended sessions with missing JSONL only open to an unrecoverable error.
+    /// Resolves one session's current transcript binding. Cheap recorded paths
+    /// stay on the main actor; directory-enumerating fallbacks cross the
+    /// coordinator's off-main resolver. A late fallback result is discarded
+    /// when any input that selected it changed while the lookup was suspended.
+    func resolvedTranscriptBinding(sessionID: String) async -> ResolvedTranscriptBinding? {
+        guard let initialRecord = registry.record(sessionID: sessionID) else { return nil }
+        if let path = resolver.boundedTranscriptPath(for: initialRecord) {
+            return ResolvedTranscriptBinding(record: initialRecord, path: path)
+        }
+
+        let fallbackPath = await fallbackResolutionCoordinator.resolve(for: initialRecord)
+        guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
+        if let path = resolver.boundedTranscriptPath(for: currentRecord) {
+            return ResolvedTranscriptBinding(record: currentRecord, path: path)
+        }
+        guard initialRecord.agentKind == currentRecord.agentKind,
+              initialRecord.transcriptPath == currentRecord.transcriptPath,
+              initialRecord.workingDirectory == currentRecord.workingDirectory,
+              initialRecord.hookStoreLookupSessionID == currentRecord.hookStoreLookupSessionID,
+              let fallbackPath else {
+            return nil
+        }
+        return ResolvedTranscriptBinding(record: currentRecord, path: fallbackPath)
+    }
+
+    /// Whether an ended session can serve history without a directory scan.
+    /// Live sessions stay visible before their JSONL exists; Codex and OMP
+    /// fallback rows resolve their history off the main actor when opened.
     func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
         resolver.boundedTranscriptPath(for: record) != nil
     }
 
-    /// Whether an ended session should remain visible in the list. Claude can be
-    /// checked cheaply from cwd/recorded path; Codex fallback scans its sessions
-    /// tree, so Codex rows stay listable and resolve fallback history on open.
+    /// Whether an ended session should remain visible in the list. Claude and
+    /// hook-bound OMP paths are cheap to check. Codex rows and OMP rows without
+    /// a hook path stay listable and resolve fallback history off the main actor.
     func shouldListEndedSession(_ record: AgentChatSessionRecord) -> Bool {
         switch record.agentKind {
         case .codex:
+            return true
+        case .omp where record.transcriptPath == nil:
             return true
         case .claude, .omp, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
@@ -316,25 +348,20 @@ final class AgentChatTranscriptService {
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
         guard let record = registry.record(sessionID: sessionID) else { return nil }
         // A user opening the chat is the right moment to retry a previously
-        // failed transcript resolution. Codex's recursive fallback is explicit
-        // history work, so perform it off the main actor.
+        // failed transcript resolution. Directory-enumerating fallbacks are
+        // explicit history work, so perform them off the main actor.
         failedResolutions.remove(sessionID)
         let tailer: AgentChatTranscriptTailer
         if let existing = tailers[sessionID] {
             tailer = existing
         } else {
-            let resolver = resolver
-            let initialPath = resolver.boundedTranscriptPath(for: record)
-            let fallbackPath: String?
-            if let initialPath {
-                fallbackPath = initialPath
-            } else {
-                fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
+            guard let binding = await resolvedTranscriptBinding(sessionID: sessionID) else {
+                failedResolutions.insert(sessionID)
+                return nil
             }
-            guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)
-            guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
-                resolver.boundedTranscriptPath(for: currentRecord) ?? fallbackPath
+            guard let resolvedTailer = ensureTailer(for: binding.record, resolvePath: {
+                binding.path
             }) else {
                 return nil
             }
@@ -476,8 +503,19 @@ final class AgentChatTranscriptService {
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let endedRecordIsListable: Bool
         if record.state == .ended {
-            endedRecordIsListable = record.agentKind == .codex
-                || endedListability.update(record, previous: previous, resolver: resolver, now: now())
+            switch record.agentKind {
+            case .codex:
+                endedRecordIsListable = true
+            case .omp where record.transcriptPath == nil:
+                endedRecordIsListable = true
+            case .claude, .omp, .other:
+                endedRecordIsListable = endedListability.update(
+                    record,
+                    previous: previous,
+                    resolver: resolver,
+                    now: now()
+                )
+            }
         } else {
             endedListability.remove(sessionID: record.sessionID)
             endedRecordIsListable = true

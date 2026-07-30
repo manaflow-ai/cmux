@@ -54,11 +54,19 @@ extension PiSessionLocator {
             guard directory != builtInSessionDirectory else { return nil }
             return expandedOmpRegistrationSessionRoot(directory, homeDirectory: homeDirectory)
         }
-        guard let sessionRoot = configuredSessionRoot ?? resolution?.sessionRoot.path else {
+        let resolvedSessionRoot = resolution?.sessionRoot
+        // The shared resolver marks only an explicit `--session-dir` as a flat
+        // root. That process-level selector must beat a registration default.
+        let explicitSessionRoot = resolvedSessionRoot.flatMap { root in
+            root.usesCwdBuckets ? nil : root
+        }
+        guard let sessionRoot = explicitSessionRoot?.path
+            ?? configuredSessionRoot
+            ?? resolvedSessionRoot?.path else {
             return []
         }
-        let usesCwdBuckets = configuredSessionRoot != nil
-            || resolution?.sessionRoot.usesCwdBuckets == true
+        let usesCwdBuckets = explicitSessionRoot == nil
+            && (configuredSessionRoot != nil || resolvedSessionRoot?.usesCwdBuckets == true)
         guard usesCwdBuckets else {
             return [sessionRoot]
         }

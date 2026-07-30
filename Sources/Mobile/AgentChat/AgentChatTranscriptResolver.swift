@@ -89,9 +89,8 @@ struct AgentChatTranscriptResolver: Sendable {
     }
 
     /// Resolves only paths that are cheap to check from the main-actor mobile
-    /// session list path. Codex's fallback scans the full sessions tree, so it is
-    /// intentionally excluded here and remains available only when opening a
-    /// transcript.
+    /// session list path. Codex and OMP fallbacks enumerate session directories,
+    /// so they remain available only through explicit off-main history work.
     func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
@@ -102,12 +101,7 @@ struct AgentChatTranscriptResolver: Sendable {
         switch record.agentKind {
         case .claude:
             return claudeFallbackPath(record: record)
-        case .omp:
-            return ompFallbackPath(
-                record: record,
-                deadline: ContinuousClock.now.advanced(by: .milliseconds(100))
-            )
-        case .codex, .other:
+        case .codex, .omp, .other:
             return nil
         }
     }

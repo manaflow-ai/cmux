@@ -1505,7 +1505,7 @@
       "underHoodItemResume": "عند الاستعادة، يعيد cmux بناء النوافذ واللوحات أولًا. إذا كان استئناف الوكلاء التلقائي مفعّلًا، يشغّل أمر shell لمرة واحدة ينفذ أمر الاستئناف الأصلي للوكيل مع معرف الجلسة المحفوظ.",
       "underHoodMore": "تغطي <configLink>وثائق الإعداد</configLink> العادية cmux.json. تبقي استعادة الجلسة تخطيط التطبيق منفصلًا عن إعدادات عرض طرفية Ghostty.",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
-      "feedOmpTelemetry": "بيانات القياس عن بُعد للأدوات والوكلاء الفرعيين والضغط",
+      "feedOmpTelemetry": "بيانات القياس عن بُعد للأدوات والوكلاء الفرعيين وضغط السياق",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
     "ssh": {

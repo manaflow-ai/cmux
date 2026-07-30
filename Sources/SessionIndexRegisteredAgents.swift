@@ -486,20 +486,18 @@ extension SessionIndexStore {
             }
         }
 
-        candidates.sort {
-            if $0.rootIndex != $1.rootIndex {
-                return $0.rootIndex < $1.rootIndex
+        var preferredCandidateByPath: [String: RegisteredJSONLCandidate] = [:]
+        for candidate in candidates {
+            guard let existing = preferredCandidateByPath[candidate.canonicalPath] else {
+                preferredCandidateByPath[candidate.canonicalPath] = candidate
+                continue
             }
-            if $0.canonicalPath != $1.canonicalPath {
-                return $0.canonicalPath < $1.canonicalPath
+            if candidate.rootIndex < existing.rootIndex
+                || (candidate.rootIndex == existing.rootIndex && candidate.url.path < existing.url.path) {
+                preferredCandidateByPath[candidate.canonicalPath] = candidate
             }
-            return $0.url.path < $1.url.path
         }
-        var seenCanonicalPaths = Set<String>()
-        candidates = candidates.filter {
-            seenCanonicalPaths.insert($0.canonicalPath).inserted
-        }
-        candidates.sort {
+        candidates = preferredCandidateByPath.values.sorted {
             if $0.modified != $1.modified {
                 return $0.modified > $1.modified
             }

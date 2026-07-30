@@ -393,9 +393,28 @@ const invocationQueue: QueuedInvocation[] = [];
 let invocationWorker: Promise<void> | null = null;
 let activeInvocation: { command: CmuxInvocation; running: RunningInvocation } | null = null;
 
+function nextInvocationQueueIndex(): number {
+  const terminalBarrier = invocationQueue.findIndex(
+    (queued) => queued.invocation.name === "stop" || queued.invocation.name === "session-end"
+  );
+  // Terminal lifecycle events are FIFO barriers: all events observed before
+  // them must settle first. Within that prefix, run higher-priority work first
+  // while preserving enqueue order among equal priorities.
+  const searchEnd = terminalBarrier < 0
+    ? invocationQueue.length
+    : Math.max(1, terminalBarrier);
+  let nextIndex = 0;
+  for (let index = 1; index < searchEnd; index += 1) {
+    if (invocationQueue[index].invocation.priority > invocationQueue[nextIndex].invocation.priority) {
+      nextIndex = index;
+    }
+  }
+  return nextIndex;
+}
+
 async function drainInvocationQueue(): Promise<void> {
   while (invocationQueue.length > 0) {
-    const next = invocationQueue.shift();
+    const [next] = invocationQueue.splice(nextInvocationQueueIndex(), 1);
     if (!next) continue;
     const running = startInvocation(next.invocation);
     activeInvocation = { command: next.invocation, running };
