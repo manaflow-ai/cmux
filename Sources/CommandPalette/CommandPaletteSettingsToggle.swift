@@ -457,7 +457,6 @@ enum CommandPaletteSettingsToggleCommands {
                     )
                 }
             ),
-            agentSessionAutoRetryDescriptor(sectionTitle: terminal),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",
                 settingsKey: "terminal.agentHibernation.enabled",
