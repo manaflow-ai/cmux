@@ -8,7 +8,7 @@ actor FakeBackup: PairedMacBackingUp {
     private(set) var uploadedExpectedUserIDs: [String?] = []
     private(set) var fetchedExpectedUserIDs: [String?] = []
     private(set) var fetchCount = 0
-    private let records: [PairedMacBackupRecord]
+    private var records: [PairedMacBackupRecord]
     private let deletedMacDeviceIDs: [String]
     private var failNextFetches: Int
     private var failNextUploads: Int
@@ -48,6 +48,19 @@ actor FakeBackup: PairedMacBackingUp {
         if failNextUploads > 0 {
             failNextUploads -= 1
             return false
+        }
+        // Mirror the server: a SUCCESSFUL delete removes the record from the
+        // backup, so later fetches no longer return it. A failed upload (above)
+        // leaves the record to model an undelivered tombstone.
+        for op in ops {
+            switch op {
+            case .delete(let macDeviceID):
+                records.removeAll { $0.macDeviceID == macDeviceID && $0.instanceTag == nil }
+            case .deleteInstance(let macDeviceID, let instanceTag):
+                records.removeAll { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
+            default:
+                break
+            }
         }
         return true
     }

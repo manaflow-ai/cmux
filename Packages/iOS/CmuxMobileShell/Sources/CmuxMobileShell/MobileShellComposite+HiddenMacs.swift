@@ -201,10 +201,17 @@ extension MobileShellComposite {
             pinnedAccountID: computer.stackUserID ?? scope.userID,
             displayScope: scope
         )
-        // ONE refresh for the whole cleanup. Refreshing per deleted row re-runs
-        // the paired list load (and with it the backup restore fetch) and the
-        // registry fetch for every sibling.
-        await refreshAfterForget(displayScope: scope)
+        // ONE refresh for the whole cleanup, and only after COMPLETE success.
+        // Refreshing per deleted row re-runs the paired list load (and with it
+        // the backup restore fetch) and the registry fetch for every sibling.
+        // After a PARTIAL failure the markers were deliberately kept as the
+        // retry owner, but the batch may have deleted some rows already — the
+        // refresh's rowless-marker migration would see those markers as
+        // rowless and clear them, so the hidden entry the user retries from
+        // would vanish while a failed sibling keeps its revoked binding.
+        if cleaned {
+            await refreshAfterForget(displayScope: scope)
+        }
         return cleaned
     }
 

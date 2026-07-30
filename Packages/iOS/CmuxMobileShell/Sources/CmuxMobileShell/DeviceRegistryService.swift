@@ -101,13 +101,22 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// that path must use ``durableDeviceID(defaults:)`` and defer while it is
     /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
     /// binding.
-    /// - Parameter defaults: Legacy persistence store (injected for tests).
+    /// - Parameters:
+    ///   - defaults: Legacy persistence store (injected for tests).
+    ///   - deviceContinuityEvidence: Proof this install is a CONTINUATION on the
+    ///     same physical device, from a non-migrating artifact (see
+    ///     ``resolveDurableDeviceID``). Every production caller of one identity
+    ///     must pass the SAME probe, or resolution becomes ordering-dependent.
     @MainActor
-    public static func deviceID(defaults: UserDefaults = .standard) -> String {
+    public static func deviceID(
+        defaults: UserDefaults = .standard,
+        deviceContinuityEvidence: (() -> Bool)? = nil
+    ) -> String {
         deviceID(
             store: KeychainDeviceIdentityStore(),
             defaults: defaults,
-            deviceWitness: currentDeviceWitness()
+            deviceWitness: currentDeviceWitness(),
+            deviceContinuityEvidence: deviceContinuityEvidence
         )
     }
 
@@ -115,9 +124,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     static func deviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
-        deviceWitness: String? = nil
+        deviceWitness: String? = nil,
+        deviceContinuityEvidence: (() -> Bool)? = nil
     ) -> String {
-        switch resolveDurableDeviceID(store: store, defaults: defaults, deviceWitness: deviceWitness) {
+        switch resolveDurableDeviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            deviceContinuityEvidence: deviceContinuityEvidence
+        ) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -139,13 +154,22 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// create a throwaway `(user, device, tag)` binding that changes on the next
     /// launch and orphans the retained one. Callers must defer/retry activation
     /// until this returns a value instead of registering with an ephemeral id.
-    /// - Parameter defaults: Legacy persistence store (injected for tests).
+    /// - Parameters:
+    ///   - defaults: Legacy persistence store (injected for tests).
+    ///   - deviceContinuityEvidence: Proof this install is a CONTINUATION on the
+    ///     same physical device, from a non-migrating artifact (see
+    ///     ``resolveDurableDeviceID``). Every production caller of one identity
+    ///     must pass the SAME probe, or resolution becomes ordering-dependent.
     @MainActor
-    public static func durableDeviceID(defaults: UserDefaults = .standard) -> String? {
+    public static func durableDeviceID(
+        defaults: UserDefaults = .standard,
+        deviceContinuityEvidence: (() -> Bool)? = nil
+    ) -> String? {
         durableDeviceID(
             store: KeychainDeviceIdentityStore(),
             defaults: defaults,
-            deviceWitness: currentDeviceWitness()
+            deviceWitness: currentDeviceWitness(),
+            deviceContinuityEvidence: deviceContinuityEvidence
         )
     }
 
@@ -153,9 +177,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     static func durableDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
-        deviceWitness: String? = nil
+        deviceWitness: String? = nil,
+        deviceContinuityEvidence: (() -> Bool)? = nil
     ) -> String? {
-        switch resolveDurableDeviceID(store: store, defaults: defaults, deviceWitness: deviceWitness) {
+        switch resolveDurableDeviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            deviceContinuityEvidence: deviceContinuityEvidence
+        ) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -177,10 +207,20 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// Resolve the device id from the authoritative store. Keychain is
     /// authoritative because it survives an app reinstall, keeping the iroh
     /// `(user, device, tag)` slot stable.
+    ///
+    /// `deviceContinuityEvidence` is consulted only for a mirror with NO
+    /// recorded witness (the pre-witness population): it must return `true`
+    /// only when a NON-MIGRATING artifact — one that exists on this device but
+    /// never travels in a backup, such as a `ThisDeviceOnly` Keychain item an
+    /// earlier build wrote — proves this install is a continuation on the same
+    /// physical hardware. Witness absence alone proves nothing: a backup taken
+    /// before the witness shipped looks identical when restored onto a NEW
+    /// phone, and adopting there gives two phones one binding slot.
     static func resolveDurableDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
-        deviceWitness: String? = nil
+        deviceWitness: String? = nil,
+        deviceContinuityEvidence: (() -> Bool)? = nil
     ) -> DurableDeviceIDResolution {
         switch store.read() {
         case .found(let stored):
@@ -190,7 +230,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 return adoptOrMintDeviceID(
                     store: store,
                     defaults: defaults,
-                    deviceWitness: deviceWitness
+                    deviceWitness: deviceWitness,
+                    deviceContinuityEvidence: deviceContinuityEvidence
                 )
             }
             // Re-mirror to UserDefaults (with this device's witness) so a later
@@ -203,7 +244,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             return adoptOrMintDeviceID(
                 store: store,
                 defaults: defaults,
-                deviceWitness: deviceWitness
+                deviceWitness: deviceWitness,
+                deviceContinuityEvidence: deviceContinuityEvidence
             )
         case .unavailable:
             // Fail closed: the store exists but is unreadable right now (a
@@ -211,10 +253,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             // Minting a new id here would strand the phone's existing
             // (user, device, tag) binding — the exact bug this store prevents.
             // Reuse the legacy UserDefaults mirror if its witness proves it was
-            // written on THIS device (or predates witnesses); otherwise report
-            // `.unavailable` so binding registration defers.
+            // written on THIS device (or a non-migrating artifact proves the
+            // install is continuing here); otherwise report `.unavailable` so
+            // binding registration defers.
             if let legacy = trimmedLegacyDeviceID(defaults),
-               mirrorBelongsToThisDevice(defaults: defaults, currentWitness: deviceWitness) {
+               mirrorBelongsToThisDevice(
+                   defaults: defaults,
+                   currentWitness: deviceWitness,
+                   deviceContinuityEvidence: deviceContinuityEvidence
+               ) {
                 return .durable(legacy)
             }
             return .unavailable
@@ -237,11 +284,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// per-device value a restored phone does not inherit — separates the two:
     /// matching witness means the same device, so adopt; a mismatched witness
     /// means a restored backup, so mint. A mirror with NO recorded witness
-    /// predates this mechanism and is adopted (the in-place upgrade
-    /// population); restoring a pre-witness backup onto a new phone is
-    /// indistinguishable and also adopts, a residual bounded to backups taken
-    /// before this shipped — every mirror write from here on records the
-    /// witness.
+    /// predates this mechanism and proves nothing either way — every backup
+    /// taken before the witness shipped restores in exactly that state — so it
+    /// is adopted only when `deviceContinuityEvidence` confirms, through a
+    /// non-migrating artifact, that this install is continuing on the same
+    /// physical device (the in-place upgrade population). A pre-witness
+    /// install with no such artifact has no live binding worth preserving, so
+    /// minting there loses nothing; every mirror write from here on records
+    /// the witness.
     ///
     /// Persistence goes through ``DeviceIdentityStoring/createOrAdopt(_:)``, which
     /// never overwrites a value a concurrent resolution already won, so two
@@ -252,11 +302,16 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private static func adoptOrMintDeviceID(
         store: any DeviceIdentityStoring,
         defaults: UserDefaults,
-        deviceWitness: String?
+        deviceWitness: String?,
+        deviceContinuityEvidence: (() -> Bool)?
     ) -> DurableDeviceIDResolution {
         let candidate: String
         if let legacy = trimmedLegacyDeviceID(defaults),
-           mirrorBelongsToThisDevice(defaults: defaults, currentWitness: deviceWitness) {
+           mirrorBelongsToThisDevice(
+               defaults: defaults,
+               currentWitness: deviceWitness,
+               deviceContinuityEvidence: deviceContinuityEvidence
+           ) {
             candidate = legacy
         } else {
             candidate = UUID().uuidString.lowercased()
@@ -269,19 +324,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Whether the `UserDefaults` mirror provably belongs to this physical
-    /// device: its recorded witness matches the current one, or no witness was
-    /// ever recorded (a pre-witness install). A recorded witness that does not
-    /// match — or that cannot be compared because the current witness is
-    /// unreadable — means the mirror may have arrived in a backup from another
-    /// phone and must not be trusted.
+    /// device: its recorded witness matches the current one, or — for a mirror
+    /// with NO recorded witness (pre-witness build) — a non-migrating artifact
+    /// proves the install is continuing on this device. A recorded witness that
+    /// does not match, or that cannot be compared because the current witness
+    /// is unreadable, means the mirror may have arrived in a backup from
+    /// another phone and must not be trusted.
     private static func mirrorBelongsToThisDevice(
         defaults: UserDefaults,
-        currentWitness: String?
+        currentWitness: String?,
+        deviceContinuityEvidence: (() -> Bool)?
     ) -> Bool {
         guard let recorded = defaults.string(forKey: deviceWitnessKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !recorded.isEmpty else {
-            return true
+            return deviceContinuityEvidence?() ?? false
         }
         guard let currentWitness else { return false }
         return recorded == currentWitness

@@ -91,6 +91,46 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 key: backupTeamKey(account: account, rowTeamID: rowTeamID, pairingID: pairingID)
             )
         }
+        await resolveParkedTombstones(
+            matching: pairingIDs,
+            verifiedTeamID: teamID,
+            account: account
+        )
+    }
+
+    /// A verified team's snapshot is the destination ECHO a PARKED tombstone
+    /// was waiting for: a parked intent's pairing appearing in that snapshot
+    /// proves its backup lives in that team. Record the destination under the
+    /// parked record's own key and flush the parked scope, which migrates the
+    /// intent to its destination scope and sends the delete. Without this, a
+    /// forget the user was told succeeded never deletes the backup, and every
+    /// restore of that team resurrects the forgotten computer.
+    private func resolveParkedTombstones(
+        matching pairingIDs: [String],
+        verifiedTeamID: String,
+        account: String
+    ) async {
+        let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
+        let parked = await pendingRecords(scope: parkedScope)
+        guard !parked.isEmpty else { return }
+        let snapshotIDs = Set(pairingIDs)
+        var resolvedAny = false
+        for raw in parked {
+            let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
+            guard snapshotIDs.contains(record.pairingID) else { continue }
+            await backupTeamStore.save(
+                verifiedTeamID,
+                key: backupTeamKey(
+                    account: account,
+                    rowTeamID: record.localTeamID,
+                    pairingID: record.pairingID
+                )
+            )
+            resolvedAny = true
+        }
+        if resolvedAny {
+            _ = await flushPendingDeletes(scope: parkedScope, account: account, teamID: nil)
+        }
     }
 
     /// Upsert a paired Mac locally, then mirror the changed backup records.
@@ -683,7 +723,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let pendingDeletes = await pendingDeleteIDs(scope: scope)
+            let pendingDeletes = await suppressedPairingIDs(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
             let created = Task {
@@ -863,7 +903,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let pendingDeletes = await pendingDeleteIDs(scope: scope)
+            let pendingDeletes = await suppressedPairingIDs(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
             let created = Task {
@@ -1020,6 +1060,21 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         return Set(await pendingRecords(scope: scope).map {
             PendingDeleteRecord(decoding: $0, scopeTeamID: scopeTeam).pairingID
         })
+    }
+
+    /// The full suppression list for one scope's restore: its own pending
+    /// tombstones PLUS the account's PARKED (unknown-destination) ones. A
+    /// parked intent is a forget the user was told succeeded; its destination
+    /// team is unknown, so EVERY team's restore must refuse to resurrect that
+    /// pairing — the parked intent resolves and flushes once a snapshot echo
+    /// reveals which team actually holds the backup.
+    private func suppressedPairingIDs(scope: String, account: String) async -> Set<String> {
+        var ids = await pendingDeleteIDs(scope: scope)
+        let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
+        if parkedScope != scope {
+            ids.formUnion(await pendingDeleteIDs(scope: parkedScope))
+        }
+        return ids
     }
 
     /// The team component of a scope key (`account\0team[\0clientScope]`).

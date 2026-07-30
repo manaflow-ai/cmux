@@ -312,7 +312,14 @@ public final class MobileIrohRuntimeComposition:
             brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
-            deviceID: { DeviceRegistryService.durableDeviceID(defaults: defaults) },
+            deviceID: {
+                DeviceRegistryService.durableDeviceID(
+                    defaults: defaults,
+                    deviceContinuityEvidence: {
+                        Self.deviceLocalIrohIdentityExists(bundleIdentifier: bundleIdentifier)
+                    }
+                )
+            },
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -1746,6 +1753,34 @@ public final class MobileIrohRuntimeComposition:
         )
         #else
         CmxIrohKeychainIdentityStore()
+        #endif
+    }
+
+    /// Whether an iroh endpoint identity already exists on THIS physical
+    /// device, without reading or creating one.
+    ///
+    /// This is the device-continuity evidence
+    /// `DeviceRegistryService.durableDeviceID(defaults:deviceContinuityEvidence:)`
+    /// gates pre-witness mirror adoption on. In Release the identity is an
+    /// `AfterFirstUnlockThisDeviceOnly` Keychain item that never travels in a
+    /// device backup, so its presence proves the install is continuing on the
+    /// same hardware — exactly the in-place-upgrade population whose live
+    /// binding the mirror id must keep. A restored backup on a NEW phone lacks
+    /// it and mints fresh, and an install that never activated iroh has no
+    /// binding a fresh id could strand. Every production caller resolving the
+    /// device id must pass THIS probe, so concurrent resolutions agree.
+    static func deviceLocalIrohIdentityExists(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        #if DEBUG
+        CmxIrohDevelopmentFileIdentityStore(
+            directory: developmentStoreDirectory(
+                service: "identity",
+                bundleIdentifier: bundleIdentifier
+            )
+        ).containsAnyRecord()
+        #else
+        CmxIrohKeychainIdentityStore().containsAnyRecord()
         #endif
     }
 

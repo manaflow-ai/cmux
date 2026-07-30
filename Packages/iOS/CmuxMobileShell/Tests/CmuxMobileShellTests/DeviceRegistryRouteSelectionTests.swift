@@ -372,11 +372,14 @@ import Testing
     @Test func deviceIdentityAdoptsPreWitnessMirrorOnInPlaceUpgrade() {
         // The in-place upgrade population: a pre-Keychain install whose mirror
         // holds the id its LIVE binding already uses, with no witness recorded
-        // (older builds never wrote one). Minting here would change every
-        // existing installation's identity once and strand all of their
-        // bindings, so the mirror is adopted — and this device's witness is
-        // recorded so a future restore of this backup onto another phone IS
-        // detectable.
+        // (older builds never wrote one). Witness absence alone proves nothing
+        // (a restored pre-witness backup looks identical), so adoption is
+        // gated on device-continuity evidence: a non-migrating artifact — the
+        // ThisDeviceOnly iroh endpoint identity a build with a live binding
+        // necessarily wrote — proves the install is continuing on this
+        // hardware. With that evidence the pre-Keychain id is preserved, and
+        // this device's witness is recorded so a future restore of this
+        // backup onto another phone IS detectable.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -387,7 +390,8 @@ import Testing
         let resolved = DeviceRegistryService.deviceID(
             store: store,
             defaults: defaults,
-            deviceWitness: "witness-this-phone"
+            deviceWitness: "witness-this-phone",
+            deviceContinuityEvidence: { true }
         )
         // The pre-Keychain id is preserved, so the binding slot survives.
         #expect(resolved == legacy)
@@ -435,9 +439,13 @@ import Testing
     }
 
     @Test func deviceIdentityFailsClosedWhenStoreUnavailableWithLegacyMirror() {
-        // Locked-Keychain proxy: the store cannot be read, but a UserDefaults
-        // mirror exists. Reuse it instead of minting a new id that would strand
-        // the existing binding.
+        // Locked-Keychain proxy on a CONTINUING install: the store cannot be
+        // read, a pre-witness UserDefaults mirror exists, and device-continuity
+        // evidence proves the install is still on this hardware. Reuse the
+        // mirror instead of minting a new id that would strand the existing
+        // binding. (Without the evidence this defers instead — a restored
+        // backup's mirror must not be trusted just because the Keychain is
+        // locked.)
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -445,7 +453,11 @@ import Testing
         defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
         let store = InMemoryDeviceIdentityStore(unavailable: true)
 
-        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let resolved = DeviceRegistryService.deviceID(
+            store: store,
+            defaults: defaults,
+            deviceContinuityEvidence: { true }
+        )
         #expect(resolved == mirrored)
         // The unreadable store must not have been overwritten with a new id.
         #expect(store.read() == .unavailable)
@@ -521,8 +533,31 @@ import Testing
     }
 
     @Test func durableDeviceIDReturnsMirrorWhenStoreUnavailable() {
-        // Locked-Keychain proxy with a legacy mirror: the established id is still
-        // durable (it is the id the existing binding uses), so return it.
+        // Locked-Keychain proxy with a legacy pre-witness mirror on a proven
+        // CONTINUING install: the established id is still durable (it is the id
+        // the existing binding uses), so return it.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mirrored = "mirrored-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(mirrored, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore(unavailable: true)
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store,
+            defaults: defaults,
+            deviceContinuityEvidence: { true }
+        )
+        #expect(resolved == mirrored)
+    }
+
+    @Test func durableDeviceIDDefersForPreWitnessMirrorWithoutContinuityEvidence() {
+        // Locked Keychain + pre-witness mirror + NO continuity evidence: this
+        // is indistinguishable from a restored backup's first background launch
+        // on a NEW phone. Returning the mirror as durable would register the
+        // old phone's id from the new phone; minting would strand a continuing
+        // install's binding. Defer instead — the next unlocked launch resolves
+        // through the authoritative path.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -531,7 +566,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore(unavailable: true)
 
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
-        #expect(resolved == mirrored)
+        #expect(resolved == nil)
     }
 
     @Test func durableDeviceIDDefersWhenStoreUnavailableAndNoMirror() {
