@@ -3455,6 +3455,61 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn remote_stop_explicitly_acknowledges_inactive_legacy_authorization_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-inactive-legacy";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        drop(
+            cmux_remote::identity::AuthDatabase::load_or_create(
+                state_dir.join("auth"),
+                session,
+                true,
+            )
+            .unwrap(),
+        );
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-legacy-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(state_dir.join("lifecycle-fence.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_failed_acknowledgement_does_not_create_empty_authorization_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "empty-failed-acknowledgement";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("empty failed-finalization acknowledgement succeeded");
+
+        assert!(
+            !state_dir.join("auth").exists(),
+            "rejected acknowledgement created authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn remote_stop_acknowledges_matching_stale_runtime_finalization() {
         let directory = tempfile::tempdir().unwrap();
         let session = "acknowledge-stale-runtime";
