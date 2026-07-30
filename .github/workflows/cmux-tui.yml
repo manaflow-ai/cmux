@@ -156,7 +156,7 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
           rustup default "$RUST_TOOLCHAIN"
           rustc --version
 
