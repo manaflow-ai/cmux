@@ -51,6 +51,17 @@ type ShutdownAttemptHook = Arc<dyn Fn(usize) + Send + Sync>;
 #[cfg(all(test, unix))]
 type TerminalAdoptionSurfaceFactory =
     Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
+#[cfg(all(test, unix))]
+type TerminalHostRecordLoader = Arc<
+    dyn Fn(
+            std::path::PathBuf,
+            usize,
+            Instant,
+        ) -> anyhow::Result<
+            Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>,
+        > + Send
+        + Sync,
+>;
 #[cfg(test)]
 type NewPaneAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
 #[cfg(test)]
@@ -1638,6 +1649,8 @@ pub struct Mux {
     terminal_adoption_after_attach: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(all(test, unix))]
     terminal_adoption_surface_factory: Mutex<Option<TerminalAdoptionSurfaceFactory>>,
+    #[cfg(all(test, unix))]
+    terminal_host_record_loader: Mutex<Option<TerminalHostRecordLoader>>,
     #[cfg(test)]
     terminal_adoption_workers_started: AtomicUsize,
     #[cfg(test)]
@@ -1897,6 +1910,8 @@ impl Mux {
             terminal_adoption_after_attach: Mutex::new(None),
             #[cfg(all(test, unix))]
             terminal_adoption_surface_factory: Mutex::new(None),
+            #[cfg(all(test, unix))]
+            terminal_host_record_loader: Mutex::new(None),
             #[cfg(test)]
             terminal_adoption_workers_started: AtomicUsize::new(0),
             #[cfg(test)]
@@ -5319,6 +5334,10 @@ impl Mux {
     /// closed so a retry cannot race a new PTY into the session.
     pub fn close_all_surfaces_for_shutdown(&self) -> anyhow::Result<usize> {
         let deadline = Instant::now() + crate::server::SERVER_SHUTDOWN_TIMEOUT;
+        self.close_all_surfaces_for_shutdown_until(deadline)
+    }
+
+    fn close_all_surfaces_for_shutdown_until(&self, deadline: Instant) -> anyhow::Result<usize> {
         #[cfg(unix)]
         crate::process_session::require_stable_process_signaling_until(deadline)
             .context("preflight process control for server shutdown")?;
@@ -5373,10 +5392,9 @@ impl Mux {
             owner_keys.extend(surface_owner_keys);
             let records = match root {
                 Some(root) => {
-                    let records = crate::terminal_host_runtime::load_terminal_host_records_strict(
-                        &root, capacity, deadline,
-                    )
-                    .context("load terminal hosts for server shutdown")?;
+                    let records = self
+                        .load_terminal_host_records_for_shutdown(root, capacity, deadline)
+                        .context("load terminal hosts for server shutdown")?;
                     let available = records
                         .iter()
                         .map(|(_, record)| {
@@ -5526,6 +5544,21 @@ impl Mux {
         }
 
         Ok(closed_count)
+    }
+
+    #[cfg(unix)]
+    fn load_terminal_host_records_for_shutdown(
+        &self,
+        root: std::path::PathBuf,
+        capacity: usize,
+        deadline: Instant,
+    ) -> anyhow::Result<Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>>
+    {
+        #[cfg(test)]
+        if let Some(loader) = self.terminal_host_record_loader.lock().unwrap().clone() {
+            return loader(root, capacity, deadline);
+        }
+        crate::terminal_host_runtime::load_terminal_host_records_strict(&root, capacity, deadline)
     }
 
     fn lock_shutdown_coordinator_until(
@@ -14976,6 +15009,73 @@ mod tests {
             "bulk close multiplied the per-surface shutdown timeout: {:?}",
             started.elapsed()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn server_shutdown_reuses_one_deadline_bounded_record_scan() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-shutdown-record-scan-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mux = Mux::new_for_test(
+            "shutdown-record-scan",
+            SurfaceOptions { terminal_host_root: Some(root.clone()), ..SurfaceOptions::default() },
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_host_record_loader.lock().unwrap() = Some(Arc::new({
+            let calls = calls.clone();
+            move |_, _, _| {
+                calls.fetch_add(1, Ordering::AcqRel);
+                started_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+                Ok(Vec::new())
+            }
+        }));
+
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let first = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                done_tx
+                    .send(mux.close_all_surfaces_for_shutdown_until(
+                        Instant::now() + Duration::from_millis(50),
+                    ))
+                    .unwrap();
+            }
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let first_result = done_rx.recv_timeout(Duration::from_millis(150)).ok();
+        let completed_at_deadline = first_result.as_ref().is_some_and(Result::is_err);
+        let reused_scan = if completed_at_deadline {
+            let second = mux
+                .close_all_surfaces_for_shutdown_until(Instant::now() + Duration::from_millis(50));
+            let starts = calls.load(Ordering::Acquire);
+            for _ in 0..2 {
+                release_tx.send(()).unwrap();
+            }
+            let third =
+                mux.close_all_surfaces_for_shutdown_until(Instant::now() + Duration::from_secs(1));
+            second.is_err() && starts == 1 && third.is_ok()
+        } else {
+            for _ in 0..3 {
+                release_tx.send(()).unwrap();
+            }
+            let _ = done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            false
+        };
+        first.join().unwrap();
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(
+            completed_at_deadline,
+            "server shutdown remained blocked inside the terminal-host record scan"
+        );
+        assert!(reused_scan, "a shutdown retry spawned another blocked terminal-host record scan");
     }
 
     #[cfg(unix)]
