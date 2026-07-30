@@ -813,19 +813,19 @@ struct ComputerUsePermissionCompanionView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary.opacity(0.72))
                 .frame(
                     width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
                     height: ComputerUsePermissionCompanionLayout.dragRowHeight
                 )
                 .background(
-                    Color(nsColor: .controlBackgroundColor),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    Color.primary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(
-                            Color(nsColor: .separatorColor).opacity(0.45),
+                            Color(nsColor: .separatorColor).opacity(0.32),
                             lineWidth: 0.5
                         )
                 }
@@ -856,47 +856,64 @@ struct ComputerUsePermissionCompanionView: View {
 
     /// A file-URL drag source accepted by the macOS permission lists.
     private var helperDragTile: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Group {
                 if let helperIcon {
                     Image(nsImage: helperIcon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 24, height: 24)
                 } else {
                     Image(systemName: "app.dashed")
-                        .font(.system(size: 18))
-                        .frame(width: 24, height: 24)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
             }
+            .frame(width: 26, height: 26)
+            .background(
+                Color.white,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(
+                        Color(nsColor: .separatorColor).opacity(0.35),
+                        lineWidth: 0.5
+                    )
+            }
+            .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
             .accessibilityHidden(true)
 
             Text(applicationName)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 10)
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 11)
         .frame(
             maxWidth: .infinity,
             minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
             maxHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
             alignment: .leading
         )
-        .background(
-            Color(nsColor: .controlBackgroundColor),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.035))
+                }
+        }
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.45),
+                    Color.accentColor.opacity(0.18),
                     lineWidth: 0.5
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,
