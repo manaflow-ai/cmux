@@ -200,6 +200,36 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
 asset was downloaded again and matched SHA-256
 `8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
 
+### Ordered writes survive transient backpressure
+
+- Commits:
+  - `99335171e` (test: retain queued writes through backpressure)
+  - `2f6ee7b3d` (fix: preserve queued writes through backpressure)
+  - `d74e17608` (test: compile queued writes without WouldBlock)
+  - `982a723ff` (fix: accept backend-specific write errors)
+- Files:
+  - `vendor/libxev/src/watcher/stream.zig`
+  - `vendor/libxev/VENDORED.md`
+- Summary:
+  - Keeps the current ordered write request at the queue head when the backend
+    reports transient `error.WouldBlock`, resubmitting the same buffer without
+    notifying the client or advancing later requests.
+  - Preserves the existing partial-write behavior while making libxev's
+    ordered queue the single owner of both partial progress and transient
+    backpressure.
+  - Adds a deterministic fake-backend regression test with two queued writes.
+    It injects `WouldBlock` into the head request and verifies that neither a
+    client completion nor scheduling of the later request can occur.
+  - Instantiates the ordered-write path with a backend whose write error set
+    does not contain `WouldBlock`, preserving compilation and terminal-error
+    behavior for non-kqueue backends.
+  - Conflict note: future ordered-stream changes must retain the head request
+    across both short successful writes and transient `WouldBlock` results.
+    Only a complete write or terminal error may pop it and schedule its
+    successor. Keep the error discriminator widened to `anyerror` so the
+    `WouldBlock` branch remains valid for backend-specific error sets that
+    cannot produce that error.
+
 ### `os/open` stderr drain spin and zombie leak
 
 `openThread` drained a spawned child's stderr with
@@ -284,6 +314,18 @@ The mailbox line is integrated into the pinned `cd1f8e012` universal
 ReleaseFast GhosttyKit archive published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The ordered-write integration archive `dfe719016` and its component
+`982a723ff` and `2258bea96` universal ReleaseFast GhosttyKit archives remain
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-dfe719016d70140f2f6ffad54021b254b120d13e-crashsubdir-cmux-crash-v1,
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-982a723ffe5c239dd2d64e409366397135e3dab1-crashsubdir-cmux-crash-v1
+and
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1,
+with their SHA-256 values retained in `scripts/ghosttykit-checksums.txt`.
+
+The previous `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1.
 
 ### Bounded app mailbox turns
 

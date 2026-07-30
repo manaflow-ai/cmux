@@ -54429,6 +54429,40 @@
         }
       }
     },
+    "cli.tmux-compat.error.downstreamTmuxMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux shim: no downstream tmux executable found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux シム: 後続の tmux 実行ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.managedTerminalRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux が管理するターミナルサーフェスから起動する必要があります。cmux でターミナルサーフェスを開き、そこでこのコマンドを実行してください。"
+          }
+        }
+      }
+    },
     "cli.tmuxCompat.respawnPane.requiresForce": {
       "extractionState": "manual",
       "localizations": {
