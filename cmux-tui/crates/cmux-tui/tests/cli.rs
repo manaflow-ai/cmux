@@ -1389,6 +1389,80 @@ fn server_status_and_stop_control_a_compatible_headless_session() {
 
 #[cfg(unix)]
 #[test]
+fn signal_termination_completes_server_shutdown() {
+    let dir = unique_temp_dir("server-signal-shutdown");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let mut server = Command::new(bin())
+        .args(["--headless", "--ephemeral", "--socket"])
+        .arg(&socket)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_for_socket_path(&socket);
+
+    assert_eq!(unsafe { libc::kill(server.id() as libc::pid_t, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = server.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            server.kill().unwrap();
+            let _ = server.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let socket_remained = socket.exists();
+    fs::remove_dir_all(dir).unwrap();
+
+    let status = status.expect("SIGTERM left the server waiting on an unrequested mux shutdown");
+    assert!(status.success(), "signal-driven shutdown exited with {status}");
+    assert!(!socket_remained, "signal-driven shutdown retained its control socket");
+}
+
+#[cfg(unix)]
+#[test]
+fn invalid_websocket_startup_returns_after_publishing_the_local_socket() {
+    let dir = unique_temp_dir("invalid-websocket-startup");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let mut server = Command::new(bin())
+        .args(["--headless", "--ephemeral", "--socket"])
+        .arg(&socket)
+        .args(["--ws", "not-an-address"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = server.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            server.kill().unwrap();
+            let _ = server.wait();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let socket_remained = socket.exists();
+    let mut stderr = String::new();
+    server.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    let status = status.expect("invalid WebSocket setup entered the running-server shutdown wait");
+    assert!(!status.success(), "invalid WebSocket setup unexpectedly succeeded");
+    assert!(stderr.contains("invalid WebSocket address"), "{stderr}");
+    assert!(!socket_remained, "failed startup retained its local control socket");
+}
+
+#[cfg(unix)]
+#[test]
 fn server_shutdown_exits_when_the_interactive_driver_cannot_progress() {
     let dir = unique_temp_dir("server-stop-blocked-interactive-driver");
     fs::create_dir_all(&dir).unwrap();

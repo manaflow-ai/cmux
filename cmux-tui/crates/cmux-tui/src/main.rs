@@ -1259,6 +1259,10 @@ impl ServerProcessShutdownGuard {
     }
 
     fn wait_for_shutdown(&self) {
+        // `wait_for_complete` runs the first bounded cleanup attempt
+        // synchronously. It waits for another mux request only after that
+        // attempt fails, while the published socket remains available for an
+        // explicit `server stop` retry.
         self.cleanup.wait_for_complete();
     }
 
