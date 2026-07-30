@@ -1765,6 +1765,14 @@ async fn run_daemon(
             .context("could not inspect remote daemon authorization state")?;
         let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
             .context("could not verify remote daemon lifecycle fence")?;
+        // Publish the fresh-state marker before AuthDatabase can create any
+        // path that a retry would otherwise mistake for legacy state.
+        if !auth_state_preexisting && !lifecycle_fenced {
+            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
+                .context("could not prepare remote daemon lifecycle state")?;
+            persist_daemon_lifecycle_fence(&state_dir)?;
+            lifecycle_fenced = true;
+        }
         let auth = load_daemon_auth_during_handoff(
             &auth_state_dir,
             &options.session,
@@ -1772,14 +1780,6 @@ async fn run_daemon(
             DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
         )
         .await?;
-        // A missing auth directory proves this is the first daemon for the
-        // state path. Existing unmarked auth state may still have a late write
-        // pending in a pre-lease daemon, so only exact modern evidence can
-        // migrate it below.
-        if !auth_state_preexisting && !lifecycle_fenced {
-            persist_daemon_lifecycle_fence(&state_dir)?;
-            lifecycle_fenced = true;
-        }
         verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
         if !lifecycle_fenced {
             persist_daemon_lifecycle_fence(&state_dir)?;
@@ -2289,6 +2289,20 @@ fn read_daemon_lifecycle_fence(state_dir: &Path) -> Result<bool, IdentityError> 
     Ok(true)
 }
 
+pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
+    state_dir: &Path,
+) -> anyhow::Result<bool> {
+    if !state_dir
+        .join("auth")
+        .try_exists()
+        .context("could not inspect remote daemon authorization state")?
+    {
+        return Ok(false);
+    }
+    Ok(!read_daemon_lifecycle_fence(state_dir)
+        .context("could not verify remote daemon lifecycle fence")?)
+}
+
 fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
     let path = state_dir.join("shutdown.json");
     read_optional_file(&path)?.map(|encoded| decode_shutdown_outcome(&encoded)).transpose()
@@ -2314,43 +2328,27 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
 ) -> anyhow::Result<()> {
     use std::os::unix::net::UnixStream;
 
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context("could not snapshot remote daemon runtime metadata for recovery")?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context("could not snapshot remote daemon authorization finalization for recovery")?;
+    validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
+
     let auth = AuthDatabase::load_or_create(state_dir.join("auth"), daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for recovery")?;
 
-    let runtime_path = state_dir.join("runtime.json");
-    let outcome_path = state_dir.join("shutdown.json");
     let runtime_snapshot = read_optional_file(&runtime_path)
-        .context("could not snapshot remote daemon runtime metadata for recovery")?;
+        .context("could not resnapshot remote daemon runtime metadata for recovery")?;
     let outcome_snapshot = read_optional_file(&outcome_path)
-        .context("could not snapshot remote daemon authorization finalization for recovery")?;
-    let runtime = runtime_snapshot
-        .as_deref()
-        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
-        .transpose()
-        .context("could not verify remote daemon runtime metadata for recovery")?;
-
-    if let Some(runtime) = &runtime {
-        match runtime.lifecycle_id.as_deref() {
-            Some(lifecycle_id) if !lifecycle_id.is_empty() => {}
-            _ => {
-                return Err(anyhow!(
-                    "refusing to acknowledge failed authorization finalization with legacy runtime metadata"
-                ));
-            }
-        }
-    } else {
-        let encoded = outcome_snapshot.as_deref().ok_or_else(|| {
-            anyhow!("no failed remote daemon authorization finalization is recorded")
-        })?;
-        if matches!(
-            decode_shutdown_outcome(encoded),
-            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. })
-        ) {
-            return Err(anyhow!(
-                "remote daemon authorization finalization succeeded and does not need acknowledgement"
-            ));
-        }
+        .context("could not resnapshot remote daemon authorization finalization for recovery")?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!(
+            "remote daemon lifecycle evidence changed before authorization recovery"
+        ));
     }
+    let runtime = validate_failed_shutdown_recovery_evidence(&runtime_snapshot, &outcome_snapshot)?;
 
     let mut sockets = Vec::new();
     if let Some(runtime) = &runtime {
@@ -2392,6 +2390,169 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     })
     .await
     .context("could not complete remote daemon authorization recovery")
+}
+
+fn validate_failed_shutdown_recovery_evidence(
+    runtime_snapshot: &Option<Vec<u8>>,
+    outcome_snapshot: &Option<Vec<u8>>,
+) -> anyhow::Result<Option<DaemonRuntimeInfo>> {
+    let runtime = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context("could not verify remote daemon runtime metadata for recovery")?;
+
+    if let Some(runtime) = &runtime {
+        match runtime.lifecycle_id.as_deref() {
+            Some(lifecycle_id) if !lifecycle_id.is_empty() => {}
+            _ => {
+                return Err(anyhow!(
+                    "refusing to acknowledge failed authorization finalization with legacy runtime metadata"
+                ));
+            }
+        }
+    } else {
+        let encoded = outcome_snapshot.as_deref().ok_or_else(|| {
+            anyhow!("no failed remote daemon authorization finalization is recorded")
+        })?;
+        if matches!(
+            decode_shutdown_outcome(encoded),
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. })
+        ) {
+            return Err(anyhow!(
+                "remote daemon authorization finalization succeeded and does not need acknowledgement"
+            ));
+        }
+    }
+    Ok(runtime)
+}
+
+#[cfg(unix)]
+pub(crate) async fn acknowledge_legacy_shutdown_state(
+    state_dir: &Path,
+    daemon_name: &str,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    use std::os::unix::net::UnixStream;
+
+    let auth_state_dir = state_dir.join("auth");
+    if !auth_state_dir
+        .try_exists()
+        .context("could not inspect legacy daemon authorization state")?
+    {
+        return Err(anyhow!("no legacy remote daemon authorization state is recorded"));
+    }
+    let _lifecycle_fenced = read_daemon_lifecycle_fence(state_dir)
+        .context("could not verify remote daemon lifecycle fence")?;
+
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let initial_runtime = read_optional_file(&runtime_path)
+        .context("could not snapshot legacy remote daemon runtime metadata")?;
+    let initial_outcome = read_optional_file(&outcome_path)
+        .context("could not snapshot legacy remote daemon shutdown metadata")?;
+    let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
+
+    let auth = AuthDatabase::load_or_create(&auth_state_dir, daemon_name, true)
+        .context("could not acquire the remote daemon authorization lease for legacy recovery")?;
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context("could not resnapshot legacy remote daemon runtime metadata")?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context("could not resnapshot legacy remote daemon shutdown metadata")?;
+    if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
+        return Err(anyhow!("remote daemon lifecycle evidence changed before legacy recovery"));
+    }
+
+    let mut sockets = Vec::new();
+    if let Some(runtime) = &runtime {
+        sockets.push(runtime.link_socket.as_path());
+        sockets.push(runtime.admin_socket.as_path());
+    }
+    for socket in [link_socket, admin_socket] {
+        if !sockets.contains(&socket) {
+            sockets.push(socket);
+        }
+    }
+    for socket in sockets {
+        match UnixStream::connect(socket) {
+            Ok(_) => {
+                return Err(anyhow!(
+                    "refusing to acknowledge legacy authorization finalization while daemon socket {} is active",
+                    socket.display()
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("could not verify daemon socket {} is inactive", socket.display())
+                });
+            }
+        }
+    }
+
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        finish_legacy_shutdown_recovery(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
+    })
+    .await
+    .context("could not complete legacy remote daemon authorization recovery")
+}
+
+fn validate_legacy_shutdown_evidence(
+    runtime_snapshot: &Option<Vec<u8>>,
+    outcome_snapshot: &Option<Vec<u8>>,
+) -> anyhow::Result<Option<DaemonRuntimeInfo>> {
+    let runtime = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
+        .context("could not verify legacy remote daemon runtime metadata")?;
+    if runtime.as_ref().is_some_and(|runtime| runtime.lifecycle_id.is_some()) {
+        return Err(anyhow!(
+            "remote daemon runtime metadata is lifecycle-aware; use --acknowledge-failed-finalization when its shutdown failed"
+        ));
+    }
+    if let Some(encoded) = outcome_snapshot {
+        match decode_shutdown_outcome(encoded) {
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. }) => {}
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Failed, .. }) | Err(_) => {
+                return Err(anyhow!(
+                    "remote daemon shutdown evidence requires --acknowledge-failed-finalization"
+                ));
+            }
+        }
+    }
+    Ok(runtime)
+}
+
+fn finish_legacy_shutdown_recovery(
+    state_dir: &Path,
+    expected_runtime: Option<Vec<u8>>,
+    expected_outcome: Option<Vec<u8>>,
+) -> Result<(), IdentityError> {
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    if read_optional_file(&runtime_path)? != expected_runtime
+        || read_optional_file(&outcome_path)? != expected_outcome
+    {
+        return Err(IdentityError::Invalid(
+            "remote daemon lifecycle evidence changed during legacy recovery".into(),
+        ));
+    }
+    persist_daemon_lifecycle_fence(state_dir)?;
+    if expected_runtime.is_some() {
+        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
+    }
+    Ok(())
 }
 
 fn remove_shutdown_recovery_evidence(
@@ -3008,6 +3169,42 @@ mod tests {
             };
             assert!(error.to_string().contains("lifecycle fence"), "{case}: {error:#}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_persists_fresh_fence_before_auth_initialization_failure() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "fence-before-auth-failure";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        symlink("missing-auth-target", state_dir.join("auth")).unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+
+        assert!(result.is_err(), "daemon accepted a dangling authorization-state symlink");
+        assert!(
+            read_daemon_lifecycle_fence(&state_dir).unwrap(),
+            "auth initialization failed before the fresh lifecycle fence was durable"
+        );
     }
 
     #[cfg(unix)]

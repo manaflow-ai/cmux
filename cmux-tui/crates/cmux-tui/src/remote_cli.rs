@@ -42,7 +42,8 @@ use zeroize::Zeroizing;
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
-    client_provider_registry, daemon_paths, load_runtime_info, load_shutdown_outcome,
+    acknowledge_legacy_shutdown_state, client_provider_registry, daemon_paths,
+    inactive_daemon_needs_legacy_acknowledgement, load_runtime_info, load_shutdown_outcome,
     persist_daemon_lifecycle_fence, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
@@ -266,7 +267,7 @@ OPTIONS:
             "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
         }
         Some("remote-stop") => {
-            "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization]\n"
+            "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n"
         }
         Some("install-self") => "USAGE: cmux-tui install-self --destination PATH\n",
         _ => {
@@ -1763,12 +1764,14 @@ struct RemoteStopArgs {
     session: String,
     state_dir: Option<PathBuf>,
     acknowledge_failed_finalization: bool,
+    acknowledge_legacy_finalization: bool,
 }
 
 fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
     let mut session = "main".to_string();
     let mut state_dir = None;
     let mut acknowledge_failed_finalization = false;
+    let mut acknowledge_legacy_finalization = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
     while index < args.len() {
@@ -1787,13 +1790,27 @@ fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
                 require_unique_flag(&mut seen, "--acknowledge-failed-finalization")?;
                 acknowledge_failed_finalization = true;
             }
+            "--acknowledge-legacy-finalization" => {
+                require_unique_flag(&mut seen, "--acknowledge-legacy-finalization")?;
+                acknowledge_legacy_finalization = true;
+            }
             option if option.starts_with("--") => {
                 return Err(anyhow!("unknown option {option:?} for remote-stop"));
             }
             _ => return Err(anyhow!("remote-stop accepts no positional arguments")),
         }
     }
-    Ok(RemoteStopArgs { session, state_dir, acknowledge_failed_finalization })
+    if acknowledge_failed_finalization && acknowledge_legacy_finalization {
+        return Err(anyhow!(
+            "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive"
+        ));
+    }
+    Ok(RemoteStopArgs {
+        session,
+        state_dir,
+        acknowledge_failed_finalization,
+        acknowledge_legacy_finalization,
+    })
 }
 
 fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
@@ -1814,7 +1831,20 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                     &default_admin,
                 ));
             }
+            if parsed.acknowledge_legacy_finalization {
+                return tokio_runtime()?.block_on(acknowledge_legacy_shutdown_state(
+                    &state_dir,
+                    &parsed.session,
+                    &default_link,
+                    &default_admin,
+                ));
+            }
             verify_inactive_shutdown_outcome(&state_dir)?;
+            if inactive_daemon_needs_legacy_acknowledgement(&state_dir)? {
+                return Err(anyhow!(
+                    "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization"
+                ));
+            }
             return Ok(());
         }
         Err(error) => {
@@ -1825,6 +1855,14 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     };
     if parsed.acknowledge_failed_finalization {
         return tokio_runtime()?.block_on(acknowledge_failed_shutdown_outcome(
+            &state_dir,
+            &parsed.session,
+            &default_link,
+            &default_admin,
+        ));
+    }
+    if parsed.acknowledge_legacy_finalization {
+        return tokio_runtime()?.block_on(acknowledge_legacy_shutdown_state(
             &state_dir,
             &parsed.session,
             &default_link,
@@ -3074,10 +3112,16 @@ mod tests {
         assert_eq!(parsed.session, "dev");
         assert_eq!(parsed.state_dir, Some("/tmp/remote-state".into()));
         assert!(!parsed.acknowledge_failed_finalization);
+        assert!(!parsed.acknowledge_legacy_finalization);
         assert!(
             parse_remote_stop_args(&["--acknowledge-failed-finalization".into()])
                 .unwrap()
                 .acknowledge_failed_finalization
+        );
+        assert!(
+            parse_remote_stop_args(&["--acknowledge-legacy-finalization".into()])
+                .unwrap()
+                .acknowledge_legacy_finalization
         );
 
         for args in [
@@ -3085,6 +3129,8 @@ mod tests {
             vec!["--session", "dev", "--session", "other"],
             vec!["--state-dir"],
             vec!["--acknowledge-failed-finalization", "--acknowledge-failed-finalization"],
+            vec!["--acknowledge-legacy-finalization", "--acknowledge-legacy-finalization"],
+            vec!["--acknowledge-failed-finalization", "--acknowledge-legacy-finalization"],
             vec!["--unknown"],
             vec!["unexpected"],
         ] {
@@ -3468,6 +3514,13 @@ mod tests {
             .unwrap(),
         );
 
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("inactive legacy state migrated without explicit acknowledgement");
+        assert!(error.to_string().contains("--acknowledge-legacy-finalization"), "{error:#}");
+
         run_remote_stop(
             &[
                 "--session",
@@ -3481,6 +3534,24 @@ mod tests {
         .unwrap();
 
         assert!(state_dir.join("lifecycle-fence.json").exists());
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(directory.path().to_path_buf()),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("acknowledged legacy state remained blocked");
+        runtime.shutdown().unwrap();
     }
 
     #[cfg(unix)]
@@ -3659,6 +3730,57 @@ mod tests {
 
         assert!(error.to_string().contains("daemon socket"), "{error:#}");
         assert!(runtime_path.exists());
+        drop(listener);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_refuses_legacy_acknowledgement_while_recorded_socket_is_active() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "reject-active-legacy-acknowledgement";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        drop(
+            cmux_remote::identity::AuthDatabase::load_or_create(
+                state_dir.join("auth"),
+                session,
+                true,
+            )
+            .unwrap(),
+        );
+        let listener = std::os::unix::net::UnixListener::bind(&link_socket).unwrap();
+        fs::write(
+            state_dir.join("runtime.json"),
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "active-legacy-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: None,
+                replaceable_sidecar: true,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-legacy-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("active legacy daemon was acknowledged");
+
+        assert!(error.to_string().contains("daemon socket"), "{error:#}");
+        assert!(!state_dir.join("lifecycle-fence.json").exists());
         drop(listener);
     }
 
