@@ -549,6 +549,93 @@ struct SidebarDevFooter: View {
 }
 #endif
 
+/// Window dragging from empty sidebar space.
+///
+/// Tracking runs synchronously from `mouseDown` with `nextEvent(matching:)`,
+/// the same shape as ``SidebarDividerTrackingView``, rather than through an
+/// `NSGestureRecognizer`. `NSWindow.performDrag(with:)` runs its own modal
+/// tracking loop and consumes the terminating mouse-up, so a recognizer that
+/// calls it never receives the event that would drive it back to `.possible`:
+/// it stays parked in a terminal state, `reset()` never runs, and it silently
+/// stops recognizing for the rest of the window's life.
+enum SidebarEmptyAreaWindowDrag {
+    /// Pointer travel, in window points, before a press becomes a window drag.
+    /// Below this a press stays a click so selection and menus are unaffected.
+    static let dragThreshold: CGFloat = 4
+
+    /// Production event pump: block in `.eventTracking` until the press
+    /// resolves into either movement or a mouse-up.
+    @MainActor
+    static func pumpTrackingEvent(from window: NSWindow) -> NSEvent? {
+        window.nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp],
+            until: .distantFuture,
+            inMode: .eventTracking,
+            dequeue: true
+        )
+    }
+
+    /// Consumes `event` as a window drag when the press turns into one.
+    ///
+    /// Returns `true` when the window was dragged and the caller must not run
+    /// its normal `mouseDown` handling. Returns `false` for a press that never
+    /// passed ``dragThreshold``, having pushed the terminating mouse-up back
+    /// onto the queue first — `NSTableView`'s own `mouseDown` tracking loop
+    /// waits for that event, and swallowing it would hang the click.
+    @MainActor
+    static func perform(
+        with event: NSEvent,
+        in view: NSView,
+        nextEvent: (NSWindow) -> NSEvent? = pumpTrackingEvent
+    ) -> Bool {
+        guard let window = view.window else { return false }
+        guard !isWindowDragSuppressed(window: window) else { return false }
+
+        let start = event.locationInWindow
+
+        while let next = nextEvent(window) {
+            if next.type == .leftMouseUp {
+                window.postEvent(next, atStart: true)
+                return false
+            }
+
+            let location = next.locationInWindow
+            let distance = hypot(location.x - start.x, location.y - start.y)
+            guard distance >= dragThreshold else { continue }
+
+            withTemporaryWindowMovableEnabled(window: window) {
+                window.performDrag(with: event)
+            }
+            return true
+        }
+
+        return false
+    }
+}
+
+/// Backing view for the empty region below the workspace list.
+///
+/// Presses that turn into drags move the window; presses that do not fall
+/// through to normal handling untouched.
+private final class SidebarEmptyAreaWindowDragNSView: NSView {
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 1 else {
+            super.mouseDown(with: event)
+            return
+        }
+        if SidebarEmptyAreaWindowDrag.perform(with: event, in: self) { return }
+        super.mouseDown(with: event)
+    }
+}
+
+private struct SidebarEmptyAreaWindowDragView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        SidebarEmptyAreaWindowDragNSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
@@ -624,11 +711,11 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
-            Color.clear
+            SidebarEmptyAreaWindowDragView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         } else {
-            Color.clear
+            SidebarEmptyAreaWindowDragView()
                 .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
                 .contentShape(Rectangle())
         }

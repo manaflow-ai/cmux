@@ -50,6 +50,12 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
+        // Below the last row the press is window-drag territory. Single clicks
+        // only: a double-click still belongs to doubleClickEmptyArea().
+        if clickedRow < 0, event.clickCount == 1,
+           SidebarEmptyAreaWindowDrag.perform(with: event, in: self) {
+            return
+        }
         // No selection paint on press: the highlight applies on down-then-up
         // (owner ruling). The action fires on mouse-up and paints the
         // optimistic treatment there, so a press that becomes a drag or a
