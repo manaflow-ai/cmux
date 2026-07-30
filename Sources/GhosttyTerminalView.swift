@@ -1418,11 +1418,11 @@ class GhosttyApp {
     /// ``GhosttyConfigDiscovery``.
     static func autoInjectedSymbolFontMappings(
         configPaths: [String]? = nil,
-        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
     ) -> [(String, String)]? {
         configDiscovery.autoInjectedSymbolFontMappings(
             configPaths: configPaths,
-            rangeCoverageProbe: rangeCoverageProbe
+            codepointCoverageProbe: codepointCoverageProbe
         )
     }
 
@@ -1430,11 +1430,11 @@ class GhosttyApp {
     /// Forwards to ``GhosttyConfigDiscovery``.
     static func shouldInjectSymbolFontFallback(
         configPaths: [String]? = nil,
-        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+        codepointCoverageProbe: ((String, UInt32) -> Bool)? = nil
     ) -> Bool {
         configDiscovery.shouldInjectSymbolFontFallback(
             configPaths: configPaths,
-            rangeCoverageProbe: rangeCoverageProbe
+            codepointCoverageProbe: codepointCoverageProbe
         )
     }
 
