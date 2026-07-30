@@ -278,7 +278,7 @@ fn rename_workspace(
             &mutation,
         )
         .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.rename", "workspace", "workspaces")
+    snapshot_mutation_result(mux, commit, "workspace.rename", "workspace")
 }
 
 fn move_workspace(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -295,7 +295,7 @@ fn move_workspace(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Valu
             &mutation,
         )
         .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.move", "workspace", "workspaces")
+    snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
 }
 
 fn dispatch_exact_topology_mutation(
@@ -316,38 +316,24 @@ fn dispatch_exact_topology_mutation(
         .map_err(resource_operation_error)?;
     match operation {
         ResourceOperation::WorkspaceFocus | ResourceOperation::WorkspaceLayoutApply => {
-            snapshot_mutation_result(
-                mux,
-                commit,
-                &super::operation_name(operation),
-                "workspace",
-                "workspaces",
-            )
+            snapshot_mutation_result(mux, commit, &super::operation_name(operation), "workspace")
         }
         ResourceOperation::ScreenRename
         | ResourceOperation::ScreenFocus
-        | ResourceOperation::ScreenLayoutUndo => snapshot_mutation_result(
-            mux,
-            commit,
-            &super::operation_name(operation),
-            "screen",
-            "screens",
-        ),
+        | ResourceOperation::ScreenLayoutUndo => {
+            snapshot_mutation_result(mux, commit, &super::operation_name(operation), "screen")
+        }
         ResourceOperation::PaneRename
         | ResourceOperation::PaneFocus
         | ResourceOperation::PaneFocusDirection
         | ResourceOperation::PaneSwap
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
-        | ResourceOperation::PaneViewportWidthSet => snapshot_mutation_result(
-            mux,
-            commit,
-            &super::operation_name(operation),
-            "pane",
-            "panes",
-        ),
+        | ResourceOperation::PaneViewportWidthSet => {
+            snapshot_mutation_result(mux, commit, &super::operation_name(operation), "pane")
+        }
         ResourceOperation::TabRename | ResourceOperation::TabMove | ResourceOperation::TabFocus => {
-            snapshot_mutation_result(mux, commit, &super::operation_name(operation), "tab", "tabs")
+            snapshot_mutation_result(mux, commit, &super::operation_name(operation), "tab")
         }
         ResourceOperation::WorkspaceClose
         | ResourceOperation::ScreenClose
@@ -378,17 +364,17 @@ fn snapshot_mutation_result(
     commit: crate::workspace_registry::ResourcePatchCommit,
     operation: &str,
     result_field: &str,
-    collection: &str,
 ) -> Result<Value, ResourceError> {
     let id = result_id(&commit.result, operation, result_field)?;
-    let snapshot = public_session_snapshot(mux)?;
-    let value = find_snapshot(&snapshot, collection, id)?;
-    Ok(json!({
-        "value": value,
-        "generation": snapshot["cursor"]["generation"],
-        "revision": commit.revision.to_string(),
-        "replayed": commit.replayed,
-    }))
+    let value = commit.result["public_value"].clone();
+    if !value.is_object() || value["id"].as_str() != Some(id) {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "topology commit omitted its exact public result",
+            json!({"field":"public_value","id":id}),
+        ));
+    }
+    mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
 fn result_id<'a>(
@@ -670,6 +656,173 @@ mod tests {
         assert_eq!(listed[0]["name"], " exact ");
         assert!(listed[0]["id"].as_str().unwrap().starts_with("ws_"));
         assert!(listed[0].get("key").is_none());
+    }
+
+    #[test]
+    fn workspace_rename_replay_returns_the_original_value_after_a_later_rename() {
+        let mux = mux();
+        let created = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceCreate,
+                session_selectors(),
+                json!({"initial_content":"empty","name":"before"}),
+                Some("rename-replay-create"),
+            ),
+        )
+        .unwrap();
+        let workspace = created["value"]["workspace_id"].as_str().unwrap();
+        let original_request = || {
+            parsed(
+                ResourceOperation::WorkspaceRename,
+                selectors(Some(workspace), None, None, None),
+                json!({"name":"original committed name"}),
+                Some("rename-replay-original"),
+            )
+        };
+
+        let original = dispatch(&mux, original_request()).unwrap();
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceRename,
+                selectors(Some(workspace), None, None, None),
+                json!({"name":"later name"}),
+                Some("rename-replay-later"),
+            ),
+        )
+        .unwrap();
+        let replay = dispatch(&mux, original_request()).unwrap();
+
+        assert_eq!(original["value"]["name"], "original committed name");
+        assert_eq!(replay["value"], original["value"]);
+        assert_eq!(replay["revision"], original["revision"]);
+        assert_eq!(replay["replayed"], true);
+        let current = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceGet,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                None,
+            ),
+        )
+        .unwrap();
+        assert_eq!(current["name"], "later name");
+        mux.shutdown();
+    }
+
+    #[test]
+    fn workspace_move_replay_returns_the_original_index_after_a_later_move() {
+        let mux = mux();
+        let mut workspace_ids = Vec::new();
+        for index in 0..3 {
+            let created = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::WorkspaceCreate,
+                    session_selectors(),
+                    json!({"initial_content":"empty","name":format!("workspace {index}")}),
+                    Some(&format!("move-replay-create-{index}")),
+                ),
+            )
+            .unwrap();
+            workspace_ids.push(created["value"]["workspace_id"].as_str().unwrap().to_string());
+        }
+        let workspace = &workspace_ids[0];
+        let original_request = || {
+            parsed(
+                ResourceOperation::WorkspaceMove,
+                selectors(Some(workspace), None, None, None),
+                json!({"index":2}),
+                Some("move-replay-original"),
+            )
+        };
+
+        let original = dispatch(&mux, original_request()).unwrap();
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceMove,
+                selectors(Some(workspace), None, None, None),
+                json!({"index":0}),
+                Some("move-replay-later"),
+            ),
+        )
+        .unwrap();
+        let replay = dispatch(&mux, original_request()).unwrap();
+
+        assert_eq!(original["value"]["index"], 2);
+        assert_eq!(replay["value"], original["value"]);
+        assert_eq!(replay["revision"], original["revision"]);
+        assert_eq!(replay["replayed"], true);
+        let current = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceGet,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                None,
+            ),
+        )
+        .unwrap();
+        assert_eq!(current["index"], 0);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn workspace_rename_replay_survives_a_later_delete() {
+        let mux = mux();
+        let created = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceCreate,
+                session_selectors(),
+                json!({"initial_content":"empty","name":"before delete"}),
+                Some("delete-replay-create"),
+            ),
+        )
+        .unwrap();
+        let workspace = created["value"]["workspace_id"].as_str().unwrap();
+        let rename_request = || {
+            parsed(
+                ResourceOperation::WorkspaceRename,
+                selectors(Some(workspace), None, None, None),
+                json!({"name":"committed before delete"}),
+                Some("delete-replay-rename"),
+            )
+        };
+
+        let renamed = dispatch(&mux, rename_request()).unwrap();
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceClose,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                Some("delete-replay-close"),
+            ),
+        )
+        .unwrap();
+        let replay = dispatch(&mux, rename_request()).unwrap();
+
+        assert_eq!(renamed["value"]["name"], "committed before delete");
+        assert_eq!(replay["value"], renamed["value"]);
+        assert_eq!(replay["revision"], renamed["revision"]);
+        assert_eq!(replay["replayed"], true);
+        assert!(
+            dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::WorkspaceGet,
+                    selectors(Some(workspace), None, None, None),
+                    json!({}),
+                    None,
+                ),
+            )
+            .is_err()
+        );
+        mux.shutdown();
     }
 
     #[test]

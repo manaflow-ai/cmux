@@ -2659,7 +2659,8 @@ impl Mux {
         }
 
         let mut state = self.state.lock().unwrap();
-        let plan = prepare(&mut state, &registry)?;
+        let mut plan = prepare(&mut state, &registry)?;
+        persist_public_topology_result(operation, &mut plan.result, &plan.deltas)?;
         #[cfg(test)]
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
@@ -3379,7 +3380,8 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
-        let projection = project(&registry, &mut state)?;
+        let mut projection = project(&registry, &mut state)?;
+        persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -10594,6 +10596,58 @@ impl Mux {
         let viewed = self.with_state(Self::active_surface_in_state);
         self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
+    }
+}
+
+fn persist_public_topology_result(
+    operation: &str,
+    result: &mut Value,
+    changes: &Value,
+) -> anyhow::Result<()> {
+    let Some((resource, identity_field)) = public_topology_result_target(operation) else {
+        return Ok(());
+    };
+    let id = result
+        .get(identity_field)
+        .and_then(Value::as_str)
+        .with_context(|| format!("{operation} result omitted its {identity_field} identity"))?;
+    let value = changes
+        .as_array()
+        .context("public topology changes are not an array")?
+        .iter()
+        .rev()
+        .find(|change| {
+            change["kind"] == "upsert"
+                && change["resource"] == resource
+                && change["id"].as_str() == Some(id)
+        })
+        .and_then(|change| change.get("value"))
+        .cloned()
+        .with_context(|| {
+            format!("{operation} changes omitted the committed {resource} value for {id}")
+        })?;
+    result
+        .as_object_mut()
+        .context("public topology result is not an object")?
+        .insert("public_value".to_string(), value);
+    Ok(())
+}
+
+fn public_topology_result_target(operation: &str) -> Option<(&'static str, &'static str)> {
+    match operation {
+        "workspace.rename" | "workspace.move" | "workspace.focus" | "workspace.layout.apply" => {
+            Some(("workspace", "workspace"))
+        }
+        "screen.rename" | "screen.focus" | "screen.layout.undo" => Some(("screen", "screen")),
+        "pane.rename"
+        | "pane.focus"
+        | "pane.focus_direction"
+        | "pane.swap"
+        | "pane.zoom"
+        | "pane.split_ratio.set"
+        | "pane.viewport_width.set" => Some(("pane", "pane")),
+        "tab.rename" | "tab.move" | "tab.focus" => Some(("tab", "tab")),
+        _ => None,
     }
 }
 
