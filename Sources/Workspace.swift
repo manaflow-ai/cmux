@@ -1697,6 +1697,35 @@ extension Workspace {
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                     )
+                } else if autoResumeAgentSessions,
+                          restoredHibernation == nil,
+                          !restoredAgentWillRunStartupCommand,
+                          !restoredAgentWillRunStartupInput,
+                          restoredBindingLaunch == nil,
+                          restorableAgent.resumeCommand != nil,
+                          (SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                              ?? RestorableAgentSessionIndex.load())
+                              .hasRestorableEntryForSession(
+                                  kind: restorableAgent.kind,
+                                  sessionId: restorableAgent.sessionId
+                              ) {
+                    // Auto-resume was suppressed for this panel — a live
+                    // process from a crashed previous launch or a duplicate
+                    // panel's dedup claim (`agentSessionAlreadyActive`), or the
+                    // agent-was-not-running-at-quit gate. Without this branch
+                    // the panel restores as a silent empty shell whose
+                    // suppression is never re-evaluated, so the session can
+                    // never come back on its own (#8446 follow-up). Park it in
+                    // agent hibernation instead: the visible-panel wake path
+                    // retries the resume, and `resumeAgentHibernation` refuses
+                    // to fire while a live process for the session remains.
+                    // Deliberate exits are excluded above: SessionEnd marks the
+                    // hook record non-restorable, so they have no restorable
+                    // entry and keep today's plain-shell restore.
+                    terminalPanel.enterAgentHibernation(
+                        agent: restorableAgent,
+                        lastActivityAt: Date()
+                    )
                 }
             } else {
                 seedSessionRestoredAgentState(
@@ -4846,8 +4875,39 @@ final class Workspace: Identifiable, ObservableObject {
               terminalPanel.isAgentHibernated else {
             return false
         }
+        // Waking types `claude --resume <id>` / `codex resume <id>` into the
+        // pane. If the session still has a live process anywhere — a
+        // crash-orphaned process from a previous launch, or a duplicate panel
+        // referencing the same session — firing another resume would contend
+        // for the same on-disk session data (#8446). Leave the panel
+        // hibernated; a later visible-wake retries once the process is gone.
+        let hibernatedAgent = terminalPanel.agentHibernationState?.agent
+        if let hibernatedAgent {
+            let liveIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+            if liveIndex.hasLiveProcessForSession(
+                kind: hibernatedAgent.kind,
+                sessionId: hibernatedAgent.sessionId
+            ) {
+                return false
+            }
+            guard AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                kind: hibernatedAgent.kind.rawValue,
+                sessionId: hibernatedAgent.sessionId
+            ) else {
+                return false
+            }
+        }
         let preparation = terminalPanel.prepareAgentHibernationResume()
-        guard preparation.didResume else { return false }
+        guard preparation.didResume else {
+            if let hibernatedAgent {
+                AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+                    kind: hibernatedAgent.kind.rawValue,
+                    sessionId: hibernatedAgent.sessionId
+                )
+            }
+            return false
+        }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
                 ? .awaitingAutoResumeCommand
