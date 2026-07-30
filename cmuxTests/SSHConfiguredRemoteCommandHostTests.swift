@@ -476,8 +476,8 @@ struct SSHConfiguredRemoteCommandHostTests {
             """
         )
         #expect(
-            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 1,
-            Comment(rawValue: command)
+            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 2,
+            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
         )
         #expect(!command.contains("-$$"), Comment(rawValue: command))
         #expect(

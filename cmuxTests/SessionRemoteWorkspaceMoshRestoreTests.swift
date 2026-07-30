@@ -179,6 +179,15 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.localSocketPath == "/tmp/cmux.sock")
         #expect(configuration.terminalStartupCommand?.contains("52000.bootstrap.sh") == true)
         #expect(configuration.terminalStartupCommand?.contains("cmux_remote_bootstrap_b64") == true)
+        let startupCommand = try #require(configuration.terminalStartupCommand)
+        #expect(
+            startupCommand.contains("rpc workspace.remote.terminal_session_launching"),
+            "\(startupCommand)"
+        )
+        #expect(
+            startupCommand.contains("rpc workspace.remote.terminal_session_connected"),
+            "Every restored Mosh-to-SSH fallback must report authoritative readiness: \(startupCommand)"
+        )
         let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 52_000,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),

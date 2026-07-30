@@ -481,6 +481,9 @@ extension Workspace {
                 )
         }
         untrackRemoteTerminalSurface(panelId)
+        if closePanel {
+            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
+        }
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         removeSurfaceMappings(forPanelId: panelId)

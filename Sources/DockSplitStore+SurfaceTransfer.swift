@@ -76,7 +76,7 @@ extension DockSplitStore {
                     dock: self
                 )
         }
-        let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+        let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
         let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
             workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
             panelId: panelId
@@ -239,7 +239,10 @@ extension DockSplitStore {
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
             if let preservedTransfer {
-                detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
+                setDetachedSurfaceTransfer(
+                    preservedTransfer,
+                    forPanelID: panelId
+                )
             }
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
@@ -286,6 +289,10 @@ extension DockSplitStore {
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
+            remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
+            remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
+            remoteTerminalAttemptID: preservedTransfer?.remoteTerminalAttemptID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
@@ -322,7 +329,7 @@ extension DockSplitStore {
         // recorded processes are proven dead. Stripping here instead would
         // lose the rescue for live agents whenever the detach-time live cwd
         // read is unavailable.
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
         adoptSessionRestoreState(from: detached)
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
@@ -338,7 +345,7 @@ extension DockSplitStore {
             inPane: paneId
         ) else {
             panels.removeValue(forKey: detached.panelId)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
@@ -417,7 +424,7 @@ extension DockSplitStore {
         )
 
         panels[detached.panelId] = panel
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
         adoptSessionRestoreState(from: detached)
         surfaceIdToPanelId[tab.id] = detached.panelId
 
@@ -431,7 +438,7 @@ extension DockSplitStore {
         }
         guard let newPane else {
             surfaceIdToPanelId.removeValue(forKey: tab.id)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil

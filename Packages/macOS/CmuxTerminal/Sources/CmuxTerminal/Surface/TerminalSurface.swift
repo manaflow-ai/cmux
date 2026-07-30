@@ -140,6 +140,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The stable identity of the terminal surface.
     public let id: UUID
 
+    /// Unique identity for this terminal process generation.
+    ///
+    /// Respawning a logical surface constructs a new ``TerminalSurface`` with
+    /// the same ``id`` but a different lifecycle identity.
+    public let terminalLifecycleId: UUID
+
     /// The owning workspace id.
     public private(set) var tabId: UUID
 
@@ -423,11 +429,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     static func cmuxContextEnvironment(
         workspaceId: UUID,
         surfaceId: UUID,
+        terminalLifecycleId: UUID,
         socketPath: String
     ) -> CmuxContextEnvironment {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            terminalLifecycleId: terminalLifecycleId,
             socketPath: socketPath
         )
     }
@@ -444,6 +452,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
+                terminalLifecycleId: terminalLifecycleId,
                 socketPath: socketPath
             ),
             to: &environment,
@@ -489,6 +498,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
+        self.terminalLifecycleId = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
