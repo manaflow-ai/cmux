@@ -148,7 +148,9 @@ struct OneShotTerminalLauncherStore {
         ) else {
             return nil
         }
-        return "/bin/zsh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
+        // Keep zsh behind env so Ghostty neither marks this interpreter as login
+        // nor installs shell integration before the payload chooses its login shell.
+        return "/usr/bin/env /bin/zsh -f \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
     }
 
     private func pruneOldLaunchers(in directoryURL: URL) {
