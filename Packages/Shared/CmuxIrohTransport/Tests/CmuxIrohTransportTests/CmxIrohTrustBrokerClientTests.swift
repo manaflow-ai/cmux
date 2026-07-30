@@ -107,6 +107,7 @@ struct CmxIrohTrustBrokerClientTests {
         ])
         let authorization = try CmxIrohBindingRequestAuthorization(
             bindingID: Self.bindingID,
+            clientNamespace: "dev.cmux.app.internal",
             identity: identityMaterial(),
             endpointID: CmxIrohPeerIdentity(endpointID: Self.endpointID)
         )
@@ -399,6 +400,30 @@ struct CmxIrohTrustBrokerClientTests {
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
         #expect(object["bindingId"] as? String == bindingID)
+        #expect(object["intent"] == nil)
+    }
+
+    @Test
+    func forgetMacUsesExplicitAccountManagementIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.forgetMac(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/devices/iroh")
+        #expect(captured.httpMethod == "DELETE")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "forget_mac")
     }
 
     @Test

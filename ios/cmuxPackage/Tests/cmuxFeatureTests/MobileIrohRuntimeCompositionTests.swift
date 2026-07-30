@@ -69,6 +69,16 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await fixture.endpointFactory.bindCount() == 1)
     }
 
+    @Test
+    func activationSeedsCachedBindingProofBeforeRegistration() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+
+        #expect(
+            fixture.endpointFactoryModes.bindingAuthorizationIDs.first
+                == fixture.bindingID
+        )
+    }
+
     /// Regression: when the durable device-id store is unavailable at activation
     /// (Keychain locked before first unlock, or a persistent write failure), the
     /// composition must defer activation rather than registering a binding under
@@ -1238,7 +1248,10 @@ private struct MobileIrohSignOutFixture {
                 endpointFactoryModes.record(mode)
                 return endpointFactory
             },
-            brokerFactory: { _, _ in broker },
+            brokerFactory: { _, authorization in
+                endpointFactoryModes.recordAuthorization(authorization)
+                return broker
+            },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) },
@@ -1468,9 +1481,16 @@ private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
 @MainActor
 private final class MobileIrohEndpointFactoryModeRecorder {
     private(set) var modes: [CmxIrohTransportVerificationMode] = []
+    private(set) var bindingAuthorizationIDs: [String?] = []
 
     func record(_ mode: CmxIrohTransportVerificationMode) {
         modes.append(mode)
+    }
+
+    func recordAuthorization(
+        _ authorization: CmxIrohBindingRequestAuthorization?
+    ) {
+        bindingAuthorizationIDs.append(authorization?.bindingID)
     }
 }
 

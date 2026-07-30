@@ -486,6 +486,73 @@ describe("Iroh discovery and grants", () => {
     );
   });
 
+  test("an iOS binding can forget only its same-build Mac", async () => {
+    const fixture = makeFixture();
+    const ios = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "stable",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const mac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:stable",
+      tag: "stable",
+      platform: "mac",
+    });
+    const siblingMac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:demo",
+      tag: "demo",
+      platform: "mac",
+    });
+    fixture.repository.bindings.push(ios, mac, siblingMac);
+    const body = { bindingId: mac.id, intent: "forget_mac" };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      ios.clientNamespace,
+      fixture.bindingProof(
+        ios.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(mac.revokedAt).toEqual(NOW);
+    const siblingBody = {
+      bindingId: siblingMac.id,
+      intent: "forget_mac",
+    };
+    await expectEffectFailure(
+      fixture.broker.revoke(
+        USER_A,
+        siblingBody,
+        NOW,
+        ios.clientNamespace,
+        fixture.bindingProof(
+          ios.id,
+          "DELETE",
+          "api/devices/iroh",
+          siblingBody,
+        ),
+      ),
+      "IrohNotFoundError",
+    );
+    expect(siblingMac.revokedAt).toBeNull();
+  });
+
   test("never exposes another user through shared team context", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
@@ -1191,26 +1258,40 @@ class MemoryRepository implements IrohRepositoryShape {
         candidate.id === input.authorizedBindingId
         && candidate.userId === input.userId
         && !candidate.revokedAt);
-      const sameDurableSlot = authorized
-        && authorized.deviceUuid === row.deviceUuid
-        && authorized.tag === row.tag
-        && authorized.platform === row.platform
-        && (
-          authorized.clientNamespace === row.clientNamespace
-          || row.clientNamespace === "legacy"
-        );
-      if (
-        row.revokedAt
-        && authorized
-        && (authorized.id === row.id || sameDurableSlot)
-      ) {
-        return Effect.succeed(true);
+      if (input.intent === "forget_mac") {
+        const sameBuildMac = authorized?.platform === "ios"
+          && row.platform === "mac"
+          && authorized.tag === row.tag
+          && (
+            row.clientNamespace === `mac:${authorized.tag}`
+            || row.clientNamespace === "legacy"
+          );
+        if (!sameBuildMac) return Effect.succeed(false);
+        if (row.revokedAt) return Effect.succeed(true);
+      } else {
+        const sameDurableSlot = authorized
+          && authorized.deviceUuid === row.deviceUuid
+          && authorized.tag === row.tag
+          && authorized.platform === row.platform
+          && (
+            authorized.clientNamespace === row.clientNamespace
+            || row.clientNamespace === "legacy"
+          );
+        if (
+          row.revokedAt
+          && authorized
+          && (authorized.id === row.id || sameDurableSlot)
+        ) {
+          return Effect.succeed(true);
+        }
+        const sameOwnedSlot = sameDurableSlot
+          && authorized?.appInstanceId === row.appInstanceId;
+        if (!authorized || (authorized.id !== row.id && !sameOwnedSlot)) {
+          return Effect.succeed(false);
+        }
       }
-      const sameOwnedSlot = sameDurableSlot
-        && authorized?.appInstanceId === row.appInstanceId;
-      if (!authorized || (authorized.id !== row.id && !sameOwnedSlot)) {
-        return Effect.succeed(false);
-      }
+    } else if (input.intent === "forget_mac") {
+      return Effect.succeed(false);
     } else if (
       (input.clientNamespace ?? "legacy") !== "legacy"
       || row.clientNamespace !== "legacy"
