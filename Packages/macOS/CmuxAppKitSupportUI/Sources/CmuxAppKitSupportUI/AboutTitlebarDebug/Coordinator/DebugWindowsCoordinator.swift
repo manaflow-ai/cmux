@@ -25,6 +25,9 @@ public final class DebugWindowsCoordinator {
     @ObservationIgnored
     private var aboutTitlebarController: AboutTitlebarDebugWindowController?
 
+    @ObservationIgnored
+    private var appKitSignalLabController: AppKitSignalLabWindowController?
+
     /// Creates the coordinator.
     ///
     /// - Parameter decorator: The window-decoration seam. Held weakly because the
@@ -42,6 +45,13 @@ public final class DebugWindowsCoordinator {
             decorator: decorator
         )
         aboutTitlebarController = controller
+        controller.show()
+    }
+
+    /// Presents the native AppKit signal experiment, creating its graph and window on first use.
+    public func showAppKitSignalLabWindow() {
+        let controller = appKitSignalLabController ?? AppKitSignalLabWindowController()
+        appKitSignalLabController = controller
         controller.show()
     }
 }

@@ -16,6 +16,9 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarFocusFirstItem: Bool?
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
     var remoteTmuxSizingPayload: JSONValue?
+    var appKitSignalLabAvailable = true
+    var screenshotLabel: String?
+    var screenshotWindowIdentifier: String?
 
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
@@ -34,6 +37,16 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
 
     func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
         remoteTmuxSizingPayload
+    }
+
+    func controlDebugShowAppKitSignalLab() -> Bool {
+        appKitSignalLabAvailable
+    }
+
+    func controlDebugCaptureScreenshot(label: String, windowIdentifier: String?) -> String {
+        screenshotLabel = label
+        screenshotWindowIdentifier = windowIdentifier
+        return "OK capture-1 /tmp/capture.png"
     }
 }
 
@@ -64,6 +77,39 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+    }
+
+    @Test func appKitSignalLabShowRoutesThroughDebugSeam() {
+        let (coordinator, context) = makeCoordinator()
+        let request = ControlRequest(
+            id: .int(1), method: "debug.appkit_signal_lab.show", params: [:]
+        )
+        #expect(coordinator.handle(request) == .ok(.object(["shown": .bool(true)])))
+
+        context.appKitSignalLabAvailable = false
+        #expect(coordinator.handle(request) == .err(
+            code: "unavailable",
+            message: "AppKit Signals Lab unavailable",
+            data: nil
+        ))
+    }
+
+    @Test func screenshotForwardsAuxiliaryWindowIdentifier() {
+        let (coordinator, context) = makeCoordinator()
+        let request = ControlRequest(
+            id: .int(1),
+            method: "debug.window.screenshot",
+            params: [
+                "label": .string("signals-lab"),
+                "window_identifier": .string("cmux.appKitSignalsLab"),
+            ]
+        )
+        #expect(coordinator.handle(request) == .ok(.object([
+            "screenshot_id": .string("capture-1"),
+            "path": .string("/tmp/capture.png"),
+        ])))
+        #expect(context.screenshotLabel == "signals-lab")
+        #expect(context.screenshotWindowIdentifier == "cmux.appKitSignalsLab")
     }
 
     @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {

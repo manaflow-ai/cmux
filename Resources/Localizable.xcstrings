@@ -78635,6 +78635,13 @@
         }
       }
     },
+    "debug.menu.appKitSignalLab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Signal Todo List…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シグナルTodoリスト…"}}
+      }
+    },
     "debug.menu.bonsplitTabBarDebug": {
       "localizations": {
         "en": {
@@ -80410,6 +80417,475 @@
             "value": "起動時の外観デバッグ"
           }
         }
+      }
+    },
+    "debug.signalLab.activity.advanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Selected todo advanced in one batch."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "選択したTodoを1回のバッチで進めました。"}}
+      }
+    },
+    "debug.signalLab.activity.added": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Added a new todo in one batch."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいTodoを1回のバッチで追加しました。"}}
+      }
+    },
+    "debug.signalLab.activity.blockToggled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Selected todo's blocked state changed."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "選択したTodoのブロック状態を変更しました。"}}
+      }
+    },
+    "debug.signalLab.activity.cleared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cleared completed todos."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了したTodoを削除しました。"}}
+      }
+    },
+    "debug.signalLab.activity.completionToggled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Toggled a todo's completion state."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoの完了状態を切り替えました。"}}
+      }
+    },
+    "debug.signalLab.activity.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "RECENT EFFECTS"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最近のエフェクト"}}
+      }
+    },
+    "debug.signalLab.activity.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Fine-grained todo bindings are live."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "細粒度のTodoバインディングが稼働中です。"}}
+      }
+    },
+    "debug.signalLab.activity.seeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Signal graph seeded with eight todos."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シグナルグラフに8件のTodoを追加しました。"}}
+      }
+    },
+    "debug.signalLab.activity.simulated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Demo step updated todo progress atomically."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デモでTodoの進捗を一括更新しました。"}}
+      }
+    },
+    "debug.signalLab.advance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Advance Todo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoを進める"}}
+      }
+    },
+    "debug.signalLab.automation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Auto-schedule dependencies"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "依存関係を自動スケジュール"}}
+      }
+    },
+    "debug.signalLab.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Focus capacity"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "集中力"}}
+      }
+    },
+    "debug.signalLab.column.owner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "List"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リスト"}}
+      }
+    },
+    "debug.signalLab.column.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Progress"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "進捗"}}
+      }
+    },
+    "debug.signalLab.column.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Status"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "状態"}}
+      }
+    },
+    "debug.signalLab.column.work": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Todo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todo"}}
+      }
+    },
+    "debug.signalLab.filter.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "未完了"}}
+      }
+    },
+    "debug.signalLab.filter.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "All todos"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "すべてのTodo"}}
+      }
+    },
+    "debug.signalLab.filter.all.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "All"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "すべて"}}
+      }
+    },
+    "debug.signalLab.filter.blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Blocked"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブロック中"}}
+      }
+    },
+    "debug.signalLab.filter.complete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Done"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了"}}
+      }
+    },
+    "debug.signalLab.inspector.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "TODO DETAILS"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoの詳細"}}
+      }
+    },
+    "debug.signalLab.inspector.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No todo selected"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoが選択されていません"}}
+      }
+    },
+    "debug.signalLab.inspector.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Progress"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "進捗"}}
+      }
+    },
+    "debug.signalLab.metric.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "REMAINING"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "残り"}}
+      }
+    },
+    "debug.signalLab.metric.health": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "COMPLETION"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了率"}}
+      }
+    },
+    "debug.signalLab.metric.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "AVG PROGRESS"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "平均進捗"}}
+      }
+    },
+    "debug.signalLab.metric.throughput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "COMPLETED"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了"}}
+      }
+    },
+    "debug.signalLab.owner.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウド"}}
+      }
+    },
+    "debug.signalLab.owner.design": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Design"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デザイン"}}
+      }
+    },
+    "debug.signalLab.owner.desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Desktop"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デスクトップ"}}
+      }
+    },
+    "debug.signalLab.owner.performance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Performance"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "パフォーマンス"}}
+      }
+    },
+    "debug.signalLab.owner.personal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Personal"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "個人"}}
+      }
+    },
+    "debug.signalLab.owner.release": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Release"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リリース"}}
+      }
+    },
+    "debug.signalLab.owner.runtime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Runtime"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ランタイム"}}
+      }
+    },
+    "debug.signalLab.owner.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Search"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "検索"}}
+      }
+    },
+    "debug.signalLab.owner.storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Storage"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ストレージ"}}
+      }
+    },
+    "debug.signalLab.priority.critical": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Critical priority"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最優先"}}
+      }
+    },
+    "debug.signalLab.priority.high": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "High priority"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "高優先度"}}
+      }
+    },
+    "debug.signalLab.priority.normal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Normal priority"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "通常優先度"}}
+      }
+    },
+    "debug.signalLab.pulse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "TODO PULSE"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoパルス"}}
+      }
+    },
+    "debug.signalLab.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Search todos or lists"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoまたはリストを検索"}}
+      }
+    },
+    "debug.signalLab.sidebar.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "TODO LISTS"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoリスト"}}
+      }
+    },
+    "debug.signalLab.simulate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Run demo step"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デモを実行"}}
+      }
+    },
+    "debug.signalLab.status.blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Blocked"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブロック中"}}
+      }
+    },
+    "debug.signalLab.status.complete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Complete"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了"}}
+      }
+    },
+    "debug.signalLab.status.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Queued"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "待機中"}}
+      }
+    },
+    "debug.signalLab.status.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Review"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "レビュー"}}
+      }
+    },
+    "debug.signalLab.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Running"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "実行中"}}
+      }
+    },
+    "debug.signalLab.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A native AppKit todo app driven by Solid-style signals."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Solid方式のシグナルで動くネイティブAppKit Todoアプリです。"}}
+      }
+    },
+    "debug.signalLab.task.auditShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Audit command shortcuts"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コマンドショートカットを監査"}}
+      }
+    },
+    "debug.signalLab.task.compressSnapshots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Compress session snapshots"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "セッションスナップショットを圧縮"}}
+      }
+    },
+    "debug.signalLab.task.indexWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Index workspace history"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペース履歴を索引化"}}
+      }
+    },
+    "debug.signalLab.task.notarizeBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Notarize release build"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リリースビルドを公証"}}
+      }
+    },
+    "debug.signalLab.task.profileStartup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Profile startup path"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "起動経路をプロファイル"}}
+      }
+    },
+    "debug.signalLab.task.renderPipeline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Rebuild render pipeline"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "描画パイプラインを再構築"}}
+      }
+    },
+    "debug.signalLab.task.syncSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sync remote sessions"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リモートセッションを同期"}}
+      }
+    },
+    "debug.signalLab.task.validateThemes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Validate terminal themes"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルテーマを検証"}}
+      }
+    },
+    "debug.signalLab.throughputValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%lld/h"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%lld/時"}}
+      }
+    },
+    "debug.signalLab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Signal Todo List"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シグナルTodoリスト"}}
+      }
+    },
+    "debug.signalLab.todo.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Add Todo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Todoを追加"}}
+      }
+    },
+    "debug.signalLab.todo.clearCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Clear Completed"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了済みを削除"}}
+      }
+    },
+    "debug.signalLab.todo.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "What needs to be done?"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "何をする必要がありますか？"}}
+      }
+    },
+    "debug.signalLab.todo.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Toggle completion"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "完了状態を切り替え"}}
+      }
+    },
+    "debug.signalLab.toggleBlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Toggle Blocked"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ブロックを切替"}}
+      }
+    },
+    "debug.signalLab.visibleCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%lld visible"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%lld件を表示"}}
+      }
+    },
+    "debug.signalLab.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Signal Todo List"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シグナルTodoリスト"}}
       }
     },
     "debug.tabBarBackdropLab.candidateEnd": {
