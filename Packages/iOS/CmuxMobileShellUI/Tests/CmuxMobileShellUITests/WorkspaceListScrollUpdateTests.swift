@@ -193,7 +193,6 @@ import UIKit
         let initial = configuration(
             workspaceIDs: ["workspace-1"],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in },
             closeWorkspace: { _ in },
             setUnread: { _, _ in },
             setPinned: { _, _ in },
@@ -255,7 +254,6 @@ import UIKit
     private func configuration(
         workspaceIDs: [String],
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -273,7 +271,6 @@ import UIKit
         }
         return configuration(
             workspaces: workspaces,
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -284,7 +281,6 @@ import UIKit
 
     private func configuration(
         workspaces: [MobileWorkspacePreview],
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -317,7 +313,6 @@ import UIKit
             enablesReorder: false,
             moveRows: nil,
             selectWorkspace: { _ in },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,

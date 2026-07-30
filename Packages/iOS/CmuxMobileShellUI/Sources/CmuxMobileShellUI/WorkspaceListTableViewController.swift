@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileShellModel
+import CmuxMobileSupport
 import UIKit
 
 /// Owns the workspace table's relationship with UIKit navigation and tab bars.
@@ -30,6 +32,53 @@ final class WorkspaceListTableViewController: UIViewController {
     func detach() {
         tableView.scrollEdgeRegistrationNeedsUpdate = nil
         scrollEdgeCoordinator.unregister()
+    }
+
+    func presentWorkspaceCloseConfirmation(
+        workspaceID: MobileWorkspacePreview.ID,
+        sourceView: UIView,
+        confirm: @escaping @MainActor () -> Void
+    ) {
+        guard presentedViewController == nil,
+              sourceView.window != nil else { return }
+
+        let alert = UIAlertController(
+            title: L10n.string(
+                "mobile.workspace.delete.confirmTitle",
+                defaultValue: "Delete Workspace?"
+            ),
+            message: L10n.string(
+                "mobile.workspace.delete.confirmMessage",
+                defaultValue: "This will close the workspace on your Mac."
+            ),
+            preferredStyle: .actionSheet
+        )
+        alert.view.accessibilityIdentifier =
+            "MobileWorkspaceDeleteConfirmation-\(workspaceID.rawValue)"
+        alert.addAction(
+            UIAlertAction(
+                title: L10n.string(
+                    "mobile.workspace.delete.confirmAction",
+                    defaultValue: "Delete"
+                ),
+                style: .destructive
+            ) { _ in
+                MainActor.assumeIsolated {
+                    confirm()
+                }
+            }
+        )
+        alert.addAction(
+            UIAlertAction(
+                title: L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
+                style: .cancel
+            )
+        )
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceView.bounds
+        }
+        present(alert, animated: true)
     }
 
     private func updateScrollEdgeRegistration() {

@@ -37,7 +37,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let moveRows: ((IndexSet, Int) -> Void)?
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
-    let requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)?
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
@@ -74,7 +73,10 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         tableView.sectionFooterHeight = 0
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
-        context.coordinator.attach(to: tableView)
+        context.coordinator.attach(
+            to: tableView,
+            viewController: viewController
+        )
         return viewController
     }
 
@@ -92,6 +94,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         _ uiViewController: WorkspaceListTableViewController,
         coordinator: WorkspaceListTableCoordinator
     ) {
+        coordinator.detach()
         uiViewController.detach()
     }
 }
