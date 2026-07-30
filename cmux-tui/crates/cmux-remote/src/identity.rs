@@ -446,6 +446,7 @@ impl PersistenceFailure {
 
 struct PersistenceCoordinator {
     path: PathBuf,
+    _state_lease: OwnerFileLock,
     state: StdMutex<PersistenceCoordinatorState>,
     #[cfg(test)]
     hooks: Arc<PersistenceTestHooks>,
@@ -462,9 +463,10 @@ struct PersistenceCoordinatorState {
 }
 
 impl PersistenceCoordinator {
-    fn new(path: PathBuf, durable_revision: u64) -> Self {
+    fn new(path: PathBuf, durable_revision: u64, state_lease: OwnerFileLock) -> Self {
         Self {
             path,
+            _state_lease: state_lease,
             state: StdMutex::new(PersistenceCoordinatorState {
                 durable_revision,
                 highest_seen_revision: durable_revision,
@@ -770,13 +772,14 @@ impl AuthDatabase {
     ) -> Result<Arc<Self>, IdentityError> {
         let state_dir = state_dir.into();
         secure_directory(&state_dir)?;
+        let state_path = state_dir.join("devices.json");
+        let lease_path = sibling_lock_path(&state_path).map_err(IdentityError::Io)?;
+        let state_lease = OwnerFileLock::try_acquire(&lease_path).map_err(IdentityError::Io)?;
         let identity = load_or_create_identity(&state_dir.join("identity.json"))?;
-        let persisted = load_state(&state_dir.join("devices.json"))?;
+        let persisted = load_state(&state_path)?;
         let (revocation_tx, _) = watch::channel(persisted.revocation_generation);
-        let persistence = Arc::new(PersistenceCoordinator::new(
-            state_dir.join("devices.json"),
-            persisted.revision,
-        ));
+        let persistence =
+            Arc::new(PersistenceCoordinator::new(state_path, persisted.revision, state_lease));
         Ok(Arc::new(Self {
             state_dir,
             daemon_name: daemon_name.into(),
@@ -2282,7 +2285,9 @@ mod tests {
     async fn older_snapshot_cannot_overwrite_newer_identity_state() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("devices.json");
-        let coordinator = Arc::new(PersistenceCoordinator::new(path.clone(), 0));
+        let lease_path = sibling_lock_path(&path).unwrap();
+        let state_lease = OwnerFileLock::try_acquire(&lease_path).unwrap();
+        let coordinator = Arc::new(PersistenceCoordinator::new(path.clone(), 0, state_lease));
         let blocked = PersistenceReleaseGuard::new(coordinator.hooks.clone());
         let device = DeviceRecord {
             id: "device".into(),
@@ -2936,6 +2941,7 @@ mod tests {
         client_task.await.unwrap().unwrap();
         server_task.await.unwrap().unwrap();
 
+        drop(database);
         let reloaded = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
         assert_eq!(reloaded.list_devices().await, vec![record]);
     }
