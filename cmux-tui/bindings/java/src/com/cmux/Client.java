@@ -10,6 +10,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ public final class Client implements AutoCloseable {
     public static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
     public static final int MAX_STREAM_MESSAGES = 256;
     public static final int MAX_STREAM_BYTES = 16 * 1024 * 1024;
+    private static final HexFormat LOWERCASE_HEX = HexFormat.of();
 
     @FunctionalInterface
     interface Decoder<T> {
@@ -2585,11 +2587,7 @@ public final class Client implements AutoCloseable {
         return () -> {
             byte[] entropy = new byte[16];
             random.nextBytes(entropy);
-            StringBuilder result = new StringBuilder(prefix);
-            for (byte value : entropy) {
-                result.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
-            }
-            return result.toString();
+            return prefix + LOWERCASE_HEX.formatHex(entropy);
         };
     }
 

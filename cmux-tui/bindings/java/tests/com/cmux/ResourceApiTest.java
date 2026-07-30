@@ -19,6 +19,7 @@ public final class ResourceApiTest {
     public static void main(String[] args) {
         decimalAndIdentifiers();
         sensitiveValuesAreRedacted();
+        defaultIdempotencyKeysUseFixedWidthLowercaseHex();
         exactCommandAndRouting();
         creationCorrelationIsFirstClass();
         nullableMetadata();
@@ -74,6 +75,26 @@ public final class ResourceApiTest {
             "renderer grant redaction"
         );
         require(token.reveal().equals("renderer-secret"), "explicit reveal");
+    }
+
+    private static void defaultIdempotencyKeysUseFixedWidthLowercaseHex() {
+        FakeTransport transport = new FakeTransport();
+        try (Client client = Client.builder()
+                .transport(transport)
+                .timeout(Duration.ofSeconds(1))
+                .build()) {
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .workspace(Selector.current())
+                .run(Options.Run.builder(ExactCommand.of("true")).build());
+            String key = String.valueOf(
+                transport.lastSent().get("idempotency_key")
+            );
+            require(
+                key.matches("\\Aidem_[0-9a-f]{32}\\z"),
+                "default idempotency key is fixed-width lowercase hex"
+            );
+        }
     }
 
     private static void exactCommandAndRouting() {
