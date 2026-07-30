@@ -34,7 +34,7 @@ checksum="$(
     "$tmp_dir/manifest.json"
 )"
 if [ "${#checksum}" -ne 64 ]; then
-  echo "cmux: $artifact is missing from the release manifest" >&2
+  echo "cmux: $artifact is unavailable for this release" >&2
   exit 1
 fi
 

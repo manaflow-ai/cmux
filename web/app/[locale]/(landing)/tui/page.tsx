@@ -93,7 +93,6 @@ export default async function TuiPage() {
             width={5120}
             height={2820}
             priority
-            unoptimized
             sizes="(min-width: 1440px) 1440px, calc(100vw - 3rem)"
             alt={t("screenshotAlt")}
             className="h-auto w-full [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.45))]"

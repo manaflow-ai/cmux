@@ -84,9 +84,12 @@ def test_install_scripts_are_public_and_checksum_verified() -> None:
 
     assert "https://files.cmux.com/cmux-tui/latest" in unix
     assert "checksum verification failed" in unix
+    assert "release manifest" not in unix
     assert "cmux-tui-x86_64-pc-windows-gnu.exe" in windows
     assert "Get-FileHash" in windows
     assert "SetEnvironmentVariable" in windows
+    assert "SecurityProtocolType]::Tls12" in windows
+    assert "release manifest" not in windows
 
 
 def test_unix_installer_has_valid_shell_syntax() -> None:

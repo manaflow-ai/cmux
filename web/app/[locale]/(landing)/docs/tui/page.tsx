@@ -46,7 +46,9 @@ export default async function TuiDocsPage() {
           src="/tui/cmux-tui-overview.png"
           width={5120}
           height={2820}
-          unoptimized
+          sizes={
+            "(min-width: 1152px) 856px, (min-width: 768px) calc(100vw - 19rem), calc(100vw - 3rem)"
+          }
           alt={t("screenshotAlt")}
           className="h-auto w-full rounded-lg border border-border"
         />

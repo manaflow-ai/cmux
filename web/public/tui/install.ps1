@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
 $BaseUrl = if ($env:CMUX_DOWNLOAD_BASE_URL) {
     $env:CMUX_DOWNLOAD_BASE_URL.TrimEnd("/")
@@ -24,7 +25,7 @@ $Artifact = "cmux-tui-x86_64-pc-windows-gnu.exe"
 $Manifest = Invoke-RestMethod "$BaseUrl/manifest.json"
 $Expected = $Manifest.binaries.$Artifact
 if (-not $Expected) {
-    throw "cmux: $Artifact is missing from the release manifest"
+    throw "cmux: $Artifact is unavailable for this release"
 }
 
 $Temporary = Join-Path ([System.IO.Path]::GetTempPath()) (
