@@ -41,8 +41,6 @@ export function TuiInstallTabs({
   unixLabel,
   windowsLabel,
   tabListLabel,
-  unixNote,
-  windowsNote,
   viewScriptLabel,
   copyLabel,
   copiedLabel,
@@ -50,8 +48,6 @@ export function TuiInstallTabs({
   unixLabel: string;
   windowsLabel: string;
   tabListLabel: string;
-  unixNote: string;
-  windowsNote: string;
   viewScriptLabel: string;
   copyLabel: string;
   copiedLabel: string;
@@ -175,9 +171,6 @@ export function TuiInstallTabs({
             )}
           </button>
         </div>
-        <p className="mt-2 text-xs leading-relaxed text-muted">
-          {platform === "unix" ? unixNote : windowsNote}
-        </p>
       </div>
     </div>
   );
