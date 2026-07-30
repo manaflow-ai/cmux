@@ -955,10 +955,18 @@ fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc
 }
 
 enum ServerShutdownCleanupState {
-    Pending,
-    Running,
+    Pending(u64),
+    Running(u64),
     Complete,
-    Failed(String),
+    Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
+    Poisoned(String),
+}
+
+#[derive(Clone)]
+enum ServerShutdownCleanupOutcome {
+    Complete,
+    Degraded { attempt: u64, message: String, retry: cmux_tui_core::ShutdownRequestWatch },
+    Poisoned(String),
 }
 
 #[cfg(test)]
@@ -976,7 +984,7 @@ impl ServerShutdownCleanup {
     fn new(mux: Arc<Mux>) -> Self {
         Self {
             mux,
-            state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending),
+            state: std::sync::Mutex::new(ServerShutdownCleanupState::Pending(0)),
             changed: std::sync::Condvar::new(),
             #[cfg(test)]
             shutdown_attempt: std::sync::Mutex::new(None),
@@ -1002,65 +1010,155 @@ impl ServerShutdownCleanup {
             Some(Arc::new(attempt));
     }
 
-    fn run_until_complete(&self) -> anyhow::Result<()> {
+    fn run_once(&self) -> ServerShutdownCleanupOutcome {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        loop {
+        let (attempt, retry) = loop {
             match &*state {
-                ServerShutdownCleanupState::Complete => return Ok(()),
-                ServerShutdownCleanupState::Failed(message) => {
-                    return Err(anyhow::anyhow!(message.clone()));
+                ServerShutdownCleanupState::Complete => {
+                    return ServerShutdownCleanupOutcome::Complete;
                 }
-                ServerShutdownCleanupState::Running => {
+                ServerShutdownCleanupState::Degraded { attempt, message, retry } => {
+                    return ServerShutdownCleanupOutcome::Degraded {
+                        attempt: *attempt,
+                        message: message.clone(),
+                        retry: retry.clone(),
+                    };
+                }
+                ServerShutdownCleanupState::Poisoned(message) => {
+                    return ServerShutdownCleanupOutcome::Poisoned(message.clone());
+                }
+                ServerShutdownCleanupState::Running(_) => {
                     state =
                         self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
-                ServerShutdownCleanupState::Pending => {
-                    *state = ServerShutdownCleanupState::Running;
-                    break;
+                ServerShutdownCleanupState::Pending(attempt) => {
+                    let attempt = *attempt;
+                    let retry = self.mux.watch_next_shutdown_request();
+                    *state = ServerShutdownCleanupState::Running(attempt);
+                    break (attempt, retry);
                 }
             }
-        }
+        };
         drop(state);
 
-        // Mux::shutdown owns the bounded retry policy. Share its one terminal
-        // result across the frontend and watchdog instead of retrying it
-        // indefinitely at this layer.
+        // Mux::shutdown owns one bounded attempt. A failure retains the mux,
+        // socket, and exact process owners until another explicit request
+        // authorizes the next attempt.
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_shutdown()));
         let outcome = match result {
-            Ok(Ok(())) => ServerShutdownCleanupState::Complete,
-            Ok(Err(error)) => ServerShutdownCleanupState::Failed(format!(
-                "{}: {error:#}",
-                localization::catalog().server.shutdown_cleanup_incomplete
-            )),
-            Err(_) => ServerShutdownCleanupState::Failed(
+            Ok(Ok(())) => ServerShutdownCleanupOutcome::Complete,
+            Ok(Err(error)) => ServerShutdownCleanupOutcome::Degraded {
+                attempt,
+                message: format!(
+                    "{}: {error:#}",
+                    localization::catalog().server.shutdown_cleanup_incomplete
+                ),
+                retry,
+            },
+            Err(_) => ServerShutdownCleanupOutcome::Poisoned(
                 localization::catalog().server.shutdown_cleanup_incomplete.to_string(),
             ),
         };
-        let return_value = match &outcome {
-            ServerShutdownCleanupState::Complete => Ok(()),
-            ServerShutdownCleanupState::Failed(message) => Err(anyhow::anyhow!(message.clone())),
-            ServerShutdownCleanupState::Pending | ServerShutdownCleanupState::Running => {
-                unreachable!("shutdown attempt produced no terminal result")
+        let next_state = match &outcome {
+            ServerShutdownCleanupOutcome::Complete => ServerShutdownCleanupState::Complete,
+            ServerShutdownCleanupOutcome::Degraded { attempt, message, retry } => {
+                ServerShutdownCleanupState::Degraded {
+                    attempt: *attempt,
+                    message: message.clone(),
+                    retry: retry.clone(),
+                }
+            }
+            ServerShutdownCleanupOutcome::Poisoned(message) => {
+                ServerShutdownCleanupState::Poisoned(message.clone())
             }
         };
         state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *state = outcome;
+        debug_assert!(
+            matches!(*state, ServerShutdownCleanupState::Running(current) if current == attempt)
+        );
+        *state = next_state;
         self.changed.notify_all();
-        return_value
+        outcome
+    }
+
+    #[cfg(test)]
+    fn run_until_complete(&self) -> anyhow::Result<()> {
+        match self.run_once() {
+            ServerShutdownCleanupOutcome::Complete => Ok(()),
+            ServerShutdownCleanupOutcome::Degraded { message, .. }
+            | ServerShutdownCleanupOutcome::Poisoned(message) => Err(anyhow::anyhow!(message)),
+        }
+    }
+
+    fn prepare_retry(&self, attempt: u64) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(
+            &*state,
+            ServerShutdownCleanupState::Degraded {
+                attempt: current,
+                ..
+            } if *current == attempt
+        ) {
+            *state = ServerShutdownCleanupState::Pending(attempt.saturating_add(1));
+            self.changed.notify_all();
+        }
+    }
+
+    fn wait_for_complete(&self) {
+        let mut reported_attempt = None;
+        let mut reported_poison = false;
+        loop {
+            match self.run_once() {
+                ServerShutdownCleanupOutcome::Complete => return,
+                ServerShutdownCleanupOutcome::Degraded { attempt, message, retry } => {
+                    if reported_attempt != Some(attempt) {
+                        eprintln!("cmux-tui: {message}; retry with `cmux-tui server stop`");
+                        reported_attempt = Some(attempt);
+                    }
+                    if retry.wait() {
+                        self.prepare_retry(attempt);
+                    } else {
+                        let state =
+                            self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let _state = self
+                            .changed
+                            .wait_while(state, |state| {
+                                matches!(
+                                    state,
+                                    ServerShutdownCleanupState::Degraded {
+                                        attempt: current,
+                                        ..
+                                    } if *current == attempt
+                                )
+                            })
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    }
+                }
+                ServerShutdownCleanupOutcome::Poisoned(message) => {
+                    if !reported_poison {
+                        eprintln!(
+                            "cmux-tui: {message}; retaining the server because cleanup panicked"
+                        );
+                        reported_poison = true;
+                    }
+                    let state =
+                        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let _state = self
+                        .changed
+                        .wait_while(state, |state| {
+                            matches!(state, ServerShutdownCleanupState::Poisoned(_))
+                        })
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                }
+            }
+        }
     }
 
     fn is_complete(&self) -> bool {
         matches!(
             *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
             ServerShutdownCleanupState::Complete
-        )
-    }
-
-    fn is_terminal(&self) -> bool {
-        matches!(
-            *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
-            ServerShutdownCleanupState::Complete | ServerShutdownCleanupState::Failed(_)
         )
     }
 }
@@ -1095,13 +1193,10 @@ impl ServerProcessShutdownGuard {
                 }
 
                 // A blocked frontend cannot own process cleanup. Complete the
-                // same bounded cleanup path that run_server joins below. A
-                // terminal cleanup failure retains the socket and leaves the
-                // process alive instead of claiming a clean exit.
-                if let Err(error) = worker_cleanup.run_until_complete() {
-                    eprintln!("cmux-tui: {error:#}");
-                    return;
-                }
+                // same bounded cleanup path that run_server joins below.
+                // Failed attempts keep serving the control socket and require
+                // another explicit stop request before retrying.
+                worker_cleanup.wait_for_complete();
                 if matches!(
                     completed.recv_timeout(server_shutdown_exit_grace()),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout)
@@ -1137,8 +1232,13 @@ impl ServerProcessShutdownGuard {
         Ok(())
     }
 
+    #[cfg(test)]
     fn shutdown(&self) -> anyhow::Result<()> {
         self.cleanup.run_until_complete()
+    }
+
+    fn wait_for_shutdown(&self) {
+        self.cleanup.wait_for_complete();
     }
 
     fn complete(mut self) {
@@ -1146,7 +1246,7 @@ impl ServerProcessShutdownGuard {
     }
 
     fn finish(&mut self) {
-        if !self.cleanup.is_terminal() {
+        if !self.cleanup.is_complete() {
             return;
         }
         let Some(completion) = self.completion.take() else { return };
@@ -1181,13 +1281,9 @@ fn finish_server_process(
     server_process: ServerProcessShutdownGuard,
     result: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let shutdown_result = server_process.shutdown();
+    server_process.wait_for_shutdown();
     server_process.complete();
-    match (result, shutdown_result) {
-        (result, Ok(())) => result,
-        (Ok(()), Err(shutdown_error)) => Err(shutdown_error),
-        (Err(error), Err(shutdown_error)) => Err(error.context(shutdown_error.to_string())),
-    }
+    result
 }
 
 fn server_shutdown_exit_grace() -> std::time::Duration {
@@ -1302,6 +1398,17 @@ fn run_server(
     mux.set_default_colors(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let server_process = ServerProcessShutdownGuard::start(&mux)?;
+    let published_socket =
+        match cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path.clone())) {
+            Ok(published) => published,
+            Err(error) => {
+                return finish_server_process(server_process, Err(error));
+            }
+        };
+    if let Err(error) = server_process.publish_socket(published_socket) {
+        return finish_server_process(server_process, Err(error.into()));
+    }
+
     #[cfg(target_os = "linux")]
     let _provider_management = match provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -1343,22 +1450,6 @@ fn run_server(
     };
     if let Some(server) = &websocket_server {
         eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
-    }
-    let published_socket =
-        match cmux_tui_core::server::serve_owned(mux.clone(), Some(socket_path.clone())) {
-            Ok(published) => published,
-            Err(error) => {
-                drop(websocket_server);
-                #[cfg(target_os = "linux")]
-                drop(_provider_management);
-                return finish_server_process(server_process, Err(error));
-            }
-        };
-    if let Err(error) = server_process.publish_socket(published_socket) {
-        drop(websocket_server);
-        #[cfg(target_os = "linux")]
-        drop(_provider_management);
-        return finish_server_process(server_process, Err(error.into()));
     }
 
     #[cfg(debug_assertions)]

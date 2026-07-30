@@ -5357,6 +5357,18 @@ impl Mux {
         watch
     }
 
+    /// Observe the next shutdown request, even after the server has already
+    /// accepted an earlier request. Degraded process cleanup uses this to
+    /// require explicit operator intent before each bounded retry.
+    pub fn watch_next_shutdown_request(&self) -> ShutdownRequestWatch {
+        let inner = Arc::new(ShutdownRequestWatchInner::default());
+        let watch = ShutdownRequestWatch { inner: inner.clone() };
+        let mut watchers = self.shutdown_request_watchers.lock().unwrap();
+        watchers.retain(|watcher| watcher.strong_count() != 0);
+        watchers.push(Arc::downgrade(&inner));
+        watch
+    }
+
     pub(crate) fn shutdown_cleanup_health(&self) -> ShutdownCleanupHealth {
         let pending = self.shutdown_owners.len();
         let state = self.shutdown_owner_reconciler.state.lock().unwrap();
@@ -14870,6 +14882,14 @@ mod tests {
         assert!(result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
         waiter.join().unwrap();
         assert!(mux.watch_shutdown_request().wait());
+
+        let next = mux.watch_next_shutdown_request();
+        let (next_tx, next_rx) = std::sync::mpsc::sync_channel(1);
+        let next_waiter = std::thread::spawn(move || next_tx.send(next.wait()).unwrap());
+        assert!(next_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        mux.request_shutdown();
+        assert!(next_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        next_waiter.join().unwrap();
 
         let fresh = test_mux();
         let watch = fresh.watch_shutdown_request();
