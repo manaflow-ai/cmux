@@ -526,6 +526,46 @@ import Testing
         ]?.cancel()
     }
 
+    @Test func fullStorePassPrunesDeletedOfflineAggregateSnapshots()
+        async {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [],
+            ],
+            blockedTeams: []
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" }
+        )
+        let deletedMacID = "mac-deleted-while-offline"
+        shell.workspacesByMac[deletedMacID] = MacWorkspaceState(
+            macDeviceID: deletedMacID,
+            displayName: "Deleted Mac",
+            status: .unavailable
+        )
+        shell.notificationFeedKnownRevisionsByMac[deletedMacID] = 9
+        shell.notificationFeedSuccessfulMacIDs.insert(deletedMacID)
+        shell.notificationFeedSnapshotsByMac[deletedMacID] =
+            NotificationFeedMacSnapshot(revision: 9, items: [])
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(shell.workspacesByMac[deletedMacID] == nil)
+        #expect(shell.notificationFeedSnapshotsByMac[deletedMacID] == nil)
+        #expect(shell.notificationFeedKnownRevisionsByMac[deletedMacID] == nil)
+        #expect(!shell.notificationFeedSuccessfulMacIDs.contains(deletedMacID))
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {

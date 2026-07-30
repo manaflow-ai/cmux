@@ -4356,8 +4356,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let wanted = Set(macs.map(\.macDeviceID))
         let wantedCanonicalIDs = Set(wanted.map(cmxCanonicalDeviceID))
         let visibleMacIDs = Set(visibleLoadedMacs.map(\.macDeviceID))
+        let visibleCanonicalMacIDs = Set(
+            visibleMacIDs.map(cmxCanonicalDeviceID)
+        )
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
         var retiredControlSlot = false
+        if onlyMacDeviceIDs == nil {
+            // A full store load is authoritative even when an offline Mac no
+            // longer has a control subscription. Reconcile every retained
+            // aggregate owner independently of transport ownership so a
+            // removed or hidden pairing cannot leave stale UI state behind.
+            var retainedMacIDs = Set(workspacesByMac.keys)
+            retainedMacIDs.formUnion(notificationFeedSnapshotsByMac.keys)
+            retainedMacIDs.formUnion(notificationFeedKnownRevisionsByMac.keys)
+            retainedMacIDs.formUnion(notificationFeedSuccessfulMacIDs)
+            retainedMacIDs.formUnion(notificationFeedRefreshTasksByMac.keys)
+            retainedMacIDs.formUnion(
+                notificationFeedRefreshRetryTasksByMac.keys
+            )
+            retainedMacIDs.formUnion(notificationFeedRefreshPendingMacIDs)
+            for retainedMacID in retainedMacIDs {
+                let canonicalRetainedMacID =
+                    cmxCanonicalDeviceID(retainedMacID)
+                guard retainedMacID != Self.foregroundAnonymousKey,
+                      canonicalRetainedMacID != canonicalForegroundMacID,
+                      !visibleCanonicalMacIDs.contains(
+                        canonicalRetainedMacID
+                      ) else {
+                    continue
+                }
+                workspacesByMac[retainedMacID] = nil
+                removeNotificationFeedSnapshot(
+                    macDeviceID: retainedMacID
+                )
+            }
+        }
         // Tear down subscriptions for Macs that are gone or are now the foreground.
         // A focused client becomes a registry control owner before its transport
         // purpose update completes. It remains `remoteClient` until the target
@@ -4383,9 +4416,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // route notification actions to a retired connection owner.
                 workspacesByMac[macID] = nil
                 removeNotificationFeedSnapshot(macDeviceID: macID)
-            } else if !visibleMacIDs.contains(macID) {
+            } else if !visibleCanonicalMacIDs.contains(
+                cmxCanonicalDeviceID(macID)
+            ) {
                 // Pairing removal and hiding are authoritative deletion events.
                 workspacesByMac[macID] = nil
+                removeNotificationFeedSnapshot(macDeviceID: macID)
             } else if canonicalForegroundMacID != cmxCanonicalDeviceID(macID) {
                 // Presence only bounds live network ownership. Preserve the last
                 // snapshot from an offline Mac and make it visibly unavailable.
