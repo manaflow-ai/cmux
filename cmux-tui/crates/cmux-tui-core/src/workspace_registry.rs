@@ -37,8 +37,8 @@ pub use effect_store::{
     ResourceEffectPreparation,
 };
 use effect_store::{
-    create_resource_effect_schema, delete_legacy_sensitive_effect_receipts, prune_resource_events,
-    recover_resource_effects,
+    create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
+    initialize_resource_input_receipt_retention, prune_resource_events, recover_resource_effects,
 };
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
@@ -542,6 +542,7 @@ impl WorkspaceRegistry {
             let tx = connection.unchecked_transaction()?;
             create_resource_effect_schema(&tx)?;
             recover_resource_effects(&tx)?;
+            initialize_resource_input_receipt_retention(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;

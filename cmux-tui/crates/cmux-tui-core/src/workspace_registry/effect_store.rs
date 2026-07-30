@@ -5,6 +5,17 @@ use serde_json::json;
 
 const RESOURCE_EVENT_CAPACITY: usize = 4096;
 const RESOURCE_EVENT_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+/// Transient input keeps a finite exactly-once replay window. Cleanup runs in
+/// batches so mouse and keyboard traffic does not pay for a pruning query on
+/// every event. A running registry may temporarily retain this many extra
+/// committed rows; startup always removes the slack.
+const RESOURCE_INPUT_RECEIPT_CAPACITY: usize = 4096;
+const RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL: usize = 128;
+const TRANSIENT_INPUT_EFFECT_SQL: &str = "(
+  effect.operation GLOB 'terminal.input.*'
+  OR effect.operation GLOB 'browser.input.*'
+  OR effect.operation = 'sidebar_view.input'
+)";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResourceEffectPreparation {
@@ -99,8 +110,40 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
            ON resource_creation_receipts(idempotency_key);
          CREATE INDEX IF NOT EXISTS resource_effect_receipts_by_operation_revision
            ON resource_effect_receipts(operation, committed_revision DESC)
-           WHERE state = 'committed';",
+           WHERE state = 'committed';
+         CREATE TABLE IF NOT EXISTS resource_input_receipt_completions (
+           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+           idempotency_key TEXT UNIQUE NOT NULL,
+           FOREIGN KEY(idempotency_key) REFERENCES resource_effect_receipts(idempotency_key)
+             ON DELETE CASCADE
+         );",
     )?;
+    Ok(())
+}
+
+/// Adds completion ordering for pre-retention databases and enforces the
+/// startup bound. `committed_revision` cannot provide this order because
+/// receipt-only input deliberately does not advance the public revision.
+pub(super) fn initialize_resource_input_receipt_retention(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        &format!(
+            "INSERT INTO resource_input_receipt_completions(idempotency_key)
+             SELECT effect.idempotency_key
+             FROM resource_effect_receipts AS effect
+             WHERE effect.state = 'committed'
+               AND {TRANSIENT_INPUT_EFFECT_SQL}
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM resource_input_receipt_completions AS completion
+                 WHERE completion.idempotency_key = effect.idempotency_key
+               )
+             ORDER BY effect.committed_revision ASC, effect.rowid ASC"
+        ),
+        [],
+    )?;
+    prune_resource_input_receipts(transaction)?;
     Ok(())
 }
 
@@ -864,6 +907,7 @@ impl WorkspaceRegistry {
             creation_count == 0 || correlated == 1,
             "correlated resource effect could not commit its outcome"
         );
+        record_resource_input_receipt_completion(&tx, idempotency_key, operation)?;
         tx.commit()?;
         Ok(revision)
     }
@@ -1087,6 +1131,7 @@ fn commit_resource_effect_patch_in_transaction(
         creation_count == 0 || correlated == 1,
         "correlated resource effect could not enter created state"
     );
+    record_resource_input_receipt_completion(transaction, idempotency_key, operation)?;
     Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
 }
 
@@ -1263,6 +1308,57 @@ fn require_effect_identity(
     Ok(())
 }
 
+fn is_transient_input_operation(operation: &str) -> bool {
+    operation.starts_with("terminal.input.")
+        || operation.starts_with("browser.input.")
+        || operation == "sidebar_view.input"
+}
+
+fn record_resource_input_receipt_completion(
+    transaction: &Transaction<'_>,
+    idempotency_key: &str,
+    operation: &str,
+) -> anyhow::Result<()> {
+    if !is_transient_input_operation(operation) {
+        return Ok(());
+    }
+    transaction.execute(
+        "INSERT INTO resource_input_receipt_completions(idempotency_key) VALUES(?1)",
+        [idempotency_key],
+    )?;
+    let sequence = u64::try_from(transaction.last_insert_rowid())
+        .context("resource input receipt completion sequence is negative")?;
+    if sequence % u64::try_from(RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL)? == 0 {
+        prune_resource_input_receipts(transaction)?;
+    }
+    Ok(())
+}
+
+fn prune_resource_input_receipts(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute(
+        &format!(
+            "DELETE FROM resource_effect_receipts
+             WHERE idempotency_key IN (
+               SELECT completion.idempotency_key
+               FROM resource_input_receipt_completions AS completion
+               JOIN resource_effect_receipts AS effect
+                 ON effect.idempotency_key = completion.idempotency_key
+               WHERE effect.state = 'committed'
+                 AND {TRANSIENT_INPUT_EFFECT_SQL}
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM resource_creation_receipts AS creation
+                   WHERE creation.idempotency_key = effect.idempotency_key
+                 )
+               ORDER BY completion.sequence DESC
+               LIMIT -1 OFFSET ?1
+             )"
+        ),
+        [i64::try_from(RESOURCE_INPUT_RECEIPT_CAPACITY)?],
+    )?;
+    Ok(())
+}
+
 pub(super) fn prune_resource_events(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let rows = {
         let mut statement = transaction.prepare(
@@ -1299,6 +1395,71 @@ pub(super) fn prune_resource_events(transaction: &Transaction<'_>) -> anyhow::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scale_input_operation(index: usize) -> &'static str {
+        match index % 3 {
+            0 => "terminal.input.write",
+            1 => "browser.input.mouse",
+            _ => "sidebar_view.input",
+        }
+    }
+
+    fn scale_input_fingerprint(index: usize) -> Value {
+        json!({"sequence":index})
+    }
+
+    fn scale_input_outcome(index: usize) -> ResourceEffectOutcome {
+        ResourceEffectOutcome::Success(json!({"sequence":index}))
+    }
+
+    fn insert_committed_input_receipts(
+        registry: &mut WorkspaceRegistry,
+        start: usize,
+        count: usize,
+    ) {
+        let tx = registry.connection.transaction().unwrap();
+        for index in start..start + count {
+            let key = format!("scale-input-{index:08}");
+            let operation = scale_input_operation(index);
+            tx.execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES(?1, ?2, ?3, '{}', 'committed', ?4, 0)",
+                params![
+                    key,
+                    operation,
+                    canonical_json(&scale_input_fingerprint(index)).unwrap(),
+                    canonical_json(&serde_json::to_value(scale_input_outcome(index)).unwrap())
+                        .unwrap(),
+                ],
+            )
+            .unwrap();
+            record_resource_input_receipt_completion(&tx, &key, operation).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    fn uncorrelated_committed_input_count(registry: &WorkspaceRegistry) -> usize {
+        let count = registry
+            .connection
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*)
+                     FROM resource_effect_receipts AS effect
+                     WHERE effect.state = 'committed'
+                       AND {TRANSIENT_INPUT_EFFECT_SQL}
+                       AND NOT EXISTS (
+                         SELECT 1 FROM resource_creation_receipts AS creation
+                         WHERE creation.idempotency_key = effect.idempotency_key
+                       )"
+                ),
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        usize::try_from(count).unwrap()
+    }
 
     #[test]
     fn pending_effect_resumes_and_committed_effect_replays() {
@@ -1840,5 +2001,177 @@ mod tests {
             )
             .unwrap_err();
         assert!(error.to_string().starts_with("idempotency.conflict:"));
+    }
+
+    #[test]
+    fn input_receipt_retention_is_bounded_and_preserves_nonterminal_and_correlated_rows() {
+        let root = std::env::temp_dir().join(format!("cmux-effect-retention-{}", new_uuid_v4()));
+        let active_fingerprint = json!({"active":true});
+        let mut registry = WorkspaceRegistry::open(&root, "receipt-retention").unwrap();
+        for key in ["pending-input", "executing-input", "indeterminate-input"] {
+            registry
+                .prepare_resource_effect(
+                    key,
+                    "terminal.input.write",
+                    &active_fingerprint,
+                    &json!({}),
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+        registry
+            .mark_resource_effect_executing(
+                "executing-input",
+                "terminal.input.write",
+                &active_fingerprint,
+            )
+            .unwrap();
+        registry
+            .mark_resource_effect_executing(
+                "indeterminate-input",
+                "terminal.input.write",
+                &active_fingerprint,
+            )
+            .unwrap();
+        registry.mark_resource_effect_indeterminate("indeterminate-input").unwrap();
+
+        let before_startup =
+            RESOURCE_INPUT_RECEIPT_CAPACITY + RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL - 1;
+        insert_committed_input_receipts(&mut registry, 0, before_startup);
+        assert_eq!(uncorrelated_committed_input_count(&registry), before_startup);
+
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state,
+                   outcome_json, committed_revision
+                 ) VALUES('correlated-input', 'terminal.input.write', '{}', '{}',
+                          'committed', '{\"kind\":\"success\",\"value\":{}}', 0)",
+                [],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO resource_creation_receipts(
+                   correlation_key, operation, fingerprint, idempotency_key, intent_json,
+                   execution_kind, attempt, state, execution_generation, created_path_json,
+                   generation, committed_revision
+                 ) VALUES('correlated-creation', 'terminal.input.write', '{}',
+                          'correlated-input', '{}', 'effect', 1, 'created', NULL, '{}',
+                          'generation', 0)",
+                [],
+            )
+            .unwrap();
+        drop(registry);
+
+        let mut reopened = WorkspaceRegistry::open(&root, "receipt-retention").unwrap();
+        assert_eq!(uncorrelated_committed_input_count(&reopened), RESOURCE_INPUT_RECEIPT_CAPACITY);
+        for (key, expected_state) in [
+            ("pending-input", "pending"),
+            ("executing-input", "indeterminate"),
+            ("indeterminate-input", "indeterminate"),
+            ("correlated-input", "committed"),
+        ] {
+            let state: String = reopened
+                .connection
+                .query_row(
+                    "SELECT state FROM resource_effect_receipts WHERE idempotency_key = ?1",
+                    [key],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(state, expected_state, "{key}");
+        }
+
+        assert_eq!(
+            reopened
+                .prepare_resource_effect(
+                    "scale-input-00000000",
+                    scale_input_operation(0),
+                    &scale_input_fingerprint(0),
+                    &json!({}),
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ResourceEffectPreparation::Execute { intent: json!({}), resumed: false }
+        );
+        reopened
+            .mark_resource_effect_executing(
+                "scale-input-00000000",
+                scale_input_operation(0),
+                &scale_input_fingerprint(0),
+            )
+            .unwrap();
+        reopened
+            .commit_resource_effect(
+                "scale-input-00000000",
+                scale_input_operation(0),
+                &scale_input_fingerprint(0),
+                &scale_input_outcome(0),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            reopened
+                .lookup_resource_effect(
+                    "scale-input-00000000",
+                    scale_input_operation(0),
+                    &scale_input_fingerprint(0),
+                )
+                .unwrap(),
+            Some(ResourceEffectPreparation::Committed {
+                outcome: scale_input_outcome(0),
+                revision: 0,
+            })
+        );
+        let newest = before_startup - 1;
+        assert_eq!(
+            reopened
+                .prepare_resource_effect(
+                    &format!("scale-input-{newest:08}"),
+                    scale_input_operation(newest),
+                    &scale_input_fingerprint(newest),
+                    &json!({}),
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ResourceEffectPreparation::Committed {
+                outcome: scale_input_outcome(newest),
+                revision: 0,
+            }
+        );
+        drop(reopened);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn input_receipt_pruning_reuses_database_pages_at_steady_state() {
+        let mut registry = WorkspaceRegistry::in_memory("receipt-page-reuse").unwrap();
+        let wave = RESOURCE_INPUT_RECEIPT_CAPACITY + RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL;
+        insert_committed_input_receipts(&mut registry, 0, wave);
+        let pages_after_first_wave: i64 =
+            registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+
+        insert_committed_input_receipts(&mut registry, wave, wave);
+        let pages_after_second_wave: i64 =
+            registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+        insert_committed_input_receipts(&mut registry, wave * 2, wave);
+        let pages_after_third_wave: i64 =
+            registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+
+        assert_eq!(uncorrelated_committed_input_count(&registry), RESOURCE_INPUT_RECEIPT_CAPACITY);
+        assert!(
+            pages_after_second_wave <= pages_after_first_wave + 8,
+            "first={pages_after_first_wave} second={pages_after_second_wave}"
+        );
+        assert!(
+            pages_after_third_wave <= pages_after_second_wave + 8,
+            "second={pages_after_second_wave} third={pages_after_third_wave}"
+        );
     }
 }

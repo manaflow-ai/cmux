@@ -154,6 +154,15 @@ sessions under one state root; a missing, corrupt, or mismatched pepper makes
 the registry fail closed. `browser.navigate` is excluded because browser URLs
 already persist as public browser topology, events, and outcomes.
 
+Committed `terminal.input.*`, `browser.input.*`, and `sidebar_view.input`
+receipts have a bounded replay window. The registry retains the newest 4096
+uncorrelated committed receipts, with at most 127 additional rows between
+batched pruning passes; startup removes that batching slack. Pending,
+executing, indeterminate, and creation-correlated receipts are never evicted.
+After a committed receipt leaves this window, reuse of its idempotency key is
+treated as a new mutation. This finite window is the only exception to the
+mutation replay guarantee above.
+
 Requests are limited to 4 MiB. Server responses and stream envelopes are
 limited to 16 MiB. Newlines are framing and do not count toward either limit.
 Each stream queue holds at most 256 messages and 16 MiB, with a separate
