@@ -3017,14 +3017,17 @@ mod tests {
             PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_ADMIN").unwrap());
         let ready = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_READY").unwrap());
         let cleanup = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_CLEANUP").unwrap());
-        let release = PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_RELEASE").unwrap());
+        let release = std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_RELEASE").map(PathBuf::from);
         let final_write =
             PathBuf::from(std::env::var_os("CMUX_TEST_LEGACY_SIDECAR_FINAL_WRITE").unwrap());
+        let session = std::env::var("CMUX_TEST_LEGACY_SIDECAR_SESSION")
+            .unwrap_or_else(|_| "legacy-handoff".into());
+        let lifecycle_id = std::env::var("CMUX_TEST_LEGACY_SIDECAR_LIFECYCLE_ID").ok();
         fs::create_dir_all(&state_dir).unwrap();
         let link_listener = UnixListener::bind(&link_socket).unwrap();
         let admin_listener = UnixListener::bind(&admin_socket).unwrap();
         let runtime = crate::remote_runtime::DaemonRuntimeInfo {
-            session: "legacy-handoff".into(),
+            session,
             state_dir: state_dir.clone(),
             link_socket: link_socket.clone(),
             admin_socket: admin_socket.clone(),
@@ -3034,6 +3037,10 @@ mod tests {
             iroh_node_id: None,
             replaceable_sidecar: true,
         };
+        let mut runtime = serde_json::to_value(runtime).unwrap();
+        if let Some(lifecycle_id) = &lifecycle_id {
+            runtime["lifecycle_id"] = serde_json::json!(lifecycle_id);
+        }
         fs::write(state_dir.join("runtime.json"), serde_json::to_vec_pretty(&runtime).unwrap())
             .unwrap();
         fs::write(&ready, b"ready").unwrap();
@@ -3055,13 +3062,30 @@ mod tests {
         drop(link_listener);
         fs::remove_file(&admin_socket).unwrap();
         fs::remove_file(&link_socket).unwrap();
+        if let Some(lifecycle_id) = lifecycle_id {
+            fs::write(
+                state_dir.join("shutdown.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "version": 1,
+                    "lifecycle_id": lifecycle_id,
+                    "status": "failed",
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
         fs::remove_file(state_dir.join("runtime.json")).unwrap();
         fs::write(&cleanup, b"legacy-cleanup-published").unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !release.exists() {
-            assert!(Instant::now() < deadline, "legacy sidecar finalization was never released");
-            thread::sleep(Duration::from_millis(1));
+        if let Some(release) = release {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !release.exists() {
+                assert!(
+                    Instant::now() < deadline,
+                    "legacy sidecar finalization was never released"
+                );
+                thread::sleep(Duration::from_millis(1));
+            }
         }
         fs::write(final_write, b"legacy-final-auth-write").unwrap();
     }
@@ -3137,6 +3161,52 @@ mod tests {
             !returned_before_process_exit,
             "remote-stop returned after runtime.json removal but before legacy process exit"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_rejects_failed_authorization_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let session = "failed-finalization";
+        let lifecycle_id = "failed-finalization-instance";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        let ready = directory.path().join("failed-finalization-ready");
+        let cleanup = directory.path().join("failed-finalization-cleanup");
+        let final_write = directory.path().join("failed-finalization-auth-write");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "remote_cli::tests::legacy_sidecar_process_fixture", "--nocapture"])
+            .env("CMUX_TEST_LEGACY_SIDECAR_STATE", &state_dir)
+            .env("CMUX_TEST_LEGACY_SIDECAR_LINK", &link_socket)
+            .env("CMUX_TEST_LEGACY_SIDECAR_ADMIN", &admin_socket)
+            .env("CMUX_TEST_LEGACY_SIDECAR_READY", &ready)
+            .env("CMUX_TEST_LEGACY_SIDECAR_CLEANUP", &cleanup)
+            .env("CMUX_TEST_LEGACY_SIDECAR_FINAL_WRITE", &final_write)
+            .env("CMUX_TEST_LEGACY_SIDECAR_SESSION", session)
+            .env("CMUX_TEST_LEGACY_SIDECAR_LIFECYCLE_ID", lifecycle_id)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("failed-finalization fixture exited before startup: {status}");
+            }
+            assert!(Instant::now() < ready_deadline, "failed-finalization fixture did not start");
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        let stop_result = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        );
+        let child_status = child.wait().unwrap();
+        assert!(child_status.success(), "failed-finalization fixture failed: {child_status}");
+        assert!(final_write.exists(), "fixture did not complete its final authorization write");
+        let error = stop_result.expect_err("failed authorization finalization reported success");
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
     }
 
     #[test]
