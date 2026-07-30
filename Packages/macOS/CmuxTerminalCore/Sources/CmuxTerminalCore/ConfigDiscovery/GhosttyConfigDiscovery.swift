@@ -71,6 +71,87 @@ public struct GhosttyConfigDiscovery {
         "U+AC00-U+D7AF": [0xAC00, 0xD55C],
     ]
 
+    // MARK: - Symbol font fallback ranges
+
+    /// Pictographic/symbol ranges where Ghostty's monospace-biased
+    /// `CTFontCollection` scoring can land on an unpredictable installed
+    /// "monospace" font rather than the narrower substitute CoreText's own
+    /// `CTFontCreateForString` cascade would pick (e.g. the hexagon ⬡ at
+    /// U+2B21, or the ▰/▱ gauge characters used by status-line tools).
+    /// Unlike CJK, coverage here isn't locale-conditioned, so these ranges
+    /// are always considered for injection.
+    ///
+    /// See: https://github.com/Nanako0129/coralline/issues/47
+    public static let symbolRanges = [
+        "U+25A0-U+25FF",  // Geometric Shapes (▰ ▱ ● ○ ■ □ …)
+        "U+2B00-U+2BFF",  // Miscellaneous Symbols and Arrows (⬡ U+2B21, ⬢ U+2B22, …)
+    ]
+
+    /// The font cmux injects for ``symbolRanges``: macOS's built-in symbol
+    /// font, which is what CoreText's own cascade resolves to for these
+    /// ranges, so injecting it makes Ghostty's fallback choice match what a
+    /// plain CoreText app would render instead of an unpredictable,
+    /// potentially much wider substitute.
+    public static let symbolFallbackFont = "Apple Symbols"
+
+    /// Representative scalars used to detect whether the configured primary
+    /// font already covers ``symbolRanges``.
+    public static let symbolCoverageSampleCharactersByRange: [String: [UniChar]] = [
+        "U+25A0-U+25FF": [0x25A0, 0x25CF],
+        "U+2B00-U+2BFF": [0x2B21, 0x2B22],
+    ]
+
+    /// Returns `(range, font)` pairs for cmux's symbol-glyph fallback.
+    /// Always non-empty, since coverage isn't locale-conditioned like CJK.
+    public func symbolFontMappings() -> [(String, String)] {
+        Self.symbolRanges.map { ($0, Self.symbolFallbackFont) }
+    }
+
+    /// Returns only the symbol mappings cmux should auto-inject after
+    /// respecting explicit user overrides and the glyph coverage of the
+    /// configured primary font family.
+    public func autoInjectedSymbolFontMappings(
+        configPaths: [String]? = nil,
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        let configPaths = configPaths ?? loadedCJKScanPaths()
+        var mappings = symbolFontMappings()
+
+        let summary = userFontConfigSummary(configPaths: configPaths)
+        if summary.containsCodepointMap || summary.hasExplicitFontFamilyFallbackChain {
+            return nil
+        }
+
+        guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
+            return mappings
+        }
+
+        if let rangeCoverageProbe {
+            mappings.removeAll { range, _ in
+                rangeCoverageProbe(configuredFontFamily, range)
+            }
+        } else if let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) {
+            mappings.removeAll { range, _ in
+                Self.fontContainsGlyphs(configuredFont, forRange: range)
+            }
+        }
+
+        return mappings.isEmpty ? nil : mappings
+    }
+
+    /// Whether cmux should inject its managed symbol-glyph
+    /// `font-codepoint-map` fallback.
+    public func shouldInjectSymbolFontFallback(
+        configPaths: [String]? = nil,
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+    ) -> Bool {
+        let configPaths = configPaths ?? loadedCJKScanPaths()
+        return autoInjectedSymbolFontMappings(
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
+        ) != nil
+    }
+
     // MARK: - CJK font mappings
 
     /// Returns `(range, font)` pairs for CJK font fallback based on the system's
@@ -288,7 +369,7 @@ public struct GhosttyConfigDiscovery {
         _ font: CTFont,
         forRange range: String
     ) -> Bool {
-        guard let characters = cjkCoverageSampleCharactersByRange[range] else {
+        guard let characters = cjkCoverageSampleCharactersByRange[range] ?? symbolCoverageSampleCharactersByRange[range] else {
             return false
         }
 
