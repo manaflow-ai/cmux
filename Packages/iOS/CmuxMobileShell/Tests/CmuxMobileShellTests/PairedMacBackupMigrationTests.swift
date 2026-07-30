@@ -236,12 +236,14 @@ struct PairedMacBackupMigrationTests {
             migrationRequests.map(\.httpMethod)
                 == ["GET", "GET", "POST", "GET"]
         )
-        let migrationRequest = try #require(
-            migrationRequests.dropFirst(2).first
+        let migrationBody = try #require(
+            PairedMacBackupMigrationURLProtocol.capturedRequestBodies()
+                .dropFirst(2)
+                .first
         )
-        let migrationBody = try #require(migrationRequest.httpBody)
+        let unwrappedMigrationBody = try #require(migrationBody)
         let object = try #require(
-            JSONSerialization.jsonObject(with: migrationBody)
+            JSONSerialization.jsonObject(with: unwrappedMigrationBody)
                 as? [String: Any]
         )
         let ops = try #require(object["ops"] as? [[String: Any]])

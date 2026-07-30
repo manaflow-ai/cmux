@@ -176,17 +176,26 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
         let currentIDs = Set(primary.records.map(pairedMacBackupPairingID))
         let currentTombstones = Set(primary.deletedMacDeviceIDs)
+        let legacyTombstones = Set(legacy.deletedMacDeviceIDs)
+        let missingLegacyTombstones = legacyTombstones
+            .subtracting(currentTombstones)
         let missingLegacy = legacy.records.filter {
             let pairingID = pairedMacBackupPairingID($0)
             return !currentIDs.contains(pairingID)
                 && !currentTombstones.contains(pairingID)
+                && !legacyTombstones.contains(pairingID)
         }
-        if missingLegacy.isEmpty {
+        let migrationOps =
+            missingLegacyTombstones.sorted().map(
+                pairedMacBackupDeleteOp
+            )
+            + missingLegacy.map { .upsert($0) }
+        if migrationOps.isEmpty {
             migrationDefaults.set(true, forKey: migrationKey)
             return primary
         }
         guard await upload(
-            ops: missingLegacy.map { .upsert($0) },
+            ops: migrationOps,
             teamID: teamID,
             expectedUserID: expectedUserID
         ),
@@ -200,9 +209,11 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         let refreshedIDs = Set(refreshed.records.map(
             pairedMacBackupPairingID
         ))
+        let refreshedTombstones = Set(refreshed.deletedMacDeviceIDs)
         if missingLegacy.allSatisfy({
             refreshedIDs.contains(pairedMacBackupPairingID($0))
-        }) {
+        }),
+        missingLegacyTombstones.isSubset(of: refreshedTombstones) {
             migrationDefaults.set(true, forKey: migrationKey)
         }
         return refreshed
@@ -283,6 +294,19 @@ private func pairedMacBackupPairingID(
         macDeviceID: record.macDeviceID,
         instanceTag: record.instanceTag
     )
+}
+
+private func pairedMacBackupDeleteOp(
+    _ pairingID: String
+) -> PairedMacBackupOp {
+    let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+    if let instanceTag = identity.instanceTag {
+        return .deleteInstance(
+            macDeviceID: identity.macDeviceID,
+            instanceTag: instanceTag
+        )
+    }
+    return .delete(macDeviceID: identity.macDeviceID)
 }
 
 private func pairedMacBackupMigrationKey(

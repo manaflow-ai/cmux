@@ -12,6 +12,7 @@ final class PairedMacBackupMigrationURLProtocol:
     private nonisolated(unsafe) static var primaryResponseAfterUpload: Data?
     private nonisolated(unsafe) static var didUpload = false
     private nonisolated(unsafe) static var requests: [URLRequest] = []
+    private nonisolated(unsafe) static var requestBodies: [Data?] = []
 
     static func reset(
         primaryScope: String,
@@ -28,11 +29,16 @@ final class PairedMacBackupMigrationURLProtocol:
             self.primaryResponseAfterUpload = primaryResponseAfterUpload
             didUpload = false
             requests = []
+            requestBodies = []
         }
     }
 
     static func capturedRequests() -> [URLRequest] {
         lock.withLock { requests }
+    }
+
+    static func capturedRequestBodies() -> [Data?] {
+        lock.withLock { requestBodies }
     }
 
     override class func canInit(with _: URLRequest) -> Bool { true }
@@ -42,8 +48,11 @@ final class PairedMacBackupMigrationURLProtocol:
     }
 
     override func startLoading() {
+        let requestBody = request.httpBody
+            ?? Self.readBodyStream(request.httpBodyStream)
         let body = Self.lock.withLock { () -> Data in
             Self.requests.append(request)
+            Self.requestBodies.append(requestBody)
             guard request.httpMethod == "GET" else {
                 Self.didUpload = true
                 return Data(#"{"ok":true}"#.utf8)
@@ -80,4 +89,18 @@ final class PairedMacBackupMigrationURLProtocol:
     }
 
     override func stopLoading() {}
+
+    private static func readBodyStream(_ stream: InputStream?) -> Data? {
+        guard let stream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data.isEmpty ? nil : data
+    }
 }
