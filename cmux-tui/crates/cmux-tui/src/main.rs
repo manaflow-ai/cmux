@@ -1675,6 +1675,45 @@ mod tests {
         assert_shutdown_attempt_returns(|| panic!("forced shutdown panic"));
     }
 
+    #[test]
+    fn failed_shutdown_retains_server_until_explicit_retry() {
+        let mux = Mux::new("shutdown-retry-test", SurfaceOptions::default());
+        let server_process = ServerProcessShutdownGuard::start(&mux).unwrap();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        server_process.cleanup.set_shutdown_attempt_for_test({
+            let attempts = attempts.clone();
+            move || {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    anyhow::bail!("forced first shutdown failure");
+                }
+                Ok(())
+            }
+        });
+        let (returned, observed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = finish_server_process(server_process, Ok(()));
+            let _ = returned.send(result);
+        });
+
+        let first_deadline = std::time::Instant::now() + std::time::Duration::from_millis(350);
+        while attempts.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < first_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(
+            observed.recv_timeout(std::time::Duration::from_millis(75)).is_err(),
+            "a failed cleanup released the server's process owners"
+        );
+
+        mux.request_shutdown();
+        observed
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("an explicit shutdown retry did not release the server")
+            .unwrap();
+        worker.join().unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
     }
