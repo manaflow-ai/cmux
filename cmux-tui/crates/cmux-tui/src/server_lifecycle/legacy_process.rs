@@ -1086,6 +1086,28 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_process_snapshot_accepts_a_non_utf8_process_name() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_LEGACY_NON_UTF8_PROCESS_NAME";
+        const TEST_NAME: &str = "server_lifecycle::legacy_process::tests::linux_process_snapshot_accepts_a_non_utf8_process_name";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "non-UTF-8 legacy proc subprocess failed: {status}");
+            return;
+        }
+
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        std::fs::write(format!("/proc/self/task/{pid}/comm"), b"cmux-\xff").unwrap();
+
+        let snapshot = process_snapshot(pid).expect("a valid non-UTF-8 proc name was rejected");
+        assert!(snapshot.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_child_enumeration_includes_children_spawned_by_worker_threads() {
         let (child_tx, child_rx) = mpsc::sync_channel(1);
         let worker = std::thread::spawn(move || {

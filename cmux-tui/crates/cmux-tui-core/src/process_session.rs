@@ -1826,6 +1826,30 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_process_metadata_accepts_a_non_utf8_process_name() {
+        const CHILD_ENV: &str = "CMUX_TUI_TEST_NON_UTF8_PROCESS_NAME";
+        const TEST_NAME: &str =
+            "process_session::tests::linux_process_metadata_accepts_a_non_utf8_process_name";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", TEST_NAME])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "non-UTF-8 proc metadata subprocess failed: {status}");
+            return;
+        }
+
+        let pid = libc::pid_t::try_from(std::process::id()).unwrap();
+        std::fs::write(format!("/proc/self/task/{pid}/comm"), b"cmux-\xff").unwrap();
+
+        let metadata =
+            linux_process_metadata(pid).expect("a valid non-UTF-8 proc name was rejected");
+        assert!(metadata.is_some());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn shutdown_treats_zombie_members_as_drained_before_reserved_parent() {
         use std::io::BufRead as _;
 
