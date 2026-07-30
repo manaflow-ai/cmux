@@ -2056,94 +2056,11 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
-            let _creation = self.begin_surface_creation()?;
-            let mut owner_reservation = match self.reserve_surface_owner() {
-                Ok(reservation) => reservation,
-                Err(_) => {
-                    handled_terminals.insert(terminal_id.clone());
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
-                    continue;
-                }
-            };
-            let id = self.next_id();
-            // Bound startup head-of-line blocking per host. One handshake is
-            // enough for healthy hosts; live or indeterminate failures
-            // continue on the asynchronous adoption loop instead of retrying
-            // serially ahead of every later terminal.
-            #[cfg(test)]
-            let adoption_surface_factory =
-                self.terminal_adoption_surface_factory.lock().unwrap().clone();
-            #[cfg(test)]
-            let adopted = if let Some(factory) = adoption_surface_factory {
-                factory(id)
-            } else {
-                Surface::adopt_hosted(
-                    id,
-                    options.clone(),
-                    Arc::downgrade(self),
-                    record.clone(),
-                    record_path.clone(),
-                )
-            };
-            #[cfg(not(test))]
-            let adopted = Surface::adopt_hosted(
-                id,
-                options.clone(),
-                Arc::downgrade(self),
-                record.clone(),
-                record_path.clone(),
-            );
-            let surface = match adopted.ok() {
-                Some(surface) => surface,
-                None => {
-                    if terminal_host_record_liveness(&record_path, &record)
-                        == TerminalHostLiveness::Dead
-                    {
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
-                        self.mark_terminal_exited_and_materialize(
-                            &terminal_id,
-                            "terminal-host-proven-dead",
-                            "host-process-ended-before-adoption",
-                            &options,
-                        )?;
-                        handled_terminals.insert(terminal_id.clone());
-                    } else {
-                        // Socket loss and descriptor pressure are not process
-                        // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell.
-                        handled_terminals.insert(terminal_id.clone());
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
-                    }
-                    continue;
-                }
-            };
-            if self
-                .finish_terminal_adoption(
-                    &terminal_id,
-                    &record.incarnation,
-                    surface.clone(),
-                    &mut owner_reservation,
-                )
-                .is_err()
-            {
-                self.retire_reserved_surface_runtime(surface, &mut owner_reservation);
-                self.mark_terminal_exited_and_materialize(
-                    &terminal_id,
-                    "terminal-adoption-failed",
-                    "host-adoption-topology-failed",
-                    &options,
-                )?;
-                handled_terminals.insert(terminal_id.clone());
-                if !cleanup_terminal_host_record(&record, &record_path) {
-                    self.schedule_terminal_adoption(options.clone(), record, record_path);
-                }
-                continue;
-            }
+            // Host handshakes can consume their full timeout. Queue every
+            // live or indeterminate record before the control socket is
+            // published so startup time is independent of record count.
             handled_terminals.insert(terminal_id);
-            self.reap_if_dead(&surface);
+            self.schedule_terminal_adoption(options.clone(), record, record_path);
         }
 
         // No launcher survives a daemon restart. A durable lifecycle row
