@@ -1640,8 +1640,7 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     private func fetchCredentialPair() async throws {
-        guard let credentialPair = tokenSource.credentialPair,
-              await credentialPair() != nil else {
+        guard await tokenSource.credentialPair() != nil else {
             throw MobileIrohSignOutTestError.unavailable
         }
     }
