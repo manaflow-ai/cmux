@@ -19,10 +19,7 @@ IOS_PATHS = (
     "scripts/validate-xcframework-archive.py",
     ".github/workflows/ios-testflight.yml",
 )
-DEMO_VARIANT_GUARD = (
-    "github.event_name == 'workflow_dispatch' "
-    "&& github.event.inputs.variant == 'demo'"
-)
+DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
 MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
 
 
@@ -82,34 +79,43 @@ def mapping_keys(text: str, indent: int) -> tuple[str, ...]:
     return tuple(keys)
 
 
-def sequence_values(text: str, key: str, indent: int) -> tuple[str, ...]:
-    marker = f"{' ' * indent}{key}:\n"
-    assert marker in text, f"missing {key} sequence"
+def javascript_string_array(text: str, declaration: str) -> tuple[str, ...]:
+    marker = f"const {declaration} = [\n"
+    assert marker in text, f"missing {declaration} JavaScript array"
     lines = text[text.index(marker) + len(marker) :].splitlines()
-    item_prefix = f"{' ' * (indent + 2)}- "
     values = []
     for line in lines:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        line_indent = len(line) - len(line.lstrip())
-        if line_indent <= indent:
+        stripped = line.strip()
+        if stripped == "];":
             break
-        assert line.startswith(item_prefix), f"invalid {key} item: {line}"
-        parsed = shlex.split(line.removeprefix(item_prefix), comments=True)
-        assert len(parsed) == 1, f"invalid {key} value: {line}"
+        if not stripped or stripped.startswith("//"):
+            continue
+        parsed = shlex.split(stripped.removesuffix(","), comments=True)
+        assert len(parsed) == 1, f"invalid {declaration} value: {line}"
         values.append(parsed[0])
+    else:
+        raise AssertionError(f"unterminated {declaration} JavaScript array")
     return tuple(values)
 
 
-def test_main_push_triggers_only_for_ios_affecting_paths() -> None:
+def test_scheduled_runs_filter_ios_changes_with_the_shared_path_contract() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
-    push = mapping_block(triggers, "push", indent=2)
+    schedule = mapping_block(triggers, "schedule", indent=2)
+    crons = tuple(
+        shlex.split(line.strip().removeprefix("- cron:").strip())[0]
+        for line in schedule.splitlines()
+        if line.strip().startswith("- cron:")
+    )
 
-    assert mapping_keys(triggers, indent=2) == ("push", "workflow_dispatch")
-    assert sequence_values(push, "branches", indent=4) == ("main",)
-    assert sequence_values(push, "paths", indent=4) == IOS_PATHS
-    assert "context.eventName === 'push' || context.eventName === 'workflow_dispatch'" in text
+    assert mapping_keys(triggers, indent=2) == ("schedule", "workflow_dispatch")
+    assert crons == ("7 * * * *", "37 5,17 * * *")
+    assert javascript_string_array(text, "iosRelevantPaths") == tuple(
+        path.removesuffix("**") for path in IOS_PATHS
+    )
+    assert "context.eventName === 'schedule'" in text
+    assert "github.rest.repos.compareCommits" in text
+    assert "files.some((file) => touchesIOS(file.filename))" in text
 
 
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
@@ -139,16 +145,18 @@ def test_testflight_notes_use_the_same_ios_path_contract() -> None:
     assert notes_paths == expected_notes_paths
 
 
-def test_main_push_runs_are_preserved_and_uploaded_in_order() -> None:
+def test_scheduled_runs_are_preserved_and_uploaded_in_order() -> None:
     text = workflow_text()
 
+    assert "group: ios-testflight-${{ github.run_id }}" in text
     assert (
         "group: ios-testflight-${{ github.event_name == 'push' && github.sha || github.run_id }}"
-        in text
+        not in text
     )
     assert "group: ios-testflight-${{ github.ref_name }}" not in text
     assert "cancel-in-progress: false" in text
     assert "Number(run.id) < currentRunId" in text
+    assert "['push', 'schedule', 'workflow_dispatch'].includes(run.event)" in text
     assert "uploadJob.status !== 'completed'" in text
     assert "could not inspect earlier TestFlight runs; retrying" in text
     assert "ios-testflight-assignment-state-complete" not in text
@@ -219,9 +227,9 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 
 
 if __name__ == "__main__":
-    test_main_push_triggers_only_for_ios_affecting_paths()
+    test_scheduled_runs_filter_ios_changes_with_the_shared_path_contract()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
-    test_main_push_runs_are_preserved_and_uploaded_in_order()
+    test_scheduled_runs_are_preserved_and_uploaded_in_order()
     test_automatic_lane_stays_on_cmux_internal_identity()
-    print("all iOS TestFlight main-push filter tests passed")
+    print("all iOS TestFlight schedule filter tests passed")
