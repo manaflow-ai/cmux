@@ -1204,8 +1204,12 @@ class GhosttyApp {
         #else
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
-        loadCJKFontFallbackIfNeeded(config)
-        loadSymbolFontFallbackIfNeeded(config)
+        // Both fallback loaders scan the same config files (including
+        // recursive `config-file` includes); resolve the scan paths once so
+        // that work isn't repeated for each loader.
+        let fontFallbackConfigPaths = Self.configDiscovery.loadedCJKScanPaths()
+        loadCJKFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
+        loadSymbolFontFallbackIfNeeded(config, configPaths: fontFallbackConfigPaths)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
@@ -1332,8 +1336,8 @@ class GhosttyApp {
     /// the affected CJK ranges.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
-    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
+    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedCJKFontMappings(configPaths: configPaths) else { return }
 
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
@@ -1364,8 +1368,8 @@ class GhosttyApp {
     /// the affected ranges.
     ///
     /// See: https://github.com/Nanako0129/coralline/issues/47
-    private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.autoInjectedSymbolFontMappings() else { return }
+    private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t, configPaths: [String]) {
+        guard let mappings = Self.autoInjectedSymbolFontMappings(configPaths: configPaths) else { return }
 
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in

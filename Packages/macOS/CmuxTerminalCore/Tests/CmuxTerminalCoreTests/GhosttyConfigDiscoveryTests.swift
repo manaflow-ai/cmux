@@ -75,8 +75,7 @@ private struct NoFontProbe: GhosttyFontProbing {
         let mappings = discovery.symbolFontMappings()
         let codepoints = Set(mappings.map(\.0))
         let expected = Set(
-            GhosttyConfigDiscovery.symbolCodepointsByRange.values.flatMap { $0 }
-                .map { String(format: "U+%04X", $0) }
+            GhosttyConfigDiscovery.symbolCodepoints.map { String(format: "U+%04X", $0) }
         )
         #expect(codepoints == expected)
         #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
@@ -131,6 +130,18 @@ private struct NoFontProbe: GhosttyFontProbing {
             configPaths: [path],
             codepointCoverageProbe: { _, _ in true }
         ) == nil)
+    }
+
+    @Test func fontContainsGlyphHandlesSupplementaryPlaneCodepoints() throws {
+        // U+1F600 GRINNING FACE requires a UTF-16 surrogate pair; this is a
+        // regression test for fontContainsGlyph incorrectly reporting "not
+        // covered" for any codepoint above U+FFFF (which would make
+        // autoInjectedSymbolFontMappings force an override even when the
+        // font already has the glyph, for any future non-BMP addition to
+        // symbolCodepoints).
+        let font = CTFontCreateWithName("Apple Color Emoji" as CFString, 12, nil)
+        #expect(GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x1F600))
+        #expect(!GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x10FFFE))
     }
 
     @Test func autoInjectedSymbolFontMappingsFailsClosedWhenFontCannotBeProbed() {
