@@ -44,6 +44,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 cmux-relay = { path = "../cmux-relay" }
+iroh-relay = { version = "1.0.3", default-features = false, features = ["server"] }
 rcgen = "0.14"
 tempfile = "3"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
