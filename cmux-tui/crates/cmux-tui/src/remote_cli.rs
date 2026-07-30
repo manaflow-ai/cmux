@@ -3444,6 +3444,61 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_acknowledges_matching_stale_runtime_finalization() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-stale-runtime";
+        let lifecycle_id = "stale-runtime-lifecycle";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        let runtime_path = state_dir.join("runtime.json");
+        fs::write(
+            &runtime_path,
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "stopped-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some(lifecycle_id.into()),
+                replaceable_sidecar: true,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let outcome = state_dir.join("shutdown.json");
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": lifecycle_id,
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(!runtime_path.exists());
+        assert!(!outcome.exists());
+    }
+
     #[test]
     fn relay_invitation_access_reads_owner_supplied_ticket_file() {
         use std::os::unix::fs::PermissionsExt as _;

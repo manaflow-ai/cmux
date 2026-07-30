@@ -2735,6 +2735,72 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_requires_exact_modern_predecessor_authorization_finalization() {
+        for (case, outcome_lifecycle) in [("missing", None), ("stale", Some("different-lifecycle"))]
+        {
+            let directory = tempfile::tempdir_in("/tmp").unwrap();
+            let state_root = directory.path().join("state");
+            let session = format!("modern-predecessor-{case}");
+            let (state_dir, link_socket, admin_socket) =
+                daemon_paths(&session, Some(&state_root)).unwrap();
+            fs::create_dir_all(&state_dir).unwrap();
+            persist_runtime_info(
+                &state_dir,
+                &DaemonRuntimeInfo {
+                    session: session.clone(),
+                    state_dir: state_dir.clone(),
+                    link_socket,
+                    admin_socket,
+                    daemon_fingerprint: "predecessor".into(),
+                    routes: Vec::new(),
+                    direct_websocket: None,
+                    iroh_node_id: None,
+                    lifecycle_id: Some("expected-lifecycle".into()),
+                    replaceable_sidecar: true,
+                },
+            )
+            .unwrap();
+            if let Some(lifecycle_id) = outcome_lifecycle {
+                persist_shutdown_outcome(
+                    &state_dir,
+                    &DaemonShutdownOutcome {
+                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                        lifecycle_id: lifecycle_id.into(),
+                        status: DaemonShutdownStatus::Succeeded,
+                    },
+                )
+                .unwrap();
+            }
+
+            let result = start_daemon_runtime(
+                directory.path().join("missing-mux.sock"),
+                DaemonRuntimeOptions {
+                    session,
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            );
+            let error = match result {
+                Err(error) => error,
+                Ok(runtime) => {
+                    runtime.shutdown().unwrap();
+                    panic!("daemon started with {case} predecessor finalization evidence");
+                }
+            };
+            assert!(error.to_string().contains("authorization finalization"), "{case}: {error:#}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_runtime_metadata_remains_until_auth_finalization() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let runtime = start_daemon_runtime(
