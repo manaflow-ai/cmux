@@ -56,6 +56,7 @@ struct WorkspaceListTable: UIViewRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
+    var chromeTopInset: CGFloat = 0
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         WorkspaceListTableCoordinator(configuration: self)
@@ -73,12 +74,19 @@ struct WorkspaceListTable: UIViewRepresentable {
         tableView.sectionFooterHeight = 0
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
+        var resolvedConfiguration = self
+        resolvedConfiguration.chromeTopInset =
+            context.environment.workspaceListChromeTopInset
+        context.coordinator.configuration = resolvedConfiguration
         context.coordinator.attach(to: tableView)
         return tableView
     }
 
     func updateUIView(_ uiView: WorkspaceListUITableView, context: Context) {
-        context.coordinator.update(configuration: self, in: uiView)
+        var resolvedConfiguration = self
+        resolvedConfiguration.chromeTopInset =
+            context.environment.workspaceListChromeTopInset
+        context.coordinator.update(configuration: resolvedConfiguration, in: uiView)
     }
 }
 #endif
