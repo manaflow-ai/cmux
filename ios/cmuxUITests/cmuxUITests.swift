@@ -461,10 +461,14 @@ final class cmuxUITests: XCTestCase {
         add(contextAttachment)
         pinAction.tap()
 
-        let secondRow = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-1"
-        ]
-        XCTAssertTrue(secondRow.waitForExistence(timeout: 3))
+        guard let secondRow = waitForVisibleElement(
+            identifier: "MobileWorkspaceRow-workspace-seed-1",
+            in: app,
+            timeout: 3
+        ) else {
+            XCTFail("The second workspace row did not become visibly interactive.")
+            return
+        }
         secondRow.swipeLeft()
         XCTAssertTrue(
             app.buttons["Delete"].waitForExistence(timeout: 3),
@@ -474,6 +478,87 @@ final class cmuxUITests: XCTestCase {
         swipeAttachment.name = "workspace-list-native-trailing-swipe"
         swipeAttachment.lifetime = .keepAlways
         add(swipeAttachment)
+    }
+
+    @MainActor
+    func testWorkspaceListContextMenuDeleteRequiresRowConfirmation() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The native workspace context menu requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "workspace-seed-1"
+        let row = app.descendants(matching: .any)["MobileWorkspaceRow-\(rowID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.press(forDuration: 1)
+        let deleteMenuAction = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteMenuButton-\(rowID)"
+        ]
+        XCTAssertTrue(deleteMenuAction.waitForExistence(timeout: 3))
+        deleteMenuAction.tap()
+
+        let confirmation = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteConfirmation-\(rowID)"
+        ]
+        XCTAssertTrue(
+            confirmation.waitForExistence(timeout: 3),
+            "Context-menu Delete must request confirmation for its initiating row."
+        )
+        XCTAssertTrue(app.buttons["Delete"].exists)
+        XCTAssertTrue(
+            row.exists,
+            "The workspace must remain in the table until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-context-delete-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceListSwipeDeleteRequiresRowConfirmation() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The native workspace swipe action requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "workspace-seed-2"
+        let row = app.descendants(matching: .any)["MobileWorkspaceRow-\(rowID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        let deleteSwipeAction = app.buttons["Delete"]
+        XCTAssertTrue(deleteSwipeAction.waitForExistence(timeout: 3))
+        deleteSwipeAction.tap()
+
+        let confirmation = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteConfirmation-\(rowID)"
+        ]
+        XCTAssertTrue(
+            confirmation.waitForExistence(timeout: 3),
+            "Swipe Delete must request confirmation for its initiating row."
+        )
+        XCTAssertTrue(
+            row.exists,
+            "The workspace must remain in the table until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-swipe-delete-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
