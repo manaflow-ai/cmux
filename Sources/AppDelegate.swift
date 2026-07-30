@@ -8740,6 +8740,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
+        let isRestoringSessionWindowSnapshot = sessionWindowSnapshot != nil
+        if isRestoringSessionWindowSnapshot {
+            SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+        }
+        defer {
+            if isRestoringSessionWindowSnapshot {
+                SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            }
+        }
+
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()

@@ -955,7 +955,7 @@ enum SurfaceResumeApprovalStore {
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
             return false
         }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
             return false
         }
         guard let existingRecord else { return true }
@@ -997,6 +997,9 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
+        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
+            return nil
+        }
         let resolution = signingSecretResolution(explicit: signingSecret, fileManager: fileManager)
         guard case let .ready(signingSecret?) = resolution,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
@@ -1007,15 +1010,11 @@ enum SurfaceResumeApprovalStore {
             return nil
         }
         let now = Date().timeIntervalSince1970
-        let existing = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        )
-        let existingWithSamePrefix = existing.flatMap {
-            $0.commandPrefix == prefix ? $0 : nil
+        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+        let matchingRecords = records.filter {
+            $0.hasValidSignature(secret: signingSecret) && $0.matches(binding)
         }
+        let existingWithSamePrefix = matchingRecords.first { $0.commandPrefix == prefix }
         let record = SurfaceResumeApprovalRecord(
             id: existingWithSamePrefix?.id ?? UUID().uuidString.lowercased(),
             name: binding.name,
@@ -1030,7 +1029,23 @@ enum SurfaceResumeApprovalStore {
             lastUsedAt: existingWithSamePrefix?.lastUsedAt,
             signature: nil
         ).signed(secret: signingSecret)
-        writeReplacing(record: record, fileURL: fileURL, fileManager: fileManager)
+        let subsumedRecordIds = Set(
+            matchingRecords
+                .filter {
+                    $0.commandPrefix.count > prefix.count &&
+                        $0.commandPrefix.starts(with: prefix) &&
+                        $0.cwd == record.cwd &&
+                        $0.environment == record.environment
+                }
+                .map(\.id)
+        )
+        records.removeAll { subsumedRecordIds.contains($0.id) }
+        if let index = records.firstIndex(where: { $0.id == record.id }) {
+            records[index] = record
+        } else {
+            records.append(record)
+        }
+        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
         return record
     }
 
@@ -1135,20 +1150,6 @@ enum SurfaceResumeApprovalStore {
             return generated
         }
         return fileBackedSecret(fileManager: fileManager, generated: generated)
-    }
-
-    private static func writeReplacing(
-        record: SurfaceResumeApprovalRecord,
-        fileURL: URL,
-        fileManager: FileManager
-    ) {
-        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
-        if let index = records.firstIndex(where: { $0.id == record.id }) {
-            records[index] = record
-        } else {
-            records.append(record)
-        }
-        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
     }
 
     @discardableResult
