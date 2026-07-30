@@ -63,6 +63,13 @@ jobs:
       - name: Check all generated SDK wire layers
         run: python3 cmux-tui/bindings/codegen/generate.py --check
 
+      - name: Test package version guard
+        run: |
+          python3 -m unittest discover \
+            -s cmux-tui/bindings/tests \
+            -p 'test_*.py' \
+            -v
+
       - name: Check package versions
         run: python3 cmux-tui/bindings/check-versions.py
 
