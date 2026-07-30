@@ -25,8 +25,8 @@ use cmux_remote::connection::{
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
 use cmux_remote::identity::{
-    AuthDatabase, IdentityError, auth_state_requires_explicit_migration,
-    credential_free_route_hint, default_state_dir,
+    AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
+    default_state_dir, persisted_auth_state_schema,
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
@@ -1761,14 +1761,22 @@ async fn run_daemon(
     let setup = async {
         let mut startup_shutdown = shutdown.clone();
         let auth_state_dir = state_dir.join("auth");
+        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
+            .context("could not verify remote daemon lifecycle fence")?;
+        if lifecycle_fenced {
+            persist_daemon_lifecycle_fence(&state_dir)
+                .context("could not confirm remote daemon lifecycle fence durability")?;
+        }
         let auth_state_preexisting = auth_state_dir
             .try_exists()
             .context("could not inspect remote daemon authorization state")?;
-        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
-            .context("could not verify remote daemon lifecycle fence")?;
-        if auth_state_preexisting
-            && auth_state_requires_explicit_migration(&auth_state_dir)
-                .context("could not inspect remote daemon authorization schema")?
+        let auth_state_schema = auth_state_preexisting
+            .then(|| persisted_auth_state_schema(&auth_state_dir))
+            .transpose()
+            .context("could not inspect remote daemon authorization schema")?;
+        if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
+            || (!lifecycle_fenced
+                && matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing)))
         {
             return Err(anyhow!(
                 "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization"
@@ -2310,8 +2318,9 @@ pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
     {
         return Ok(false);
     }
-    if auth_state_requires_explicit_migration(&auth_state_dir)
+    if persisted_auth_state_schema(&auth_state_dir)
         .context("could not inspect remote daemon authorization schema")?
+        == PersistedAuthStateSchema::Legacy
     {
         return Ok(true);
     }

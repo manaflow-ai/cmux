@@ -1757,6 +1757,19 @@ struct PersistedAuthStateVersion {
     version: u32,
 }
 
+/// Read-only classification of the persisted daemon authorization schema.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PersistedAuthStateSchema {
+    /// No authorization state has been committed.
+    Missing,
+    /// Version 1 requires an explicitly process-fenced migration.
+    Legacy,
+    /// The current rollback-fenced schema is present.
+    Current,
+    /// A newer or otherwise unknown schema must not be rewritten.
+    Unsupported(u32),
+}
+
 /// Read the on-disk authorization schema without creating or modifying state.
 pub fn persisted_auth_state_version(state_dir: &Path) -> Result<Option<u32>, IdentityError> {
     let data = match fs::read(state_dir.join("devices.json")) {
@@ -1769,10 +1782,16 @@ pub fn persisted_auth_state_version(state_dir: &Path) -> Result<Option<u32>, Ide
     Ok(Some(version.version))
 }
 
-/// Return whether a pre-existing authorization directory needs an explicit,
-/// process-fenced migration before current code may open it.
-pub fn auth_state_requires_explicit_migration(state_dir: &Path) -> Result<bool, IdentityError> {
-    Ok(matches!(persisted_auth_state_version(state_dir)?, None | Some(STATE_VERSION)))
+/// Classify authorization state without creating or modifying it.
+pub fn persisted_auth_state_schema(
+    state_dir: &Path,
+) -> Result<PersistedAuthStateSchema, IdentityError> {
+    Ok(match persisted_auth_state_version(state_dir)? {
+        None => PersistedAuthStateSchema::Missing,
+        Some(STATE_VERSION) => PersistedAuthStateSchema::Legacy,
+        Some(AUTH_STATE_VERSION) => PersistedAuthStateSchema::Current,
+        Some(version) => PersistedAuthStateSchema::Unsupported(version),
+    })
 }
 
 #[cfg(test)]
