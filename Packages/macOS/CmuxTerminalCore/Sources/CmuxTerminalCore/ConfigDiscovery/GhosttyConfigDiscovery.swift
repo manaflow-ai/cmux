@@ -130,7 +130,14 @@ public struct GhosttyConfigDiscovery {
             mappings.removeAll { range, _ in
                 rangeCoverageProbe(configuredFontFamily, range)
             }
-        } else if let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) {
+        } else {
+            // Coverage of the configured font is unknown when it can't be
+            // probed (e.g. the family name doesn't resolve). Fail closed
+            // rather than inject Apple Symbols over ranges that may already
+            // be covered.
+            guard let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) else {
+                return nil
+            }
             mappings.removeAll { range, _ in
                 Self.fontContainsGlyphs(configuredFont, forRange: range)
             }
@@ -219,7 +226,14 @@ public struct GhosttyConfigDiscovery {
             mappings.removeAll { range, _ in
                 rangeCoverageProbe(configuredFontFamily, range)
             }
-        } else if let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) {
+        } else {
+            // Coverage of the configured font is unknown when it can't be
+            // probed (e.g. the family name doesn't resolve). Fail closed
+            // rather than inject a CJK font over ranges that may already
+            // be covered.
+            guard let configuredFont = fontProbe.configuredFont(named: configuredFontFamily, size: 12) else {
+                return nil
+            }
             mappings.removeAll { range, _ in
                 Self.fontContainsGlyphs(configuredFont, forRange: range)
             }
