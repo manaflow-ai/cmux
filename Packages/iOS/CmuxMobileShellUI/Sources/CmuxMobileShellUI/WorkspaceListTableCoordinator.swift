@@ -98,6 +98,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let previous = previousConfiguration
         configuration = next
         tableView.dragInteractionEnabled = next.enablesReorder
+        updateChromeTopInset(in: tableView)
         updateRefreshControl(in: tableView)
 
         guard let dataSource else {
@@ -387,6 +388,32 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             previewProvider: nil
         ) { _ in
             UIMenu(children: actions)
+        }
+    }
+
+    private func updateChromeTopInset(in tableView: UITableView) {
+        let nextTopInset = configuration.chromeTopInset
+        let contentInsetChanged = tableView.contentInset.top != nextTopInset
+        let oldRestingOffset = -tableView.adjustedContentInset.top
+        let shouldRepinRestingOffset = contentInsetChanged
+            && !tableView.isTracking
+            && !tableView.isDragging
+            && !tableView.isDecelerating
+            && tableView.refreshControl?.isRefreshing != true
+            && abs(tableView.contentOffset.y - oldRestingOffset) <= 1
+
+        if contentInsetChanged {
+            var contentInset = tableView.contentInset
+            contentInset.top = nextTopInset
+            tableView.contentInset = contentInset
+        }
+        if tableView.verticalScrollIndicatorInsets.top != nextTopInset {
+            var indicatorInsets = tableView.verticalScrollIndicatorInsets
+            indicatorInsets.top = nextTopInset
+            tableView.verticalScrollIndicatorInsets = indicatorInsets
+        }
+        if shouldRepinRestingOffset {
+            tableView.contentOffset.y = -tableView.adjustedContentInset.top
         }
     }
 
