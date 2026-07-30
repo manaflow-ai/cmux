@@ -1,6 +1,8 @@
 import Foundation
 
-/// Owns each Computer Use session's focus intent, cursor visibility, and effect epoch.
+/// Owns each Computer Use session's focus intent, cursor visibility, and effect
+/// epochs. Focus changes preserve the active helper cursor; foreground window
+/// ordering occludes or reveals its target-relative overlay without cycling it.
 @MainActor
 final class ComputerUseSessionPresentationController {
     typealias EffectValidity = @MainActor @Sendable () -> Bool
@@ -26,7 +28,9 @@ final class ComputerUseSessionPresentationController {
         var focusMode: ComputerUseWatchFocusMode
         var cursorVisible: Bool
         var proxySessionID: String?
-        var epoch: UInt64
+        var cursorEffectProxySessionID: String?
+        var focusEpoch: UInt64
+        var cursorEpoch: UInt64
     }
 
     private let setCursorVisibility: CursorVisibilityEffect
@@ -55,17 +59,29 @@ final class ComputerUseSessionPresentationController {
         _ driverSessionID: String,
         proxySessionID: String? = nil
     ) {
+        let previous = statesByDriverSessionID[driverSessionID]
         var state = activeState(for: driverSessionID)
         state.activityPhase = .active
-        state.cursorVisible = state.focusMode != .callingTerminal
+        state.cursorVisible = true
         state.proxySessionID = proxySessionID ?? state.proxySessionID
-        assignNextEpoch(to: &state)
+        let shouldScheduleCursorEffect =
+            previous == nil
+                || previous?.activityPhase == .completed
+                || previous?.cursorVisible == false
+                || state.cursorEffectProxySessionID
+                    != state.proxySessionID
+        guard shouldScheduleCursorEffect else {
+            statesByDriverSessionID[driverSessionID] = state
+            return
+        }
+        state.cursorEffectProxySessionID = state.proxySessionID
+        assignNextCursorEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
         scheduleCursorEffect(
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             visible: state.cursorVisible,
-            epoch: state.epoch
+            epoch: state.cursorEpoch
         )
     }
 
@@ -78,19 +94,15 @@ final class ComputerUseSessionPresentationController {
         var state = activeState(for: driverSessionID)
         state.activityPhase = .active
         state.focusMode = .callingTerminal
-        state.cursorVisible = false
+        // Keep the cursor rendered behind cmux so returning to the target reveals
+        // the existing overlay immediately instead of waiting on a helper RPC.
+        state.cursorVisible = true
         state.proxySessionID = proxySessionID ?? state.proxySessionID
-        assignNextEpoch(to: &state)
+        assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        let isCurrent = validity(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
-            epoch: state.epoch
-        )
-        scheduleCursorEffect(
-            driverSessionID: driverSessionID,
-            proxySessionID: state.proxySessionID,
-            visible: false,
-            epoch: state.epoch
+            epoch: state.focusEpoch
         )
         guard isCurrent() else { return }
         focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -104,19 +116,14 @@ final class ComputerUseSessionPresentationController {
         var state = activeState(for: driverSessionID)
         state.activityPhase = .active
         state.focusMode = .computerUse
+        // The active overlay was never disabled while cmux was foregrounded.
         state.cursorVisible = true
         state.proxySessionID = proxySessionID ?? state.proxySessionID
-        assignNextEpoch(to: &state)
+        assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        let isCurrent = validity(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
-            epoch: state.epoch
-        )
-        scheduleCursorEffect(
-            driverSessionID: driverSessionID,
-            proxySessionID: state.proxySessionID,
-            visible: true,
-            epoch: state.epoch
+            epoch: state.focusEpoch
         )
         guard isCurrent() else { return }
         activate()
@@ -134,9 +141,9 @@ final class ComputerUseSessionPresentationController {
         else {
             return
         }
-        let isCurrent = validity(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
-            epoch: state.epoch
+            epoch: state.focusEpoch
         )
         guard isCurrent() else { return }
         focusTerminal(workspaceID, surfaceID, isCurrent)
@@ -152,7 +159,9 @@ final class ComputerUseSessionPresentationController {
                 focusMode: .automatic,
                 cursorVisible: true,
                 proxySessionID: nil,
-                epoch: 0
+                cursorEffectProxySessionID: nil,
+                focusEpoch: 0,
+                cursorEpoch: 0
             )
         if statesByDriverSessionID[driverSessionID] == nil {
             statesByDriverSessionID[driverSessionID] = state
@@ -170,18 +179,40 @@ final class ComputerUseSessionPresentationController {
         _ driverSessionID: String,
         proxySessionID: String? = nil
     ) {
-        var state = activeState(for: driverSessionID)
+        var state = statesByDriverSessionID[driverSessionID]
+            ?? SessionState(
+                activityPhase: .active,
+                focusMode: .automatic,
+                cursorVisible: true,
+                proxySessionID: nil,
+                cursorEffectProxySessionID: nil,
+                focusEpoch: 0,
+                cursorEpoch: 0
+            )
+        let resolvedProxySessionID =
+            proxySessionID ?? state.proxySessionID
+        let shouldScheduleCursorEffect =
+            state.activityPhase != .completed
+                || state.cursorVisible
+                || state.cursorEffectProxySessionID
+                    != resolvedProxySessionID
         state.activityPhase = .completed
         state.focusMode = .automatic
         state.cursorVisible = false
-        state.proxySessionID = proxySessionID ?? state.proxySessionID
-        assignNextEpoch(to: &state)
+        state.proxySessionID = resolvedProxySessionID
+        assignNextFocusEpoch(to: &state)
+        guard shouldScheduleCursorEffect else {
+            statesByDriverSessionID[driverSessionID] = state
+            return
+        }
+        state.cursorEffectProxySessionID = resolvedProxySessionID
+        assignNextCursorEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
         scheduleCursorEffect(
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             visible: false,
-            epoch: state.epoch
+            epoch: state.cursorEpoch
         )
     }
 
@@ -195,17 +226,25 @@ final class ComputerUseSessionPresentationController {
                 focusMode: .automatic,
                 cursorVisible: true,
                 proxySessionID: nil,
-                epoch: 0
+                cursorEffectProxySessionID: nil,
+                focusEpoch: 0,
+                cursorEpoch: 0
             )
-        guard state.proxySessionID != proxySessionID else { return }
+        guard
+            state.proxySessionID != proxySessionID
+                || state.cursorEffectProxySessionID != proxySessionID
+        else {
+            return
+        }
         state.proxySessionID = proxySessionID
-        assignNextEpoch(to: &state)
+        state.cursorEffectProxySessionID = proxySessionID
+        assignNextCursorEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
         scheduleCursorEffect(
             driverSessionID: driverSessionID,
             proxySessionID: proxySessionID,
             visible: state.cursorVisible,
-            epoch: state.epoch
+            epoch: state.cursorEpoch
         )
     }
 
@@ -230,7 +269,9 @@ final class ComputerUseSessionPresentationController {
                 focusMode: .automatic,
                 cursorVisible: true,
                 proxySessionID: nil,
-                epoch: 0
+                cursorEffectProxySessionID: nil,
+                focusEpoch: 0,
+                cursorEpoch: 0
             )
         }
         if state.activityPhase == .completed {
@@ -241,17 +282,33 @@ final class ComputerUseSessionPresentationController {
         return state
     }
 
-    private func assignNextEpoch(to state: inout SessionState) {
+    private func assignNextFocusEpoch(to state: inout SessionState) {
         nextEpoch &+= 1
-        state.epoch = nextEpoch
+        state.focusEpoch = nextEpoch
     }
 
-    private func validity(
+    private func assignNextCursorEpoch(to state: inout SessionState) {
+        nextEpoch &+= 1
+        state.cursorEpoch = nextEpoch
+    }
+
+    private func focusValidity(
         driverSessionID: String,
         epoch: UInt64
     ) -> EffectValidity {
         { @MainActor [weak self] in
-            self?.statesByDriverSessionID[driverSessionID]?.epoch == epoch
+            self?.statesByDriverSessionID[driverSessionID]?.focusEpoch
+                == epoch
+        }
+    }
+
+    private func cursorValidity(
+        driverSessionID: String,
+        epoch: UInt64
+    ) -> EffectValidity {
+        { @MainActor [weak self] in
+            self?.statesByDriverSessionID[driverSessionID]?.cursorEpoch
+                == epoch
         }
     }
 
@@ -262,7 +319,7 @@ final class ComputerUseSessionPresentationController {
         epoch: UInt64
     ) {
         cursorTasksByDriverSessionID[driverSessionID]?.cancel()
-        let isCurrent = validity(
+        let isCurrent = cursorValidity(
             driverSessionID: driverSessionID,
             epoch: epoch
         )
