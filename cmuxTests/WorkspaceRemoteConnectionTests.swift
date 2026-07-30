@@ -27,6 +27,14 @@ private final class ManualRemotePTYLifecycleCommitLease:
     var isCurrent = true
     var afterOperation: (@MainActor () -> Void)?
 
+    nonisolated func beginReadinessDelivery()
+        -> ControlRemotePTYReadinessDeliveryAdmission
+    {
+        .acquired
+    }
+
+    nonisolated func finishReadinessDelivery(succeeded _: Bool) {}
+
     func commitIfCurrent(
         _ operation: @MainActor @Sendable () -> Bool
     ) -> Bool {
@@ -1565,7 +1573,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
 

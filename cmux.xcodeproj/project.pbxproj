@@ -1203,6 +1203,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000C /* MainThreadHangSampleRunner.swift */; };
 		875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000004 /* MainThreadHangWatchdog.swift */; };
 		875900000000000000000007 /* MainThreadHangWatchdogState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000008 /* MainThreadHangWatchdogState.swift */; };
+		C8349001C8349001C8349001 /* MainWindowCloseTerminationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */; };
 		895500000000000000000003 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895500000000000000000004 /* MainWindowController.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */; };
@@ -3717,6 +3718,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		87590000000000000000000C /* MainThreadHangSampleRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangSampleRunner.swift; sourceTree = "<group>"; };
 		875900000000000000000004 /* MainThreadHangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdog.swift; sourceTree = "<group>"; };
 		875900000000000000000008 /* MainThreadHangWatchdogState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdogState.swift; sourceTree = "<group>"; };
+		C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowCloseTerminationRoutingTests.swift; sourceTree = "<group>"; };
 		895500000000000000000004 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowController.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusRestoreTests.swift; sourceTree = "<group>"; };
@@ -7367,6 +7369,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
 				C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */,
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
+				C8349002C8349002C8349002 /* MainWindowCloseTerminationRoutingTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 				C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
 				C0DE86520000000000000118 /* FilePreviewNativeRefreshStateTests.swift */,
@@ -10257,6 +10260,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				A7C0F0010000000000000002 /* MacPairedMacBackupPublisherScopeTests.swift in Sources */,
+				C8349001C8349001C8349001 /* MainWindowCloseTerminationRoutingTests.swift in Sources */,
 				6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */,
 				40ED33F6C1CEB26EAE7C9476 /* MainWindowSelfSizingTests.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
