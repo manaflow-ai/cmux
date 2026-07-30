@@ -3274,6 +3274,96 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_resumes_lifecycle_fenced_lock_only_auth_initialization() {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "resume-lock-only-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        fs::create_dir_all(&auth_state_dir).unwrap();
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(auth_state_dir.join("devices.json.lock"))
+            .unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("lifecycle-fenced lock-only authorization state did not resume");
+
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_resyncs_visible_fence_before_initializing_auth() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "resync-visible-fence";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("startup trusted a visible lifecycle fence without re-syncing it");
+            }
+        };
+        assert!(error.to_string().contains("lifecycle fence"), "{error:#}");
+        assert!(
+            !state_dir.join("auth").exists(),
+            "startup initialized authorization state before confirming fence durability"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_startup_persists_fresh_fence_before_auth_initialization_failure() {
         use std::os::unix::fs::symlink;
 
