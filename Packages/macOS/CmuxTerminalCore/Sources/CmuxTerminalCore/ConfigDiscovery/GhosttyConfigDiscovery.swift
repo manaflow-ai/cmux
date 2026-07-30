@@ -73,8 +73,7 @@ public struct GhosttyConfigDiscovery {
 
     // MARK: - Symbol font fallback codepoints
 
-    /// Pictographic/symbol codepoints, grouped by their Unicode block purely
-    /// for documentation, where Ghostty's monospace-biased `CTFontCollection`
+    /// Pictographic/symbol codepoints where Ghostty's monospace-biased `CTFontCollection`
     /// scoring can land on an unpredictable installed "monospace" font rather
     /// than the narrower substitute CoreText's own `CTFontCreateForString`
     /// cascade would pick (e.g. the hexagon ⬡ at U+2B21, or the ▰/▱ gauge
@@ -87,13 +86,13 @@ public struct GhosttyConfigDiscovery {
     /// configured font already renders correctly.
     ///
     /// See: https://github.com/Nanako0129/coralline/issues/47
-    public static let symbolCodepointsByRange: [String: [UInt32]] = [
-        "U+25A0-U+25FF": [0x25A0, 0x25B0, 0x25B1, 0x25CB, 0x25CF],  // Geometric Shapes (▰ ▱ ● ○ ■ □ …)
-        "U+2B00-U+2BFF": [0x2B21, 0x2B22],  // Miscellaneous Symbols and Arrows (⬡ U+2B21, ⬢ U+2B22, …)
+    public static let symbolCodepoints: [UInt32] = [
+        0x25A0, 0x25B0, 0x25B1, 0x25CB, 0x25CF,  // Geometric Shapes (▰ ▱ ● ○ ■ □ …)
+        0x2B21, 0x2B22,  // Miscellaneous Symbols and Arrows (⬡ U+2B21, ⬢ U+2B22, …)
     ]
 
-    /// The font cmux injects for ``symbolCodepointsByRange``: macOS's
-    /// built-in symbol font. CoreText's own cascade resolves to this font for
+    /// The font cmux injects for ``symbolCodepoints``: macOS's built-in
+    /// symbol font. CoreText's own cascade resolves to this font for
     /// codepoints a base font is missing, so injecting it for those specific
     /// codepoints makes Ghostty's fallback choice match what a plain CoreText
     /// app would render instead of an unpredictable, potentially much wider
@@ -105,7 +104,7 @@ public struct GhosttyConfigDiscovery {
     /// for cmux's symbol-glyph fallback. Always non-empty, since coverage
     /// isn't locale-conditioned like CJK.
     public func symbolFontMappings() -> [(String, String)] {
-        Self.symbolCodepointsByRange.values.flatMap { $0 }.map {
+        Self.symbolCodepoints.map {
             (String(format: "U+%04X", $0), Self.symbolFallbackFont)
         }
     }
@@ -407,10 +406,32 @@ public struct GhosttyConfigDiscovery {
         _ font: CTFont,
         forCodepoint codepoint: UInt32
     ) -> Bool {
-        guard let scalar = UniChar(exactly: codepoint) else { return false }
-        var glyph = CGGlyph()
-        let hasGlyph = CTFontGetGlyphsForCharacters(font, [scalar], &glyph, 1)
-        return hasGlyph && glyph != 0
+        // CTFontGetGlyphsForCharacters takes UTF-16 code units, so codepoints
+        // outside the BMP need to be encoded as a surrogate pair.
+        let chars: [UniChar]
+        if let bmp = UniChar(exactly: codepoint) {
+            chars = [bmp]
+        } else if codepoint >= 0x10000, codepoint <= 0x10FFFF {
+            let adjusted = codepoint - 0x10000
+            chars = [
+                UniChar(0xD800 + (adjusted >> 10)),
+                UniChar(0xDC00 + (adjusted & 0x3FF)),
+            ]
+        } else {
+            return false
+        }
+
+        var glyphs = Array(repeating: CGGlyph(), count: chars.count)
+        let hasGlyphs = CTFontGetGlyphsForCharacters(font, chars, &glyphs, chars.count)
+        // For a surrogate pair, CTFontGetGlyphsForCharacters doesn't
+        // guarantee both output slots are non-zero for a successful match,
+        // so the boolean return alone is the source of truth there; for a
+        // single BMP code unit, checking the glyph itself matches the
+        // sibling `fontContainsGlyphs`.
+        if chars.count == 1 {
+            return hasGlyphs && glyphs[0] != 0
+        }
+        return hasGlyphs
     }
 
     static func normalizedFontName(_ name: String) -> String {
