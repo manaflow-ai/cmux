@@ -14516,14 +14516,18 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                SidebarAccountMenuButton()
-            }
-            if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-                SidebarMobileConnectButton()
-            }
-            if shows(.help) {
-                SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+                HStack(spacing: 0) {
+                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                        SidebarAccountMenuButton()
+                    }
+                    if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                        SidebarMobileConnectButton()
+                    }
+                    if shows(.help) {
+                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                    }
+                }
             }
             // Command-hold reveal: appears immediately before Upgrade. It stays
             // mounted while its popover is open so releasing ⌘ does not dismiss it.
