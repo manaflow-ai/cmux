@@ -441,7 +441,275 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(snapshot?.records.contains { $0.macDeviceID == "mac-a" } == true)
     }
 
+    /// The account-wide parked intent must exist BEFORE the first suspension
+    /// that permits a revive. The batch's local deletes await the inner store;
+    /// a Mac re-registering during that window clears the routed tombstone and
+    /// uploads a revive — but cannot clear a parked intent that has not been
+    /// created yet. Inserting it afterwards leaves a stale account-wide
+    /// tombstone that suppresses the freshly revived pairing in every restore.
+    @Test func revivalDuringLocalDeleteAlsoCancelsTheAccountWideIntent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let hookedInner = RemoveHookStore(inner: base)
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let store = BackingUpPairedMacStore(
+            inner: hookedInner,
+            backup: FakeBackup(),
+            teamIDProvider: { "team-shown" },
+            pendingDeleteStore: pending
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // The still-online Mac re-registers exactly while the forget's local
+        // delete is suspended in the inner store.
+        await hookedInner.setOnRemoveExactScope { [store] in
+            try? await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try! Self.route("100.82.214.112")],
+                instanceTag: nil,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 3)
+            )
+        }
+
+        _ = await composite.forgetHiddenComputer(hidden)
+
+        // The revive must have cancelled EVERY tombstone covering the pairing —
+        // routed and account-wide alike. A surviving intent would suppress the
+        // re-registered Mac's backup record in every future restore.
+        var survivingIntents: [String] = []
+        for scope in await pending.storedScopes() {
+            for raw in await pending.load(scope: scope) where raw.contains("mac-a") {
+                survivingIntents.append(raw)
+            }
+        }
+        #expect(survivingIntents.isEmpty)
+    }
+
+    /// Retiring a flushed tombstone must not consume a NEWER identical intent.
+    /// The flush suspends again after its delete upload (mapping cleanup,
+    /// corrective revives); a re-pair plus a second forget during that window
+    /// re-adds the identical encoded record, and a set subtraction computed
+    /// afterwards would silently erase the second forget's intent — if its own
+    /// upload failed, the backup keeps the revived record with no tombstone
+    /// left to retry.
+    @Test func flushRetirementKeepsANewerIdenticalTombstone() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let backup = FakeBackup(recordsByTeam: ["team-a": []])
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let hookedTeams = RemoveHookTeamStore(inner: InMemoryPairedMacBackupTeamStore())
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-a" },
+            pendingDeleteStore: pending,
+            backupTeamStore: hookedTeams
+        )
+        // Pair the Mac through the seam: the mirror echo saves the mapping, so
+        // the forget's tombstone routes CONCRETELY to team-a.
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        // During the flush's post-upload mapping cleanup: the Mac re-pairs
+        // (clearing the sent record) and is immediately forgotten AGAIN — but
+        // that second tombstone's own upload fails, so it must stay queued.
+        await hookedTeams.setOnRemove { [store, backup] in
+            try? await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try! Self.route("100.82.214.112")],
+                instanceTag: nil,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 2)
+            )
+            await backup.setFailNextUploads(99)
+            try? await store.removeExactScope(
+                macDeviceID: "mac-a",
+                instanceTag: nil,
+                stackUserID: "user-1",
+                teamID: "team-a"
+            )
+        }
+        try await store.removeExactScope(
+            macDeviceID: "mac-a",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+
+        // The second forget's tombstone was never delivered (its upload
+        // failed), so it must still be queued for retry somewhere.
+        var queued: [String] = []
+        for scope in await pending.storedScopes() {
+            for raw in await pending.load(scope: scope) where raw.contains("mac-a") {
+                queued.append(raw)
+            }
+        }
+        #expect(!queued.isEmpty)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
+    }
+}
+
+/// Wraps a paired-Mac store and fires a one-shot hook while an exact-scope
+/// delete is suspended in the inner store, so a test can interleave a
+/// concurrent mutation deterministically.
+private final class RemoveHookStore: MobilePairedMacStoring, @unchecked Sendable {
+    let inner: any MobilePairedMacStoring
+    private let lock = NSLock()
+    private var hook: (@Sendable () async -> Void)?
+
+    init(inner: any MobilePairedMacStoring) {
+        self.inner = inner
+    }
+
+    func setOnRemoveExactScope(_ hook: @escaping @Sendable () async -> Void) async {
+        lock.withLock { self.hook = hook }
+    }
+
+    func removeExactScope(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        if let hook = lock.withLock({ let h = hook; hook = nil; return h }) {
+            await hook()
+        }
+        try await inner.removeExactScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    func loadAllInstances(macDeviceID: String, stackUserID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(macDeviceID: macDeviceID, stackUserID: stackUserID)
+    }
+
+    func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.upsert(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertIfNewer(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, customName: String?, customColor: String?, customIcon: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertIfNewer(macDeviceID: macDeviceID, displayName: displayName, routes: routes, instanceTag: instanceTag, customName: customName, customColor: customColor, customIcon: customIcon, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func upsertRoutesIfAuthorized(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], condition: MobilePairedMacRouteWriteCondition, markActive: Bool?, stackUserID: String?, teamID: String?, now: Date) async throws -> Bool {
+        try await inner.upsertRoutesIfAuthorized(macDeviceID: macDeviceID, displayName: displayName, routes: routes, condition: condition, markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func setCustomization(macDeviceID: String, customName: String?, customColor: String?, customIcon: String?, stackUserID: String?, teamID: String?, now: Date) async throws {
+        try await inner.setCustomization(macDeviceID: macDeviceID, customName: customName, customColor: customColor, customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func remove(macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func removeAll() async throws {
+        try await inner.removeAll()
+    }
+}
+
+/// Wraps a backup-team mapping store and fires a one-shot hook while a
+/// mapping removal is suspended, so a test can interleave a concurrent
+/// mutation deterministically.
+private actor RemoveHookTeamStore: PairedMacBackupTeamStoring {
+    private let inner: any PairedMacBackupTeamStoring
+    private var hook: (@Sendable () async -> Void)?
+
+    init(inner: any PairedMacBackupTeamStoring) {
+        self.inner = inner
+    }
+
+    func setOnRemove(_ hook: @escaping @Sendable () async -> Void) {
+        self.hook = hook
+    }
+
+    func load(key: String) async -> String? {
+        await inner.load(key: key)
+    }
+
+    func save(_ teamID: String, key: String) async {
+        await inner.save(teamID, key: key)
+    }
+
+    func remove(key: String) async {
+        if let hook {
+            self.hook = nil
+            await hook()
+        }
+        await inner.remove(key: key)
+    }
+
+    func removeAll() async {
+        await inner.removeAll()
     }
 }
