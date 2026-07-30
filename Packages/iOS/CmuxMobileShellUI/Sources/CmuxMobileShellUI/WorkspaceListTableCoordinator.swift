@@ -45,6 +45,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    /// The row whose swipe controls UIKit is currently presenting.
+    private var editedItemID: String?
+    /// Native-action payloads that changed while their row was being swiped.
+    /// Reloading one of these cells before UIKit finishes closing the swipe
+    /// interrupts the system completion animation.
+    private var deferredNativeActionReloadIDs: Set<String> = []
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -56,6 +62,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func attach(to tableView: WorkspaceListUITableView) {
+        editedItemID = nil
+        deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -158,6 +166,35 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
+        if structureChanged {
+            // A structural snapshot refreshes every surviving row's native
+            // state and invalidates any row identity captured at swipe start.
+            deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
+        } else if let editedItemID, nativeActionReloadIDs.contains(editedItemID) {
+            deferredNativeActionReloadIDs.insert(editedItemID)
+        }
+
+        let changedToApply: [WorkspaceListTableItem]
+        if structureChanged || deferredNativeActionReloadIDs.isEmpty {
+            changedToApply = changed
+        } else {
+            changedToApply = changed.filter {
+                !deferredNativeActionReloadIDs.contains($0.id)
+            }
+            nativeActionReloadIDs.subtract(deferredNativeActionReloadIDs)
+        }
+
+        guard structureChanged || !changedToApply.isEmpty else {
+            #if DEBUG
+            recordPayloadApplyRoute(
+                .deferredNativeActionReload(
+                    changed.map(\.id).filter(deferredNativeActionReloadIDs.contains)
+                )
+            )
+            #endif
+            return
+        }
+
         if !structureChanged, changedRowHeightsStable, nativeActionReloadIDs.isEmpty {
             // Payload-only update: no row identity moved and no row height
             // changed, so the snapshot has nothing to diff. Routing this
@@ -167,7 +204,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // stream. Re-configure the visible changed cells in place (the
             // exact work reconfigure performs); offscreen rows pick up the
             // new payload from `configuredItemsByID` when they dequeue.
-            for item in changed {
+            for item in changedToApply {
                 guard
                     let indexPath = dataSource.indexPath(for: item),
                     let cell = tableView.cellForRow(at: indexPath)
@@ -175,7 +212,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 configure(cell, for: configuredItemsByID[item.id] ?? item)
             }
             #if DEBUG
-            recordPayloadApplyRoute(.reconfiguredInPlace(changed.map(\.id)))
+            recordPayloadApplyRoute(.reconfiguredInPlace(changedToApply.map(\.id)))
             #endif
             return
         }
@@ -188,8 +225,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         } else {
             snapshot = currentSnapshot
         }
-        let reloadItems = changed.filter { nativeActionReloadIDs.contains($0.id) }
-        let reconfigureItems = changed.filter { !nativeActionReloadIDs.contains($0.id) }
+        let reloadItems = changedToApply.filter { nativeActionReloadIDs.contains($0.id) }
+        let reconfigureItems = changedToApply.filter { !nativeActionReloadIDs.contains($0.id) }
         snapshot.reloadItems(reloadItems)
         snapshot.reconfigureItems(reconfigureItems)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -333,6 +370,33 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let workspaceID = item.workspaceID
         else { return }
         configuration.selectWorkspace(workspaceID)
+    }
+
+    func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
+        editedItemID = dataSource?.itemIdentifier(for: indexPath)?.id
+    }
+
+    func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
+        guard let editedItemID else { return }
+        self.editedItemID = nil
+        guard
+            deferredNativeActionReloadIDs.remove(editedItemID) != nil,
+            let dataSource,
+            let item = dataSource.snapshot().itemIdentifiers.first(where: {
+                $0.id == editedItemID
+            })
+        else { return }
+
+        // `didEndEditingRowAt` is UIKit's boundary after the contextual
+        // controls finish closing. Reloading here refreshes UIKit's cached
+        // swipe-derived accessibility actions without replacing the cell
+        // during the completion animation.
+        var snapshot = dataSource.snapshot()
+        snapshot.reloadItems([item])
+        dataSource.apply(snapshot, animatingDifferences: false)
+        #if DEBUG
+        recordPayloadApplyRoute(.snapshotApply)
+        #endif
     }
 
     func tableView(

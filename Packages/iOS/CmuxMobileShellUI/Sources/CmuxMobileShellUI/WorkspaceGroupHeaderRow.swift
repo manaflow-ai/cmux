@@ -28,6 +28,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     private var isAnchorSelected: Bool { value.isAnchorSelected }
 
     @State private var isRenaming = false
+    @State private var renameDraft = ""
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
@@ -134,10 +135,11 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contextMenu { contextMenu }
-        .sheet(isPresented: $isRenaming) {
-            WorkspaceGroupRenameSheet(currentName: group.name) { newName in
-                actions.renameGroup?(group.id, newName)
-            }
+        .workspaceGroupRenameDialog(
+            isPresented: $isRenaming,
+            text: $renameDraft
+        ) { newName in
+            actions.renameGroup?(group.id, newName)
         }
         .confirmationDialog(
             destructiveDialogTitle,
@@ -196,6 +198,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 }
                 if value.canRenameGroup {
                     Button {
+                        renameDraft = group.name
                         isRenaming = true
                     } label: {
                         Label(L10n.string("mobile.workspaceGroup.rename.action", defaultValue: "Rename Group"), systemImage: "pencil")

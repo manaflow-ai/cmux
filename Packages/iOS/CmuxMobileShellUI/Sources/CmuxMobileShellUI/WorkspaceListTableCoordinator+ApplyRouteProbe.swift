@@ -15,6 +15,9 @@ extension WorkspaceListTableCoordinator {
         /// Payload-only changes with stable heights; the visible changed
         /// cells were re-configured in place, listed here by item id.
         case reconfiguredInPlace([String])
+        /// Native swipe actions changed on the row UIKit is still editing.
+        /// The listed cells stay untouched until the swipe closes.
+        case deferredNativeActionReload([String])
         /// Structure or a row height changed; a snapshot was applied.
         case snapshotApply
     }

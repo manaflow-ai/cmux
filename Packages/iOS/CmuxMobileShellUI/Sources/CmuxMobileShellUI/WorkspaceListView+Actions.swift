@@ -68,7 +68,11 @@ extension WorkspaceListView {
 
     var requestWorkspaceGroupRename: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
         guard renameWorkspaceGroup != nil else { return nil }
-        return { workspaceGroupPendingRenameID = $0 }
+        return { groupID in
+            guard let group = groups.first(where: { $0.id == groupID }) else { return }
+            workspaceGroupRenameDraft = group.name
+            workspaceGroupPendingRenameID = groupID
+        }
     }
 
     var requestWorkspaceGroupUngroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? {

@@ -139,8 +139,10 @@ struct WorkspaceListView: View {
     /// customization sheet.
     @State var workspacePendingCustomizationID: MobileWorkspacePreview.ID?
     /// The group whose UIKit context-menu action is presenting the shared
-    /// rename sheet.
+    /// rename alert.
     @State var workspaceGroupPendingRenameID: MobileWorkspaceGroupPreview.ID?
+    /// Stable text storage for the list-scoped group rename alert.
+    @State var workspaceGroupRenameDraft = ""
     /// The group and destructive operation awaiting confirmation from a UIKit
     /// context-menu action.
     @State var workspaceGroupDestructiveRequest = WorkspaceGroupDestructiveRequestState()
@@ -439,12 +441,12 @@ struct WorkspaceListView: View {
                 }
             }
         }
-        .sheet(isPresented: workspaceGroupRenameIsPresented) {
-            if let groupID = workspaceGroupPendingRenameID,
-               let group = groups.first(where: { $0.id == groupID }) {
-                WorkspaceGroupRenameSheet(currentName: group.name) { newName in
-                    renameWorkspaceGroup?(groupID, newName)
-                }
+        .workspaceGroupRenameDialog(
+            isPresented: workspaceGroupRenameIsPresented,
+            text: $workspaceGroupRenameDraft
+        ) { newName in
+            if let groupID = workspaceGroupPendingRenameID {
+                renameWorkspaceGroup?(groupID, newName)
             }
         }
         .sheet(item: $changesSheetTarget) { target in
