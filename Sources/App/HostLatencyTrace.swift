@@ -1,4 +1,5 @@
 #if DEBUG
+import CMUXDebugLog
 import Dispatch
 import Foundation
 import os
@@ -142,8 +143,27 @@ enum HostLatencyTrace {
                 while let batch = state.withLock({
                     $0.drain(maximumCount: Self.batchSize)
                 }) {
-                    cmuxDebugLog(batch.joined(separator: "\n"))
+                    appendSynchronously(batch)
                 }
+            }
+        }
+
+        private func appendSynchronously(_ batch: [String]) {
+            guard let data = (batch.joined(separator: "\n") + "\n").data(using: .utf8) else {
+                return
+            }
+            let fileDescriptor = open(
+                CMUXDebugLog.DebugEventLog.currentLogPath(),
+                O_WRONLY | O_APPEND | O_CREAT,
+                0o644
+            )
+            guard fileDescriptor >= 0 else { return }
+            let handle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
+            do {
+                try handle.write(contentsOf: data)
+                try handle.close()
+            } catch {
+                try? handle.close()
             }
         }
     }

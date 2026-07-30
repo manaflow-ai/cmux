@@ -7809,10 +7809,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         #if DEBUG
-        let latencySurfaceToken = surfaceID.prefix(8).lowercased()
         MobileLatencyTrace.stamp(
             "in.resp",
-            "s=\(latencySurfaceToken) ack_seq=\(remoteSeq)"
+            "s=\(surfaceID.prefix(8).lowercased()) ack_seq=\(remoteSeq)"
         )
         #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
@@ -8550,11 +8549,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         if let latencyReceiveTime {
             let decodeDuration = MobileLatencyTrace.elapsedMicroseconds(since: latencyReceiveTime)
-            let latencySurfaceToken = renderGrid.surfaceID.prefix(8).lowercased()
             MobileLatencyTrace.stamp(
                 "ev.grid",
                 at: latencyReceiveTime,
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) " +
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) seq=\(renderGrid.stateSeq) " +
                     "bytes=\(json.count) dec_us=\(decodeDuration)"
             )
         }

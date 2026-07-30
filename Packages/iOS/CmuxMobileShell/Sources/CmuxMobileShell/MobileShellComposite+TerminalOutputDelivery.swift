@@ -61,15 +61,13 @@ extension MobileShellComposite {
         expectedSurfaceID: String? = nil,
         source: String
     ) {
-        #if DEBUG
-        let latencySurfaceToken = renderGrid.surfaceID.prefix(8).lowercased()
-        #endif
         guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_stale"
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_stale"
             )
             #endif
             return
@@ -101,7 +99,8 @@ extension MobileShellComposite {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_stale"
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_stale"
             )
             #endif
             return
@@ -113,7 +112,8 @@ extension MobileShellComposite {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=drop_pending_input"
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=drop_pending_input"
             )
             #endif
             return
@@ -158,7 +158,8 @@ extension MobileShellComposite {
                 #if DEBUG
                 MobileLatencyTrace.stamp(
                     "gate",
-                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=barrier"
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=barrier"
                 )
                 #endif
             } else {
@@ -166,7 +167,8 @@ extension MobileShellComposite {
                 #if DEBUG
                 MobileLatencyTrace.stamp(
                     "gate",
-                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=replay_req"
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=replay_req"
                 )
                 #endif
             }
@@ -201,7 +203,8 @@ extension MobileShellComposite {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) " +
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) " +
                     "out=\(deliveryDecision.requestReplay ? "replay_req" : "delivered")"
             )
             #endif
@@ -232,7 +235,8 @@ extension MobileShellComposite {
                 #if DEBUG
                 MobileLatencyTrace.stamp(
                     "gate",
-                    "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=replay_req"
+                    "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                        "seq=\(renderGrid.stateSeq) out=replay_req"
                 )
                 #endif
                 return
@@ -267,7 +271,8 @@ extension MobileShellComposite {
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
-                "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=barrier"
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=barrier"
             )
             #endif
             return
@@ -291,7 +296,8 @@ extension MobileShellComposite {
         #if DEBUG
         MobileLatencyTrace.stamp(
             "gate",
-            "s=\(latencySurfaceToken) seq=\(renderGrid.stateSeq) out=delivered"
+            "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                "seq=\(renderGrid.stateSeq) out=delivered"
         )
         #endif
     }

@@ -127,7 +127,7 @@ def pair_wire_events(
     writes: Iterable[Stamp],
     events: Iterable[Stamp],
 ) -> list[tuple[Stamp, Stamp]]:
-    """Pair each grid receipt with the earliest unmatched fan-out write."""
+    """Pair each grid receipt with one unmatched write in cohort FIFO order."""
     writes_by_identity: dict[tuple[str, int], list[Stamp]] = {}
     for stamp in writes:
         identity = surface_sequence(stamp)
@@ -143,11 +143,8 @@ def pair_wire_events(
         index = write_indices.get(identity, 0)
         if index >= len(candidates) or candidates[index].time_us > event.time_us:
             continue
-        earliest = candidates[index]
-        while index < len(candidates) and candidates[index].time_us <= event.time_us:
-            index += 1
-        write_indices[identity] = index
-        pairs.append((earliest, event))
+        pairs.append((candidates[index], event))
+        write_indices[identity] = index + 1
     return pairs
 
 
@@ -736,7 +733,28 @@ LAT ev.grid t=40 s=aaaaaaaa seq=7
     assert [
         (pair[0].fields["s"], pair[0].time_us)
         for pair in repeated_wire_pairs
-    ] == [("bbbbbbbb", 12), ("aaaaaaaa", 10), ("aaaaaaaa", 30)]
+    ] == [("bbbbbbbb", 12), ("aaaaaaaa", 10), ("aaaaaaaa", 11)]
+    overlapping_wire_fixture = by_stage(parse_log(
+        """
+LAT host.write t=10 s=aaaaaaaa conn=11111111 seq=7
+LAT host.write t=30 s=aaaaaaaa conn=11111111 seq=7
+LAT ev.grid t=20 s=aaaaaaaa seq=7
+LAT ev.grid t=50 s=aaaaaaaa seq=7
+""",
+        "shared",
+    ))
+    overlapping_wire_pairs = pair_wire_events(
+        overlapping_wire_fixture["host.write"],
+        overlapping_wire_fixture["ev.grid"],
+    )
+    assert [
+        (written.time_us, received.time_us)
+        for written, received in overlapping_wire_pairs
+    ] == [(10, 20), (30, 50)]
+    assert [
+        duration_ms(written, received)
+        for written, received in overlapping_wire_pairs
+    ] == [0.01, 0.02]
     mismatched = analyze(
         parse_log(
             mac_fixture.replace(

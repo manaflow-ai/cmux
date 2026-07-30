@@ -329,9 +329,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await _ in outputStartSignal { break }
                 guard !Task.isCancelled else { return }
                 guard let store else { return }
-                #if DEBUG
-                let latencySurfaceToken = surfaceID.prefix(8).lowercased()
-                #endif
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
@@ -342,7 +339,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         ?? 0
                     MobileLatencyTrace.stamp(
                         "ap.yield",
-                        "s=\(latencySurfaceToken) seq=\(latencySequence)"
+                        "s=\(surfaceID.prefix(8).lowercased()) seq=\(latencySequence)"
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
@@ -364,7 +361,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "ap.done",
                                 since: latencyApplyStart
                             ) {
-                                "s=\(latencySurfaceToken) seq=\(frame.stateSeq) " +
+                                "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq) " +
                                     "path=verified us=\($0)"
                             }
                             // Verified replay has already submitted, read back,
@@ -374,7 +371,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             // it with a later ordinary redraw.
                             MobileLatencyTrace.stamp(
                                 "rd.present",
-                                "s=\(latencySurfaceToken) seq=\(frame.stateSeq)"
+                                "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
                             #endif
                             store.terminalOutputDidProcess(
@@ -456,7 +453,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         "ap.done",
                         since: latencyApplyStart
                     ) {
-                        "s=\(latencySurfaceToken) seq=\(latencySequence) " +
+                        "s=\(surfaceID.prefix(8).lowercased()) seq=\(latencySequence) " +
                             "path=legacy us=\($0)"
                     }
                     #endif

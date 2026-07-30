@@ -529,7 +529,6 @@ final class MobileHostService {
         guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
-        let latencySurfaceToken = coalesceKey?.prefix(8).lowercased()
         #endif
         var resyncSurfaceIDs = Set<String>()
         for connection in connections {
@@ -543,14 +542,13 @@ final class MobileHostService {
             )
             #if DEBUG
             if let stateSeq,
-               let latencySurfaceToken,
+               let surfaceID = coalesceKey,
                result.admitted,
                let depth = result.depthAfterEnqueue {
-                let latencyConnectionToken = connection.connectionID.uuidString
-                    .prefix(8).lowercased()
                 HostLatencyTrace.stamp(
                     "host.enq",
-                    "s=\(latencySurfaceToken) conn=\(latencyConnectionToken) " +
+                    "s=\(surfaceID.prefix(8).lowercased()) " +
+                        "conn=\(connection.connectionID.uuidString.prefix(8).lowercased()) " +
                         "seq=\(stateSeq) depth=\(depth)"
                 )
             }
@@ -2620,13 +2618,12 @@ actor MobileHostConnection {
             #if DEBUG
             if let stateSeq = event.stateSeq,
                let surfaceID = event.coalesceKey {
-                let latencySurfaceToken = surfaceID.prefix(8).lowercased()
-                let latencyConnectionToken = id.uuidString.prefix(8).lowercased()
                 HostLatencyTrace.stampElapsed(
                     "host.write",
                     since: latencyWriteStart
                 ) {
-                    "s=\(latencySurfaceToken) conn=\(latencyConnectionToken) " +
+                    "s=\(surfaceID.prefix(8).lowercased()) " +
+                        "conn=\(id.uuidString.prefix(8).lowercased()) " +
                         "seq=\(stateSeq) us=\($0)"
                 }
             }
