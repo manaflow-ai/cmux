@@ -610,7 +610,7 @@ impl PersistenceCoordinator {
         };
         drop(worker);
         let result = self.terminal_result();
-        if result.is_ok() && state_lease.is_some() {
+        if state_lease.is_some() {
             cleanup();
         }
         drop(state_lease);
