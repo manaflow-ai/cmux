@@ -54,6 +54,18 @@ private struct NoFontProbe: GhosttyFontProbing {
         let sharedForJa = mappings.filter { GhosttyConfigDiscovery.sharedCJKRanges.contains($0.0) }
         #expect(sharedForJa.allSatisfy { $0.1 == "Hiragino Sans" })
     }
+
+    @Test func autoInjectedCJKFontMappingsFailsClosedWhenFontCannotBeProbed() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = Some Unresolvable Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedCJKFontMappings(
+            preferredLanguages: ["ja-JP"],
+            configPaths: [path]
+        ) == nil)
+    }
 }
 
 @Suite struct GhosttyConfigDiscoverySymbolTests {
@@ -111,6 +123,15 @@ private struct NoFontProbe: GhosttyFontProbing {
             configPaths: [path],
             rangeCoverageProbe: { _, _ in true }
         ) == nil)
+    }
+
+    @Test func autoInjectedSymbolFontMappingsFailsClosedWhenFontCannotBeProbed() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = Some Unresolvable Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
     }
 
     @Test func shouldInjectSymbolFontFallbackMatchesMappingPresence() {
