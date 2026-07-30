@@ -108,10 +108,14 @@ final class ComputerUseSessionPresentationController {
         state.proxySessionID = proxySessionID ?? state.proxySessionID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        scheduleFocusEffect(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        ) { [focusTerminal] isCurrent in
+        )
+        scheduleFocusEffect(
+            driverSessionID: driverSessionID,
+            isCurrent: isCurrent
+        ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
         }
     }
@@ -129,10 +133,14 @@ final class ComputerUseSessionPresentationController {
         state.proxySessionID = proxySessionID ?? state.proxySessionID
         assignNextFocusEpoch(to: &state)
         statesByDriverSessionID[driverSessionID] = state
-        scheduleFocusEffect(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        ) { _ in
+        )
+        scheduleFocusEffect(
+            driverSessionID: driverSessionID,
+            isCurrent: isCurrent
+        ) {
             activate()
         }
     }
@@ -149,10 +157,14 @@ final class ComputerUseSessionPresentationController {
         else {
             return
         }
-        scheduleFocusEffect(
+        let isCurrent = focusValidity(
             driverSessionID: driverSessionID,
             epoch: state.focusEpoch
-        ) { [focusTerminal] isCurrent in
+        )
+        scheduleFocusEffect(
+            driverSessionID: driverSessionID,
+            isCurrent: isCurrent
+        ) { [focusTerminal] in
             focusTerminal(workspaceID, surfaceID, isCurrent)
         }
     }
@@ -331,17 +343,13 @@ final class ComputerUseSessionPresentationController {
     /// cannot apply an older focus choice after the newer one.
     private func scheduleFocusEffect(
         driverSessionID: String,
-        epoch: UInt64,
-        effect: @escaping @MainActor (EffectValidity) -> Void
+        isCurrent: @escaping EffectValidity,
+        effect: @escaping @MainActor () -> Void
     ) {
         focusTasksByDriverSessionID[driverSessionID]?.cancel()
-        let isCurrent = focusValidity(
-            driverSessionID: driverSessionID,
-            epoch: epoch
-        )
         focusTasksByDriverSessionID[driverSessionID] = Task { @MainActor in
             guard !Task.isCancelled, isCurrent() else { return }
-            effect(isCurrent)
+            effect()
         }
     }
 
