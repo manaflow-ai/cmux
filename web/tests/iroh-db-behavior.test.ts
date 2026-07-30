@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
@@ -646,7 +648,7 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_endpoint_bindings
       where id = ${first.binding.id}
     `;
-    expect(previous.revokedAt).not.toBeNull();
+    expect(previous?.revokedAt).not.toBeNull();
     const [state] = await requiredSql()<Array<{
       platform: string;
       pairingEnabled: boolean;
@@ -696,7 +698,7 @@ describe("Iroh trust broker database behavior", () => {
     expect(results.filter((result) => result._tag === "Failure")).toHaveLength(1);
     const failure = results.find((result) => result._tag === "Failure");
     const causeError = failure?._tag === "Failure"
-      ? (failure.cause as unknown as { error?: unknown }).error
+      ? Option.getOrUndefined(Cause.failureOption(failure.cause))
       : undefined;
     expect(causeError).toMatchObject({
       _tag: "IrohQuotaExceededError",
@@ -768,7 +770,7 @@ describe("Iroh trust broker database behavior", () => {
     const firstInstanceOverflow = await issue(firstAppInstanceId, 3);
     expect(firstInstanceOverflow._tag).toBe("Failure");
     const causeError = firstInstanceOverflow._tag === "Failure"
-      ? (firstInstanceOverflow.cause as unknown as { error?: unknown }).error
+      ? Option.getOrUndefined(Cause.failureOption(firstInstanceOverflow.cause))
       : undefined;
     expect(causeError).toMatchObject({
       _tag: "IrohQuotaExceededError",
@@ -1023,7 +1025,7 @@ describe("Iroh trust broker database behavior", () => {
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
-      ? (stale.cause as unknown as { error?: unknown }).error
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
       _tag: "IrohConflictError",
@@ -1203,7 +1205,7 @@ describe("Iroh trust broker database behavior", () => {
     const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 2_000)));
     expect(stale._tag).toBe("Failure");
     const causeError = stale._tag === "Failure"
-      ? (stale.cause as unknown as { error?: unknown }).error
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
       : undefined;
     expect(causeError).toMatchObject({
       _tag: "IrohConflictError",
@@ -1324,10 +1326,10 @@ describe("Iroh trust broker database behavior", () => {
     // the previously-live grant is now revoked. Re-keying forces a re-pair because
     // the held token names the dead endpoint, so no grant can carry authorization
     // onto the new id.
-    expect(grants.liveInitiator).toBe(initiator.binding.id);
-    expect(grants.liveRevoked).toBe(true);
-    expect(grants.staleInitiator).toBe(initiator.binding.id);
-    expect(grants.staleRevoked).toBe(true);
+    expect(grants?.liveInitiator).toBe(initiator.binding.id);
+    expect(grants?.liveRevoked).toBe(true);
+    expect(grants?.staleInitiator).toBe(initiator.binding.id);
+    expect(grants?.staleRevoked).toBe(true);
   });
 
   dbTest("rejects a genuinely-new slot once the account is at the active-binding sanity cap", async () => {
@@ -1419,10 +1421,11 @@ describe("Iroh trust broker database behavior", () => {
     });
     expect(overCap._tag).toBe("Failure");
     const causeError = overCap._tag === "Failure"
-      ? (overCap.cause as unknown as { error?: unknown }).error
+      ? Option.getOrUndefined(Cause.failureOption(overCap.cause))
       : undefined;
     expect(causeError).toMatchObject({
-      _tag: "IrohQuotaExceededError",
+      _tag: "IrohConflictError",
+
       code: "active_binding_limit",
     });
     expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);

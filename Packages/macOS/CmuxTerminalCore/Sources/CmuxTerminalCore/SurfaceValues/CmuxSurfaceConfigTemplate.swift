@@ -1,4 +1,5 @@
 internal import CmuxFoundation
+public import Foundation
 public import GhosttyKit
 
 /// The Swift-side template for a new runtime surface's `ghostty_surface_config_s`.
@@ -9,6 +10,12 @@ public import GhosttyKit
 public struct CmuxSurfaceConfigTemplate: Sendable {
     /// The font-size lineage applied to the new surface, or nil for the runtime default.
     public var fontSizeLineage: TerminalFontSizeLineage? = nil
+    /// Ephemeral provenance for an in-flight batched font-size request whose
+    /// predicted lineage this template already contains.
+    public var fontSizeChangeToken: UUID? = nil
+    /// Additional in-flight requests reconciled while a source terminal moved.
+    /// Descendants copy these tokens so each queued request remains exact-once.
+    public var fontSizeChangeTokens: Set<UUID> = []
 
     /// The unscaled base font size in points; `0` means the runtime default.
     ///
@@ -19,6 +26,8 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     public var fontSize: Float32 {
         get { fontSizeLineage?.basePoints ?? 0 }
         set {
+            fontSizeChangeToken = nil
+            fontSizeChangeTokens.removeAll()
             guard TerminalFontSizePolicy().acceptsPersistedBasePoints(newValue) else {
                 fontSizeLineage = nil
                 return
@@ -58,6 +67,8 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     ///   - isExplicitOverride: Whether the new surface should retain this size
     ///     independently of later terminal config changes.
     public mutating func setFontSize(_ basePoints: Float32, isExplicitOverride: Bool) {
+        fontSizeChangeToken = nil
+        fontSizeChangeTokens.removeAll()
         guard TerminalFontSizePolicy().acceptsPersistedBasePoints(basePoints) else {
             fontSizeLineage = nil
             return

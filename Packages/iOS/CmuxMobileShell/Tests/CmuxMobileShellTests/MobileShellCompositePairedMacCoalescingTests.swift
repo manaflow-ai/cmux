@@ -101,7 +101,14 @@ import Testing
         #expect(customizedDuplicateRows.first { $0.macDeviceID == "mac-old" }?.customName == "Old custom")
         #expect(customizedDuplicateRows.first { $0.macDeviceID == "mac-fresh" }?.customName == "Desk setup")
 
-        await store.hideMac(macDeviceID: "mac-fresh")
+        let representative = try #require(store.displayPairedMacs.first)
+        await store.hideStoredPairedMacEntries(
+            representativeID: representative.id,
+            aliasIDs: store.pairedMacAliasIDs(
+                for: representative.macDeviceID,
+                instanceTag: representative.instanceTag
+            )
+        )
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-other"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-other"])

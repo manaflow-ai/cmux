@@ -7,6 +7,8 @@
 -- active rows that the old app-instance key allowed: keep the most recently seen
 -- row per slot, soft-revoke the rest, revoke their pair grants, and bump the LAN
 -- discovery generation for every affected account so stale rows stop advertising.
+LOCK TABLE iroh_endpoint_bindings IN SHARE ROW EXCLUSIVE MODE;
+--> statement-breakpoint
 WITH ranked AS (
   SELECT
     id,
@@ -19,7 +21,9 @@ WITH ranked AS (
   WHERE revoked_at IS NULL
 ),
 losers AS (
-  SELECT id FROM ranked WHERE rn > 1
+  SELECT id
+  FROM ranked
+  WHERE rn > 1
 ),
 revoked AS (
   UPDATE iroh_endpoint_bindings b
@@ -53,6 +57,8 @@ ON CONFLICT (user_id) DO UPDATE
 --> statement-breakpoint
 DROP INDEX IF EXISTS "iroh_endpoint_bindings_active_app_instance_unique";
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "iroh_endpoint_bindings_active_slot_unique"
+DROP INDEX IF EXISTS "iroh_endpoint_bindings_user_device_active_idx";
+--> statement-breakpoint
+CREATE UNIQUE INDEX "iroh_endpoint_bindings_active_slot_unique"
   ON "iroh_endpoint_bindings" ("user_id", "device_uuid", "tag")
   WHERE "revoked_at" IS NULL;
