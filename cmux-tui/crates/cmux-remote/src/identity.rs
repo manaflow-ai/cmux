@@ -2255,6 +2255,31 @@ mod tests {
     }
 
     #[test]
+    fn auth_database_reconfirms_visible_fence_after_migration_directory_sync_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        atomic_json(
+            &temp.path().join("devices.json"),
+            &PersistedState { version: STATE_VERSION, ..PersistedState::default() },
+        )
+        .unwrap();
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(true));
+
+        let migration = AuthDatabase::load_or_migrate_legacy(temp.path(), "daemon", false)
+            .expect_err("injected migration durability failure was ignored");
+        assert!(matches!(migration, IdentityError::Committed(_)), "{migration}");
+        assert_eq!(persisted_auth_state_version(temp.path()).unwrap(), Some(AUTH_STATE_VERSION));
+        assert!(!temp.path().join("identity.json").exists());
+
+        FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(true));
+        AuthDatabase::load_or_create(temp.path(), "daemon", false)
+            .expect_err("visible version-2 state was trusted without a directory sync");
+        assert!(
+            !temp.path().join("identity.json").exists(),
+            "unconfirmed authorization state created a daemon identity"
+        );
+    }
+
+    #[test]
     fn auth_database_explicit_migration_never_downgrades_unknown_state() {
         let temp = tempfile::tempdir().unwrap();
         atomic_json(
