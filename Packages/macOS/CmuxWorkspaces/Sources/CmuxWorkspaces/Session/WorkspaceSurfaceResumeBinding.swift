@@ -30,6 +30,7 @@ public protocol WorkspaceSurfaceResumeBinding: Sendable {
     func startupInputWithLauncherScript(
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool
+        allowLauncherScript: Bool,
+        restoringWorkingDirectory: String?
     ) -> String?
 }
