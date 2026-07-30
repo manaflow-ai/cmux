@@ -9303,8 +9303,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
-        computerUseUXCoordinator.install { [weak self] workspaceID, surfaceID in
-            _ = self?.focusTerminal(tabId: workspaceID, surfaceId: surfaceID)
+        computerUseUXCoordinator.install {
+            [weak self] workspaceID, surfaceID, effectIsCurrent in
+            _ = self?.focusTerminal(
+                tabId: workspaceID,
+                surfaceId: surfaceID,
+                while: effectIsCurrent
+            )
         }
     }
 

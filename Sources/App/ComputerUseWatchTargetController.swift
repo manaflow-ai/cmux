@@ -239,16 +239,11 @@ final class ComputerUseWatchTargetController {
     private let currentLiveDriverSession:
         @MainActor (ComputerUseLiveDriverSession) -> ComputerUseLiveDriverSession?
     private let feed: ComputerUseWatchTargetFeed
-    private let onFocusTerminal: @MainActor (UUID, UUID) -> Void
-    private let onCursorVisibilityChange: @MainActor (String, Bool) -> Void
+    private let presentationController:
+        ComputerUseSessionPresentationController
     private let frontmostApplicationProcessIdentifier: @MainActor () -> pid_t?
     private let activate: @MainActor (NSRunningApplication) -> Void
 
-    /// An explicit menu choice remains authoritative until that driver finishes.
-    /// Missing entries retain the non-invasive automatic one-front-per-target
-    /// behavior.
-    private var focusModesByDriverSessionID:
-        [String: ComputerUseWatchFocusMode] = [:]
     private var observedDriverSessions: [String: ComputerUseLiveDriverSession] = [:]
 
     /// The most recently fronted target for each driver session. Keeping this per
@@ -284,9 +279,11 @@ final class ComputerUseWatchTargetController {
             ) -> ComputerUseLiveDriverSession?,
         feed: ComputerUseWatchTargetFeed,
         onFocusTerminal:
-            @escaping @MainActor (UUID, UUID) -> Void = { _, _ in },
+            @escaping ComputerUseSessionPresentationController
+                .TerminalFocusEffect = { _, _, _ in },
         onCursorVisibilityChange:
-            @escaping @MainActor (String, Bool) -> Void = { _, _ in },
+            @escaping ComputerUseSessionPresentationController
+                .CursorVisibilityEffect = { _, _, _ in },
         frontmostApplicationProcessIdentifier:
             @escaping @MainActor () -> pid_t? = {
                 NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -316,8 +313,10 @@ final class ComputerUseWatchTargetController {
         self.liveDriverSessions = liveDriverSessions
         self.currentLiveDriverSession = currentLiveDriverSession
         self.feed = feed
-        self.onFocusTerminal = onFocusTerminal
-        self.onCursorVisibilityChange = onCursorVisibilityChange
+        presentationController = ComputerUseSessionPresentationController(
+            setCursorVisibility: onCursorVisibilityChange,
+            focusTerminal: onFocusTerminal
+        )
         self.frontmostApplicationProcessIdentifier =
             frontmostApplicationProcessIdentifier
         self.activate = activate
@@ -357,7 +356,11 @@ final class ComputerUseWatchTargetController {
         observedDriverSessions.removeAll()
         lastActivatedTargetPIDByDriverSessionID.removeAll()
         lastObservedActionAtByDriverSessionID.removeAll()
-        focusModesByDriverSessionID.removeAll()
+        presentationController.stop()
+    }
+
+    func driverSessionDidStart(_ driverSessionID: String) {
+        presentationController.driverSessionDidStart(driverSessionID)
     }
 
     /// Preserves the originating terminal as the user's foreground context.
@@ -380,9 +383,11 @@ final class ComputerUseWatchTargetController {
         ) else {
             return false
         }
-        focusModesByDriverSessionID[driverSessionID] = .callingTerminal
-        onCursorVisibilityChange(driverSessionID, false)
-        onFocusTerminal(liveSession.workspaceID, liveSession.surfaceID)
+        presentationController.focusCallingTerminal(
+            driverSessionID: driverSessionID,
+            workspaceID: liveSession.workspaceID,
+            surfaceID: liveSession.surfaceID
+        )
         return true
     }
 
@@ -419,8 +424,7 @@ final class ComputerUseWatchTargetController {
         else {
             return false
         }
-        return focusModesByDriverSessionID[driverSessionID]
-            == .callingTerminal
+        return presentationController.isRunningInBackground(driverSessionID)
     }
 
     /// Fronts a validated target and resumes automatic following for new targets.
@@ -444,16 +448,18 @@ final class ComputerUseWatchTargetController {
             return false
         }
 
-        focusModesByDriverSessionID[driverSessionID] = .computerUse
-        onCursorVisibilityChange(driverSessionID, true)
-        activate(application)
+        presentationController.focusComputerUse(
+            driverSessionID: driverSessionID
+        ) { [activate] in
+            activate(application)
+        }
         lastActivatedTargetPIDByDriverSessionID[driverSessionID] =
             identity.processIdentifier
         return true
     }
 
     func driverSessionDidComplete(_ driverSessionID: String) {
-        focusModesByDriverSessionID.removeValue(forKey: driverSessionID)
+        presentationController.driverSessionDidComplete(driverSessionID)
     }
 
     /// Reports whether a captured target still identifies the same running app.
@@ -574,7 +580,8 @@ final class ComputerUseWatchTargetController {
         // automatic-follow activity. If several locked sessions updated in one
         // scan, the latest selected activity determines the final focus.
         let activity = newlyUpdated.last {
-            focusModesByDriverSessionID[$0.driverSessionID] != nil
+            presentationController.focusMode(for: $0.driverSessionID)
+                != .automatic
         } ?? newest
         for nonSelected in newlyUpdated where
             nonSelected.driverSessionID != activity.driverSessionID
@@ -582,8 +589,9 @@ final class ComputerUseWatchTargetController {
             advanceWatermark(for: nonSelected)
         }
         let driverSessionID = activity.driverSessionID
-        let focusMode =
-            focusModesByDriverSessionID[driverSessionID] ?? .automatic
+        let focusMode = presentationController.focusMode(
+            for: driverSessionID
+        )
         let scannedSession = observedDriverSessions[driverSessionID]
         let currentSession = scannedSession.flatMap {
             currentLiveDriverSession($0)
@@ -602,9 +610,10 @@ final class ComputerUseWatchTargetController {
                 scheduleCoalescedRefresh()
                 return
             }
-            onFocusTerminal(
-                currentSession.workspaceID,
-                currentSession.surfaceID
+            presentationController.reassertCallingTerminal(
+                driverSessionID: driverSessionID,
+                workspaceID: currentSession.workspaceID,
+                surfaceID: currentSession.surfaceID
             )
             advanceWatermark(for: activity)
             return
@@ -641,7 +650,11 @@ final class ComputerUseWatchTargetController {
             scheduleCoalescedRefresh()
             return
         }
-        activate(application)
+        presentationController.activateTarget(
+            driverSessionID: driverSessionID
+        ) { [activate] in
+            activate(application)
+        }
         // Record the attempt regardless of the activation return value so a
         // target that resists activation is not re-fronted on every event.
         lastActivatedTargetPIDByDriverSessionID[driverSessionID] = targetPID
@@ -688,10 +701,13 @@ final class ComputerUseWatchTargetController {
                 : driverSessionID
         })
 
-        focusModesByDriverSessionID =
-            focusModesByDriverSessionID.filter {
-                liveDriverSessionIDs.contains($0.key)
-            }
+        let endedDriverSessionIDs =
+            Set(observedDriverSessions.keys)
+                .subtracting(liveDriverSessionIDs)
+                .union(replacedDriverSessionIDs)
+        for driverSessionID in endedDriverSessionIDs {
+            presentationController.driverSessionDidComplete(driverSessionID)
+        }
         lastActivatedTargetPIDByDriverSessionID =
             lastActivatedTargetPIDByDriverSessionID.filter {
                 liveDriverSessionIDs.contains($0.key)
@@ -701,7 +717,6 @@ final class ComputerUseWatchTargetController {
                 liveDriverSessionIDs.contains($0.key)
             }
         for driverSessionID in replacedDriverSessionIDs {
-            focusModesByDriverSessionID.removeValue(forKey: driverSessionID)
             lastActivatedTargetPIDByDriverSessionID.removeValue(
                 forKey: driverSessionID
             )
