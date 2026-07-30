@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Client, sessionId } from "../src/index.js";
 import {
   WebSocketTransport,
   type WebSocketConstructor,
   type WebSocketLike,
 } from "../src/raw/websocket-transport.js";
+import {
+  WebSocketTransport as ResourceWebSocketTransport,
+  type WebSocketConstructor as ResourceWebSocketConstructor,
+} from "../src/websocket-transport.js";
 
 class FakeWebSocket implements WebSocketLike {
   static readonly instances: FakeWebSocket[] = [];
@@ -43,6 +48,9 @@ class FakeWebSocket implements WebSocketLike {
 }
 
 const Constructor = FakeWebSocket as unknown as WebSocketConstructor;
+const ResourceConstructor =
+  FakeWebSocket as unknown as ResourceWebSocketConstructor;
+const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 
 test("WebSocketTransport pairs before flushing queued protocol frames", () => {
   const challenges: string[] = [];
@@ -168,4 +176,66 @@ test("WebSocketTransport bounds queued and inbound messages", () => {
   socket.message('{"123":9}');
   assert.match(errors[0]?.message ?? "", /exceeds 8 bytes/);
   assert.equal(socket.readyState, 3);
+});
+
+test("WebSocket resource streams outlive their acknowledged open deadline", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 10,
+    randomHex128: () => "b".repeat(32),
+  });
+  const opening = client.session(RESOURCE_SESSION).events({ timeoutMs: 10 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  socket.open();
+
+  const request = JSON.parse(socket.sent.at(-1)!) as {
+    id: string;
+    operation: string;
+    params: Record<string, unknown>;
+  };
+  assert.equal(request.operation, "session.events");
+  const streamId = request.params.stream_id as string;
+  socket.message(JSON.stringify({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: request.id,
+    ok: true,
+    result: { stream_id: streamId },
+  }));
+  const stream = await opening;
+  const next = stream.next({ timeoutMs: 500 });
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  socket.message(JSON.stringify({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: streamId,
+    sequence: "0",
+    item: { kind: "future", transport: "websocket" },
+  }));
+  const item = await next;
+  assert.equal(item.done, false);
+  assert.deepEqual(item.value?.value, {
+    kind: "future",
+    raw: { kind: "future", transport: "websocket" },
+  });
+
+  const canceling = stream.cancel();
+  const cancel = JSON.parse(socket.sent.at(-1)!) as {
+    id: string;
+    operation: string;
+  };
+  assert.equal(cancel.operation, "stream.cancel");
+  socket.message(JSON.stringify({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: cancel.id,
+    ok: true,
+    result: {},
+  }));
+  await canceling;
+  client.close();
 });

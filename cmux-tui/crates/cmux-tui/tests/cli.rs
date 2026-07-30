@@ -852,7 +852,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         .unwrap();
     let clients_human = cli(&server, &["client", "list"]);
     assert_success(&clients_human);
-    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("connected_seconds"));
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("CONNECTED SECONDS"));
     assert!(String::from_utf8_lossy(&clients_human.stdout).contains("participating"));
     let excluded = json_cli(
         &server,
@@ -1310,6 +1310,7 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
         &data_home,
         &config_path,
         &[
+            "--json",
             "--socket",
             missing_socket.to_str().unwrap(),
             "sidebar",
@@ -1336,7 +1337,15 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let use_plugin = plugin_cli(
         &data_home,
         &config_path,
-        &["--socket", missing_socket.to_str().unwrap(), "sidebar", "plugin", "use", "fixture"],
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "sidebar",
+            "plugin",
+            "use",
+            "fixture",
+        ],
     );
     assert_success(&use_plugin);
     let used = json_output(&use_plugin);

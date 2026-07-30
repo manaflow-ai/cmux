@@ -517,7 +517,12 @@ Result<Event> SurfaceAttachment::next() {
     if (!impl_) {
         return make_error(ErrorCode::closed, "attachment is not initialized");
     }
-    return impl_->next_event(impl_->options.timeout);
+    while (true) {
+        auto event = impl_->next_event(impl_->options.timeout);
+        if (event || event.error().code != ErrorCode::timeout) {
+            return event;
+        }
+    }
 }
 
 Result<Event> SurfaceAttachment::next(Timeout timeout) {

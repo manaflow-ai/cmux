@@ -27,6 +27,7 @@ public final class ResourceApiTest {
         layoutUndoUsesTypedConfirmation();
         creationResolutionAndWaitExitStaySeparate();
         typedStream();
+        idleStreamOutlivesRequestTimeout();
         streamCancellationPreservesRouteAndEnd();
         structuredErrorsAreNotRetried();
         transportFailureReportsUncertainMutation();
@@ -562,6 +563,44 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void idleStreamOutlivesRequestTimeout() {
+        FakeTransport transport = new FakeTransport();
+        transport.delayStreamEvent = true;
+        Duration requestTimeout = Duration.ofMillis(20);
+        try (Client client = client(transport, requestTimeout);
+             ResourceStream<SessionEvent> stream = client
+                 .machine(Selector.current())
+                 .session(Selector.current())
+                 .events(new Options.SessionEvents(
+                     Options.Stream.defaults(),
+                     Optional.empty()
+                 ))) {
+            sleep(Duration.ofMillis(60));
+            require(
+                stream.poll(Duration.ofMillis(10)).isEmpty(),
+                "an acknowledged idle stream remains open after the request timeout"
+            );
+
+            transport.releaseDelayedStreamEvent();
+            StreamItem<SessionEvent> item = stream.next(
+                Duration.ofSeconds(1)
+            );
+            require(
+                item.value() instanceof SessionEvent.Unknown unknown &&
+                    unknown.raw().get("new_field").equals("delayed"),
+                "the idle stream receives its delayed event"
+            );
+            StreamEndError end = expect(
+                StreamEndError.class,
+                () -> stream.next(Duration.ofSeconds(1))
+            );
+            require(
+                end.reason().equals("completed"),
+                "the delayed stream retains its ordinary terminal event"
+            );
+        }
+    }
+
     private static void structuredErrorsAreNotRetried() {
         FakeTransport transport = new FakeTransport();
         transport.failBrowserNavigate = true;
@@ -669,12 +708,28 @@ public final class ResourceApiTest {
     }
 
     private static Client client(FakeTransport transport) {
+        return client(transport, Duration.ofSeconds(1));
+    }
+
+    private static Client client(
+        FakeTransport transport,
+        Duration timeout
+    ) {
         return Client.builder()
             .transport(transport)
-            .timeout(Duration.ofSeconds(1))
+            .timeout(timeout)
             .idempotencyKeySource(() -> "idem-test")
             .streamIdSource(() -> "stream_" + HEX)
             .build();
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while holding an idle stream", error);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -737,6 +792,7 @@ public final class ResourceApiTest {
         private boolean failBrowserNavigate;
         private boolean failMutationTransport;
         private boolean cancelableStream;
+        private boolean delayStreamEvent;
         private String openStreamId;
 
         @Override
@@ -837,30 +893,19 @@ public final class ResourceApiTest {
             if (operation.equals("session.events")) {
                 String streamId = String.valueOf(params.get("stream_id"));
                 openStreamId = streamId;
-                if (cancelableStream) {
+                if (cancelableStream || delayStreamEvent) {
                     return;
                 }
-                inbound.add(Map.of(
-                    "protocol", "cmux.protocol/1",
-                    "type", "stream_item",
-                    "stream_id", streamId,
-                    "sequence", "18446744073709551615",
-                    "cursor", Map.of(
-                        "generation", "generation-1",
-                        "revision", "18446744073709551615"
-                    ),
-                    "item", Map.of(
-                        "kind", "future-session-item",
-                        "new_field", "preserved"
-                    )
-                ));
-                inbound.add(Map.of(
-                    "protocol", "cmux.protocol/1",
-                    "type", "stream_end",
-                    "stream_id", streamId,
-                    "reason", "completed"
-                ));
+                enqueueSessionEvent(streamId, "preserved");
             }
+        }
+
+        synchronized void releaseDelayedStreamEvent() {
+            if (!delayStreamEvent || openStreamId == null) {
+                throw new AssertionError("no delayed stream event is pending");
+            }
+            delayStreamEvent = false;
+            enqueueSessionEvent(openStreamId, "delayed");
         }
 
         @Override
@@ -891,6 +936,32 @@ public final class ResourceApiTest {
             return sent.stream()
                 .filter(value -> operation.equals(value.get("operation")))
                 .count();
+        }
+
+        private void enqueueSessionEvent(
+            String streamId,
+            String marker
+        ) {
+            inbound.add(Map.of(
+                "protocol", "cmux.protocol/1",
+                "type", "stream_item",
+                "stream_id", streamId,
+                "sequence", "18446744073709551615",
+                "cursor", Map.of(
+                    "generation", "generation-1",
+                    "revision", "18446744073709551615"
+                ),
+                "item", Map.of(
+                    "kind", "future-session-item",
+                    "new_field", marker
+                )
+            ));
+            inbound.add(Map.of(
+                "protocol", "cmux.protocol/1",
+                "type", "stream_end",
+                "stream_id", streamId,
+                "reason", "completed"
+            ));
         }
 
         private static Map<String, Object> workspaceRunResult() {

@@ -158,6 +158,12 @@ snapshot. `stream.cancel` is connection-local and idempotent. It purges queued
 items, cleans up taps and sizing leases exactly once, queues one
 `stream_end(canceled)`, then returns its response. No item may follow an end.
 
+A request deadline covers connection, dispatch, and the stream-open
+acknowledgement only. After acknowledgement, ordinary stream idleness has no
+implicit deadline. A caller may use a bounded poll without closing the stream;
+only cancellation, a `stream_end`, transport failure, or an explicit
+application-owned lifetime ends it.
+
 Stream items use decimal strings for sequences and cursors:
 
 ```json

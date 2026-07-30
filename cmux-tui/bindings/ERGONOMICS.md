@@ -45,6 +45,11 @@ The standalone consumers found defects that shape-only tests missed:
    machine and session ancestry directly.
 7. The Rust sidebar wrapper compiled only with cmux's private Crossterm fork.
    The published crate now builds against crates.io Crossterm 0.29.
+8. A quiet sidebar exposed request deadlines leaking into acknowledged stream
+   reads in Rust, C++, and Zig. Their blocking stream APIs now wait indefinitely
+   after acknowledgement, while open, bounded-poll, control, and cancellation
+   deadlines remain explicit. All seven SDKs have delayed-event regressions
+   that wait beyond the open deadline before delivering the first item.
 
 These fixes are structural. They remove duplicate state publication, invalid
 wire states, and public JSON escape hatches instead of hiding them in example
@@ -67,6 +72,11 @@ The exact-binary live matrix adds one isolated create, run, exit, restart, and
 cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
 for eight live transport runs. The separate raw protocol-10 suite runs 266
 compatibility checks over its 91 commands and 44 events.
+
+Each package suite also opens a stream with a short request deadline, leaves it
+idle past that deadline, then delivers and cancels normally. This separates
+request-handshake timeouts from application-owned stream lifetimes across all
+seven transports.
 
 Package tests install and consume the built npm package, Python wheel, Java
 jar, and CMake package. Rust, Go, and Zig consumers resolve the public package

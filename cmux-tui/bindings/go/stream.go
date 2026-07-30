@@ -31,6 +31,9 @@ func (e *StreamEndError) Error() string {
 
 // Stream is a cancellable typed stream. Cancel is idempotent and waits for
 // the server's stream.cancel response. Recv never returns an item after end.
+// The context passed to the stream-opening method governs only the open
+// handshake. After acknowledgement, each Recv or Cancel context governs that
+// operation without imposing an idle stream deadline.
 type Stream[T any] struct {
 	client *Client
 	id     StreamID

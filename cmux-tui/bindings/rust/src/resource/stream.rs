@@ -301,7 +301,9 @@ impl ResourceStream {
                         result => result?,
                     }
                 }
-                None => self.connection.recv()?,
+                None => {
+                    self.connection.without_read_timeout(crate::codec::JsonLineConnection::recv)?
+                }
             };
             let envelope_type = envelope.get("type").and_then(Value::as_str);
             match envelope_type {

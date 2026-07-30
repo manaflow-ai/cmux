@@ -945,6 +945,70 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
 }
 
 #[test]
+fn acknowledged_stream_remains_open_past_the_request_timeout() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (control, _) = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        assert_eq!(open["operation"], "session.events");
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id": stream_id}));
+
+        // The request deadline bounds only opening the stream. An acknowledged
+        // stream may remain healthy and idle for longer than that deadline.
+        thread::sleep(Duration::from_millis(150));
+        let item = serde_json::to_vec(&json!({
+            "protocol": "cmux.protocol/1",
+            "type": "stream_item",
+            "stream_id": stream_id,
+            "sequence": "0",
+            "item": {"kind": "future_event", "after_idle": true}
+        }))
+        .unwrap();
+        let midpoint = item.len() / 2;
+        stream.write_all(&item[..midpoint]).unwrap();
+        stream.flush().unwrap();
+        thread::sleep(Duration::from_millis(150));
+        stream.write_all(&item[midpoint..]).unwrap();
+        stream.write_all(b"\n").unwrap();
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        success(&mut stream, &cancel, json!({}));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol": "cmux.protocol/1",
+                "type": "stream_end",
+                "stream_id": stream_id,
+                "reason": "canceled"
+            })
+        )
+        .unwrap();
+        drop(control);
+    });
+
+    let client = cmux::Client::connect(
+        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
+    )
+    .unwrap();
+    let mut events = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .events(EventStreamOptions::default())
+        .unwrap();
+    let item = events.recv().unwrap().unwrap();
+    assert!(matches!(item.value, SessionEvent::Unknown { .. }));
+    events.cancel().unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn attachment_resize_and_release_use_each_owned_stream_connection() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

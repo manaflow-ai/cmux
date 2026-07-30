@@ -106,6 +106,21 @@ impl JsonLineConnection {
         result
     }
 
+    pub(crate) fn without_read_timeout<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let previous = self.read_timeout;
+        self.reader.get_ref().set_read_timeout(None).map_err(|error| {
+            CmuxError::Connection(format!("clear read timeout failed: {error}"))
+        })?;
+        let result = operation(self);
+        if self.reader.get_ref().set_read_timeout(Some(previous)).is_ok() {
+            self.read_timeout = previous;
+        }
+        result
+    }
+
     pub(crate) fn with_write_timeout<T>(
         &mut self,
         timeout: Duration,

@@ -24,6 +24,7 @@ struct FakeState {
     std::condition_variable changed;
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
+    std::size_t receive_timeouts = 0;
     bool closed = false;
 };
 
@@ -49,6 +50,8 @@ public:
         if (!state_->changed.wait_for(lock, timeout, [this] {
                 return state_->closed || !state_->incoming.empty();
             })) {
+            ++state_->receive_timeouts;
+            state_->changed.notify_all();
             return cmux::make_error(cmux::ErrorCode::timeout, "fake timeout");
         }
         if (!state_->incoming.empty()) {
@@ -91,11 +94,22 @@ void wait_for_writes(
     state->changed.wait(lock, [&] { return state->outgoing.size() >= count; });
 }
 
+void wait_for_receive_timeouts(
+    const std::shared_ptr<FakeState>& state,
+    std::size_t count) {
+    std::unique_lock lock(state->mutex);
+    (void)state->changed.wait_for(
+        lock,
+        std::chrono::seconds(1),
+        [&] { return state->receive_timeouts >= count; });
+}
+
 cmux::Client client_for(
     const std::shared_ptr<FakeState>& control,
-    const std::shared_ptr<FakeState>& stream = {}) {
+    const std::shared_ptr<FakeState>& stream = {},
+    cmux::Timeout timeout = std::chrono::seconds(2)) {
     cmux::ClientOptions options;
-    options.timeout = std::chrono::seconds(2);
+    options.timeout = timeout;
     options.transport_factory = fake_factory(control);
     options.stream_transport_factory =
         fake_factory(stream ? stream : control);
@@ -1282,6 +1296,62 @@ TEST("direct current selectors synthesize missing contiguous ancestors") {
     CHECK_EQ(
         params->at("terminal").as_string().value(),
         std::string_view("current"));
+}
+
+TEST("acknowledged stream has no implicit idle deadline") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    constexpr auto client_timeout = std::chrono::milliseconds(20);
+    constexpr auto open_timeout = std::chrono::milliseconds(200);
+    constexpr std::size_t idle_timeouts = 11;
+    static_assert(client_timeout * idle_timeouts > open_timeout);
+    auto client = client_for(control, stream_state, client_timeout);
+
+    std::jthread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open =
+                cmux::Json::parse(stream_state->outgoing.at(0)).value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id =
+            std::string(params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+
+        wait_for_receive_timeouts(stream_state, idle_timeouts);
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "\"stream_id\":\"" +
+                stream_id +
+                "\",\"sequence\":\"1\",\"cursor\":{"
+                "\"generation\":\"g\",\"revision\":\"1\"},"
+                "\"item\":{\"kind\":\"future.delayed\",\"ready\":true}}");
+    });
+
+    auto stream = client.open_session_events(
+        {},
+        cmux::CallOptions::with_timeout(open_timeout));
+    CHECK(stream);
+    CHECK(!stream.value().closed());
+    auto item = stream.value().next();
+    CHECK(item);
+    CHECK(item.value().has_value());
+    CHECK_EQ(item.value()->sequence, 1U);
+    const auto* unknown =
+        std::get_if<cmux::Unknown>(&item.value()->value);
+    CHECK(unknown != nullptr);
+    CHECK_EQ(unknown->kind, std::string("future.delayed"));
+    CHECK(unknown->raw.find("ready") != nullptr);
+    CHECK(!stream.value().closed());
+    std::lock_guard lock(stream_state->mutex);
+    CHECK(stream_state->receive_timeouts >= idle_timeouts);
 }
 
 TEST("typed streams preserve unknown items and cancel deterministically") {

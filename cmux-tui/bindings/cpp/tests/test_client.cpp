@@ -1,5 +1,6 @@
 #include "test.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -20,6 +21,7 @@ struct FakeState {
     std::condition_variable ready;
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
+    std::size_t receive_timeouts = 0;
     bool closed = false;
 };
 
@@ -42,6 +44,8 @@ public:
         if (!state_->ready.wait_for(lock, timeout, [this] {
                 return state_->closed || !state_->incoming.empty();
             })) {
+            ++state_->receive_timeouts;
+            state_->ready.notify_all();
             return cmux::raw::make_error(cmux::raw::ErrorCode::timeout, "fake timeout");
         }
         if (state_->closed) {
@@ -71,6 +75,16 @@ cmux::raw::TransportFactory fake_factory(const std::shared_ptr<FakeState>& state
 void wait_for_send(const std::shared_ptr<FakeState>& state) {
     std::unique_lock lock(state->mutex);
     state->ready.wait(lock, [&] { return !state->outgoing.empty(); });
+}
+
+void wait_for_receive_timeouts(
+    const std::shared_ptr<FakeState>& state,
+    std::size_t count) {
+    std::unique_lock lock(state->mutex);
+    (void)state->ready.wait_for(
+        lock,
+        std::chrono::seconds(1),
+        [&] { return state->receive_timeouts >= count; });
 }
 
 std::string identify_response(
@@ -456,6 +470,45 @@ TEST("stream open retains events arriving before the command response") {
     CHECK_EQ(terminal.value().find("event")->as_string().value(), std::string_view("detached"));
     CHECK(!event_stream.next());
     server.join();
+}
+
+TEST("acknowledged raw stream has no implicit idle deadline") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    constexpr auto client_timeout = std::chrono::milliseconds(20);
+    constexpr auto open_timeout = std::chrono::milliseconds(100);
+    constexpr std::size_t idle_timeouts = 2;
+    static_assert(open_timeout * idle_timeouts > open_timeout);
+    cmux::raw::ClientOptions options;
+    options.timeout = client_timeout;
+    options.transport_factory = fake_factory(control);
+    options.stream_transport_factory = fake_factory(stream_state);
+    auto client = cmux::raw::detail::ClientCore::connect(std::move(options));
+    CHECK(client);
+    enqueue(control, identify_response(1));
+
+    std::jthread server([stream_state] {
+        wait_for_send(stream_state);
+        enqueue(stream_state, R"({"id":2,"ok":true,"data":{}})");
+        wait_for_receive_timeouts(stream_state, idle_timeouts);
+        enqueue(stream_state, R"({"event":"delayed"})");
+    });
+
+    auto opened = client.value().open_stream(
+        "subscribe",
+        {},
+        {},
+        open_timeout);
+    CHECK(opened);
+    auto event_stream = std::move(opened).value();
+    auto event = event_stream.next();
+    CHECK(event);
+    CHECK_EQ(
+        event.value().find("event")->as_string().value(),
+        std::string_view("delayed"));
+    CHECK(!event_stream.closed());
+    std::lock_guard lock(stream_state->mutex);
+    CHECK(stream_state->receive_timeouts >= idle_timeouts);
 }
 
 TEST("stream close unblocks a pending next") {

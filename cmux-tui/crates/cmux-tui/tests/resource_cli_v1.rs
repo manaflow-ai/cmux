@@ -314,6 +314,44 @@ fn direct_and_nested_resource_paths_address_the_same_typed_resources() {
 
 #[cfg(unix)]
 #[test]
+fn terminal_wait_timeouts_are_canonical_decimal_strings_on_the_wire() {
+    for (args, operation, result) in [
+        (
+            &[
+                "terminal",
+                TERMINAL_ID,
+                "screen",
+                "wait",
+                "--pattern",
+                "ready",
+                "--timeout-ms",
+                "2000",
+            ][..],
+            "terminal.wait",
+            json!({"matched": true, "text": "ready"}),
+        ),
+        (
+            &["terminal", TERMINAL_ID, "process", "wait", "--timeout-ms", "2000"][..],
+            "terminal.wait_exit",
+            json!({
+                "state": "pending",
+                "terminal_id": TERMINAL_ID,
+                "lifecycle": "running",
+                "revision": "1"
+            }),
+        ),
+    ] {
+        let (output, requests) = fake_resource_cli(args, FakeReply::Success(result));
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{args:?}: {}", stderr(&output));
+        assert_eq!(requests.len(), 1, "{args:?}: {requests:?}");
+        assert_eq!(requests[0]["operation"], operation, "{args:?}");
+        assert_eq!(requests[0]["params"]["timeout_ms"], "2000", "{args:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn workspace_creation_preserves_empty_whitespace_unicode_and_reserved_names() {
     for name in
         ["", " \t ", "日本語 🦀", "current", "under_score", "ws_99999999999999999999999999999999"]
@@ -452,6 +490,17 @@ fn output_modes_keep_success_on_stdout_and_diagnostics_on_stderr() {
             {"id": OTHER_WORKSPACE_ID, "name": "two"}
         ]
     });
+
+    let (human_output, _) =
+        fake_resource_cli_with_mode("", &["workspace", "list"], FakeReply::Success(result.clone()));
+    assert_success(&human_output);
+    assert!(human_output.stderr.is_empty());
+    let human = stdout(&human_output);
+    assert!(human.starts_with("ID"), "{human}");
+    assert!(human.contains("NAME"), "{human}");
+    assert!(human.contains(WORKSPACE_ID), "{human}");
+    assert!(human.contains(OTHER_WORKSPACE_ID), "{human}");
+    assert!(!human.contains(['{', '}', '"']), "{human}");
 
     let (json_output, _) =
         fake_resource_cli(&["workspace", "list"], FakeReply::Success(result.clone()));
@@ -845,8 +894,11 @@ fn fake_resource_cli_with_mode(
         requests
     });
 
-    let output = Command::new(bin())
-        .arg(mode)
+    let mut command = Command::new(bin());
+    if !mode.is_empty() {
+        command.arg(mode);
+    }
+    let output = command
         .arg("--socket")
         .arg(&socket)
         .args(args)

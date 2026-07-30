@@ -905,7 +905,7 @@ fn parse_terminal(
             }
             params.insert("pattern".into(), Value::String(pattern));
             if let Some(timeout) = flags.take("timeout-ms") {
-                insert_u64(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+                insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
             request(ResourceOperation::TerminalWait, selectors, flags, params)
         }
@@ -926,7 +926,7 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
             if let Some(timeout) = flags.take("timeout-ms") {
-                insert_u64(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
+                insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
             request(ResourceOperation::TerminalWaitExit, selectors, flags, params)
         }
@@ -1972,16 +1972,14 @@ fn insert_i32(
     Ok(())
 }
 
-fn insert_u64(
+fn insert_decimal(
     params: &mut Map<String, Value>,
     field: &str,
     flag: &str,
     value: String,
 ) -> Result<(), UsageError> {
-    let number = value
-        .parse::<u64>()
-        .map_err(|_| UsageError::new(format!("{flag} must be an unsigned 64-bit integer")))?;
-    params.insert(field.into(), Value::Number(Number::from(number)));
+    validate_decimal(flag, &value)?;
+    params.insert(field.into(), Value::String(value));
     Ok(())
 }
 
@@ -2344,11 +2342,37 @@ mod tests {
     fn terminal_screen_and_process_wait_are_distinct_paths() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         const BROWSER: &str = "browser_00000000000000000000000000000009";
-        let screen = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        let screen = protocol(&[
+            "terminal",
+            TERMINAL,
+            "screen",
+            "wait",
+            "--pattern",
+            "ready",
+            "--timeout-ms",
+            "5000",
+        ]);
         assert_eq!(operation(&screen), "terminal.wait");
+        assert_eq!(screen.params["timeout_ms"], "5000");
 
-        let process = protocol(&["terminal", TERMINAL, "process", "wait"]);
+        let process = protocol(&["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"]);
         assert_eq!(operation(&process), "terminal.wait_exit");
+        assert_eq!(process.params["timeout_ms"], "5000");
+
+        for invalid in ["-1", "01", "18446744073709551616"] {
+            assert!(
+                parse(&strings(&[
+                    "terminal",
+                    TERMINAL,
+                    "process",
+                    "wait",
+                    "--timeout-ms",
+                    invalid,
+                ]))
+                .is_err(),
+                "accepted noncanonical timeout {invalid:?}"
+            );
+        }
 
         assert!(parse(&strings(&["terminal", TERMINAL, "wait", "--pattern", "ready"])).is_err());
         for unreachable in [

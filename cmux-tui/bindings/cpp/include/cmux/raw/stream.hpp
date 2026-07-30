@@ -59,8 +59,17 @@ public:
 
     ~Stream() { close(); }
 
-    [[nodiscard]] Result<T> next() { return next(default_timeout_); }
+    // Request and stream-open deadlines do not end an acknowledged idle stream.
+    [[nodiscard]] Result<T> next() {
+        while (true) {
+            auto event = next(default_timeout_);
+            if (event || event.error().code != ErrorCode::timeout) {
+                return event;
+            }
+        }
+    }
 
+    // Bounds one wait without closing the stream when the wait times out.
     [[nodiscard]] Result<T> next(Timeout timeout) {
         if (!state_) {
             return make_error(ErrorCode::closed, "stream is not initialized");

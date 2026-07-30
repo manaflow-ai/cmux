@@ -27,6 +27,9 @@ struct FakeState {
     std::condition_variable changed;
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
+    std::optional<cmux::raw::Timeout> max_receive_wait;
+    std::size_t receive_timeouts = 0;
+    bool idle_timeout_proven = false;
     bool closed = false;
 };
 
@@ -47,9 +50,14 @@ public:
 
     cmux::raw::Result<std::string> receive(cmux::raw::Timeout timeout) override {
         std::unique_lock lock(state_->mutex);
+        if (state_->max_receive_wait && timeout > *state_->max_receive_wait) {
+            timeout = *state_->max_receive_wait;
+        }
         if (!state_->changed.wait_for(lock, timeout, [this] {
                 return state_->closed || !state_->incoming.empty();
             })) {
+            ++state_->receive_timeouts;
+            state_->changed.notify_all();
             return cmux::raw::make_error(cmux::raw::ErrorCode::timeout, "fake timeout");
         }
         if (state_->closed) {
@@ -85,6 +93,16 @@ bool wait_for_outgoing(
         return state->closed || state->outgoing.size() >= count;
     }) &&
            state->outgoing.size() >= count;
+}
+
+bool wait_for_receive_timeouts(
+    const std::shared_ptr<FakeState>& state,
+    std::size_t count) {
+    std::unique_lock lock(state->mutex);
+    return state->changed.wait_for(
+        lock,
+        std::chrono::seconds(1),
+        [&] { return state->receive_timeouts >= count; });
 }
 
 void enqueue(
@@ -196,6 +214,53 @@ TEST("render attachment selects self without diffing concurrent external clients
     CHECK_EQ(
         attach.value().find("mode")->as_string().value(),
         std::string_view("render"));
+}
+
+TEST("acknowledged attachment has no implicit idle deadline") {
+    auto state = std::make_shared<FakeState>();
+    constexpr auto client_timeout = std::chrono::milliseconds(20);
+    constexpr auto open_timeout = std::chrono::milliseconds(200);
+    constexpr std::size_t idle_timeouts = 11;
+    static_assert(client_timeout * idle_timeouts > open_timeout);
+    state->max_receive_wait = client_timeout;
+    auto options = attachment_options(state);
+    options.timeout = client_timeout;
+    std::promise<void> opened_signal;
+    auto opened_ready = opened_signal.get_future();
+    std::jthread server([state, opened_ready = std::move(opened_ready)] {
+        if (!respond_to_basic_bootstrap(state)) {
+            return;
+        }
+        (void)opened_ready.wait_for(std::chrono::seconds(1));
+        std::size_t timeout_target = idle_timeouts;
+        {
+            std::lock_guard lock(state->mutex);
+            timeout_target += state->receive_timeouts;
+        }
+        const bool idle_timeout_proven =
+            wait_for_receive_timeouts(state, timeout_target);
+        {
+            std::lock_guard lock(state->mutex);
+            state->idle_timeout_proven = idle_timeout_proven;
+        }
+        enqueue(state, {R"({"event":"delayed"})"});
+    });
+
+    auto opened = cmux::raw::open_render_attachment(
+        cmux::raw::AttachSurfaceRequest{.surface = cmux::raw::Id{7}},
+        std::move(options),
+        cmux::raw::RequestOptions{
+            .timeout = open_timeout,
+        });
+    CHECK(opened);
+    auto attachment = std::move(opened).value();
+    opened_signal.set_value();
+    auto event = attachment.next();
+    CHECK(event);
+    CHECK_EQ(event.value().name(), std::string_view("delayed"));
+    CHECK(!attachment.closed());
+    std::lock_guard lock(state->mutex);
+    CHECK(state->idle_timeout_proven);
 }
 
 TEST("render attachment routes sizing commands and preserves event order") {

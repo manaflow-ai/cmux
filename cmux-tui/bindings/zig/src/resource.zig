@@ -2228,7 +2228,10 @@ pub const Client = struct {
         return line;
     }
 
-    fn readMessage(self: *Client) !raw.wire.OwnedValue {
+    fn readMessageWithTimeout(
+        self: *Client,
+        timeout_ms: ?u32,
+    ) !raw.wire.OwnedValue {
         while (true) {
             if (try self.takeFrame()) |frame| {
                 defer self.allocator.free(frame);
@@ -2236,13 +2239,17 @@ pub const Client = struct {
                 return raw.wire.parse(self.allocator, frame, self.limits);
             }
             var chunk: [8192]u8 = undefined;
-            const count = try self.connection.read(&chunk, self.timeout_ms);
+            const count = try self.connection.read(&chunk, timeout_ms);
             if (count == 0) return error.ConnectionClosed;
             try self.inbound.appendSlice(
                 self.allocator,
                 chunk[0..count],
             );
         }
+    }
+
+    fn readMessage(self: *Client) !raw.wire.OwnedValue {
+        return self.readMessageWithTimeout(self.timeout_ms);
     }
 
     fn callLocked(
@@ -3802,7 +3809,7 @@ const RawStream = struct {
                 const pending_size = self.pending_sizes.orderedRemove(0);
                 self.pending_bytes -= pending_size;
                 break :blk self.pending.orderedRemove(0);
-            } else try self.client.readMessage();
+            } else try self.client.readMessageWithTimeout(null);
             errdefer message.deinit();
             const object = switch (message.value) {
                 .object => |item| item,
@@ -12386,9 +12393,12 @@ const FakeMode = enum {
     success,
     remote_error,
     typed_catalog,
+    delayed_stream_item,
     dropped_mutation_timeout,
     dropped_mutation_disconnect,
 };
+
+const fake_delayed_stream_wait_ms: u64 = 15;
 
 const fake_layout_json =
     "{\"version\":1," ++
@@ -12484,8 +12494,17 @@ const FakeShared = struct {
     processed: usize = 0,
     mode: FakeMode,
     closed: bool = false,
+    delayed_stream_id: ?[]u8 = null,
+    delayed_stream_item_emitted: bool = false,
+    delayed_stream_open_read_observed: bool = false,
+    delayed_stream_open_timeout_ms: ?u32 = null,
+    delayed_stream_read_started: bool = false,
+    delayed_stream_read_had_deadline: bool = false,
 
     fn deinit(self: *FakeShared) void {
+        if (self.delayed_stream_id) |stream_id| {
+            self.allocator.free(stream_id);
+        }
         self.input.deinit(self.allocator);
         self.output.deinit(self.allocator);
         self.* = undefined;
@@ -12494,6 +12513,24 @@ const FakeShared = struct {
     fn appendInput(self: *FakeShared, value: []const u8) !void {
         try self.input.appendSlice(self.allocator, value);
         try self.input.append(self.allocator, '\n');
+    }
+
+    fn appendSessionStreamItem(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        const item = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++
+                "\"g\",\"revision\":\"3\"}},\"item\":{{\"kind\":" ++
+                "\"future.event\",\"data\":{{\"x\":1}}," ++
+                "\"future\":true}}}}",
+            .{stream_id},
+        );
+        defer self.allocator.free(item);
+        try self.appendInput(item);
     }
 
     fn processRequests(self: *FakeShared) !void {
@@ -12894,13 +12931,14 @@ const FakeShared = struct {
                 );
                 defer self.allocator.free(response);
                 try self.appendInput(response);
-                const item = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"stream_item\",\"stream_id\":\"{s}\"," ++ "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++ "\"g\",\"revision\":\"3\"}},\"item\":{{\"kind\":" ++ "\"future.event\",\"data\":{{\"x\":1}}," ++ "\"future\":true}}}}",
-                    .{stream_id},
-                );
-                defer self.allocator.free(item);
-                try self.appendInput(item);
+                if (self.mode == .delayed_stream_item) {
+                    self.delayed_stream_id = try self.allocator.dupe(
+                        u8,
+                        stream_id,
+                    );
+                } else {
+                    try self.appendSessionStreamItem(stream_id);
+                }
                 continue;
             }
             if (std.mem.eql(u8, operation, "stream.cancel")) {
@@ -12954,12 +12992,43 @@ const FakeConnection = struct {
         buffer: []u8,
         timeout_ms: ?u32,
     ) !usize {
-        _ = timeout_ms;
+        if (self.shared.mode == .delayed_stream_item and
+            self.shared.delayed_stream_id != null and
+            !self.shared.delayed_stream_open_read_observed and
+            self.shared.read_cursor < self.shared.input.items.len)
+        {
+            self.shared.delayed_stream_open_read_observed = true;
+            self.shared.delayed_stream_open_timeout_ms = timeout_ms;
+        }
         if (self.shared.read_cursor == self.shared.input.items.len) {
-            if (self.shared.mode == .dropped_mutation_timeout) {
-                return error.Timeout;
+            if (self.shared.mode == .delayed_stream_item and
+                !self.shared.delayed_stream_item_emitted)
+            {
+                self.shared.delayed_stream_read_started = true;
+                self.shared.delayed_stream_read_had_deadline =
+                    timeout_ms != null;
+                if (timeout_ms) |deadline_ms| {
+                    std.Thread.sleep(
+                        (@as(u64, deadline_ms) + 1) *
+                            std.time.ns_per_ms,
+                    );
+                    return error.Timeout;
+                }
+                std.Thread.sleep(
+                    fake_delayed_stream_wait_ms * std.time.ns_per_ms,
+                );
+                try self.shared.appendSessionStreamItem(
+                    self.shared.delayed_stream_id orelse
+                        return error.MissingDelayedStreamId,
+                );
+                self.shared.delayed_stream_item_emitted = true;
             }
-            return error.ConnectionClosed;
+            if (self.shared.read_cursor == self.shared.input.items.len) {
+                if (self.shared.mode == .dropped_mutation_timeout) {
+                    return error.Timeout;
+                }
+                return error.ConnectionClosed;
+            }
         }
         const count = @min(
             buffer.len,
@@ -15008,6 +15077,70 @@ test "browser frames require a nullable canonical pointer token" {
                 parsed.value,
             ),
         );
+    }
+}
+
+test "acknowledged public stream survives beyond request timeout" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .delayed_stream_item,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    const request_timeout_ms: u32 = 2;
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = request_timeout_ms,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    const started_at = std.time.nanoTimestamp();
+    var item = (try stream.next()) orelse
+        return error.MissingDelayedStreamItem;
+    defer item.deinit();
+    const elapsed_ns = std.time.nanoTimestamp() - started_at;
+
+    try std.testing.expect(
+        stream_shared.delayed_stream_open_read_observed,
+    );
+    try std.testing.expectEqual(
+        @as(?u32, request_timeout_ms),
+        stream_shared.delayed_stream_open_timeout_ms,
+    );
+    try std.testing.expect(stream_shared.delayed_stream_read_started);
+    try std.testing.expect(
+        !stream_shared.delayed_stream_read_had_deadline,
+    );
+    try std.testing.expect(
+        elapsed_ns >= fake_delayed_stream_wait_ms * std.time.ns_per_ms,
+    );
+    try std.testing.expect(
+        fake_delayed_stream_wait_ms > request_timeout_ms,
+    );
+    try std.testing.expectEqual(@as(u64, 1), item.sequence);
+    switch (item.value) {
+        .unknown => |unknown| try std.testing.expectEqualStrings(
+            "future.event",
+            unknown.discriminator,
+        ),
+        else => return error.ExpectedUnknownSessionEvent,
     }
 }
 

@@ -47,8 +47,9 @@ and idempotency key. `Client::mutate` remains the explicit raw JSON escape
 hatch.
 
 `CallOptions` supplies a steady-clock deadline and `std::stop_token` for an
-individual raw call, `Workspace::run`, or stream open.
-`ResourceStream::poll(timeout)` bounds a stream wait.
+individual raw call, `Workspace::run`, or stream open. After acknowledgement,
+`ResourceStream::next()` waits without an idle deadline.
+`ResourceStream::poll(timeout)` bounds one wait without closing the stream.
 
 `TerminalHistoryOptions` validates `limit` in the range 1 through 10000 and
 encodes the full unsigned `before` cursor as a decimal string.

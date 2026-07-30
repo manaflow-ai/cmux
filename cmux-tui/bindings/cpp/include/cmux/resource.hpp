@@ -1373,7 +1373,10 @@ public:
     ~ResourceStream();
 
     [[nodiscard]] const StreamId& id() const noexcept;
+    // Waits until an item, stream end, transport failure, or cancellation.
+    // Request and stream-open deadlines do not become idle deadlines.
     [[nodiscard]] Result<std::optional<RawStreamItem>> next();
+    // Bounds one wait without closing the stream when the wait times out.
     [[nodiscard]] Result<std::optional<RawStreamItem>> next(Timeout timeout);
     [[nodiscard]] Result<std::optional<RawStreamItem>> poll(Timeout timeout) {
         return next(timeout);

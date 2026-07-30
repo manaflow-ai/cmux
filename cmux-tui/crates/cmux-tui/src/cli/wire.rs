@@ -366,26 +366,165 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
 
 fn write_human(value: &Value) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
+    stdout.write_all(human_text(value).as_bytes())?;
+    stdout.flush()
+}
+
+fn human_text(value: &Value) -> String {
+    let mut output = String::new();
+    append_human(value, &mut output);
+    output
+}
+
+fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            stdout.write_all(value.as_bytes())?;
+            output.push_str(value);
             if !value.ends_with('\n') {
-                stdout.write_all(b"\n")?;
+                output.push('\n');
             }
+        }
+        Value::Array(values) if values.iter().all(Value::is_object) => {
+            append_record_table(values, output);
         }
         Value::Array(values) => {
             for value in values {
-                serde_json::to_writer(&mut stdout, value).map_err(io::Error::other)?;
-                stdout.write_all(b"\n")?;
+                output.push_str(&human_cell(value));
+                output.push('\n');
+            }
+        }
+        Value::Object(object) => {
+            if object.len() == 1
+                && let Some(values) = object.values().next()
+                && values.is_array()
+            {
+                append_human(values, output);
+                return;
+            }
+            let mut rows = Vec::new();
+            flatten_human_object(None, object, &mut rows);
+            let width = rows.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0);
+            for (key, value) in rows {
+                output.push_str(&key);
+                output.push_str(&" ".repeat(width.saturating_sub(key.chars().count())));
+                output.push_str("  ");
+                output.push_str(&value);
+                output.push('\n');
             }
         }
         value => {
-            serde_json::to_writer(&mut stdout, value).map_err(io::Error::other)?;
-            stdout.write_all(b"\n")?;
+            output.push_str(&human_cell(value));
+            output.push('\n');
         }
     }
-    stdout.flush()
+}
+
+fn append_record_table(values: &[Value], output: &mut String) {
+    if values.is_empty() {
+        return;
+    }
+    let mut columns = values
+        .iter()
+        .filter_map(Value::as_object)
+        .flat_map(|object| object.keys().cloned())
+        .collect::<Vec<_>>();
+    columns.sort_by(|left, right| {
+        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
+    });
+    columns.dedup();
+
+    let rows = values
+        .iter()
+        .filter_map(Value::as_object)
+        .map(|object| {
+            columns
+                .iter()
+                .map(|column| object.get(column).map_or_else(|| "-".to_string(), human_cell))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let widths = columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            rows.iter()
+                .map(|row| row[index].chars().count())
+                .max()
+                .unwrap_or(0)
+                .max(human_header(column).chars().count())
+        })
+        .collect::<Vec<_>>();
+
+    append_table_row(
+        &columns.iter().map(|column| human_header(column)).collect::<Vec<_>>(),
+        &widths,
+        output,
+    );
+    for row in rows {
+        append_table_row(&row, &widths, output);
+    }
+}
+
+fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
+    for (index, cell) in cells.iter().enumerate() {
+        if index != 0 {
+            output.push_str("  ");
+        }
+        output.push_str(cell);
+        if index + 1 != cells.len() {
+            output.push_str(&" ".repeat(widths[index].saturating_sub(cell.chars().count())));
+        }
+    }
+    output.push('\n');
+}
+
+fn flatten_human_object(
+    prefix: Option<&str>,
+    object: &serde_json::Map<String, Value>,
+    rows: &mut Vec<(String, String)>,
+) {
+    let mut fields = object.iter().collect::<Vec<_>>();
+    fields.sort_by(|(left, _), (right, _)| {
+        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
+    });
+    for (key, value) in fields {
+        let path = prefix.map_or_else(|| key.clone(), |prefix| format!("{prefix}.{key}"));
+        if let Value::Object(nested) = value {
+            flatten_human_object(Some(&path), nested, rows);
+        } else {
+            rows.push((path, human_cell(value)));
+        }
+    }
+}
+
+fn human_cell(value: &Value) -> String {
+    match value {
+        Value::Null => "-".to_string(),
+        Value::String(value) => value.replace(['\r', '\n'], "\\n"),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        value => serde_json::to_string(value).expect("JSON value serialization cannot fail"),
+    }
+}
+
+fn human_header(key: &str) -> String {
+    key.replace('_', " ").to_uppercase()
+}
+
+fn human_key_rank(key: &str) -> usize {
+    match key {
+        "id" => 0,
+        "name" => 1,
+        "title" => 2,
+        "kind" => 3,
+        "state" => 4,
+        "lifecycle" => 5,
+        "index" => 6,
+        "focused" => 7,
+        "running" => 8,
+        _ => 9,
+    }
 }
 
 fn resolve_socket(global: &GlobalArgs) -> PathBuf {
@@ -428,6 +567,52 @@ mod tests {
             stream: false,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
+    }
+
+    #[test]
+    fn human_lists_are_readable_tables_instead_of_json_lines() {
+        let output = human_text(&json!([
+            {"id":"ws_a","name":"build","focused":true},
+            {"id":"ws_b","name":"docs","focused":false}
+        ]));
+        assert_eq!(output, "ID    NAME   FOCUSED\nws_a  build  true\nws_b  docs   false\n");
+        assert!(!output.contains(['{', '}', '"']));
+    }
+
+    #[test]
+    fn human_single_array_wrappers_use_the_same_table() {
+        let output = human_text(&json!({
+            "workspaces": [
+                {"id":"ws_a","name":"build"},
+                {"id":"ws_b","name":"docs"}
+            ]
+        }));
+        assert_eq!(output, "ID    NAME\nws_a  build\nws_b  docs\n");
+    }
+
+    #[test]
+    fn human_records_flatten_nested_results_without_losing_fields() {
+        let output = human_text(&json!({
+            "generation": "generation-1",
+            "revision": "7",
+            "replayed": false,
+            "value": {"kind": "workspace", "workspace_id": "ws_a"}
+        }));
+        for expected in [
+            "generation",
+            "generation-1",
+            "revision",
+            "7",
+            "replayed",
+            "false",
+            "value.kind",
+            "workspace",
+            "value.workspace_id",
+            "ws_a",
+        ] {
+            assert!(output.contains(expected), "missing {expected:?} in {output:?}");
+        }
+        assert!(!output.contains(['{', '}', '"']));
     }
 
     #[test]

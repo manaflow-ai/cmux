@@ -29,7 +29,9 @@ public:
     [[nodiscard]] Id surface() const noexcept;
     [[nodiscard]] std::uint64_t client_id() const noexcept;
 
+    // Request and attachment-open deadlines do not end an acknowledged idle stream.
     [[nodiscard]] Result<Event> next();
+    // Bounds one wait without closing the attachment when the wait times out.
     [[nodiscard]] Result<Event> next(Timeout timeout);
 
     [[nodiscard]] Result<ResizeSurfaceResult> resize(

@@ -282,6 +282,57 @@ fn runtime_receives_render_snapshots_forwards_input_and_cancels_cleanly() {
 }
 
 #[test]
+fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapshot() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (control, _) = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let attach = request(&mut reader);
+        assert_eq!(attach["operation"], "sidebar_view.attach");
+        let stream_id = attach["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &attach, json!({"stream_id": stream_id}));
+
+        thread::sleep(Duration::from_millis(150));
+        snapshot(&mut stream, &stream_id, 0);
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        success(&mut stream, &cancel, json!({}));
+        end_canceled(&mut stream, &stream_id);
+        drop(control);
+    });
+
+    let client = cmux::Client::connect(
+        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
+    )
+    .unwrap();
+    let view = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .sidebar_view(SidebarViewId::parse(VIEW).unwrap());
+    let mut runtime = SidebarRuntime::start(view, SidebarConfig::default()).unwrap();
+
+    thread::sleep(Duration::from_millis(100));
+    assert_eq!(runtime.poll_updates(), 0);
+    assert!(matches!(runtime.state(), SidebarRuntimeState::Attached));
+    assert!(runtime.model().error.is_none());
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while runtime.poll_updates() == 0 {
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(matches!(runtime.state(), SidebarRuntimeState::Attached));
+    assert_eq!(runtime.model().rows[0].runs[0].text, "agent one");
+
+    runtime.shutdown().unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn bounded_queue_overflow_cancels_and_reports_recovery() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

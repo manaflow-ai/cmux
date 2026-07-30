@@ -2807,7 +2807,12 @@ Result<std::optional<RawStreamItem>> ResourceStream::next() {
     if (!impl_) {
         return make_error(ErrorCode::closed, "stream is not initialized");
     }
-    return next(impl_->options.timeout);
+    while (true) {
+        auto item = next(impl_->options.timeout);
+        if (item || item.error().code != ErrorCode::timeout) {
+            return item;
+        }
+    }
 }
 
 Result<std::optional<RawStreamItem>> ResourceStream::next(Timeout timeout) {

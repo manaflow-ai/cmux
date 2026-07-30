@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 import unittest
 
 import cmux
@@ -1148,6 +1149,49 @@ class ResourceApiTests(unittest.TestCase):
                         client.session(SESSION).ping,
                     )
                 self.assertTrue(client.session(SESSION).ping().alive)
+
+    def test_acknowledged_stream_outlives_the_request_timeout(self) -> None:
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            stream_id = opened["params"]["stream_id"]
+            ok(connection, opened, {"stream_id": stream_id})
+
+            time.sleep(0.15)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/1",
+                    "type": "stream_item",
+                    "stream_id": stream_id,
+                    "sequence": "1",
+                    "item": {"kind": "delayed"},
+                },
+            )
+
+            ping = next(requests)
+            ok(
+                connection,
+                ping,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+            canceled = next(requests)
+            ok(connection, canceled, {})
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.05) as client:
+                session = client.session(SESSION)
+                stream = session.events()
+                item = stream.next(timeout=1)
+                self.assertEqual(item.item.kind, "delayed")
+                self.assertTrue(session.ping().alive)
+                stream.cancel()
 
     def test_cancellation_before_and_after_mutation_dispatch_is_typed(self) -> None:
         def before_handler(connection, _index):

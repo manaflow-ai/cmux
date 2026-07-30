@@ -338,7 +338,9 @@ pub const SessionSupervisor = struct {
         }
     }
 
-    /// `next` and `cancel` are both bounded by the client's connection timeout.
+    /// Open and cancellation use the client's request timeout. After the open
+    /// acknowledgement, `next` waits without a deadline for an ordinary idle
+    /// stream event.
     pub fn observeOneEvent(
         self: *SessionSupervisor,
     ) !EventObservation {

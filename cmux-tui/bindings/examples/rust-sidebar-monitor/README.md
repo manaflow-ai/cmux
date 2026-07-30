@@ -6,7 +6,7 @@ attachment after a server gap, preserves unknown event kinds and raw payloads,
 forwards Crossterm input, resizes and reloads the view, renders with Ratatui,
 and distinguishes normal terminal ends from failures.
 
-Run it against the socket selected by `CMUX_SOCKET`:
+Run it against the socket selected by `CMUX_TUI_SOCKET`:
 
 ```bash
 cargo run

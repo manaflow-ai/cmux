@@ -17,11 +17,12 @@ const pane_text = "pane_" ++ hex_e;
 const tab_text = "tab_" ++ hex_f;
 const terminal_text = "term_" ++ hex_a;
 const generation = "generation-session-supervisor";
+const delayed_event_wait_ms: u64 = 75;
 
 const Scenario = enum {
     lifecycle,
     duplicate_workspace,
-    event_timeout,
+    delayed_event,
 };
 
 const FakeServer = struct {
@@ -67,7 +68,7 @@ const FakeServer = struct {
             .duplicate_workspace => try self.runDuplicateWorkspace(
                 control.stream,
             ),
-            .event_timeout => try self.runEventTimeout(control.stream),
+            .delayed_event => try self.runDelayedEvent(control.stream),
         }
     }
 
@@ -248,7 +249,7 @@ const FakeServer = struct {
 
         const event_connection = try self.listener.accept();
         defer event_connection.stream.close();
-        try self.serveEvent(event_connection.stream);
+        try self.serveEvent(event_connection.stream, 0);
     }
 
     fn runDuplicateWorkspace(
@@ -258,25 +259,17 @@ const FakeServer = struct {
         try self.respondDiscovery(control, true, false);
     }
 
-    fn runEventTimeout(
+    fn runDelayedEvent(
         self: *FakeServer,
         control: std.net.Stream,
     ) !void {
         try self.respondDiscovery(control, false, true);
         const event_connection = try self.listener.accept();
         defer event_connection.stream.close();
-        var open = try self.receive(
+        try self.serveEvent(
             event_connection.stream,
-            "session.events",
+            delayed_event_wait_ms,
         );
-        defer open.deinit();
-        try expectRoute(open.value, true, true, false);
-        try self.respond(
-            event_connection.stream,
-            try requestId(open.value),
-            struct {}{},
-        );
-        std.Thread.sleep(150 * std.time.ns_per_ms);
     }
 
     fn respondDiscovery(
@@ -338,6 +331,7 @@ const FakeServer = struct {
     fn serveEvent(
         self: *FakeServer,
         stream: std.net.Stream,
+        delay_ms: u64,
     ) !void {
         var open = try self.receive(stream, "session.events");
         defer open.deinit();
@@ -349,6 +343,9 @@ const FakeServer = struct {
             try requestId(open.value),
             struct {}{},
         );
+        if (delay_ms > 0) {
+            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+        }
         try self.send(
             stream,
             .{
@@ -579,18 +576,30 @@ test "duplicate user workspace names fail before mutation" {
     );
 }
 
-test "session event reads inherit the bounded client timeout" {
-    var fixture = try Fixture.init(.event_timeout);
+test "acknowledged session event stream survives request timeout" {
+    var fixture = try Fixture.init(.delayed_event);
     defer fixture.deinit();
-    var supervisor = try fixture.connect(std.testing.allocator, 30);
+    const request_timeout_ms: u32 = 30;
+    try std.testing.expect(delayed_event_wait_ms > request_timeout_ms);
+    var supervisor = try fixture.connect(
+        std.testing.allocator,
+        request_timeout_ms,
+    );
     defer supervisor.deinit();
-    try std.testing.expectError(
-        error.Timeout,
-        supervisor.observeOneEvent(),
+    const event = try supervisor.observeOneEvent();
+    try std.testing.expectEqual(
+        supervisor_api.EventKind.unknown,
+        event.kind,
+    );
+    try std.testing.expectEqual(@as(u64, 1), event.sequence);
+    try std.testing.expectEqual(@as(u64, 13), event.cursor_revision.?);
+    try std.testing.expectEqual(
+        @as(u64, 13),
+        event.canceled_at_revision.?,
     );
     try fixture.join();
     try std.testing.expectEqual(
-        @as(usize, 4),
+        @as(usize, 5),
         fixture.server.requests_seen,
     );
 }

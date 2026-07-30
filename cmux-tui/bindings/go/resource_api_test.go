@@ -874,6 +874,91 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 	}
 }
 
+func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
+	const requestTimeout = 10 * time.Millisecond
+	clientSide, serverSide := net.Pipe()
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{
+			"stream_id": streamID,
+		})
+
+		timer := time.NewTimer(4 * requestTimeout)
+		defer timer.Stop()
+		<-timer.C
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/1",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "1",
+			"item": map[string]any{
+				"kind":          "delayed-session-item",
+				"after_timeout": true,
+			},
+		})
+
+		cancel := readRequest(t, reader)
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/1",
+			"type":      "stream_end",
+			"stream_id": streamID,
+			"reason":    "canceled",
+		})
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{})
+	}()
+
+	setupContext, cancelSetup := context.WithCancel(context.Background())
+	client, err := NewClient(setupContext, ClientOptions{
+		Timeout: requestTimeout,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		cancelSetup()
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	stream, err := session.Events(setupContext, SessionEventsOptions{})
+	cancelSetup()
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	if !errors.Is(setupContext.Err(), context.Canceled) {
+		t.Fatalf("setup context = %v, want canceled", setupContext.Err())
+	}
+
+	receiveContext, cancelReceive := context.WithTimeout(context.Background(), time.Second)
+	item, err := stream.Recv(receiveContext)
+	cancelReceive()
+	if err != nil {
+		t.Fatalf("receive delayed item: %v", err)
+	}
+	if item.Sequence != Decimal(1) ||
+		item.Value.Kind != "delayed-session-item" ||
+		item.Value.Raw["after_timeout"] != true {
+		t.Fatalf("delayed stream item = %#v", item)
+	}
+
+	cancelContext, cancelStream := context.WithTimeout(context.Background(), time.Second)
+	err = stream.Cancel(cancelContext)
+	cancelStream()
+	if err != nil {
+		t.Fatalf("cancel delayed stream: %v", err)
+	}
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("server did not observe stream cancellation")
+	}
+}
+
 func TestTypedStreamEndAndCancellation(t *testing.T) {
 	clientSide, serverSide := net.Pipe()
 	cancelRequests := make(chan int, 1)

@@ -2659,8 +2659,15 @@ fn resolved_ghostty_defaults() -> Option<DefaultColors> {
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
 ) -> Option<DefaultColors> {
+    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
+}
+
+fn resolved_ghostty_defaults_from_with(
+    installations: &[platform::GhosttyInstallation],
+    mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
+) -> Option<DefaultColors> {
     installations.iter().find_map(|installation| {
-        let text = run_ghostty_show_config(installation)?;
+        let text = resolve(installation)?;
         let defaults = parse_resolved_ghostty_defaults(&text);
         // `+show-config` serializes Ghostty's effective application defaults,
         // including both colors. An executable that exits successfully but
@@ -2670,7 +2677,7 @@ fn resolved_ghostty_defaults_from(
     })
 }
 
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
     let mut command = Command::new(&installation.binary);
     command
         .args(["+show-config", "--no-pager"])
@@ -2680,6 +2687,11 @@ fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Opti
     if let Some(resources_dir) = installation.resources_dir.as_deref() {
         command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
     }
+    command
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = ghostty_show_config_command(installation);
     let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
@@ -2987,11 +2999,14 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+        let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
             resources_dir: Some(resources.clone()),
         })
+        .output()
         .unwrap();
+        assert!(output.status.success());
+        let output = String::from_utf8(output.stdout).unwrap();
         assert!(output.contains(&format!("resource-path = {}", resources.display())));
         let defaults = parse_resolved_ghostty_defaults(&output);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
@@ -2999,36 +3014,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn unusable_packaged_ghostty_resolver_falls_through() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-fallback-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let broken = root.join("copied-app-binary");
-        let working = root.join("standalone-cli-helper");
-        std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(
-            &working,
-            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
-        )
+        let broken = PathBuf::from("/cmux-test/copied-app-binary");
+        let working = PathBuf::from("/cmux-test/standalone-cli-helper");
+        let installations = [
+            platform::GhosttyInstallation { binary: broken.clone(), resources_dir: None },
+            platform::GhosttyInstallation { binary: working.clone(), resources_dir: None },
+        ];
+        let mut visited = Vec::new();
+        let defaults = resolved_ghostty_defaults_from_with(&installations, |installation| {
+            visited.push(installation.binary.clone());
+            if installation.binary == broken {
+                Some(String::new())
+            } else {
+                Some("background = #272822\nforeground = #fdfff1\n".to_owned())
+            }
+        })
         .unwrap();
-        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let defaults = resolved_ghostty_defaults_from(&[
-            platform::GhosttyInstallation { binary: broken, resources_dir: None },
-            platform::GhosttyInstallation { binary: working, resources_dir: None },
-        ])
-        .unwrap();
+        assert_eq!(visited, vec![broken, working]);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
