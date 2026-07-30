@@ -4942,6 +4942,51 @@ extension SessionPersistenceTests {
         )
         XCTAssertFalse(
             SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "/tmp/tool-* --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume s?d"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume [abc]"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "~/bin/claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "=claude --resume x"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume 'lit-*'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude \"--flag=*\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --flag=value"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "FOO=1 claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
                 "claude --resume x ; evil"
             )
         )
@@ -5119,6 +5164,26 @@ extension SessionPersistenceTests {
         XCTAssertFalse(record.matches(unquotedExpansionBinding))
     }
 
+    func testSurfaceResumeGeneralizedApprovalRejectsUnquotedGlobFromQuotedPrefix() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "quoted-glob-prefix",
+            commandPrefix: ["/tmp/tool-*", "--resume"],
+            cwd: "/tmp/project",
+            policy: .prompt
+        )
+        let quotedOriginalBinding = SurfaceResumeBindingSnapshot(
+            command: "'/tmp/tool-*' --resume a",
+            cwd: "/tmp/project"
+        )
+        let unquotedGlobBinding = SurfaceResumeBindingSnapshot(
+            command: "/tmp/tool-* --resume b",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertTrue(record.matches(quotedOriginalBinding))
+        XCTAssertFalse(record.matches(unquotedGlobBinding))
+    }
+
     func testSurfaceResumeGeneralizedApprovalMatchesOnlyShellExpansionSafeCommands() {
         let record = SurfaceResumeApprovalRecord(
             id: "safe-command-prefix",
@@ -5201,6 +5266,28 @@ extension SessionPersistenceTests {
         ))
         XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
         XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
+    }
+
+    func testSurfaceResumeApprovalReturnsNilWhenStoreCannotBeWritten() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let nonDirectoryURL = storeURL.deletingLastPathComponent()
+            .appendingPathComponent("not-a-directory", isDirectory: false)
+        try Data().write(to: nonDirectoryURL)
+        let unwritableStoreURL = nonDirectoryURL
+            .appendingPathComponent("resume-commands.json", isDirectory: false)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume abc123",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: unwritableStoreURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: unwritableStoreURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: unwritableStoreURL).isEmpty)
     }
 
     func testSurfaceResumeApprovalDoesNotPromptForUnsafeCompoundCommand() {
