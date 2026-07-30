@@ -430,8 +430,10 @@ mod tests {
         state.update(&mut terminal).unwrap();
         SurfaceRenderFrame {
             frame: state.build_frame().unwrap(),
+            content_generation: 1,
             scrollback_rows: 0,
             history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
             palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         }
@@ -470,8 +472,10 @@ mod tests {
         state.update(&mut terminal).unwrap();
         let render = SurfaceRenderFrame {
             frame: state.build_frame().unwrap(),
+            content_generation: 1,
             scrollback_rows: 0,
             history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
             palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         };
@@ -504,8 +508,10 @@ mod tests {
         state.update(&mut terminal).unwrap();
         let render = SurfaceRenderFrame {
             frame: state.build_frame().unwrap(),
+            content_generation: 1,
             scrollback_rows: 0,
             history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
             palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         };
@@ -566,8 +572,10 @@ mod tests {
         state.update(&mut terminal).unwrap();
         SurfaceRenderFrame {
             frame: state.build_frame().unwrap(),
+            content_generation: 1,
             scrollback_rows: 0,
             history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
             palette_colors: [Rgb::default(); 256],
             palette_overridden: [false; 256],
         }

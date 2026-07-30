@@ -192,8 +192,8 @@ jobs:
 
           git fetch --force origin main
           current_main="$(git rev-parse origin/main)"
-          if [[ "$GITHUB_SHA" != "$current_main" ]]; then
-            echo "workflow commit $GITHUB_SHA is not current protected main $current_main" >&2
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$current_main"; then
+            echo "workflow commit $GITHUB_SHA is not contained in protected main $current_main" >&2
             exit 1
           fi
 

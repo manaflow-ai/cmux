@@ -14,6 +14,8 @@ use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
+pub(crate) const PROCESSING_FENCE_ID_BASE: u32 = 2_000_000_001;
+const PROCESSING_FENCE_ID_COUNT: u64 = 2_000_000_000;
 
 #[cfg(test)]
 static IMAGE_TRANSMISSION_OBSERVER: OnceLock<Mutex<Option<Sender<GraphicImageKey>>>> =
@@ -116,6 +118,9 @@ pub struct GraphicPlacement {
     pub key: GraphicPlacementKey,
     pub image: Arc<GraphicImage>,
     pub rect: Rect,
+    /// Browser input authority paired with these pixels. Terminal images
+    /// leave this unset.
+    pub pointer_frame_seq: Option<u64>,
     pub columns: Option<u32>,
     pub rows: Option<u32>,
     pub source: Option<GraphicSourceRect>,
@@ -125,11 +130,21 @@ pub struct GraphicPlacement {
 }
 
 impl GraphicPlacement {
+    pub fn is_browser_frame(&self) -> bool {
+        match &self.image.data {
+            GraphicData::BrowserFrame(_) => true,
+            #[cfg(test)]
+            GraphicData::Base64(_) => self.image.key.image_id == 0,
+            GraphicData::Bytes(_) => false,
+        }
+    }
+
     pub fn browser_frame(
         namespace: u64,
         surface: SurfaceId,
         rect: Rect,
         frame: Arc<BrowserFrame>,
+        pointer_frame_seq: Option<u64>,
         source: Option<GraphicSourceRect>,
     ) -> Self {
         let image_key = GraphicImageKey { namespace, surface, image_id: 0 };
@@ -144,6 +159,7 @@ impl GraphicPlacement {
                 data: GraphicData::BrowserFrame(frame),
             }),
             rect,
+            pointer_frame_seq,
             columns: Some(u32::from(rect.width)),
             rows: Some(u32::from(rect.height)),
             source,
@@ -175,6 +191,7 @@ impl GraphicPlacement {
                 data: GraphicData::Base64(Arc::from(data_b64)),
             }),
             rect,
+            pointer_frame_seq: Some(generation),
             columns: Some(u32::from(rect.width)),
             rows: Some(u32::from(rect.height)),
             source: None,
@@ -355,6 +372,7 @@ pub fn kitty_graphic_placement(
             width: u16::try_from(grid_cols).ok()?,
             height: u16::try_from(grid_rows).ok()?,
         },
+        pointer_frame_seq: None,
         columns,
         rows,
         source: Some(source),
@@ -876,6 +894,17 @@ fn delete_image(image_id: u32) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=I,i={image_id},q=2;{ESC}\\").into_bytes()
 }
 
+pub(crate) fn processing_fence_id(submission: u64) -> u32 {
+    PROCESSING_FENCE_ID_BASE + (submission.wrapping_sub(1) % PROCESSING_FENCE_ID_COUNT) as u32
+}
+
+/// Append a side-effect-free graphics query after one submitted frame. Its
+/// immediate reply confirms that the terminal parsed every preceding Kitty
+/// graphics command. It does not report compositor presentation.
+pub(crate) fn processing_fence(id: u32) -> Vec<u8> {
+    format!("{ESC}_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA{ESC}\\").into_bytes()
+}
+
 const FALLBACK_CELL_PIXELS: (u16, u16) = (8, 16);
 const TERMINAL_PROBE_TIMEOUT: Duration = Duration::from_millis(180);
 const STARTUP_INPUT_MAX_INCOMPLETE_BYTES: usize = 4 * 1024;
@@ -1356,6 +1385,16 @@ mod tests {
         assert_eq!(borrowed.as_ptr(), encoded.as_ptr());
     }
 
+    #[test]
+    fn processing_fence_uses_reserved_query_id() {
+        let id = processing_fence_id(7);
+        assert!(id >= PROCESSING_FENCE_ID_BASE);
+        assert_eq!(
+            String::from_utf8(processing_fence(id)).unwrap(),
+            format!("\x1b_Gi={id},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\")
+        );
+    }
+
     fn image(
         surface: SurfaceId,
         image_id: u32,
@@ -1383,6 +1422,7 @@ mod tests {
             key: GraphicPlacementKey { image: image.key, placement_id, ordinal },
             image,
             rect,
+            pointer_frame_seq: None,
             columns: Some(u32::from(rect.width)),
             rows: Some(u32::from(rect.height)),
             source: None,

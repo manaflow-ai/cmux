@@ -3,8 +3,10 @@ import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
 import CmuxCore
+import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
+import CmuxTerminalCore
 import CmuxWorkspaces
 import Observation
 import SwiftUI
@@ -36,6 +38,14 @@ final class DockSplitStore: BonsplitDelegate {
     private let browserAvailabilityProvider: () -> Bool
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
+    private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
+    weak var terminalFontSizeChangeCoordinator:
+        WorkspaceTerminalFontSizeCoordinator?
+    weak var terminalFontSizeChangeArbiter:
+        WorkspaceTerminalFontSizeArbiter?
+    weak var terminalFontSizeOwningWorkspace: Workspace?
+    @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
+        TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -274,6 +284,9 @@ final class DockSplitStore: BonsplitDelegate {
             command: command,
             url: url,
             initialRequest: initialRequest,
+            configTemplate: kind == .terminal
+                ? inheritedTerminalFontSizeConfig(sourcePanelId: source)
+                : nil,
             environment: environment,
             workingDirectory: resolvedTerminalStartupWorkingDirectory(
                 kind: kind,
@@ -323,6 +336,9 @@ final class DockSplitStore: BonsplitDelegate {
             kind: kind,
             command: command,
             url: url,
+            configTemplate: kind == .terminal
+                ? inheritedTerminalFontSizeConfig(sourcePanelId: source)
+                : nil,
             environment: environment,
             workingDirectory: resolvedTerminalStartupWorkingDirectory(
                 kind: kind,
@@ -371,9 +387,7 @@ final class DockSplitStore: BonsplitDelegate {
             )
         }
         guard splitResult != nil else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
@@ -417,6 +431,156 @@ final class DockSplitStore: BonsplitDelegate {
     }
 #endif
 
+    @discardableResult
+    func beginTerminalFontSizeChangeInheritance(
+        token: UUID,
+        change: WorkspaceTerminalFontSizeChange,
+        configuredRuntimePoints: Float32,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent,
+        fallbackLineage: TerminalFontSizeLineage?,
+        fallbackLineageAlreadyIncludesChange: Bool
+    ) -> TerminalFontSizeChangeInheritanceContext {
+        let preferredSourcePanel = focusedPanelId.flatMap {
+            panels[$0] as? TerminalPanel
+        }
+        let dockFallbackLineage = lastTerminalFontSizeLineage
+        let context = TerminalFontSizeChangeInheritanceContext(
+            token: token,
+            change: change,
+            configuredRuntimePoints: configuredRuntimePoints,
+            magnificationPercent: magnificationPercent,
+            preferredSourcePanel: preferredSourcePanel,
+            fallbackLineage: dockFallbackLineage ?? fallbackLineage,
+            fallbackLineageAlreadyIncludesChange:
+                dockFallbackLineage == nil
+                && fallbackLineageAlreadyIncludesChange
+        )
+        activeTerminalFontSizeChangeInheritanceContext = context
+        rememberDurableTerminalFontSizeLineage(context.fallbackLineage)
+        return context
+    }
+
+    func endTerminalFontSizeChangeInheritance(token: UUID) {
+        guard activeTerminalFontSizeChangeInheritanceContext?.token == token else {
+            return
+        }
+        activeTerminalFontSizeChangeInheritanceContext = nil
+    }
+
+#if DEBUG
+    private(set) var debugWorkspaceFontSizeLineageProbeCount = 0
+
+    var debugActiveTerminalFontSizeChangeInitialLineageProbeCount: Int? {
+        activeTerminalFontSizeChangeInheritanceContext?
+            .initialLineageProbeCount
+    }
+#endif
+
+    func rememberTerminalFontSizeLineageForNewTerminals(
+        fallback: TerminalFontSizeLineage?,
+        magnificationPercent: Int =
+            GlobalFontMagnification.storedPercent
+    ) {
+        let focusedTerminalPanel = focusedPanelId.flatMap {
+            panels[$0] as? TerminalPanel
+        }
+        let focusedLineage =
+            focusedTerminalPanel?.surface.fontSizeLineageSnapshot(
+                magnificationPercent: magnificationPercent
+            )
+        if let lineage = focusedLineage ?? fallback ?? lastTerminalFontSizeLineage {
+            rememberDurableTerminalFontSizeLineage(lineage)
+        }
+    }
+
+    /// Concrete config-following values are valid only during an active
+    /// change. Persisting one would freeze the config value for future panes.
+    private func rememberDurableTerminalFontSizeLineage(
+        _ lineage: TerminalFontSizeLineage?
+    ) {
+        lastTerminalFontSizeLineage =
+            lineage?.isExplicitOverride == true ? lineage : nil
+    }
+
+    private func inheritedTerminalFontSizeConfig(
+        sourcePanelId: UUID?
+    ) -> CmuxSurfaceConfigTemplate? {
+        let sourceTerminalPanel = sourcePanelId.flatMap {
+            panels[$0] as? TerminalPanel
+        }
+        let inheritanceContext =
+            activeTerminalFontSizeChangeInheritanceContext
+        let transferProjection =
+            sourceTerminalPanel.flatMap {
+                terminalFontSizeChangeArbiter?
+                    .transferInheritanceProjection(for: $0)
+            }
+        let sourceLineage: TerminalFontSizeLineage?
+        if let transferProjection {
+            sourceLineage = transferProjection.lineage
+        } else if let inheritanceContext {
+            sourceLineage =
+                sourceTerminalPanel?.surface
+                    .fontSizeLineageForAdjustment(
+                        fallbackRuntimePoints:
+                            inheritanceContext
+                                .configuredRuntimePoints,
+                        magnificationPercent:
+                            inheritanceContext
+                                .magnificationPercent
+                    )
+        } else {
+            sourceLineage =
+                sourceTerminalPanel?.surface
+                    .fontSizeLineageSnapshot()
+        }
+        let inheritedLineage: TerminalFontSizeLineage?
+        if let inheritanceContext {
+            inheritedLineage =
+                inheritanceContext.inheritedLineage(
+                    from: sourceLineage,
+                    alreadyIncludesChange:
+                        sourceTerminalPanel?.surface
+                            .hasAppliedFontSizeChange(
+                                token:
+                                    inheritanceContext.token
+                            ) == true
+                        || transferProjection?
+                            .representedRequestTokens
+                            .contains(
+                                inheritanceContext.token
+                            ) == true
+                )
+        } else {
+            inheritedLineage = sourceLineage
+        }
+        guard let lineage =
+                inheritedLineage
+                ?? lastTerminalFontSizeLineage else {
+            return nil
+        }
+        guard inheritanceContext != nil || lineage.isExplicitOverride else {
+            rememberDurableTerminalFontSizeLineage(nil)
+            return nil
+        }
+        rememberDurableTerminalFontSizeLineage(lineage)
+        var fontSizeChangeTokens =
+            sourceTerminalPanel?.surface
+                .fontSizeChangeTokensForInheritance()
+            ?? []
+        fontSizeChangeTokens.formUnion(
+            transferProjection?.representedRequestTokens
+            ?? []
+        )
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSizeLineage = lineage
+        config.fontSizeChangeToken = inheritanceContext?.token
+        config.fontSizeChangeTokens =
+            fontSizeChangeTokens
+        return config
+    }
+
     // MARK: - Panel construction
 
     private func makePanel(
@@ -424,6 +588,7 @@ final class DockSplitStore: BonsplitDelegate {
         command: String?,
         url: URL?,
         initialRequest: URLRequest? = nil,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
@@ -437,6 +602,7 @@ final class DockSplitStore: BonsplitDelegate {
                 useLoginShellWrapper: false,
                 workingDirectory: workingDirectory,
                 environment: environment,
+                configTemplate: configTemplate,
                 tmuxStartCommand: tmuxStartCommand,
                 controlId: nil,
                 controlTitle: nil
@@ -464,6 +630,7 @@ final class DockSplitStore: BonsplitDelegate {
                 useLoginShellWrapper: true,
                 workingDirectory: workingDirectory,
                 environment: def.env,
+                configTemplate: inheritedTerminalFontSizeConfig(sourcePanelId: nil),
                 controlId: def.id,
                 controlTitle: def.title
             )
@@ -478,6 +645,7 @@ final class DockSplitStore: BonsplitDelegate {
         useLoginShellWrapper: Bool,
         workingDirectory: String,
         environment: [String: String],
+        configTemplate: CmuxSurfaceConfigTemplate?,
         tmuxStartCommand: String? = nil,
         controlId: String?,
         controlTitle: String?
@@ -498,6 +666,7 @@ final class DockSplitStore: BonsplitDelegate {
         return TerminalPanel(
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -530,8 +699,7 @@ final class DockSplitStore: BonsplitDelegate {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
@@ -605,14 +773,11 @@ final class DockSplitStore: BonsplitDelegate {
     func reconcilePanels() {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
-        for tabId in staleTabIds {
-            guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
-            panelCancellables[panelId]?.cancel()
-            panelCancellables.removeValue(forKey: panelId)
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-            clearSessionRestoreState(panelId: panelId)
-            if let panel = panels.removeValue(forKey: panelId) { panel.close() }
+        let stalePanelIds = Set(staleTabIds.compactMap { surfaceIdToPanelId[$0] })
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { live.contains($0.key) }
+        let livePanelIds = Set(surfaceIdToPanelId.values)
+        for panelId in stalePanelIds.subtracting(livePanelIds) {
+            discardPanelStateAndClose(panelId: panelId)
         }
     }
 
@@ -638,11 +803,9 @@ final class DockSplitStore: BonsplitDelegate {
         let inheritedDirectory = settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
             ? sourcePanelId.flatMap { inheritedLocalTerminalWorkingDirectory(for: $0) }
             : nil
-        return TerminalWorkingDirectoryResolver.firstAvailable([
-            requestedWorkingDirectory,
-            inheritedDirectory,
-            baseDirectory,
-        ]) ?? baseDirectory
+        if let requestedDirectory = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) { return requestedDirectory }
+        if let inheritedDirectory, !inheritedDirectory.isEmpty { return inheritedDirectory }
+        return baseDirectory
     }
 
     // MARK: - Config loading
@@ -801,9 +964,7 @@ final class DockSplitStore: BonsplitDelegate {
                     )
                 }
                 guard seedSplitResult != nil else {
-                    surfaceIdToPanelId.removeValue(forKey: newTab.id)
-                    panels.removeValue(forKey: panel.id)
-                    panel.close()
+                    discardPanelOwnershipAndClose(panelId: panel.id)
                     continue
                 }
                 installSubscription(for: panel, tracksTerminalTitle: tracksTitle)
