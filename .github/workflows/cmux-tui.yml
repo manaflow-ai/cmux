@@ -116,8 +116,49 @@ jobs:
           # their normal deadlines strict while allowing for instrumentation.
           CMUX_TEST_TIMEOUT_SCALE: "4"
         run: |
+          pidfd_probe=
+          while IFS= read -r bin; do
+            case "${bin##*/}" in
+              cmux_tui_core-*)
+                pidfd_probe="$bin"
+                break
+                ;;
+            esac
+          done < target/valgrind-test-binaries.txt
+          test -n "$pidfd_probe"
+          probe_test=process_session::tests::successful_preflight_survives_a_transient_initializer_failure
+          "$pidfd_probe" --exact "$probe_test" >/dev/null
+          valgrind_pidfd_supported=true
+          if ! valgrind \
+            --tool=none \
+            --quiet \
+            --trace-children=yes \
+            --error-exitcode=1 \
+            -- "$pidfd_probe" --exact "$probe_test" >/dev/null 2>&1; then
+            valgrind_pidfd_supported=false
+            echo "Valgrind cannot emulate pidfd_send_signal; native Linux CI covers process-owning tests"
+          fi
+
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
+            test_args=()
+            if [ "$valgrind_pidfd_supported" = false ]; then
+              # These binaries create PTYs inside the instrumented process.
+              # The remaining integration binaries exec their runtime
+              # children outside Valgrind and keep their harness coverage.
+              case "${bin##*/}" in
+                cmux_tui-*|cmux_tui_core-*|pty-*)
+                  echo "Skipping pidfd-dependent test binary under Valgrind: $bin"
+                  continue
+                  ;;
+                websocket_transport-*)
+                  test_args+=(
+                    --skip websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect
+                    --skip clients_list_identify_resize_and_detach_across_transports
+                  )
+                  ;;
+              esac
+            fi
             echo "Running valgrind for $bin"
             if ! valgrind \
               --error-exitcode=1 \
@@ -125,7 +166,7 @@ jobs:
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
               --track-origins=yes \
-              -- "$bin"; then
+              -- "$bin" "${test_args[@]}"; then
               echo "Valgrind failed for $bin" >&2
               exit 1
             fi
