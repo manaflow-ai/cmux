@@ -533,8 +533,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 /// Building it once keeps a reconnect pass linear even with many saved Macs.
 struct DeviceRegistryRouteIndex: Sendable {
     private let devicesByID: [String: [RegistryDevice]]
+    private let macInstanceTagAuthority: MobileMacInstanceTagAuthority
 
-    init(devices: [RegistryDevice]) {
+    init(
+        devices: [RegistryDevice],
+        macInstanceTagAuthority: MobileMacInstanceTagAuthority =
+            MobileMacInstanceTagAuthority()
+    ) {
+        self.macInstanceTagAuthority = macInstanceTagAuthority
         devicesByID = Dictionary(grouping: devices) { device in
             Self.normalizedDeviceID(device.deviceId)
         }
@@ -549,9 +555,9 @@ struct DeviceRegistryRouteIndex: Sendable {
         guard matches.count == 1, let device = matches.first else { return .ambiguous }
 
         let instances: [RegistryAppInstance]
-        if let expectedTag = MobileMacInstanceTagAuthority.normalized(instanceTag) {
+        if let expectedTag = macInstanceTagAuthority.normalize(instanceTag) {
             instances = device.instances.filter {
-                MobileMacInstanceTagAuthority.normalized($0.tag) == expectedTag
+                macInstanceTagAuthority.normalize($0.tag) == expectedTag
             }
         } else {
             instances = device.instances

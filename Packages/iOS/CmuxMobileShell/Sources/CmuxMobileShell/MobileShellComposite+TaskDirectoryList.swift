@@ -99,6 +99,7 @@ extension MobileShellComposite {
                 return .failure(.cancelled)
             case .connectionClosed,
                  .transportWriteTimedOut,
+                 .routeCleanupBlocked,
                  .insecureManualRoute,
                  .attachTicketExpired:
                 return .failure(.unavailable)
