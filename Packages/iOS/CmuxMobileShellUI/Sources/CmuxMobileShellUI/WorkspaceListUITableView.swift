@@ -59,7 +59,8 @@ final class WorkspaceListUITableView: UITableView {
         contentInsetAdjustmentBehavior = .never
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft
-            bottomEdgeEffect.style = .soft
+            // Keep the bottom effect automatic so UIKit sizes it to the tab bar.
+            // A forced soft effect extends upward through the accessory buttons.
         }
     }
 
