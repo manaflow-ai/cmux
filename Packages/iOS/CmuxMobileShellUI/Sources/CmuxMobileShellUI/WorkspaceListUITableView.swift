@@ -59,9 +59,8 @@ final class WorkspaceListUITableView: UITableView {
         contentInsetAdjustmentBehavior = .never
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft
-            // The hard native effect stays at the tab-bar boundary. Soft and
-            // automatic effects fade upward through the floating buttons.
-            bottomEdgeEffect.style = .hard
+            // New Task is an overlay, so the tab bar owns this effect's edge.
+            bottomEdgeEffect.style = .soft
         }
     }
 

@@ -37,10 +37,10 @@ struct WorkspaceListSearchHost<Content: View>: View {
             // A `.bottomBar` toolbar item cannot host New Task here: the
             // TabView's search-role tab renders its pill in the same
             // bottom-trailing slot and the two stack on top of each other.
-            // Mount the shared button in the bottom safe-area bar instead,
-            // above the tab-bar chrome the system owns.
+            // Overlay only the button above the tab-bar chrome. A full-width
+            // safe-area bar moves the table's scroll edge above this button.
             content(searchText)
-                .safeAreaBar(edge: .bottom, alignment: .trailing, spacing: 0) {
+                .overlay(alignment: .bottomTrailing) {
                     if let taskComposerAction {
                         TaskComposerButton(action: taskComposerAction)
                             .padding(.trailing, 20)
