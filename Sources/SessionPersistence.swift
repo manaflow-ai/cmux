@@ -715,7 +715,16 @@ enum SurfaceResumeCommandCanonicalizer {
         guard index < tokens.endIndex else {
             return nil
         }
-        prefix.append(tokens[index])
+        let commandToken = tokens[index]
+        // `env` flags (e.g. `env -i`) or a nested `env` would make the wrapper
+        // itself the scoped command, so the generalized prefix would match
+        // arbitrary commands; fail closed instead.
+        guard !commandToken.hasPrefix("-"),
+              commandToken != "env",
+              commandToken != "/usr/bin/env" else {
+            return nil
+        }
+        prefix.append(commandToken)
         index = tokens.index(after: index)
 
         while index < tokens.endIndex {
@@ -727,7 +736,12 @@ enum SurfaceResumeCommandCanonicalizer {
             index = tokens.index(after: index)
         }
 
-        guard prefix.count < tokens.count else {
+        // The generalized scope may only leave the session id itself
+        // unmatched. Arguments after the session id (`codex resume <id>
+        // --yolo`) would be dropped from the scope and prefix matching would
+        // re-authorize a different session with different options, so fail
+        // closed instead of widening the policy.
+        guard tokens.count == prefix.count + 1 else {
             return nil
         }
         return prefix
