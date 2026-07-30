@@ -67,56 +67,58 @@ export function TuiInstallTabs({
 
   return (
     <div className="not-prose mt-4">
-      <div
-        role="tablist"
-        aria-label={tabListLabel}
-        className="flex items-end text-[13px] sm:text-[15px]"
-      >
-        {tabs.map((tab) => {
-          const selected = platform === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={`install-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              aria-controls={`install-panel-${tab.id}`}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => {
-                setPlatform(tab.id);
-                setCopied(false);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-                  return;
-                }
-                event.preventDefault();
-                const nextPlatform =
-                  platform === "unix" ? "windows" : "unix";
-                setPlatform(nextPlatform);
-                setCopied(false);
-                event.currentTarget.parentElement
-                  ?.querySelector<HTMLButtonElement>(
-                    `#install-tab-${nextPlatform}`,
-                  )
-                  ?.focus();
-              }}
-              className={`whitespace-nowrap rounded-t-md border px-3 py-2.5 transition-colors sm:px-4 ${
-                selected
-                  ? "relative z-10 border-border border-b-code-bg bg-code-bg text-foreground"
-                  : "border-transparent text-muted hover:text-foreground"
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div
+          role="tablist"
+          aria-label={tabListLabel}
+          className="flex items-center gap-1 text-xs sm:text-[13px]"
+        >
+          {tabs.map((tab) => {
+            const selected = platform === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`install-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`install-panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => {
+                  setPlatform(tab.id);
+                  setCopied(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                    return;
+                  }
+                  event.preventDefault();
+                  const nextPlatform =
+                    platform === "unix" ? "windows" : "unix";
+                  setPlatform(nextPlatform);
+                  setCopied(false);
+                  event.currentTarget.parentElement
+                    ?.querySelector<HTMLButtonElement>(
+                      `#install-tab-${nextPlatform}`,
+                    )
+                    ?.focus();
+                }}
+                className={`whitespace-nowrap border px-2.5 py-1.5 transition-colors ${
+                  selected
+                    ? "border-border bg-code-bg text-foreground"
+                    : "border-transparent text-muted hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
         <a
           href={scriptHref}
           target="_blank"
           rel="noreferrer"
-          className="mb-px ml-1 whitespace-nowrap px-1 py-2.5 text-muted transition-colors hover:text-foreground sm:ml-3 sm:px-2"
+          className="shrink-0 whitespace-nowrap text-xs text-muted transition-colors hover:text-foreground"
         >
           {viewScriptLabel}
         </a>
@@ -126,7 +128,7 @@ export function TuiInstallTabs({
         role="tabpanel"
         aria-labelledby={`install-tab-${platform}`}
       >
-        <div className="-mt-px flex items-center gap-3 rounded-b-lg rounded-tr-lg border border-border bg-code-bg px-4 py-4">
+        <div className="flex items-center gap-3 border border-border bg-code-bg px-3 py-3">
           <span aria-hidden className="font-mono text-muted">
             $
           </span>
@@ -145,15 +147,24 @@ export function TuiInstallTabs({
                 window.setTimeout(() => setCopied(false), 1500);
               });
             }}
-            className="shrink-0 rounded p-1 text-muted transition-colors hover:text-foreground"
+            className="flex size-7 shrink-0 items-center justify-center border border-border text-muted transition-colors hover:border-foreground/40 hover:text-foreground"
           >
             {copied ? (
-              <span className="text-xs">{copiedLabel}</span>
+              <svg
+                aria-hidden
+                viewBox="0 0 16 16"
+                className="size-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path d="m3 8 3 3 7-7" />
+              </svg>
             ) : (
               <svg
                 aria-hidden
                 viewBox="0 0 24 24"
-                className="size-4"
+                className="size-3.5"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.75"
