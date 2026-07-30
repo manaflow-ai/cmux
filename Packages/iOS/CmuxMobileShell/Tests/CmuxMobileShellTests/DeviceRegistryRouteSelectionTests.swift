@@ -296,11 +296,13 @@ import Testing
         defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
         let store = InMemoryDeviceIdentityStore()
 
-        let resolved = DeviceRegistryService.deviceID(store: store, defaults: defaults)
+        let resolved = DeviceRegistryService.deviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+        )
         // UserDefaults can cross hardware in a restored backup, while the
-        // ThisDeviceOnly Keychain item cannot. An empty authoritative store must
-        // therefore mint for this physical phone instead of cloning the old
-        // phone's `(user, device, tag)` identity.
+        // ThisDeviceOnly Keychain item cannot. With no same-device evidence, an
+        // empty authoritative store must mint for this physical phone instead
+        // of cloning the old phone's `(user, device, tag)` identity.
         #expect(resolved != legacy)
         #expect(UUID(uuidString: resolved) != nil)
         #expect(store.read() == .found(resolved))
@@ -431,10 +433,11 @@ import Testing
     }
 
     @Test func durableDeviceIDRejectsRestoredLegacyWhenFreshMintCannotPersist() {
-        // A UserDefaults-only id is not durable evidence for this physical
-        // device because it may have arrived in a restored backup. If the empty
-        // authoritative store cannot persist a fresh id, defer registration and
-        // remove the unsafe mirror instead of cloning another phone's identity.
+        // A UserDefaults-only id with NO same-device evidence is not durable
+        // for this physical device: it may have arrived in a restored backup.
+        // If the empty authoritative store also cannot persist a fresh id,
+        // defer registration and remove the unsafe mirror instead of cloning
+        // another phone's identity.
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -442,9 +445,90 @@ import Testing
         defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
         let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
 
-        let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+        )
         #expect(resolved == nil)
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
+    }
+
+    // MARK: - Upgrade vs restore disambiguation (9071 review finding 1)
+
+    @Test func durableDeviceIDAdoptsLegacyMirrorOnInPlaceUpgrade() {
+        // In-place upgrade from a pre-Keychain build: device-id Keychain item is
+        // absent, the legacy mirror holds the id of this phone's ACTIVE binding,
+        // and the ThisDeviceOnly iroh endpoint identity proves same-device
+        // continuation. The resolver must ADOPT the mirror — minting would
+        // target a new (user, device, tag) slot while the surviving endpoint
+        // identity still owns the old one (endpoint_already_bound, iroh dead).
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+        )
+        #expect(resolved == legacy)
+        // Adopted into the authoritative store and still mirrored.
+        #expect(store.read() == .found(legacy))
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == legacy)
+    }
+
+    @Test func durableDeviceIDMintsFreshOnCrossDeviceRestore() {
+        // Backup restore onto different hardware: the mirror crossed devices
+        // inside the backup, but the ThisDeviceOnly endpoint identity did not.
+        // Adopting the mirror would make two phones share one slot; mint fresh.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let foreign = "restored-foreign-id-\(UUID().uuidString.lowercased())"
+        defaults.set(foreign, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+        )
+        #expect(resolved != nil)
+        #expect(resolved != foreign)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
+    }
+
+    @Test func durableDeviceIDDefersWhenEvidenceUnreadableWithLegacyMirror() {
+        // Locked Keychain during the evidence probe: cannot distinguish upgrade
+        // from restore. Minting would rotate an upgrading device's identity, so
+        // fail closed and let the caller retry after first unlock.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let legacy = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(legacy, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.unavailable),
+        )
+        #expect(resolved == nil)
+        // Nothing minted, mirror preserved for the post-unlock retry.
+        #expect(store.read() == .absent)
+        #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == legacy)
+    }
+
+    @Test func durableDeviceIDMintsOnFreshInstallRegardlessOfEvidence() {
+        // No mirror at all: evidence is irrelevant; a fresh install mints even
+        // if a stale endpoint-identity item lingers from a previous install.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+        )
+        #expect(resolved != nil)
+        #expect(store.read() == .found(resolved!))
     }
 
     @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {
