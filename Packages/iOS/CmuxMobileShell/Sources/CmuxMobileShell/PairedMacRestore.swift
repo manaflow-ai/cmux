@@ -242,7 +242,10 @@ public struct PairedMacRestore: Sendable {
             )) ?? []
             var retainedTeams: [String: String?] = [:]
             for mac in localAfter {
-                retainedTeams[mac.id] = mac.teamID
+                // updateValue, not the subscript: retention of a TEAM-LESS row
+                // must store a present entry whose value is nil, never read as
+                // ambiguous double-optional assignment.
+                retainedTeams.updateValue(mac.teamID, forKey: mac.id)
             }
             let echoes = snapshot.records.map { record -> PairedMacRestoreEcho in
                 let pairingID = MobilePairedMac.pairingID(

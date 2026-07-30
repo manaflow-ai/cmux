@@ -152,7 +152,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     pairingID: record.pairingID,
                     deviceID: cmxCanonicalDeviceID(identity.macDeviceID),
                     isDeviceWide: identity.instanceTag == nil,
-                    stampMs: Double(record.stamp) * 1_000
+                    stampMs: record.stampMs
                 )
             }
         }
@@ -764,14 +764,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
                 return "\(record.pairingID)\u{0}\(record.localTeamID ?? "")"
             })
-            let stamp = Int(now().timeIntervalSince1970)
+            let stampMs = now().timeIntervalSince1970 * 1_000
             var changed = false
             for pairingID in pairingIDs where !existing.contains("\(pairingID)\u{0}") {
                 records.insert(
                     PendingDeleteRecord(
                         pairingID: pairingID,
                         localTeamID: nil,
-                        stamp: stamp
+                        stampMs: stampMs
                     ).encoded()
                 )
                 changed = true
@@ -786,7 +786,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 let oldestFirst = records.sorted { lhs, rhs in
                     let left = PendingDeleteRecord(decoding: lhs, scopeTeamID: nil)
                     let right = PendingDeleteRecord(decoding: rhs, scopeTeamID: nil)
-                    if left.stamp != right.stamp { return left.stamp < right.stamp }
+                    if left.stampMs != right.stampMs { return left.stampMs < right.stampMs }
                     return lhs < rhs
                 }
                 for raw in oldestFirst.prefix(records.count - Self.parkedTombstoneCap) {
@@ -1189,27 +1189,31 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     private struct PendingDeleteRecord: Hashable {
         let pairingID: String
         let localTeamID: String?
-        /// Coarse insertion time (epoch seconds), used ONLY to order eviction
-        /// of the bounded parked set; 0 for records that predate stamping.
-        /// Emitted only when non-zero, so routed records' encodings — matched
-        /// by exact string in `clearPendingDelete(_:)` — are unchanged.
-        let stamp: Int
+        /// Insertion time (epoch MILLISECONDS) ordering eviction of the
+        /// bounded parked set and serving as the forget boundary for revival
+        /// classification; 0 for records that predate stamping. Milliseconds,
+        /// because flooring to seconds let a server write from the same second
+        /// but before the forget classify as a revival. Emitted only when
+        /// non-zero, so routed records' encodings — matched by exact string in
+        /// `clearPendingDelete(_:)` — are unchanged.
+        let stampMs: Double
 
         /// `pairingID` alone (a legacy record whose local team equals its
-        /// scope's team), `pairingID<RS>localTeam` with "" = team-less, or
-        /// `pairingID<RS>localTeam<RS>stamp`.
+        /// scope's team), `pairingID<RS>localTeam`, with "" = team-less, an
+        /// `<RS>ms<millis>` third field for stamped records, or a bare
+        /// `<RS><seconds>` third field from builds that stamped whole seconds.
         static let separator: Character = "\u{1E}"
 
-        init(pairingID: String, localTeamID: String?, stamp: Int = 0) {
+        init(pairingID: String, localTeamID: String?, stampMs: Double = 0) {
             self.pairingID = pairingID
             self.localTeamID = localTeamID
-            self.stamp = stamp
+            self.stampMs = stampMs
         }
 
         func encoded() -> String {
             var encoded = "\(pairingID)\(Self.separator)\(localTeamID ?? "")"
-            if stamp > 0 {
-                encoded += "\(Self.separator)\(stamp)"
+            if stampMs > 0 {
+                encoded += "\(Self.separator)ms\(Int(stampMs))"
             }
             return encoded
         }
@@ -1228,7 +1232,20 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag
             )
-            stamp = parts.count == 3 ? (Int(parts[2]) ?? 0) : 0
+            if parts.count == 3 {
+                let field = parts[2]
+                if field.hasPrefix("ms"), let millis = Int(field.dropFirst(2)) {
+                    stampMs = Double(millis)
+                } else if let seconds = Int(field) {
+                    // A bare integer predates the explicit unit marker and was
+                    // stamped in whole seconds.
+                    stampMs = Double(seconds) * 1_000
+                } else {
+                    stampMs = 0
+                }
+            } else {
+                stampMs = 0
+            }
             if parts.count >= 2 {
                 let team = String(parts[1])
                 localTeamID = team.isEmpty ? nil : team
@@ -1317,10 +1334,9 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let scopeTeam = teamID(fromScopeKey: scopeKey)
             for raw in await pendingRecords(scope: scopeKey) {
                 let record = PendingDeleteRecord(decoding: raw, scopeTeamID: scopeTeam)
-                let stampMs = Double(record.stamp) * 1_000
                 stampsByPairing[record.pairingID] = max(
                     stampsByPairing[record.pairingID] ?? 0,
-                    stampMs
+                    record.stampMs
                 )
             }
         }
@@ -1355,7 +1371,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 let oldestFirst = records.sorted { lhs, rhs in
                     let left = PendingDeleteRecord(decoding: lhs, scopeTeamID: nil)
                     let right = PendingDeleteRecord(decoding: rhs, scopeTeamID: nil)
-                    if left.stamp != right.stamp { return left.stamp < right.stamp }
+                    if left.stampMs != right.stampMs { return left.stampMs < right.stampMs }
                     return lhs < rhs
                 }
                 for raw in oldestFirst.prefix(records.count - Self.parkedTombstoneCap) {

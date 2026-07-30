@@ -13,6 +13,18 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+/// Resume-once guard for the forget deadline race: whichever racer claims
+/// first owns the continuation, and the loser's late completion is discarded.
+private actor MobileIrohForgetRaceGate {
+    private var claimed = false
+
+    func claim() -> Bool {
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
+
 /// Keeps synchronous Keychain and defaults work off the UI actor while
 /// serializing concurrent activation reads through one identity owner.
 ///
@@ -2666,41 +2678,47 @@ extension MobileIrohRuntimeComposition {
         expectedAccountID: String
     ) async throws {
         // Race the WHOLE forget — credential capture, discovery, backpressure
-        // waits, and every revoke — against the deadline. The per-revoke
-        // `now()` checks below only run BETWEEN awaits: a discovery or revoke
-        // suspended on a stalled connection (or a forget queued behind another
-        // holding the backpressure gate) would otherwise keep the row busy
-        // indefinitely with no recovery error. The deadline child cancels the
-        // work child, which cancels its in-flight URLSession requests
-        // cooperatively; already-applied revokes stand, and a retry
-        // re-discovers only what remains.
-        let outcome = try await withThrowingTaskGroup(of: Bool.self) { group in
-            // No `@MainActor` annotation on this child: the isolation checker
-            // (Swift 6.x) cannot verify that pattern inside a task group and
-            // fails the build ("pattern that the region-based isolation
-            // checker does not understand"). The plain child hops to the
-            // MainActor implicitly at the `revokeMatchingBindings` call, which
-            // is what the annotation expressed.
-            group.addTask { [weak self] in
-                guard let self else { throw MobileIrohForgetError.notAuthenticated }
-                try await self.revokeMatchingBindings(
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag,
-                    expectedAccountID: expectedAccountID
-                )
-                return true
+        // waits, and every revoke — against the deadline, WITHOUT structurally
+        // awaiting the loser: a task group waits for every child before
+        // returning, so a revoke suspended on a dependency that ignores
+        // cooperative cancellation would keep the forget (and its UI busy
+        // state) stuck past the deadline — exactly the stalled-request case
+        // the deadline exists to recover from. Unstructured tasks racing
+        // through a one-shot gate let the deadline RETURN immediately;
+        // cancellation is still requested on both racers, in-flight URLSession
+        // work unwinds cooperatively in the background, already-applied
+        // revokes stand, and a retry re-discovers only what remains.
+        let gate = MobileIrohForgetRaceGate()
+        let outcome = await withCheckedContinuation { (
+            continuation: CheckedContinuation<Result<Void, any Error>?, Never>
+        ) in
+            let work = Task { [weak self] in
+                let result: Result<Void, any Error>
+                do {
+                    guard let self else { throw MobileIrohForgetError.notAuthenticated }
+                    try await self.revokeMatchingBindings(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag,
+                        expectedAccountID: expectedAccountID
+                    )
+                    result = .success(())
+                } catch {
+                    result = .failure(error)
+                }
+                if await gate.claim() {
+                    continuation.resume(returning: result)
+                }
             }
-            group.addTask {
+            Task {
                 try? await Self.forgetDeadlineSleep(Self.forgetRevokeDeadlineSeconds)
-                return false
+                if await gate.claim() {
+                    work.cancel()
+                    continuation.resume(returning: nil)
+                }
             }
-            guard let firstFinished = try await group.next() else {
-                throw MobileIrohForgetError.deadlineExceeded
-            }
-            group.cancelAll()
-            return firstFinished
         }
-        guard outcome else { throw MobileIrohForgetError.deadlineExceeded }
+        guard let outcome else { throw MobileIrohForgetError.deadlineExceeded }
+        try outcome.get()
     }
 
     private func revokeMatchingBindings(
