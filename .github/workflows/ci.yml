@@ -237,6 +237,11 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Validate stored DispatchWorkItem ownership
+        run: |
+          python3 tests/test_lint_stored_dispatch_work_items.py
+          python3 scripts/lint-stored-dispatch-work-items.py
+
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
 
