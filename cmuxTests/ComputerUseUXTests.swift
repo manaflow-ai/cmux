@@ -209,6 +209,30 @@ struct ComputerUseUXTests {
             directCaptureReady: false))
     }
 
+    @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
+        var phase = ComputerUseRuntimePermissionPhase.disabled(
+            onboardingComplete: false
+        )
+
+        phase = phase.applying(.setEnabled(true))
+        #expect(phase == .onboardingRequired)
+
+        phase = phase.applying(.onboardingPresented)
+        #expect(phase == .onboarding)
+
+        phase = phase.applying(.onboardingCompleted)
+        #expect(phase == .ready)
+
+        phase = phase.applying(.setEnabled(false))
+        #expect(phase == .disabled(onboardingComplete: true))
+
+        phase = phase.applying(.setEnabled(true))
+        #expect(phase == .ready)
+
+        phase = phase.applying(.helperReplaced)
+        #expect(phase == .onboardingRequired)
+    }
+
     @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
@@ -2767,6 +2791,90 @@ struct ComputerUseUXTests {
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID
         ))
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func newerComputerUseFocusInvalidatesDelayedTerminalAndCursorEffects() async throws {
+        let currentApplication = NSRunningApplication.current
+        let bundleIdentifier = try #require(currentApplication.bundleIdentifier)
+        let launchDate = try #require(currentApplication.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let logicalSessionID = "presentation-generation-session"
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: logicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let cursorEffects = AsyncStream.makeStream(
+            of: (
+                visible: Bool,
+                isCurrent: @MainActor @Sendable () -> Bool
+            ).self,
+            bufferingPolicy: .unbounded
+        )
+        defer { cursorEffects.continuation.finish() }
+        var delayedTerminalFocusIsCurrent:
+            (@MainActor @Sendable () -> Bool)?
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { false },
+            liveDriverSessions: { [driverSessionID: liveSession] },
+            currentLiveDriverSession: { _ in liveSession },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { _, _, isCurrent in
+                delayedTerminalFocusIsCurrent = isCurrent
+            },
+            onCursorVisibilityChange: { _, visible, isCurrent in
+                cursorEffects.continuation.yield((visible, isCurrent))
+            },
+            activate: { _ in }
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        #expect(controller.continueInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+        var cursorIterator = cursorEffects.stream.makeAsyncIterator()
+        let delayedHide = try #require(await cursorIterator.next())
+        #expect(!delayedHide.visible)
+        #expect(delayedHide.isCurrent())
+        #expect(delayedTerminalFocusIsCurrent?() == true)
+
+        let target = ComputerUseTargetIdentity(
+            processIdentifier: Int(currentApplication.processIdentifier),
+            bundleIdentifier: bundleIdentifier,
+            launchDate: launchDate
+        )
+        #expect(controller.viewTarget(
+            target,
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+        let currentShow = try #require(await cursorIterator.next())
+        #expect(currentShow.visible)
+        #expect(currentShow.isCurrent())
+        #expect(!delayedHide.isCurrent())
+        #expect(delayedTerminalFocusIsCurrent?() == false)
+
+        controller.driverSessionDidComplete(driverSessionID)
+        let completionHide = try #require(await cursorIterator.next())
+        #expect(!completionHide.visible)
+        #expect(completionHide.isCurrent())
+        #expect(!currentShow.isCurrent())
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {
