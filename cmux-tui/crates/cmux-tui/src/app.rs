@@ -31553,7 +31553,7 @@ mod tests {
                 command: Some(vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
-                    "sleep 30".to_string(),
+                    "sleep 300".to_string(),
                 ]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()

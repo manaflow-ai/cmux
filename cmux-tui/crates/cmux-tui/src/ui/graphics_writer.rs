@@ -1173,16 +1173,27 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     struct PartialThenBackpressuredOutput(Arc<Mutex<PartialThenBackpressuredState>>);
 
     #[derive(Default)]
     struct PartialThenBackpressuredState {
         bytes: Vec<u8>,
         blocked_until: Option<Instant>,
+        recovery_gate: Option<(std::sync::mpsc::Sender<()>, Receiver<()>)>,
     }
 
     impl PartialThenBackpressuredOutput {
+        fn with_recovery_gate() -> (Self, Receiver<()>, std::sync::mpsc::Sender<()>) {
+            let (recovery_started_tx, recovery_started_rx) = std::sync::mpsc::channel();
+            let (recovery_release_tx, recovery_release_rx) = std::sync::mpsc::channel();
+            let output = Self(Arc::new(Mutex::new(PartialThenBackpressuredState {
+                recovery_gate: Some((recovery_started_tx, recovery_release_rx)),
+                ..Default::default()
+            })));
+            (output, recovery_started_rx, recovery_release_tx)
+        }
+
         fn bytes(&self) -> Vec<u8> {
             self.0.lock().unwrap().bytes.clone()
         }
@@ -1203,6 +1214,13 @@ mod tests {
                     Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
                 }
                 Some(_) => {
+                    let recovery_gate = state.recovery_gate.take();
+                    drop(state);
+                    if let Some((started, release)) = recovery_gate {
+                        started.send(()).unwrap();
+                        release.recv().unwrap();
+                    }
+                    let mut state = self.0.lock().unwrap();
                     state.bytes.extend_from_slice(buf);
                     Ok(buf.len())
                 }
@@ -1482,7 +1500,8 @@ mod tests {
     #[test]
     fn partial_output_failure_terminates_apc_and_cleans_possible_images() {
         let lock = Arc::new(StdoutLock::new(()));
-        let output = PartialThenBackpressuredOutput::default();
+        let (output, recovery_started_rx, recovery_release_tx) =
+            PartialThenBackpressuredOutput::with_recovery_gate();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let mut writer =
             GraphicsWriter::spawn_with_output(lock.clone(), output.clone(), move || {
@@ -1495,13 +1514,16 @@ mod tests {
             1,
             vec![test_placement(15, Rect { x: 1, y: 2, width: 3, height: 4 }, 21, Some(21),)]
         ));
-        let partial_deadline = Instant::now() + Duration::from_secs(1);
-        while output.bytes().is_empty() {
-            assert!(Instant::now() < partial_deadline, "writer never emitted the partial APC");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        std::thread::sleep(GRAPHICS_OUTPUT_TIMEOUT + Duration::from_millis(20));
-        let released_before_recovery = lock.try_lock().is_some();
+        recovery_started_rx
+            .recv_timeout(
+                GRAPHICS_OUTPUT_TIMEOUT + GRAPHICS_OUTPUT_RECOVERY_TIMEOUT + Duration::from_secs(1),
+            )
+            .expect("writer never entered partial stream recovery");
+        assert!(
+            lock.try_lock().is_none(),
+            "stdout ownership must remain exclusive until the partial APC is recovered"
+        );
+        recovery_release_tx.send(()).unwrap();
         ready_rx
             .recv_timeout(GRAPHICS_OUTPUT_TIMEOUT + Duration::from_secs(1))
             .expect("partial graphics output must settle after bounded stream recovery");
@@ -1516,10 +1538,6 @@ mod tests {
         assert!(
             occurrences(&bytes, &delete_image(15)) >= 1,
             "a partially emitted image must be deleted before text fallback can render"
-        );
-        assert!(
-            !released_before_recovery,
-            "stdout ownership must remain exclusive until the partial APC is recovered"
         );
         assert!(lock.try_lock().is_some(), "stream recovery must release the shared stdout lock");
     }
