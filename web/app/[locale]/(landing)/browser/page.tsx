@@ -115,12 +115,14 @@ export default async function BrowserNightlyPage() {
         </section>
 
         <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 text-sm">
-          <a
-            href={BROWSER_NIGHTLY_RELEASE_URL}
-            className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
-          >
-            {t("releaseLink")}
-          </a>
+          {BROWSER_NIGHTLY_RELEASE_URL && (
+            <a
+              href={BROWSER_NIGHTLY_RELEASE_URL}
+              className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
+            >
+              {t("releaseLink")}
+            </a>
+          )}
           <a
             href={BROWSER_DISTRIBUTION_URL}
             className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"

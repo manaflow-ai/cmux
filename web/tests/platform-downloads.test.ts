@@ -9,6 +9,7 @@ import {
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
+  browserNightlyReleaseUrlForAvailability,
   platformMenuSectionsForAvailability,
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
@@ -45,9 +46,7 @@ describe("Windows and Linux downloads", () => {
   });
 
   test("keeps all nightly platforms visible but gated until verification", () => {
-    expect(BROWSER_NIGHTLY_RELEASE_URL).toBe(
-      "https://github.com/manaflow-ai/cmux-v2/releases/tag/nightly",
-    );
+    expect(BROWSER_NIGHTLY_RELEASE_URL).toBeNull();
     expect(BROWSER_NIGHTLY_AVAILABILITY).toEqual({
       macos: false,
       windows: false,
@@ -61,6 +60,25 @@ describe("Windows and Linux downloads", () => {
     );
     expect(BROWSER_NIGHTLY_DOWNLOADS.linux.primary.url).toEndWith(
       "/releases/download/nightly/cmux-linux-x64-installer.run",
+    );
+  });
+
+  test("publishes nightly release details only after every platform is verified", () => {
+    expect(
+      browserNightlyReleaseUrlForAvailability({
+        macos: true,
+        windows: true,
+        linux: false,
+      }),
+    ).toBeNull();
+    expect(
+      browserNightlyReleaseUrlForAvailability({
+        macos: true,
+        windows: true,
+        linux: true,
+      }),
+    ).toBe(
+      "https://github.com/manaflow-ai/cmux-v2/releases/tag/nightly",
     );
   });
 

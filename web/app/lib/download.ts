@@ -31,8 +31,6 @@ export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNL
 
 export const BROWSER_DISTRIBUTION_URL =
   "https://github.com/manaflow-ai/cmux-v2";
-export const BROWSER_NIGHTLY_RELEASE_URL =
-  `${BROWSER_DISTRIBUTION_URL}/releases/tag/nightly`;
 
 /**
  * Fixed nightly asset URLs. The updater uses the same release tag and asset
@@ -86,6 +84,22 @@ export const BROWSER_NIGHTLY_AVAILABILITY = {
   windows: false,
   linux: false,
 } as const satisfies BrowserNightlyAvailability;
+
+/**
+ * Returns the release details page only after the atomic all-platform nightly
+ * has been verified. Before then, the status page must not emit a known 404.
+ */
+export function browserNightlyReleaseUrlForAvailability(
+  availability: BrowserNightlyAvailability,
+): string | null {
+  return Object.values(availability).every(Boolean)
+    ? `${BROWSER_DISTRIBUTION_URL}/releases/tag/nightly`
+    : null;
+}
+
+/** Public nightly release details, gated by the verified release state. */
+export const BROWSER_NIGHTLY_RELEASE_URL =
+  browserNightlyReleaseUrlForAvailability(BROWSER_NIGHTLY_AVAILABILITY);
 
 /**
  * Stable cross-platform cmux browser artifacts. GitHub's `latest` redirect
