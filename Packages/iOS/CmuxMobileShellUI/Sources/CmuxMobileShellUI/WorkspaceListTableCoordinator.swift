@@ -45,6 +45,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    private var workspaceDragSession: WorkspaceListDragSession?
+    private var hiddenDraggedItemID: String?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -124,6 +126,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 }
             }
         }
+        if preserveActiveDrag(
+            through: next,
+            changedItems: changed,
+            currentSnapshot: currentSnapshot
+        ) {
+            return
+        }
+        workspaceDragSession = nil
         if structureChanged {
             heightCache.retainRowIDs(Set(next.items.map(\.id)))
             configuredItemsByID = Dictionary(
@@ -151,6 +161,52 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
+    private func preserveActiveDrag(
+        through next: WorkspaceListTable,
+        changedItems: [WorkspaceListTableItem],
+        currentSnapshot: NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>
+    ) -> Bool {
+        guard
+            let dataSource,
+            let workspaceDragSession,
+            next.enablesReorder,
+            next.moveRows != nil,
+            workspaceDragSession.isCompatible(
+                with: next.items,
+                workspaces: next.reorderWorkspaces,
+                groups: next.reorderGroups
+            )
+        else { return false }
+
+        configuredItemsByID = Dictionary(
+            next.items.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var transientPayloadChanges: [WorkspaceListTableItem] = []
+        for item in workspaceDragSession.visualItems {
+            if configuredItemsByID[item.id]?.isIndentedWorkspace
+                != item.isIndentedWorkspace {
+                transientPayloadChanges.append(item)
+            }
+            configuredItemsByID[item.id] = item
+        }
+        previousConfiguration = next
+
+        var snapshot = currentSnapshot
+        let currentIDs = Set(snapshot.itemIdentifiers.map(\.id))
+        let reconfigured = Dictionary(
+            (changedItems + transientPayloadChanges)
+                .filter { currentIDs.contains($0.id) }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        ).map(\.value)
+        if !reconfigured.isEmpty {
+            snapshot.reconfigureItems(reconfigured)
+            dataSource.apply(snapshot, animatingDifferences: false)
+        }
+        return true
+    }
+
     func tableView(
         _ tableView: UITableView,
         itemsForBeginning session: UIDragSession,
@@ -165,6 +221,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
         let dragItem = UIDragItem(itemProvider: NSItemProvider())
         dragItem.localObject = item
+        guard let workspaceDragSession = WorkspaceListDragSession(
+            items: configuration.items,
+            workspaces: configuration.reorderWorkspaces,
+            groups: configuration.reorderGroups,
+            groupHasUnreadByID: configuration.groupHasUnreadByID,
+            sourceTableRow: indexPath.row
+        ) else {
+            return []
+        }
+        self.workspaceDragSession = workspaceDragSession
+        let liftPreview = liftPreview(for: indexPath, in: tableView)
+        dragItem.previewProvider = { [weak self, weak tableView] in
+            guard let self, let tableView else { return nil }
+            guard let liftPreview else { return nil }
+            self.hiddenDraggedItemID = workspaceDragSession.draggedItemID
+            self.setDraggedItemVisibility(in: tableView)
+            return liftPreview
+        }
         return [dragItem]
     }
 
@@ -185,6 +259,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
            destinationIndexPath.row < chromePrefixCount {
             return UITableViewDropProposal(operation: .forbidden)
         }
+        if let destinationIndexPath,
+           var workspaceDragSession {
+            if workspaceDragSession.update(
+                destinationTableRow: destinationIndexPath.row
+            ) {
+                self.workspaceDragSession = workspaceDragSession
+                applyDragPreview(
+                    workspaceDragSession.visualItems,
+                    animated: true
+                )
+            }
+        }
         return UITableViewDropProposal(
             operation: .move,
             intent: .insertAtDestinationIndexPath
@@ -200,58 +286,79 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let moveRows = configuration.moveRows,
             coordinator.items.count == 1,
             let dropItem = coordinator.items.first,
-            let sourceIndexPath = dropItem.sourceIndexPath,
-            let destinationIndexPath = coordinator.destinationIndexPath,
             let draggedItem = dropItem.dragItem.localObject as? WorkspaceListTableItem,
-            configuration.items.indices.contains(sourceIndexPath.row),
-            configuration.items[sourceIndexPath.row] == draggedItem,
-            isMovable(draggedItem)
+            let workspaceDragSession,
+            workspaceDragSession.draggedItemID == draggedItem.id,
+            let destinationRow = workspaceDragSession.visualItems.firstIndex(
+                where: { $0.id == draggedItem.id }
+            )
         else { return }
 
-        let chromePrefixCount = chromePrefixCount
-        let source = sourceIndexPath.row - chromePrefixCount
-        let destination = destinationIndexPath.row - chromePrefixCount
-        let movableItemCount = configuration.items.count - chromePrefixCount
-        // destination == movableItemCount is UIKit's past-the-end insertion
-        // slot (dropping below the last row); it maps to an end-of-list move.
-        guard
-            source >= 0,
-            source < movableItemCount,
-            destination >= 0,
-            destination <= movableItemCount
-        else { return }
-
-        let swiftUIDestination = destination > source
-            ? min(destination + 1, movableItemCount)
-            : destination
-
-        // Apply the moved order synchronously so UIKit's drop animation lands
-        // in the final layout. The SwiftUI state update from moveRows arrives
-        // a runloop later; animating the drop against the stale layout leaves
-        // the lifted row ghosting at its old position until that snapshot
-        // applies. The follow-up authoritative snapshot has the same order, so
-        // it settles as a no-op because the native data source already has the
-        // authoritative order.
-        let swiftUIDestinationFull = swiftUIDestination + chromePrefixCount
-        let insertionRow = swiftUIDestinationFull > sourceIndexPath.row
-            ? swiftUIDestinationFull - 1
-            : swiftUIDestinationFull
-        var movedItems = configuration.items
-        let movedItem = movedItems.remove(at: sourceIndexPath.row)
-        movedItems.insert(movedItem, at: min(insertionRow, movedItems.count))
-        var localSnapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
-        localSnapshot.appendSections([Self.section])
-        localSnapshot.appendItems(movedItems, toSection: Self.section)
-        dataSource?.apply(localSnapshot, animatingDifferences: false)
-
-        moveRows(IndexSet(integer: source), swiftUIDestination)
         coordinator.drop(
             dropItem.dragItem,
             toRowAt: IndexPath(
-                row: min(insertionRow, movedItems.count - 1),
-                section: destinationIndexPath.section
+                row: destinationRow,
+                section: Self.section
             )
         )
+        self.workspaceDragSession = nil
+        if let commit = workspaceDragSession.commit {
+            moveRows(
+                IndexSet(integer: commit.sourceOffset),
+                commit.destination
+            )
+        }
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dragPreviewParametersForRowAt indexPath: IndexPath
+    ) -> UIDragPreviewParameters? {
+        previewParameters(for: indexPath, in: tableView)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropPreviewParametersForRowAt indexPath: IndexPath
+    ) -> UIDragPreviewParameters? {
+        previewParameters(for: indexPath, in: tableView)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropSessionDidExit session: UIDropSession
+    ) {
+        resetDragPreview(in: tableView, animated: true)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dropSessionDidEnd session: UIDropSession
+    ) {
+        cancelDragIfNeeded(in: tableView)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dragSessionDidEnd session: UIDragSession
+    ) {
+        cancelDragIfNeeded(in: tableView)
+        hiddenDraggedItemID = nil
+        setDraggedItemVisibility(in: tableView)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dragSessionAllowsMoveOperation session: UIDragSession
+    ) -> Bool {
+        true
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        dragSessionIsRestrictedToDraggingApplication session: UIDragSession
+    ) -> Bool {
+        true
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -409,6 +516,74 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    private func applyDragPreview(
+        _ items: [WorkspaceListTableItem],
+        animated: Bool
+    ) {
+        guard let dataSource else { return }
+
+        var payloadChanges: [WorkspaceListTableItem] = []
+        for item in items {
+            if configuredItemsByID[item.id]?.isIndentedWorkspace
+                != item.isIndentedWorkspace {
+                payloadChanges.append(item)
+            }
+            configuredItemsByID[item.id] = item
+        }
+
+        var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
+        snapshot.appendSections([Self.section])
+        snapshot.appendItems(items, toSection: Self.section)
+        if !payloadChanges.isEmpty {
+            snapshot.reconfigureItems(payloadChanges)
+        }
+        dataSource.apply(snapshot, animatingDifferences: animated)
+    }
+
+    private func resetDragPreview(in tableView: UITableView, animated: Bool) {
+        guard var workspaceDragSession else { return }
+        guard workspaceDragSession.resetPreview() else { return }
+        self.workspaceDragSession = workspaceDragSession
+        applyDragPreview(
+            workspaceDragSession.visualItems,
+            animated: animated
+        )
+    }
+
+    private func cancelDragIfNeeded(in tableView: UITableView) {
+        guard workspaceDragSession != nil else { return }
+        workspaceDragSession = nil
+        applyDragPreview(configuration.items, animated: true)
+    }
+
+    private func previewParameters(
+        for indexPath: IndexPath,
+        in tableView: UITableView
+    ) -> UIDragPreviewParameters? {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
+        return WorkspaceListDragPreviewFactory.parameters(
+            for: item,
+            cell: cell
+        )
+    }
+
+    private func liftPreview(
+        for indexPath: IndexPath,
+        in tableView: UITableView
+    ) -> UIDragPreview? {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
+        return WorkspaceListDragPreviewFactory.preview(
+            for: item,
+            cell: cell
+        )
+    }
+
     fileprivate func canEditRow(at indexPath: IndexPath) -> Bool {
         guard let workspace = workspace(at: indexPath) else { return false }
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
@@ -424,6 +599,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func configure(_ cell: UITableViewCell, for item: WorkspaceListTableItem) {
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
+        cell.contentView.alpha = hiddenDraggedItemID == item.id ? 0 : 1
         cell.selectionStyle = .none
         cell.isAccessibilityElement = false
         cell.accessibilityCustomActions = nil
@@ -463,6 +639,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             break
         }
         cell.contentConfiguration = hosting
+    }
+
+    private func setDraggedItemVisibility(in tableView: UITableView) {
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard
+                let item = dataSource?.itemIdentifier(for: indexPath),
+                let cell = tableView.cellForRow(at: indexPath)
+            else { continue }
+            cell.contentView.alpha = hiddenDraggedItemID == item.id ? 0 : 1
+        }
     }
 
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {

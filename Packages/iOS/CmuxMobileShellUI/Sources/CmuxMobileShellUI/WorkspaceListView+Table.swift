@@ -99,6 +99,10 @@ extension WorkspaceListView {
                 )
                 : nil,
             enablesReorder: enablesReorder,
+            reorderWorkspaces: grouped
+                ? displayedGroupedWorkspaces
+                : displayedFlatWorkspaces,
+            reorderGroups: grouped ? groups : [],
             moveRows: enablesReorder ? { sourceOffsets, destination in
                 if grouped {
                     moveGroupedRows(from: sourceOffsets, to: destination)

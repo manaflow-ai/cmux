@@ -158,6 +158,8 @@ import UIKit
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
             enablesReorder: false,
+            reorderWorkspaces: workspaces,
+            reorderGroups: [],
             moveRows: nil,
             selectWorkspace: { _ in },
             requestWorkspaceClose: requestWorkspaceClose,
