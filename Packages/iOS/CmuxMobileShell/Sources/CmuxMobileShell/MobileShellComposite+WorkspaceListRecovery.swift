@@ -61,7 +61,16 @@ extension MobileShellComposite {
         // foreground-redial branch below (whose teardown preserves secondary
         // state), not the cross-Mac switch whose failure cleanup does not.
         let foregroundTargetMacDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
-        if let targetMacDeviceID, targetMacDeviceID != foregroundTargetMacDeviceID {
+        // The target is "already foreground" only as an exact PAIRING: a
+        // sibling build of the foreground's own physical Mac still needs a
+        // real switch, not a foreground refresh of the other build.
+        let targetsForegroundPairing = targetMacDeviceID == foregroundTargetMacDeviceID
+            && (instanceTag == nil
+                || macInstanceTagAuthority.sameStoredAuthority(
+                    instanceTag,
+                    activeMacInstanceTag
+                ))
+        if let targetMacDeviceID, !targetsForegroundPairing {
             if await switchToMac(
                 macDeviceID: targetMacDeviceID,
                 instanceTag: instanceTag
@@ -126,7 +135,7 @@ extension MobileShellComposite {
             await refreshSecondaryMacWorkspaces()
             return
         }
-        let reconnectTargetMacDeviceID = workspaceListReconnectTargetMacDeviceID()
+        let reconnectTarget = workspaceListReconnectTarget()
         // This is the user's explicit Reconnect/pull gesture: like
         // `recoverMobileConnection(trigger: .manual)`, it must bypass the
         // automatic-retry cooldown. Without this, a transient backoff recorded
@@ -143,8 +152,11 @@ extension MobileShellComposite {
             // already-connected fast path and skip the user's explicit redial.
             disconnectLiveConnection()
         }
-        if let macDeviceID = reconnectTargetMacDeviceID,
-           await switchToMac(macDeviceID: macDeviceID) {
+        if let reconnectTarget,
+           await switchToMac(
+               macDeviceID: reconnectTarget.macDeviceID,
+               instanceTag: reconnectTarget.instanceTag
+           ) {
             return
         }
         _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
@@ -191,9 +203,18 @@ extension MobileShellComposite {
     /// owner first instead of blindly redialing whichever row is currently marked
     /// active in the paired-Mac store.
     func workspaceListReconnectTargetMacDeviceID() -> String? {
+        workspaceListReconnectTarget()?.macDeviceID
+    }
+
+    /// The exact pairing a list-level Reconnect should dial: rows carry their
+    /// build's instance tag, and sibling builds of one Mac are distinct
+    /// targets, so ambiguity across pairings fails closed.
+    func workspaceListReconnectTarget() -> (macDeviceID: String, instanceTag: String?)? {
         let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
 
-        func reconnectableMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
+        func reconnectableTarget(
+            from workspace: MobileWorkspacePreview?
+        ) -> (macDeviceID: String, instanceTag: String?)? {
             guard let workspace,
                   (workspace.macConnectionStatus ?? macConnectionStatus) != .connected,
                   let macDeviceID = workspace.macDeviceID,
@@ -202,19 +223,22 @@ extension MobileShellComposite {
             else {
                 return nil
             }
-            return macDeviceID
+            return (macDeviceID, workspace.macInstanceTag)
         }
 
-        if let selected = reconnectableMacDeviceID(from: explicitlySelectedWorkspace) {
+        if let selected = reconnectableTarget(from: explicitlySelectedWorkspace) {
             return selected
         }
-        var candidates: [String] = []
-        var seen: Set<String> = []
+        var candidates: [(macDeviceID: String, instanceTag: String?)] = []
+        var seen: Set<MacPairingKey> = []
         for workspace in workspaces {
-            guard let macDeviceID = reconnectableMacDeviceID(from: workspace),
-                  !seen.contains(macDeviceID) else { continue }
-            seen.insert(macDeviceID)
-            candidates.append(macDeviceID)
+            guard let target = reconnectableTarget(from: workspace) else { continue }
+            let key = MacPairingKey(
+                macDeviceID: target.macDeviceID,
+                instanceTag: target.instanceTag
+            )
+            guard seen.insert(key).inserted else { continue }
+            candidates.append(target)
         }
         return candidates.count == 1 ? candidates[0] : nil
     }

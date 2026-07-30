@@ -1195,11 +1195,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macDeviceID: String?,
         instanceTag: String? = nil
     ) -> MobileWorkspacePreview.ID? {
-        workspaces.first {
+        let matches = workspaces.filter {
             workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID)
                 && (instanceTag == nil || instanceTag!.isEmpty
                     || $0.macInstanceTag == instanceTag)
-        }?.id
+        }
+        // Sibling builds share a device id and can reuse Mac-local workspace
+        // ids. A tag-less lookup that matches two builds of ONE device cannot
+        // know which instance the caller meant, so it fails closed instead of
+        // routing to whichever sibling sorts first.
+        if instanceTag == nil, Self.matchesSpanSiblingBuilds(matches) {
+            return nil
+        }
+        return matches.first?.id
+    }
+
+    /// Whether ambiguous row matches span two app instances of one physical
+    /// Mac (same device id, different instance tags).
+    static func matchesSpanSiblingBuilds(_ matches: [MobileWorkspacePreview]) -> Bool {
+        guard matches.count > 1 else { return false }
+        let owners = Set(matches.compactMap { workspace -> MacPairingKey? in
+            guard let macDeviceID = workspace.macDeviceID else { return nil }
+            return MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+        })
+        let devices = Set(owners.map(\.canonicalMacDeviceID))
+        return owners.count > devices.count
     }
 
     private func workspaceMatchesRemoteID(

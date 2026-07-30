@@ -712,7 +712,7 @@ extension MobileShellComposite {
             } else {
                 self.notificationFeedRefreshPendingMacIDs.remove(macDeviceID)
             }
-            let connectedTargetIDs = Set(self.notificationFeedTargets().map(\.macDeviceID))
+            let connectedTargetIDs = Set(self.notificationFeedTargets().map(\.ownerKey))
             let hasConnectedRefreshInFlight = self.notificationFeedRefreshTasksByMac.keys.contains {
                 connectedTargetIDs.contains($0)
             }

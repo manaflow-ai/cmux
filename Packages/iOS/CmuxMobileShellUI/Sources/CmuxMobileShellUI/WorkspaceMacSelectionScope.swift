@@ -139,10 +139,13 @@ struct WorkspaceMacSelectionScope {
             if let liveTag = Self.normalizedTag(foregroundInstanceTag) {
                 return liveTag == Self.normalizedTag(selectedTag)
             }
-            guard let activePairing = displayPairedMacs.first(where: \.isActive) else {
-                return true
+            if let activePairing = displayPairedMacs.first(where: \.isActive) {
+                return Self.normalizedTag(activePairing.instanceTag) == Self.normalizedTag(selectedTag)
             }
-            return Self.normalizedTag(activePairing.instanceTag) == Self.normalizedTag(selectedTag)
+            // Same device proven, but not WHICH build owns the live client.
+            // Creating a workspace is a mutation, so missing identity is a
+            // denial, not permission.
+            return false
         case .all, .automatic:
             return true
         }

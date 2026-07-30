@@ -123,18 +123,23 @@ extension CMUXMobileShellStore {
         macDeviceID: String?,
         instanceTag: String?
     ) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
+        let matches = workspaces.filter { workspace in
             if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
-                continue
+                return false
             }
             if let instanceTag, !instanceTag.isEmpty,
                workspace.macInstanceTag != instanceTag {
-                continue
+                return false
             }
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
-            }
+            return workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
         }
-        return nil
+        // Sibling builds can reuse Mac-local surface ids; a tag-less lookup
+        // that matches two builds of one device fails closed rather than
+        // deep-linking into the wrong instance.
+        if instanceTag == nil,
+           MobileShellComposite.matchesSpanSiblingBuilds(matches) {
+            return nil
+        }
+        return matches.first?.id
     }
 }
