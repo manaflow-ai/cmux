@@ -299,19 +299,23 @@ final class cmuxUITests: XCTestCase {
     /// instead, it is unmounted while the Notifications tab is selected, so a
     /// host that dies there presents no status capsule and the recovery never
     /// toasts "Reconnected to your Mac."
+    ///
+    /// Manual pairing (not the loopback debug attach) is load-bearing: it
+    /// persists the Mac, so it stays visible after the host dies. The debug
+    /// attach's Mac vanishes with its workspaces, and the list policy then
+    /// deliberately suppresses the capsule (nothing visible to reconnect to).
     @MainActor
     func testConnectionStatusToastsPresentWhileNotificationsTabSelected() async throws {
-        let server = try MobileSyncMockHostServer()
+        let server = try MobileSyncMockHostServer(supportsManualAttachTicket: true)
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
-        ], launchArguments: [
-            "-cmux.toasts.betaEnabled", "YES",
-        ])
+        let app = try launchConnectedAppViaManualPairing(
+            port: port,
+            openWorkspace: false,
+            extraLaunchArguments: ["-cmux.toasts.betaEnabled", "YES"]
+        )
         defer { app.terminate() }
-        waitForWorkspaceShell(in: app)
 
         let notificationsTab = app.tabBars.buttons["Notifications"]
         XCTAssertTrue(notificationsTab.waitForExistence(timeout: 8))
@@ -335,8 +339,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsTab.isSelected)
 
         // Revive the host at the paired address; the recovery's success toast
-        // must also present while the Notifications tab stays selected.
-        let revived = try MobileSyncMockHostServer(port: port)
+        // must also present while the Notifications tab stays selected. The
+        // revived host must keep serving attach tickets for the redial's
+        // re-mint.
+        let revived = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            port: port
+        )
         _ = try await revived.start()
         defer { revived.stop() }
 
@@ -3632,7 +3641,11 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedAppViaManualPairing(port: UInt16) throws -> XCUIApplication {
+    private func launchConnectedAppViaManualPairing(
+        port: UInt16,
+        openWorkspace: Bool = true,
+        extraLaunchArguments: [String] = []
+    ) throws -> XCUIApplication {
         let portText = String(port)
         guard let finalPortDigit = portText.last else {
             throw URLError(.badURL)
@@ -3641,7 +3654,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ADD_DEVICE_PORT": String(portText.dropLast()),
         ], launchArguments: [
             "-cmux.mobile.taskComposerEnabled", "YES",
-        ])
+        ] + extraLaunchArguments)
         let pairingForm = app.otherElements["MobileAddDeviceForm"]
         XCTAssertTrue(pairingForm.waitForExistence(timeout: 8))
 
@@ -3672,6 +3685,7 @@ final class cmuxUITests: XCTestCase {
         )
 
         waitForWorkspaceShell(in: app)
+        guard openWorkspace else { return app }
         try openSelectedWorkspaceIfNeeded(app)
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
