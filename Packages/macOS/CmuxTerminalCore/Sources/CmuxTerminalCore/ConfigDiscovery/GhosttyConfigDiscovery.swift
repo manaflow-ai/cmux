@@ -97,7 +97,7 @@ public struct GhosttyConfigDiscovery {
     /// Representative scalars used to detect whether the configured primary
     /// font already covers ``symbolRanges``.
     public static let symbolCoverageSampleCharactersByRange: [String: [UniChar]] = [
-        "U+25A0-U+25FF": [0x25A0, 0x25CF],
+        "U+25A0-U+25FF": [0x25A0, 0x25B0, 0x25B1, 0x25CB, 0x25CF],
         "U+2B00-U+2BFF": [0x2B21, 0x2B22],
     ]
 
