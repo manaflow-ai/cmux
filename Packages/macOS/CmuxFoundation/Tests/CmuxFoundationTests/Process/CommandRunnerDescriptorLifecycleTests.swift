@@ -10,8 +10,10 @@ struct CommandRunnerDescriptorLifecycleTests {
 
     @Test("Capture pipes are close-on-exec and close before success returns")
     func capturePipesAreCloseOnExecAndCloseAfterSuccess() async throws {
-        let execution = try makeExecution(executable: "/usr/bin/true")
-        let descriptors = try snapshotDescriptors(of: execution)
+        weak var releasedProcess: Process?
+        var execution: CommandExecution? = try makeExecution(executable: "/usr/bin/true")
+        releasedProcess = execution?.process
+        let descriptors = try snapshotDescriptors(of: #require(execution))
         #expect(descriptors.count == 8)
         for descriptor in descriptors {
             let flags = fcntl(descriptor.fileDescriptor, F_GETFD)
@@ -22,9 +24,15 @@ struct CommandRunnerDescriptorLifecycleTests {
             )
         }
 
-        let result = await execution.run(timeout: 5)
+        let result: CommandResult
+        do {
+            let activeExecution = try #require(execution)
+            result = await activeExecution.run(timeout: 5)
+        }
         #expect(result.exitStatus == 0)
         expectDescriptorsClosed(descriptors)
+        execution = nil
+        #expect(releasedProcess == nil)
     }
 
     @Test("Launch failure closes capture pipes")
@@ -45,13 +53,10 @@ struct CommandRunnerDescriptorLifecycleTests {
     @Test("Abandoning an execution before launch closes every pipe")
     func abandonedExecutionClosesPipes() throws {
         weak var abandonedExecution: CommandExecution?
-        var descriptors: [DescriptorIdentity] = []
-
-        do {
-            let execution = try makeExecution(executable: "/usr/bin/true")
-            abandonedExecution = execution
-            descriptors = try snapshotDescriptors(of: execution)
-        }
+        var execution: CommandExecution? = try makeExecution(executable: "/usr/bin/true")
+        abandonedExecution = execution
+        let descriptors = try snapshotDescriptors(of: #require(execution))
+        execution = nil
 
         #expect(abandonedExecution == nil)
         expectDescriptorsClosed(descriptors)
@@ -127,7 +132,16 @@ struct CommandRunnerDescriptorLifecycleTests {
     private func snapshotDescriptors(
         of execution: CommandExecution
     ) throws -> [DescriptorIdentity] {
-        let descriptors = execution.ownedFileDescriptors
+        let descriptors = [
+            execution.stdoutPipe.pipe.fileHandleForReading.fileDescriptor,
+            execution.stdoutPipe.pipe.fileHandleForWriting.fileDescriptor,
+            execution.stderrPipe.pipe.fileHandleForReading.fileDescriptor,
+            execution.stderrPipe.pipe.fileHandleForWriting.fileDescriptor,
+            execution.cancellationSignal.readDescriptor,
+            execution.cancellationSignal.writeDescriptor,
+            execution.stdoutReadDescriptor.rawValue,
+            execution.stderrReadDescriptor.rawValue,
+        ]
         #expect(Set(descriptors).count == descriptors.count)
         return try descriptors.map { descriptor in
             var metadata = stat()

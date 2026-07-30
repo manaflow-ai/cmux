@@ -11,13 +11,6 @@ final class OwnedProcessPipe: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: EndpointState())
 
-    var fileDescriptors: [Int32] {
-        [
-            pipe.fileHandleForReading.fileDescriptor,
-            pipe.fileHandleForWriting.fileDescriptor,
-        ]
-    }
-
     init() throws {
         pipe = Pipe()
         do {

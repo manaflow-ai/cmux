@@ -9,12 +9,8 @@ import os
 final class PipeCancellationSignal: @unchecked Sendable {
     let readDescriptor: Int32
 
-    private let writeDescriptor: Int32
+    let writeDescriptor: Int32
     private let state = OSAllocatedUnfairLock(initialState: EndpointState())
-
-    var fileDescriptors: [Int32] {
-        [readDescriptor, writeDescriptor]
-    }
 
     init() throws {
         var descriptors = [Int32](repeating: -1, count: 2)

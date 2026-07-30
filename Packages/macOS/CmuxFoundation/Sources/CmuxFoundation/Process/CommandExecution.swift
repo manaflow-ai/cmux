@@ -22,25 +22,13 @@ final class CommandExecution: @unchecked Sendable {
     private static let sigkillGraceSeconds: Double = 0.2
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.timer")
 
-    private let process: Process
-    private let stdoutPipe: OwnedProcessPipe
-    private let stderrPipe: OwnedProcessPipe
-    private let cancellationSignal: PipeCancellationSignal
-    private let stdoutReadDescriptor: OwnedFileDescriptor
-    private let stderrReadDescriptor: OwnedFileDescriptor
+    let process: Process
+    let stdoutPipe: OwnedProcessPipe
+    let stderrPipe: OwnedProcessPipe
+    let cancellationSignal: PipeCancellationSignal
+    let stdoutReadDescriptor: OwnedFileDescriptor
+    let stderrReadDescriptor: OwnedFileDescriptor
     private let state = OSAllocatedUnfairLock(initialState: State())
-
-    /// Exact descriptor set owned by this execution.
-    ///
-    /// Internal lifecycle tests snapshot these values before launch so they can
-    /// verify this execution's descriptors without sampling unrelated process
-    /// pipes opened by concurrently running tests.
-    var ownedFileDescriptors: [Int32] {
-        stdoutPipe.fileDescriptors
-            + stderrPipe.fileDescriptors
-            + cancellationSignal.fileDescriptors
-            + [stdoutReadDescriptor.rawValue, stderrReadDescriptor.rawValue]
-    }
 
     init(
         executableURL: URL,
@@ -402,7 +390,13 @@ final class CommandExecution: @unchecked Sendable {
                 return Darwin.read(fileDescriptor, baseAddress, pointer.count)
             }
             if bytesRead > 0 {
-                data.append(contentsOf: buffer.prefix(bytesRead))
+                buffer.withUnsafeBytes { pointer in
+                    guard let baseAddress = pointer.baseAddress else { return }
+                    data.append(
+                        baseAddress.assumingMemoryBound(to: UInt8.self),
+                        count: bytesRead
+                    )
+                }
             } else if bytesRead == 0 {
                 return data
             } else if errno != EINTR {

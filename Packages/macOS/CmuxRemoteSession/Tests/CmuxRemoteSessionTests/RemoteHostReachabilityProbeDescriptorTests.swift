@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
-import CmuxFoundation
+@testable import CmuxFoundation
 @testable import CmuxRemoteSession
 
 extension RemoteSubprocessTests {
@@ -10,7 +10,7 @@ extension RemoteSubprocessTests {
     struct RemoteHostReachabilityProbeDescriptorTests {
         @Test("Repeated SSH config resolution closes every subprocess pipe")
         func repeatedResolutionClosesPipes() async throws {
-            let baseline = openPipeDescriptors()
+            let commandRunner = DescriptorAuditingSSHConfigCommandRunner()
 
             for _ in 0..<20 {
                 let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
@@ -18,17 +18,19 @@ extension RemoteSubprocessTests {
                     port: 2222,
                     identityFile: nil,
                     sshOptions: [],
-                    sshConfigFile: "/dev/null"
+                    sshConfigFile: "/dev/null",
+                    commandRunner: commandRunner
                 )
                 let resolved = try #require(endpoint)
                 #expect(resolved.host == "127.0.0.1")
                 #expect(resolved.port == 2222)
             }
 
-            let leaked = openPipeDescriptors().subtracting(baseline)
+            let audit = await commandRunner.audit
+            #expect(audit.invocations == 20)
             #expect(
-                leaked.isEmpty,
-                "SSH config resolution retained pipe descriptors after its children exited: \(leaked.sorted())"
+                audit.retainedDescriptors.isEmpty,
+                "SSH config resolution retained its execution descriptors: \(audit.retainedDescriptors.sorted())"
             )
         }
 
@@ -53,20 +55,90 @@ extension RemoteSubprocessTests {
             #expect(invocation.arguments == ["-G", "-F", "/dev/null", "cmux-test"])
             #expect(invocation.timeout == 3.0)
         }
+    }
+}
 
-        private func openPipeDescriptors() -> Set<Int32> {
-            var descriptors: Set<Int32> = []
-            for descriptor in 0..<getdtablesize() {
-                var metadata = stat()
-                guard fstat(descriptor, &metadata) == 0,
-                      metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFIFO) else {
-                    continue
-                }
-                descriptors.insert(descriptor)
-            }
-            return descriptors
+private actor DescriptorAuditingSSHConfigCommandRunner: CommandRunning {
+    struct Audit: Sendable {
+        var invocations = 0
+        var retainedDescriptors: Set<Int32> = []
+    }
+
+    private(set) var audit = Audit()
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        do {
+            let execution = try CommandExecution(
+                executableURL: URL(fileURLWithPath: executable),
+                arguments: arguments,
+                currentDirectoryURL: URL(fileURLWithPath: directory)
+            )
+            let descriptors = try descriptorIdentities(of: execution)
+            let result = await execution.run(timeout: timeout)
+            audit.invocations += 1
+            audit.retainedDescriptors.formUnion(
+                descriptors.compactMap { $0.isStillOpen ? $0.fileDescriptor : nil }
+            )
+            return result
+        } catch {
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: String(describing: error)
+            )
         }
     }
+
+    private func descriptorIdentities(
+        of execution: CommandExecution
+    ) throws -> [DescriptorIdentity] {
+        let descriptors = [
+            execution.stdoutPipe.pipe.fileHandleForReading.fileDescriptor,
+            execution.stdoutPipe.pipe.fileHandleForWriting.fileDescriptor,
+            execution.stderrPipe.pipe.fileHandleForReading.fileDescriptor,
+            execution.stderrPipe.pipe.fileHandleForWriting.fileDescriptor,
+            execution.cancellationSignal.readDescriptor,
+            execution.cancellationSignal.writeDescriptor,
+            execution.stdoutReadDescriptor.rawValue,
+            execution.stderrReadDescriptor.rawValue,
+        ]
+        guard Set(descriptors).count == descriptors.count else {
+            throw DescriptorAuditError.duplicateDescriptor
+        }
+        return try descriptors.map { descriptor in
+            var metadata = stat()
+            guard fstat(descriptor, &metadata) == 0 else {
+                throw DescriptorAuditError.snapshotFailed(descriptor)
+            }
+            return DescriptorIdentity(
+                fileDescriptor: descriptor,
+                inode: UInt64(metadata.st_ino)
+            )
+        }
+    }
+}
+
+private struct DescriptorIdentity: Sendable {
+    let fileDescriptor: Int32
+    let inode: UInt64
+
+    var isStillOpen: Bool {
+        var metadata = stat()
+        return fstat(fileDescriptor, &metadata) == 0
+            && UInt64(metadata.st_ino) == inode
+    }
+}
+
+private enum DescriptorAuditError: Error {
+    case duplicateDescriptor
+    case snapshotFailed(Int32)
 }
 
 private actor RecordingSSHConfigCommandRunner: CommandRunning {
