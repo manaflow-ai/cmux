@@ -1381,6 +1381,21 @@ mod unix {
         let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
+        // Integration synchronization seam for cancellation after the host
+        // has published its durable record but before the launcher consumes
+        // Ready. The host remains free to serve authenticated termination.
+        if let Some(barrier) = std::env::var_os("CMUX_TUI_TEST_LAUNCH_ACK_BARRIER") {
+            let barrier = PathBuf::from(barrier);
+            while !record_path.exists() && !cancelled() && Instant::now() < launch_deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            if record_path.exists() {
+                fs::write(&barrier, b"published")?;
+                while barrier.exists() && !cancelled() && Instant::now() < launch_deadline {
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
         let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
         if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
             anyhow::bail!("terminal host did not acknowledge launch");

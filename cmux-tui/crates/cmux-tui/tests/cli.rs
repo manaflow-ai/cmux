@@ -1641,10 +1641,12 @@ fn server_stop_cancels_a_blocked_terminal_host_launch_write() {
 #[cfg(unix)]
 #[test]
 fn cancelled_published_host_is_terminated_through_its_record() {
+    let barrier = unique_temp_dir("server-stop-published-launch").with_extension("barrier");
+    let barrier_value = barrier.to_string_lossy().into_owned();
     let mut server = HeadlessServer::start_with(
         "server-stop-published-launch",
         false,
-        &[("CMUX_TUI_TEST_HOST_READY_DELAY_MS", "1000")],
+        &[("CMUX_TUI_TEST_LAUNCH_ACK_BARRIER", &barrier_value)],
     );
     let direct_pid_file = server.dir.join("published-direct.pid");
     let descendant_pid_file = server.dir.join("published-descendant.pid");
@@ -1666,7 +1668,8 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     let deadline = Instant::now() + Duration::from_secs(5);
     while (!direct_pid_file.exists()
         || !descendant_pid_file.exists()
-        || terminal_host_pids(&host_root).is_empty())
+        || terminal_host_pids(&host_root).is_empty()
+        || !barrier.exists())
         && Instant::now() < deadline
     {
         std::thread::sleep(Duration::from_millis(10));
@@ -1679,6 +1682,7 @@ fn cancelled_published_host_is_terminated_through_its_record() {
     assert_success(&stop);
     assert!(server.child.wait().unwrap().success());
     assert!(!create.wait().unwrap().success());
+    let _ = fs::remove_file(&barrier);
     let deadline = Instant::now() + Duration::from_secs(5);
     while (process_exists(direct_pid)
         || process_group_exists(direct_pid)
