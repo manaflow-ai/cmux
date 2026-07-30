@@ -4404,6 +4404,7 @@ mod tests {
                         "build_commit": release.build_commit,
                         "ghostty_commit": release.ghostty_commit,
                         "protocol": release.protocol,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
                     })
                 } else {
                     Value::Null

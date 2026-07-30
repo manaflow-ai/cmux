@@ -9422,8 +9422,15 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
-        if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
-            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
+            if let resumeBinding = detached.resumeBinding,
+               !resumeBinding.isProcessDetected {
+                return resumeBinding
+            }
+            return detached.resolvedManagedAgentResumeBinding
+        }()
+        if let transferredResumeBinding {
+            surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
@@ -12173,6 +12180,9 @@ extension Workspace: BonsplitDelegate {
                 shellActivityState: panelShellActivityStates[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
+                managedAgentResumeBinding: resumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                },
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

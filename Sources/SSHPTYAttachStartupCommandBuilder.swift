@@ -16,6 +16,7 @@ enum SSHPTYAttachStartupCommandBuilder {
         remoteCommand: String? = nil,
         requireExisting: Bool = true
     ) -> String {
+        let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         var lines = [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -33,23 +34,27 @@ enum SSHPTYAttachStartupCommandBuilder {
         }
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
+            lines.append(
+                SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()
+            )
         }
         lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
         lines += [
             "cmux_ssh_attach_lifecycle_ended=0",
+            "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_auth_pid:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$cmux_ssh_attach_auth_pid\" \"$$\"; wait \"$cmux_ssh_attach_auth_pid\" 2>/dev/null || true; cmux_ssh_attach_auth_pid=; \(backoffBuilder.signalHandlerBranches) elif [ \"${cmux_ssh_attach_auth_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
-            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
-            "trap 'cmux_ssh_attach_signal_exit 130' INT",
-            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
+            "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
         ]
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
         let commandB64Flag = normalized(remoteCommand).map {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
-        lines += SSHPTYAttachExitCode.retryLoopLines(
+        lines += SSHPTYAttachRetryScriptBuilder().lines(
             command: attachCommand,
             reauthenticates: foregroundAuth != nil
         )
@@ -58,12 +63,14 @@ enum SSHPTYAttachStartupCommandBuilder {
 
     static func restoredRemoteShellCommand(
         relayPort: Int,
-        initialCommand: String? = nil
+        initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil
     ) -> String {
         RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: relayPort,
             shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
             initialCommand: initialCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
             bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
             bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(named: "fish/config.fish")
@@ -100,9 +107,6 @@ enum SSHPTYAttachStartupCommandBuilder {
         lines += [
             "unset cmux_ssh_auth_status",
             "}",
-            "cmux_ssh_attach_foreground_auth",
-            "cmux_ssh_auth_status=$?",
-            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
         ]
         return lines
     }
@@ -112,8 +116,11 @@ enum SSHPTYAttachStartupCommandBuilder {
         successShellLines: [String]
     ) -> (command: String, reportsReadiness: Bool) {
         let sharingOptions = SSHConnectionSharingOptions()
-        var arguments = ["ssh"]
-        let options = sharingOptions.mergingDefaults(into: auth.sshOptions)
+        var arguments = ["/usr/bin/ssh"]
+        let options = SSHAgentSocketResolver().removingOptions(
+            named: "RemoteCommand",
+            from: sharingOptions.mergingDefaults(into: auth.sshOptions)
+        )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]
         }
@@ -154,7 +161,11 @@ enum SSHPTYAttachStartupCommandBuilder {
             port: auth.port,
             options: options
         ) else {
-            return (command, false)
+            return (
+                SSHForegroundAuthenticationRetryPolicy()
+                    .classifyingTransientFailure(in: command),
+                false
+            )
         }
         let inFlightPath = lockPath + ".inflight"
         var lockedCommand = [
@@ -182,10 +193,10 @@ enum SSHPTYAttachStartupCommandBuilder {
         lockedCommand += successShellLines
         lockedCommand += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         lockedCommand.append("exit 0")
+        let classifiedCommand = SSHForegroundAuthenticationRetryPolicy()
+            .classifyingTransientFailure(in: lockedCommand.joined(separator: "\n"))
         return (
-            "CMUX_SSH_ATTACH_CLI=\"$cmux_ssh_attach_cli\" " +
-                "/bin/zsh -fc " +
-                shellQuote(lockedCommand.joined(separator: "\n")),
+            "CMUX_SSH_ATTACH_CLI=\"$cmux_ssh_attach_cli\" \(classifiedCommand)",
             true
         )
     }

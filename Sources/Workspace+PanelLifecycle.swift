@@ -73,6 +73,9 @@ extension Workspace {
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
+        let lifecycleStates = (agentLifecycleStatesByPanelId[panelId] ?? [:]).filter {
+            !AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
+        }
 
         var agentPIDsForPanel: [String: pid_t] = [:]
         var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
@@ -87,13 +90,19 @@ extension Workspace {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
-        guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
+        guard !statusEntriesForPanel.isEmpty
+                || !agentPIDsForPanel.isEmpty
+                || !pidKeys.isEmpty
+                || !lifecycleStates.isEmpty else {
+            return nil
+        }
         return DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
-            agentPIDKeys: pidKeys
+            agentPIDKeys: pidKeys,
+            agentLifecycleStates: lifecycleStates
         )
     }
 
@@ -288,9 +297,13 @@ extension Workspace {
         key: String,
         panelId: UUID? = nil,
         clearStatus: Bool = false,
+        requireOwnedKey: Bool = false,
         refreshPorts: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
+        if requireOwnedKey, ownedPanelId == nil {
+            return false
+        }
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
@@ -386,6 +399,9 @@ extension Workspace {
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
+        }
+        for (key, lifecycle) in runtimeState.agentLifecycleStates {
+            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()

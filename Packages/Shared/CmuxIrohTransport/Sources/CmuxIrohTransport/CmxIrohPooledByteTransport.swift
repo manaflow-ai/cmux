@@ -5,9 +5,10 @@ import Foundation
 actor CmxIrohPooledByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
-    CmxByteTransportContinuityIdentifying
+    CmxByteTransportContinuityIdentifying,
+    CmxByteTransportSessionPurposeUpdating
 {
-    private let request: CmxByteTransportRequest
+    private var request: CmxByteTransportRequest
     private let pool: CmxIrohClientSessionPool
     private let ownerID = UUID()
     private var session: CmxIrohClientSession?
@@ -86,6 +87,17 @@ actor CmxIrohPooledByteTransport:
         return CmxTransportClosureObservation {
             await session.waitUntilClosed()
         }
+    }
+
+    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {
+        guard request.sessionPurpose != purpose else { return }
+        request = request.withSessionPurpose(purpose)
+        guard ownsControlSession else { return }
+        await pool.updateControlSessionPurpose(
+            for: request,
+            ownerID: ownerID,
+            purpose: purpose
+        )
     }
 
     private func releaseOwnedControlSession(

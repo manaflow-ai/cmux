@@ -3655,6 +3655,37 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    private func assertSSHPTYAttachAuthUsesRetryLoop(
+        _ script: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let retryLoop = script.range(of: "while :; do"),
+              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
+              let initialAuth = script.range(
+                of: "cmux_ssh_reauth_required=1",
+                range: script.startIndex..<retryLoop.lowerBound
+              ) else {
+            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
+        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
+        XCTAssertEqual(
+            script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1,
+            1,
+            script,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            script.contains("case \"$cmux_ssh_status\" in 254|255"),
+            script,
+            file: file,
+            line: line
+        )
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -3686,7 +3717,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
         XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
         XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(initialScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
@@ -3712,7 +3743,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(terminalStartupScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
