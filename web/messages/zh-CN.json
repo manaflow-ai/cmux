@@ -3617,7 +3617,7 @@
     "portableCta": "便携更新 ZIP",
     "updatesTitle": "自动更新",
     "updatesBody": "cmux 会检查加密签名的清单，验证软件包大小和 SHA-256 摘要，暂存新版本，并在你批准重启时完成替换。",
-    "licenseBody": "每个版本都包含其开源组件所需的许可证声明和对应源代码。cmux-v2 仓库原创的分发文件目前仍为专有材料。",
+    "licenseBody": "cmux Browser 和 cmux-v2 仓库的原创材料均采用 GPL-3.0-or-later 许可证。每个版本都包含对应源代码和所需的第三方声明。",
     "releaseLink": "Nightly 版本详情",
     "sourceLink": "源代码与许可证披露",
     "macos": {

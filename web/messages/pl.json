@@ -3617,7 +3617,7 @@
     "portableCta": "Przenośny ZIP aktualizacji",
     "updatesTitle": "Automatyczne aktualizacje",
     "updatesBody": "cmux sprawdza kryptograficznie podpisany manifest, weryfikuje rozmiar i skrót SHA-256 pakietu, przygotowuje nową wersję i zastępuje nią obecną po zatwierdzeniu ponownego uruchomienia.",
-    "licenseBody": "Każde wydanie zawiera informacje licencyjne i odpowiadający kod źródłowy wymagany przez komponenty open source. Oryginalne pliki dystrybucyjne repozytorium cmux-v2 pozostają na razie zastrzeżone.",
+    "licenseBody": "cmux Browser i oryginalne materiały repozytorium cmux-v2 są licencjonowane na GPL-3.0-or-later. Każde wydanie zawiera odpowiadający kod źródłowy i wymagane informacje o podmiotach trzecich.",
     "releaseLink": "Szczegóły wydania nightly",
     "sourceLink": "Kod źródłowy i informacje licencyjne",
     "macos": {

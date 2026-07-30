@@ -3615,7 +3615,7 @@
     "portableCta": "Taşınabilir güncelleme ZIP'i",
     "updatesTitle": "Otomatik güncellemeler",
     "updatesBody": "cmux kriptografik olarak imzalanmış bir manifesti kontrol eder, paket boyutunu ve SHA-256 özetini doğrular, yeni sürümü hazırlar ve yeniden başlatmayı onayladığınızda değiştirir.",
-    "licenseBody": "Her sürüm, açık kaynak bileşenlerinin gerektirdiği lisans bildirimlerini ve karşılık gelen kaynak kodunu içerir. cmux-v2 deposunun özgün dağıtım dosyaları şimdilik tescilli kalır.",
+    "licenseBody": "cmux Browser ve cmux-v2 deposundaki özgün materyaller GPL-3.0-or-later kapsamında lisanslanır. Her sürüm, karşılık gelen kaynak kodunu ve gerekli üçüncü taraf bildirimlerini içerir.",
     "releaseLink": "Nightly sürüm ayrıntıları",
     "sourceLink": "Kaynak kodu ve lisans açıklamaları",
     "macos": {

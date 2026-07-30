@@ -3617,7 +3617,7 @@
     "portableCta": "Portables Update-ZIP",
     "updatesTitle": "Automatische Updates",
     "updatesBody": "cmux prüft ein kryptografisch signiertes Manifest, verifiziert Paketgröße und SHA-256-Prüfsumme, stellt die neue Version bereit und tauscht sie aus, sobald du den Neustart bestätigst.",
-    "licenseBody": "Jedes Release enthält die für seine Open-Source-Komponenten erforderlichen Lizenzhinweise und den zugehörigen Quellcode. Die ursprünglichen Distributionsdateien des cmux-v2-Repositorys bleiben vorerst proprietär.",
+    "licenseBody": "cmux Browser und das ursprüngliche Material des cmux-v2-Repositorys stehen unter GPL-3.0-or-later. Jedes Release enthält den zugehörigen Quellcode und die erforderlichen Hinweise zu Drittanbietern.",
     "releaseLink": "Details zum Nightly-Release",
     "sourceLink": "Quellcode- und Lizenzangaben",
     "macos": {

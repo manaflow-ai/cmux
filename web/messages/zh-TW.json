@@ -3616,7 +3616,7 @@
     "portableCta": "可攜式更新 ZIP",
     "updatesTitle": "自動更新",
     "updatesBody": "cmux 會檢查經過密碼學簽署的資訊清單，驗證套件大小和 SHA-256 摘要，暫存新版本，並在你核准重新啟動時完成替換。",
-    "licenseBody": "每個版本都包含其開放原始碼元件所需的授權聲明和對應原始碼。cmux-v2 儲存庫原創的發佈檔案目前仍為專有材料。",
+    "licenseBody": "cmux Browser 與 cmux-v2 儲存庫的原創素材皆採用 GPL-3.0-or-later 授權。每個版本都包含對應原始碼與必要的第三方聲明。",
     "releaseLink": "Nightly 版本詳細資料",
     "sourceLink": "原始碼與授權揭露",
     "macos": {

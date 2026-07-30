@@ -90,7 +90,7 @@
     "portableCta": "Portable update ZIP",
     "updatesTitle": "Automatic updates",
     "updatesBody": "cmux checks a cryptographically signed manifest, verifies the package size and SHA-256 digest, stages the new version, and swaps it in when you approve the relaunch.",
-    "licenseBody": "Every release includes license notices and the corresponding source required by its open-source components. The cmux-v2 repository's original distribution files remain proprietary for now.",
+    "licenseBody": "cmux Browser and the original cmux-v2 repository material are licensed under GPL-3.0-or-later. Every release includes the corresponding source and required third-party notices.",
     "releaseLink": "Nightly release details",
     "sourceLink": "Source and license disclosures",
     "macos": {

@@ -3617,7 +3617,7 @@
     "portableCta": "ZIP portatile di aggiornamento",
     "updatesTitle": "Aggiornamenti automatici",
     "updatesBody": "cmux controlla un manifesto firmato crittograficamente, verifica dimensione e digest SHA-256 del pacchetto, prepara la nuova versione e la sostituisce quando approvi il riavvio.",
-    "licenseBody": "Ogni versione include gli avvisi di licenza e il codice sorgente corrispondente richiesti dai componenti open source. I file di distribuzione originali del repository cmux-v2 restano proprietari per ora.",
+    "licenseBody": "cmux Browser e il materiale originale del repository cmux-v2 sono concessi in licenza GPL-3.0-or-later. Ogni versione include il codice sorgente corrispondente e gli avvisi di terze parti richiesti.",
     "releaseLink": "Dettagli della versione nightly",
     "sourceLink": "Codice sorgente e licenze",
     "macos": {

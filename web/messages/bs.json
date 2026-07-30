@@ -3617,7 +3617,7 @@
     "portableCta": "Prijenosni ZIP ažuriranja",
     "updatesTitle": "Automatska ažuriranja",
     "updatesBody": "cmux provjerava kriptografski potpisan manifest, veličinu paketa i SHA-256 sažetak, priprema novu verziju i zamjenjuje je kada odobrite ponovno pokretanje.",
-    "licenseBody": "Svako izdanje sadrži obavijesti o licencama i odgovarajući izvorni kod koji zahtijevaju njegove komponente otvorenog koda. Izvorne distribucijske datoteke repozitorija cmux-v2 za sada ostaju vlasničke.",
+    "licenseBody": "cmux Browser i izvorni materijal repozitorija cmux-v2 licencirani su pod GPL-3.0-or-later. Svako izdanje uključuje odgovarajući izvorni kod i potrebne obavijesti trećih strana.",
     "releaseLink": "Detalji nightly izdanja",
     "sourceLink": "Izvorni kod i licence",
     "macos": {

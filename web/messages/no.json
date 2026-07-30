@@ -3614,7 +3614,7 @@
     "portableCta": "Portabel oppdaterings-ZIP",
     "updatesTitle": "Automatiske oppdateringer",
     "updatesBody": "cmux kontrollerer et kryptografisk signert manifest, verifiserer pakkestørrelsen og SHA-256-kontrollsummen, klargjør den nye versjonen og erstatter den når du godkjenner omstart.",
-    "licenseBody": "Hver utgivelse inneholder lisensmerknadene og den tilhørende kildekoden som kreves av komponentene med åpen kildekode. De opprinnelige distribusjonsfilene i cmux-v2-repositoriet forblir foreløpig proprietære.",
+    "licenseBody": "cmux Browser og originalmaterialet i cmux-v2-repositoriet er lisensiert under GPL-3.0-or-later. Hver utgivelse inneholder den tilhørende kildekoden og nødvendige tredjepartsmerknader.",
     "releaseLink": "Detaljer om nightly-utgivelsen",
     "sourceLink": "Kildekode og lisensopplysninger",
     "macos": {

@@ -3614,7 +3614,7 @@
     "portableCta": "포터블 업데이트 ZIP",
     "updatesTitle": "자동 업데이트",
     "updatesBody": "cmux는 암호학적으로 서명된 매니페스트를 확인하고 패키지 크기와 SHA-256 다이제스트를 검증한 뒤 새 버전을 준비하여 재시작을 승인하면 교체합니다.",
-    "licenseBody": "각 릴리스에는 오픈 소스 구성 요소에 필요한 라이선스 고지와 대응 소스가 포함됩니다. cmux-v2 저장소의 독자적인 배포 파일은 현재 독점 자료로 유지됩니다.",
+    "licenseBody": "cmux Browser와 cmux-v2 저장소의 원본 자료는 GPL-3.0-or-later로 라이선스됩니다. 각 릴리스에는 대응 소스 코드와 필요한 타사 고지가 포함됩니다.",
     "releaseLink": "Nightly 릴리스 세부 정보",
     "sourceLink": "소스 및 라이선스 공개",
     "macos": {
