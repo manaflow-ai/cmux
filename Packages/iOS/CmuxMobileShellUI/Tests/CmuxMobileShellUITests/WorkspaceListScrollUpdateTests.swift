@@ -6,7 +6,7 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesSoftBarScrollEdgeEffectsAndExplicitInsets() {
+    @Test func workspaceTableUsesSoftBarScrollEdgeEffectsAndUIKitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
@@ -16,7 +16,10 @@ import UIKit
             tableView.bottomEdgeEffect.style == .soft,
             "The tab bar must own the native soft bottom edge instead of an accessory safe-area bar."
         )
-        #expect(tableView.contentInsetAdjustmentBehavior == .never)
+        #expect(
+            tableView.contentInsetAdjustmentBehavior == .automatic,
+            "UIKit must own adjusted insets so table layout never rewrites the native pan offset."
+        )
     }
 
     @Test func workspaceTableAddsNoGestureRecognizers() {
