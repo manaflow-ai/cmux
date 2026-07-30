@@ -61,6 +61,8 @@ done
 # Every workflow command that reads Ghostty's Zig manifest must initialize the
 # submodule earlier in the same job. Scan all workflows so a new consumer is
 # covered automatically instead of maintaining a list of job names.
+python3 "$ROOT_DIR/tests/test_check_ghostty_zig_workflows.py"
+
 python3 \
   "$ROOT_DIR/tests/check_ghostty_zig_workflows.py" \
   "$ROOT_DIR/.github/workflows"
