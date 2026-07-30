@@ -794,6 +794,46 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
+  test("pair grants reject a Mac from another build lane", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.ios.feature-a",
+      tag: "feature-a",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:feature-b",
+      tag: "feature-b",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+    const body = {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    };
+
+    await expectEffectFailure(
+      fixture.broker.issuePairGrant(
+        USER_A,
+        body,
+        NOW,
+        initiator.clientNamespace,
+        fixture.bindingProof(
+          initiator.id,
+          "POST",
+          "api/devices/iroh/pair-grants",
+          body,
+        ),
+      ),
+      "IrohForbiddenError",
+    );
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
   test("a namespaced app cannot discover or mutate a sibling app binding", async () => {
     const fixture = makeFixture();
     const internal = binding({

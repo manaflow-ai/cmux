@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 
 @Suite(.serialized)
@@ -108,5 +109,62 @@ struct PairedMacBackupMigrationTests {
         #expect(snapshot.records == [current, legacy])
         let requests = PairedMacBackupMigrationURLProtocol.capturedRequests()
         #expect(requests.map(\.httpMethod) == ["GET", "GET", "POST"])
+    }
+
+    @Test func currentTombstonePreventsLegacyRecordResurrection() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let legacy = PairedMacBackupRecord(
+            macDeviceID: "forgotten-mac",
+            displayName: "Forgotten Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: false,
+            instanceTag: "nightly"
+        )
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: legacy.macDeviceID,
+            instanceTag: legacy.instanceTag
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: try JSONEncoder().encode(
+                TestBackupList(
+                    records: [],
+                    deletedMacDeviceIDs: [pairingID]
+                )
+            ),
+            legacyScope: nil,
+            legacyResponse: try JSONEncoder().encode(
+                TestBackupList(records: [legacy], deletedMacDeviceIDs: [])
+            )
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        let snapshot = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        #expect(snapshot.records.isEmpty)
+        #expect(snapshot.deletedMacDeviceIDs == [pairingID])
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+                .map(\.httpMethod) == ["GET", "GET"]
+        )
     }
 }

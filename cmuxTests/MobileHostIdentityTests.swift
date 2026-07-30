@@ -45,7 +45,11 @@ struct MobileHostIdentityTests {
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
         ])
-        #expect(store.selectedNamespace == nil)
+        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-com.cmux.app"
+        )
 
         let internalNamespace = try #require(MobileIOSAppNamespace(
             bundleIdentifier: "dev.cmux.app.internal"
@@ -73,7 +77,11 @@ struct MobileHostIdentityTests {
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
         ])
-        #expect(store.selectedNamespace == nil)
+        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-com.cmux.app"
+        )
     }
 
     @Test func taggedMacTargetsOnlyItsMatchingTaggedIOSBuild() throws {
