@@ -7,7 +7,7 @@ struct WorkspaceMutationTarget {
     let client: MobileCoreRPCClient?
     let isForeground: Bool
     let macDeviceID: String?
-    /// Aggregate/subscription key for a secondary owner: the pairing id for a
-    /// tagged Mac, the bare device id for a legacy pairing. `nil` when unknown.
-    var ownerKey: String? = nil
+    /// Aggregate/subscription owner key for a secondary owner. `nil` when the
+    /// target is the foreground or the owner is unknown/offline.
+    var ownerKey: MacPairingKey? = nil
 }

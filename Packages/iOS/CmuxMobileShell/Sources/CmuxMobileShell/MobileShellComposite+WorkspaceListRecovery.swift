@@ -18,11 +18,11 @@ extension MobileShellComposite {
             // reconnect action that cannot reach anything visible.
             return .connected
         }
-        let foregroundKey: String?
-        if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
-            foregroundKey = id
-        } else if workspacesByMac[Self.foregroundAnonymousKey] != nil {
-            foregroundKey = Self.foregroundAnonymousKey
+        let foregroundKey: MacPairingKey?
+        if foregroundMacDeviceID != nil, workspacesByMac[foregroundMacKey] != nil {
+            foregroundKey = foregroundMacKey
+        } else if workspacesByMac[.anonymousForeground] != nil {
+            foregroundKey = .anonymousForeground
         } else {
             foregroundKey = nil
         }

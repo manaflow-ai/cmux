@@ -348,9 +348,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public var macConnectionStatuses: [String: MobileMacConnectionStatus] {
         var result = workspacesByMac.reduce(into: [String: MobileMacConnectionStatus]()) { statuses, entry in
-            if !entry.key.isEmpty { statuses[entry.key] = entry.value.status }
+            guard entry.key != .anonymousForeground else { return }
+            statuses[entry.key.pairingID] = entry.value.status
+            // Legacy consumers key by bare device id; publish it only when no
+            // exact pairing entry already claimed that spelling.
+            if entry.key.normalizedInstanceTag != nil,
+               statuses[entry.key.canonicalMacDeviceID] == nil {
+                statuses[entry.key.canonicalMacDeviceID] = entry.value.status
+            }
         }
+        let foregroundTag = activeMacInstanceTag
         for (representativeID, aliases) in pairedMacAliasIDsByRepresentativeID {
+            // Never let a device-level alias overwrite an exact pairing entry,
+            // and roll the foreground's device-keyed status only onto ITS OWN
+            // pairing representative — not a sibling build's.
+            if result[representativeID] != nil { continue }
+            let representativeTag = MobilePairedMac.pairingIdentity(
+                from: representativeID
+            ).instanceTag
+            if representativeTag != nil,
+               !macInstanceTagAuthority.sameStoredAuthority(representativeTag, foregroundTag) {
+                continue
+            }
             let aliasStatuses = aliases.compactMap { result[$0] }
             if aliasStatuses.contains(.connected) {
                 result[representativeID] = .connected
@@ -1173,9 +1192,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Resolve a Mac-local workspace id to the current UI row id.
     func rowWorkspaceID(
         forRemoteWorkspaceID remoteID: MobileWorkspacePreview.ID,
-        macDeviceID: String?
+        macDeviceID: String?,
+        instanceTag: String? = nil
     ) -> MobileWorkspacePreview.ID? {
-        workspaces.first { workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID) }?.id
+        workspaces.first {
+            workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID)
+                && (instanceTag == nil || instanceTag!.isEmpty
+                    || $0.macInstanceTag == instanceTag)
+        }?.id
     }
 
     private func workspaceMatchesRemoteID(
@@ -1299,7 +1323,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // cache directly since `didSet` does not fire during init.
         self.workspacesByMac = workspaces.isEmpty
             ? [:]
-            : [Self.foregroundAnonymousKey: MacWorkspaceState(
+            : [.anonymousForeground: MacWorkspaceState(
                 macDeviceID: Self.foregroundAnonymousKey, workspaces: workspaces)]
         self.workspaces = workspaces
         self.terminalInputText = ""
@@ -1622,7 +1646,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey)
+        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.canonicalMacDeviceID)
         retainForegroundNotificationFeedSnapshot()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
@@ -3393,7 +3417,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectionState = .disconnected
                 macConnectionStatus = .unavailable
                 clearRemoteConnectionContext()
-                workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
+                workspacesByMac = workspacesByMac.filter { entry in
+                    !(previousIDs.contains(where: { entry.key.isOnDevice($0) })
+                        && macInstanceTagAuthority.sameStoredAuthority(
+                            entry.key.normalizedInstanceTag,
+                            previousActive.instanceTag
+                        ))
+                }
             }
             return false
         }
@@ -4544,7 +4574,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // before a later aggregation pass dials its replacement.
                     await retireSecondaryControlOwner(
                         existing,
-                        macDeviceID: mac.macDeviceID,
                         shouldRetry: allowsNewConnections
                     )
                     continue
@@ -5146,7 +5175,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ subscription: SecondaryMacSubscription,
         displayName: String?
     ) {
-        let macID = subscription.macDeviceID
+        let ownerKey = subscription.ownerKey
         let client = subscription.client
         let subscriptionID = ObjectIdentifier(subscription)
         subscription.task = Task { @MainActor [weak self] in
@@ -5162,7 +5191,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 break
             case .transientFailure:
                 await self?.handleSecondaryControlStreamEnded(
-                    macDeviceID: macID,
+                    ownerKey: ownerKey,
                     subscriptionID: subscriptionID,
                     client: client,
                     shouldRetry: true
@@ -5170,7 +5199,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             case .permanentFailure:
                 await self?.handleSecondaryControlStreamEnded(
-                    macDeviceID: macID,
+                    ownerKey: ownerKey,
                     subscriptionID: subscriptionID,
                     client: client,
                     shouldRetry: false
@@ -5185,14 +5214,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Stop if this subscription was replaced/torn down.
                 guard self?.handleSecondaryControlEvent(
                     event,
-                    macDeviceID: macID,
+                    ownerKey: ownerKey,
                     subscriptionID: subscriptionID,
                     client: client,
                     displayName: displayName
                 ) == true else { break }
             }
             await self?.handleSecondaryControlStreamEnded(
-                macDeviceID: macID,
+                ownerKey: ownerKey,
                 subscriptionID: subscriptionID,
                 client: client,
                 shouldRetry: true
@@ -5202,12 +5231,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func handleSecondaryControlEvent(
         _ event: MobileEventEnvelope,
-        macDeviceID: String,
+        ownerKey: MacPairingKey,
         subscriptionID: ObjectIdentifier,
         client: MobileCoreRPCClient,
         displayName: String?
     ) -> Bool {
-        guard let subscription = secondaryMacSubscriptions[macDeviceID],
+        guard let subscription = secondaryMacSubscriptions[ownerKey],
               ObjectIdentifier(subscription) == subscriptionID,
               subscription.client === client else {
             return false
@@ -5219,17 +5248,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // `mobile.sync.delta` until they own independent per-Mac v2 mirrors;
             // consuming both host signals would duplicate every refresh.
             scheduleSecondaryRefresh(
-                macID: macDeviceID,
+                ownerKey: ownerKey,
                 client: client,
                 displayName: displayName
             )
         } else if event.topic == "notification.feed.changed" {
             handleNotificationFeedChangedEvent(
                 event,
-                macDeviceID: macDeviceID,
+                macDeviceID: ownerKey.pairingID,
                 client: client,
                 displayName: notificationFeedDisplayNameForSecondary(
-                    macDeviceID: macDeviceID,
+                    macDeviceID: ownerKey.pairingID,
                     fallback: displayName
                 )
             )
@@ -5287,10 +5316,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> Bool {
         let subscriptions = Array(secondaryMacSubscriptions)
         guard !subscriptions.isEmpty else { return false }
-        let reassertions = subscriptions.map { macDeviceID, subscription in
+        let reassertions = subscriptions.map { _, subscription in
             Task { @MainActor [weak self] in
                 await self?.reassertSecondaryControlSubscription(
-                    macDeviceID: macDeviceID,
                     subscription: subscription,
                     refreshOnlyHealthCheckIsDue:
                         refreshOnlyHealthCheckIsDue
@@ -5310,12 +5338,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func reassertSecondaryControlSubscription(
-        macDeviceID: String,
         subscription: SecondaryMacSubscription,
         refreshOnlyHealthCheckIsDue: Bool
     ) async {
+        let ownerKey = subscription.ownerKey
         guard !Task.isCancelled,
-              secondaryMacSubscriptions[macDeviceID] === subscription,
+              secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return
         }
@@ -5327,7 +5355,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     displayName: subscription.displayName
                 )
                 scheduleSecondaryNotificationFeedRefresh(
-                    macDeviceID: macDeviceID,
+                    macDeviceID: ownerKey.pairingID,
                     client: subscription.client,
                     displayName: subscription.displayName
                 )
@@ -5341,7 +5369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Promotion may have fenced this subscription while the reassertion
         // was awaiting its acknowledgement. It will drain this task and issue
         // the final unsubscribe, so neither result owns teardown.
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return
         }
@@ -5350,14 +5378,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         case .transientFailure:
             await handleSecondaryControlStreamEnded(
-                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
                 subscriptionID: ObjectIdentifier(subscription),
                 client: subscription.client,
                 shouldRetry: true
             )
         case .permanentFailure:
             await handleSecondaryControlStreamEnded(
-                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
                 subscriptionID: ObjectIdentifier(subscription),
                 client: subscription.client,
                 shouldRetry: false
@@ -5372,20 +5400,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func enableOwnedSecondaryEventSubscription(
         _ subscription: SecondaryMacSubscription
     ) async -> SecondaryOwnedEventSubscriptionActivation {
-        let macDeviceID = subscription.macDeviceID
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return .superseded
         }
         let subscriptionID = ObjectIdentifier(subscription)
         if let existing =
-            secondaryControlReassertionTasksByOwnerKey[macDeviceID] {
+            secondaryControlReassertionTasksByOwnerKey[ownerKey] {
             let existingOwnerID =
-                secondaryControlReassertionOwnerIDsByOwnerKey[macDeviceID]
+                secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey]
             let existingToken =
-                secondaryControlReassertionTokensByOwnerKey[macDeviceID]
+                secondaryControlReassertionTokensByOwnerKey[ownerKey]
             let activation = await existing.value
-            guard secondaryMacSubscriptions[macDeviceID] === subscription,
+            guard secondaryMacSubscriptions[ownerKey] === subscription,
                   !subscription.isTransitioningToFocus else {
                 return .superseded
             }
@@ -5398,11 +5426,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A replaced owner published the current single-flight before this
             // subscription was installed. Remove only that completed flight,
             // then let the new owner publish its own activation.
-            if secondaryControlReassertionTokensByOwnerKey[macDeviceID]
+            if secondaryControlReassertionTokensByOwnerKey[ownerKey]
                 == existingToken {
-                secondaryControlReassertionTasksByOwnerKey[macDeviceID] = nil
-                secondaryControlReassertionTokensByOwnerKey[macDeviceID] = nil
-                secondaryControlReassertionOwnerIDsByOwnerKey[macDeviceID] = nil
+                secondaryControlReassertionTasksByOwnerKey[ownerKey] = nil
+                secondaryControlReassertionTokensByOwnerKey[ownerKey] = nil
+                secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey] = nil
             }
         }
         // No suspension occurs between the ownership guard and publishing this
@@ -5418,7 +5446,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 on: subscription.client,
                 streamID: subscription.streamID
             )
-            guard self.secondaryMacSubscriptions[macDeviceID] === subscription,
+            guard self.secondaryMacSubscriptions[ownerKey] === subscription,
                   !subscription.isTransitioningToFocus else {
                 return .superseded
             }
@@ -5439,7 +5467,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Workspace repair owns teardown when it fails. A feed-only
                 // repair failure can leave this same registry owner installed,
                 // so preserve the prior retry behavior for that live client.
-                return self.secondaryMacSubscriptions[macDeviceID]
+                return self.secondaryMacSubscriptions[ownerKey]
                         === subscription
                     && !subscription.isTransitioningToFocus
                     ? .transientFailure
@@ -5447,18 +5475,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         let operationToken = UUID()
-        secondaryControlReassertionTasksByOwnerKey[macDeviceID] = operation
-        secondaryControlReassertionTokensByOwnerKey[macDeviceID] = operationToken
-        secondaryControlReassertionOwnerIDsByOwnerKey[macDeviceID] =
+        secondaryControlReassertionTasksByOwnerKey[ownerKey] = operation
+        secondaryControlReassertionTokensByOwnerKey[ownerKey] = operationToken
+        secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey] =
             subscriptionID
         let activation = await operation.value
-        if secondaryControlReassertionTokensByOwnerKey[macDeviceID]
+        if secondaryControlReassertionTokensByOwnerKey[ownerKey]
             == operationToken {
-            secondaryControlReassertionTasksByOwnerKey[macDeviceID] = nil
-            secondaryControlReassertionTokensByOwnerKey[macDeviceID] = nil
-            secondaryControlReassertionOwnerIDsByOwnerKey[macDeviceID] = nil
+            secondaryControlReassertionTasksByOwnerKey[ownerKey] = nil
+            secondaryControlReassertionTokensByOwnerKey[ownerKey] = nil
+            secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey] = nil
         }
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return .superseded
         }
@@ -5474,11 +5502,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func reconcileSecondaryControlGap(
         _ subscription: SecondaryMacSubscription
     ) async -> Bool {
-        let macDeviceID = subscription.macDeviceID
+        let ownerKey = subscription.ownerKey
         // Direct unit fixtures can install a subscription without the
         // account-scoped paired store. Production pool entries always have it.
         guard pairedMacStore != nil else { return true }
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return false
         }
@@ -5489,19 +5517,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         await refresh.value
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus,
-              workspacesByMac[macDeviceID]?.status == .connected else {
+              workspacesByMac[ownerKey]?.status == .connected else {
             return false
         }
         guard await reconcileSecondaryNotificationFeedAfterControlGap(
-            macDeviceID: macDeviceID,
+            macDeviceID: ownerKey.pairingID,
             client: subscription.client,
             displayName: subscription.displayName
         ) else {
             return false
         }
-        return secondaryMacSubscriptions[macDeviceID] === subscription
+        return secondaryMacSubscriptions[ownerKey] === subscription
             && !subscription.isTransitioningToFocus
     }
 
@@ -5510,17 +5538,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// timer owner is canceled, making the subsequent unsubscribe the final
     /// server-side operation for this stream id.
     func prepareSecondarySubscriptionForPromotion(
-        _ subscription: SecondaryMacSubscription,
-        macDeviceID: String
+        _ subscription: SecondaryMacSubscription
     ) async -> Bool {
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return false
         }
         subscription.isTransitioningToFocus = true
         let workspaceRefresh = subscription.refreshTask
         await workspaceRefresh?.value
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        guard secondaryMacSubscriptions[ownerKey] === subscription else {
             return false
         }
         guard subscription.supportedHostCapabilities.contains("events.v1")
@@ -5531,7 +5559,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // uncancelled. Canceling first can make an RPC await return locally
         // before the server has finished applying the subscribe.
         if let reassertion =
-            secondaryControlReassertionTasksByOwnerKey[macDeviceID] {
+            secondaryControlReassertionTasksByOwnerKey[ownerKey] {
             let drain = await Self.raceAgainstDeadline(
                 nanoseconds: connectionHandoffDrainTimeoutNanoseconds
             ) {
@@ -5540,15 +5568,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             guard drain.value == true,
                   !drain.wasCancelled,
-                  secondaryMacSubscriptions[macDeviceID] === subscription else {
+                  secondaryMacSubscriptions[ownerKey] === subscription else {
                 // A timed-out or cancelled reassertion may already have
                 // reached the host. It cannot safely return to control
                 // ownership, because a later acknowledgement could recreate
                 // that stream after another role transition.
-                await retireSecondaryPromotionCandidate(
-                    subscription,
-                    macDeviceID: macDeviceID
-                )
+                await retireSecondaryPromotionCandidate(subscription)
                 return false
             }
         }
@@ -5564,7 +5589,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if !secondaryMacSubscriptions.isEmpty {
             ensureSecondaryControlKeepalive()
         }
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        guard secondaryMacSubscriptions[ownerKey] === subscription else {
             return false
         }
         return true
@@ -5573,16 +5598,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Promotion was superseded before its unsubscribe. Return the target to
     /// ordinary control ownership and restart the one shared keepalive timer.
     func resumeSecondarySubscriptionAfterAbortedPromotion(
-        _ subscription: SecondaryMacSubscription,
-        macDeviceID: String
+        _ subscription: SecondaryMacSubscription
     ) async {
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription else {
             return
         }
         if subscription.eventStreamEndedDuringFocusTransition {
             await retireSecondaryControlOwner(
                 subscription,
-                macDeviceID: macDeviceID,
                 shouldRetry: true
             )
             return
@@ -5592,7 +5616,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // notification routing deliberately rejects that transitioning owner.
         // One coalesced list fetch repairs any invalidation consumed in that gap.
         scheduleSecondaryNotificationFeedRefresh(
-            macDeviceID: macDeviceID,
+            macDeviceID: ownerKey.pairingID,
             client: subscription.client,
             displayName: subscription.displayName
         )
@@ -5605,16 +5629,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         ensureSecondaryControlKeepalive()
-        scheduleSecondaryPresenceAggregation(forMacDeviceID: macDeviceID)
+        scheduleSecondaryPresenceAggregation(
+            forMacDeviceID: subscription.macDeviceID
+        )
     }
 
     private func handleSecondaryControlStreamEnded(
-        macDeviceID: String,
+        ownerKey: MacPairingKey,
         subscriptionID: ObjectIdentifier,
         client: MobileCoreRPCClient,
         shouldRetry: Bool
     ) async {
-        guard let subscription = secondaryMacSubscriptions[macDeviceID],
+        guard let subscription = secondaryMacSubscriptions[ownerKey],
               ObjectIdentifier(subscription) == subscriptionID,
               subscription.client === client else { return }
         guard !subscription.isTransitioningToFocus else {
@@ -5623,7 +5649,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         await retireSecondaryControlOwner(
             subscription,
-            macDeviceID: macDeviceID,
             shouldRetry: shouldRetry
         )
     }
@@ -5742,7 +5767,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         authorityValidation: SecondaryStoredAuthorityValidation = .store
     ) -> Task<Void, Never>? {
         let macID = subscription.macDeviceID
-        guard secondaryMacSubscriptions[macID] === subscription,
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus else {
             return nil
         }
@@ -5765,7 +5791,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             var completedPassCount = 0
             refreshLoop: repeat {
                 guard !Task.isCancelled,
-                      self.secondaryMacSubscriptions[macID] === subscription
+                      self.secondaryMacSubscriptions[ownerKey] === subscription
                 else {
                     return
                 }
@@ -5783,7 +5809,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: macID
                 )
                 guard !Task.isCancelled,
-                      self.secondaryMacSubscriptions[macID] === subscription
+                      self.secondaryMacSubscriptions[ownerKey] === subscription
                 else {
                     return
                 }
@@ -5828,8 +5854,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     refreshShouldRetry = false
                     break refreshLoop
                 }
-                self.workspacesByMac[macID] = MacWorkspaceState(
+                self.workspacesByMac[ownerKey] = MacWorkspaceState(
                     macDeviceID: macID,
+                    instanceTag: subscription.storedInstanceTag,
                     displayName: displayName ?? subscription.displayName,
                     workspaces: previews,
                     status: .connected,
@@ -5860,7 +5887,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             if authorityReadFailedTransiently {
-                guard self.secondaryMacSubscriptions[macID]
+                guard self.secondaryMacSubscriptions[ownerKey]
                         === subscription,
                       !subscription.isTransitioningToFocus else {
                     return
@@ -5871,13 +5898,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             guard refreshFailed,
-                  self.secondaryMacSubscriptions[macID] === subscription,
+                  self.secondaryMacSubscriptions[ownerKey] === subscription,
                   !subscription.isTransitioningToFocus else {
                 return
             }
             await self.retireSecondaryControlOwner(
                 subscription,
-                macDeviceID: macID,
                 shouldRetry: refreshShouldRetry
             )
         }
@@ -5894,8 +5920,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         displayName: String?,
         authorityValidation: SecondaryStoredAuthorityValidation = .store
     ) {
-        let macDeviceID = subscription.macDeviceID
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
               !subscription.isTransitioningToFocus,
               subscription.deferredRefreshTask == nil else {
             return
@@ -5918,7 +5944,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self,
                   !Task.isCancelled,
                   subscription.deferredRefreshOperationID == operationID,
-                  self.secondaryMacSubscriptions[macDeviceID]
+                  self.secondaryMacSubscriptions[ownerKey]
                     === subscription,
                   !subscription.isTransitioningToFocus else {
                 return
@@ -5942,11 +5968,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// running we only flag a trailing pass, so a hot event stream collapses to
     /// at most one extra scan after the in-flight one.
     private func scheduleSecondaryRefresh(
-        macID: String,
+        ownerKey: MacPairingKey,
         client: MobileCoreRPCClient,
         displayName: String?
     ) {
-        guard let subscription = secondaryMacSubscriptions[macID],
+        guard let subscription = secondaryMacSubscriptions[ownerKey],
               subscription.client === client else { return }
         enqueueSecondaryWorkspaceRefresh(
             subscription,
@@ -5964,13 +5990,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   live connection right now, so the caller must NOT fall back to the
     ///   foreground client (that is exactly the wrong-Mac bug this avoids).
     func workspaceMutationTarget(for id: MobileWorkspacePreview.ID) -> WorkspaceMutationTarget {
-        let owner = workspaces.first(where: { $0.id == id })?.macDeviceID
-        if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
+        let row = workspaces.first(where: { $0.id == id })
+        let owner = row?.macDeviceID
+        let isForegroundOwner = owner == nil
+            || owner == Self.foregroundAnonymousKey
+            || (owner == foregroundMacDeviceID
+                && macInstanceTagAuthority.sameStoredAuthority(
+                    row?.macInstanceTag, activeMacInstanceTag))
+        if isForegroundOwner {
             return WorkspaceMutationTarget(
                 client: remoteClient, isForeground: true, macDeviceID: foregroundMacDeviceID)
         }
-        if let owner, let sub = secondaryMacSubscriptions[owner] {
-            return WorkspaceMutationTarget(client: sub.client, isForeground: false, macDeviceID: owner)
+        if let owner, let row {
+            let ownerKey = MacPairingKey(
+                macDeviceID: owner, instanceTag: row.macInstanceTag)
+            if let sub = secondaryMacSubscriptions[ownerKey] {
+                return WorkspaceMutationTarget(
+                    client: sub.client, isForeground: false, macDeviceID: owner, ownerKey: ownerKey)
+            }
         }
         return WorkspaceMutationTarget(client: nil, isForeground: false, macDeviceID: owner)
     }
@@ -5985,9 +6022,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
         if target.isForeground {
             await refreshForegroundWorkspaceListAfterMutation()
-        } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
+        } else if let ownerKey = target.ownerKey, let sub = secondaryMacSubscriptions[ownerKey] {
             scheduleSecondaryRefresh(
-                macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
+                ownerKey: ownerKey,
+                client: sub.client,
+                displayName: workspacesByMac[ownerKey]?.displayName)
         }
     }
 
@@ -7545,14 +7584,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if displacedControlReservation
                         .transportDrainReservationHolders.isEmpty,
                    secondaryMacDrainReservation(
-                       forMacDeviceID:
-                           displacedControlReservation.macDeviceID
+                       for: displacedControlReservation.ownerKey
                    ) === displacedControlReservation,
                    displacedControlReservation.hasCompletedTransportDrain {
                     finishRetiredSecondaryPromotionCandidate(
                         displacedControlReservation,
-                        macDeviceID:
-                            displacedControlReservation.macDeviceID,
                         forceRemovalDuringMacSwitch: true
                     )
                 }
@@ -7562,90 +7598,83 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // warm control client owns one of its physical routes. Logical device
         // ids are only a fast path because anonymous tickets and renamed Macs
         // may not match the registry key until host status authenticates them.
-        var drainCandidates: [(
-            macDeviceID: String,
-            subscription: SecondaryMacSubscription
-        )] = []
+        var drainCandidates: [SecondaryMacSubscription] = []
         var seenDrainCandidates: Set<ObjectIdentifier> = []
         func appendDrainCandidate(
-            macDeviceID: String,
-            subscription: SecondaryMacSubscription
+            _ subscription: SecondaryMacSubscription
         ) {
             guard seenDrainCandidates.insert(
                 ObjectIdentifier(subscription)
             ).inserted else {
                 return
             }
-            drainCandidates.append((macDeviceID, subscription))
+            drainCandidates.append(subscription)
         }
         if let requestedMacDeviceID {
-            if let reservation = secondaryMacDrainReservation(
-                forMacDeviceID: requestedMacDeviceID
-            ) {
-                appendDrainCandidate(
-                    macDeviceID: reservation.macDeviceID,
-                    subscription: reservation
+            // Scope the requested fast path to the EXACT pairing this dial
+            // targets. A sibling build's healthy warm control connection on
+            // the same physical Mac must stay untouched; genuinely shared
+            // physical routes are still drained by the route loops below.
+            let requestedOwnerKey: MacPairingKey
+            switch instanceTagExpectation {
+            case .preserve(let tag), .require(let tag):
+                requestedOwnerKey = MacPairingKey(
+                    macDeviceID: requestedMacDeviceID,
+                    instanceTag: tag
+                )
+            case .adopt:
+                requestedOwnerKey = MacPairingKey(
+                    macDeviceID: requestedMacDeviceID,
+                    instanceTag: nil
                 )
             }
-            if let liveControl = secondaryMacSubscriptions.first(where: {
-                cmxCanonicalDeviceID($0.key)
-                    == cmxCanonicalDeviceID(requestedMacDeviceID)
-            }) {
-                appendDrainCandidate(
-                    macDeviceID: liveControl.key,
-                    subscription: liveControl.value
-                )
+            if let reservation = secondaryMacDrainReservation(
+                for: requestedOwnerKey
+            ) {
+                appendDrainCandidate(reservation)
+            }
+            if let liveControl = secondaryMacSubscriptions[requestedOwnerKey] {
+                appendDrainCandidate(liveControl)
             }
         }
-        for (macDeviceID, subscription) in secondaryMacSubscriptions
+        for (_, subscription) in secondaryMacSubscriptions
             where supportedRoutes.contains(where: {
                 subscription.client.sharesPhysicalTransportRoute(with: $0)
             }) {
-            appendDrainCandidate(
-                macDeviceID: macDeviceID,
-                subscription: subscription
-            )
+            appendDrainCandidate(subscription)
         }
         for subscription in secondaryMacDrainReservations.values
             where supportedRoutes.contains(where: {
                 subscription.client.sharesPhysicalTransportRoute(with: $0)
             }) {
-            appendDrainCandidate(
-                macDeviceID: subscription.macDeviceID,
-                subscription: subscription
-            )
+            appendDrainCandidate(subscription)
         }
 
         var drainOperations: [SecondaryMacTransportDrainOperation] = []
         for candidate in drainCandidates {
             var displaced = secondaryMacDrainReservation(
-                forMacDeviceID: candidate.macDeviceID
+                for: candidate.ownerKey
             )
             if displaced == nil,
-               secondaryMacSubscriptions[candidate.macDeviceID]
-                    === candidate.subscription {
-                guard beginSecondaryMacDrainReservation(
-                    candidate.subscription,
-                    macDeviceID: candidate.macDeviceID
-                ) else {
+               secondaryMacSubscriptions[candidate.ownerKey] === candidate {
+                guard beginSecondaryMacDrainReservation(candidate) else {
                     return nil
                 }
                 displaced = secondaryMacDrainReservation(
-                    forMacDeviceID: candidate.macDeviceID
+                    for: candidate.ownerKey
                 )
             }
             guard let displaced,
-                  displaced === candidate.subscription else {
+                  displaced === candidate else {
                 continue
             }
             displacedControlReservations.append(displaced)
             displaced.transportDrainReservationHolders.insert(
                 displacedControlReservationHolder
             )
-            drainOperations.append(secondaryMacTransportDrainOperation(
-                displaced,
-                macDeviceID: displaced.macDeviceID
-            ))
+            drainOperations.append(
+                secondaryMacTransportDrainOperation(displaced)
+            )
         }
         let drainWaiters = drainOperations.map { operation in
             Task { @MainActor in
@@ -7878,9 +7907,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             terminalStopped && !resolvesToSameMac
                                 ? await canRetainFocusedConnectionInControlPool(
                                     previousFocusedConnection,
-                                    vacatingControlMacDeviceID:
+                                    vacatingControlOwnerKey:
                                         displacedControlReservations
-                                            .first?.macDeviceID
+                                            .first?.ownerKey
                                 )
                                 : false
                         guard isConnectCurrent() else {
