@@ -20,27 +20,6 @@ struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
     }
 }
 
-/// The narrow renderer lifecycle surface consumed by the reclamation policy.
-/// Keeping this seam independent of the concrete terminal model lets scheduler
-/// tests exercise real notifications, cancellation, and deadlines without
-/// constructing a Ghostty runtime.
-@MainActor
-protocol RendererRealizationSurface: AnyObject {
-    var id: UUID { get }
-    var hasLiveSurface: Bool { get }
-    var isRendererPortalVisible: Bool { get }
-    var isRendererRealized: Bool { get }
-    var isRendererPresented: Bool { get }
-    var rendererLastVisibleAt: TimeInterval { get }
-
-    func noteBecameVisibleForRendererReclamation()
-    func ensureRendererPresented()
-    func releaseRenderer() -> Bool
-    func retryRendererPresentationAfterActivity()
-}
-
-extension TerminalSurface: RendererRealizationSurface {}
-
 /// Releases the GPU renderer (Metal swap chain / IOSurface, ~40MB each) of
 /// terminal surfaces that have been offscreen and idle, while keeping their PTY
 /// and terminal state alive. The renderer is rebuilt on re-show via
