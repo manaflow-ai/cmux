@@ -6709,14 +6709,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let workspace = workspaces.first { $0.id == id }
         let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
         let ownerMacDeviceID = workspace?.macDeviceID
+        let ownerInstanceTag = workspace?.macInstanceTag
         let workspaceHadUnread = workspace?.hasUnread == true
-        // Cross-Mac open (P5): a workspace from the aggregated list may belong to
-        // a Mac other than the current foreground connection. Switch the
-        // foreground to that Mac first so the terminal attaches to the right one.
+        // Cross-Mac open (P5): a workspace from the aggregated list may belong
+        // to a Mac — or a sibling BUILD of the foreground's own Mac — other
+        // than the current foreground connection. Switch the foreground to
+        // that exact pairing first so the terminal attaches to the right one.
+        let rowIsForegroundPairing = ownerMacDeviceID == foregroundMacDeviceID
+            && (ownerInstanceTag == nil
+                || macInstanceTagAuthority.sameStoredAuthority(
+                    ownerInstanceTag,
+                    activeMacInstanceTag
+                ))
         if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
-           macDeviceID != foregroundMacDeviceID {
+           !rowIsForegroundPairing {
             // Only proceed if that Mac actually became the foreground connection.
             // The tap already selected this workspace and pushed its detail
             // synchronously (this runs from the detail's task), so on a failed
@@ -6724,7 +6732,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // list — instead of leaving the user in a workspace whose Mac is not the
             // live connection (terminal input would route to the wrong client). The
             // offline row's Reconnect / the next aggregation pass recovers it.
-            guard await switchToMac(macDeviceID: macDeviceID) else {
+            guard await switchToMac(
+                macDeviceID: macDeviceID,
+                instanceTag: ownerInstanceTag
+            ) else {
                 mobileShellLog.error("openWorkspace: switch to mac failed, popping mac=\(macDeviceID, privacy: .public)")
                 if selectedWorkspaceID == id {
                     setSelectedWorkspaceID(nil)
@@ -6734,7 +6745,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let resolvedRowID = rowWorkspaceID(
             forRemoteWorkspaceID: remoteWorkspaceID,
-            macDeviceID: ownerMacDeviceID
+            macDeviceID: ownerMacDeviceID,
+            instanceTag: ownerInstanceTag
         ) ?? (workspaces.contains(where: { $0.id == id }) ? id : nil)
         guard let resolvedRowID else {
             mobileShellLog.error("openWorkspace: workspace disappeared after switch id=\(remoteWorkspaceID.rawValue, privacy: .private) mac=\(ownerMacDeviceID ?? "", privacy: .public)")

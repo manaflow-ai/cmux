@@ -585,6 +585,16 @@ extension MobileShellComposite {
                     previousForegroundConnection.generation
                 )
                 demotedForegroundSubscription = subscription
+                // The old foreground's feed lived under its bare device key;
+                // as a TAGGED secondary its refreshes publish under the
+                // pairing key, so the bare source would linger as a duplicate
+                // that can never resolve its client again.
+                if let previousForegroundID,
+                   subscription.ownerKey.pairingID != previousForegroundID {
+                    removeNotificationFeedSnapshot(
+                        macDeviceID: previousForegroundID
+                    )
+                }
             } else {
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }

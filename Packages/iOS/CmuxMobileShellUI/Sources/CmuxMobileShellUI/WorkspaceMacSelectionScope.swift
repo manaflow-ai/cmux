@@ -229,7 +229,12 @@ struct WorkspaceMacSelectionScope {
         guard !foregroundMachineIDs.isEmpty else { return false }
         return workspaces.allSatisfy { workspace in
             guard let macDeviceID = workspace.macDeviceID else { return false }
+            // Exact pairing: a sibling build's rows on the foreground DEVICE
+            // are served by a secondary connection, and group/reorder RPCs
+            // must never mix builds whose local ids can collide.
             return foregroundMachineIDs.contains(macDeviceID)
+                && Self.normalizedTag(workspace.macInstanceTag)
+                    == Self.normalizedTag(foregroundInstanceTag)
         }
     }
 
