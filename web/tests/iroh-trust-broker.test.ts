@@ -1002,6 +1002,44 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
+  test("tagged discovery never exposes sibling Mac lane metadata", async () => {
+    const fixture = makeFixture();
+    const iosA = binding({
+      platform: "ios",
+      clientNamespace: "dev.cmux.ios.feature-a",
+      tag: "feature-a",
+      endpointId: fixture.endpointId,
+    });
+    const macA = binding({
+      platform: "mac",
+      clientNamespace: "mac:feature-a",
+      tag: "feature-a",
+    });
+    const macB = binding({
+      platform: "mac",
+      clientNamespace: "mac:feature-b",
+      tag: "feature-b",
+    });
+    fixture.repository.bindings.push(iosA, macA, macB);
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(
+      USER_A,
+      NOW,
+      iosA.clientNamespace,
+      fixture.bindingProof(
+        iosA.id,
+        "GET",
+        "api/devices/iroh",
+        undefined,
+      ),
+    )) as { bindings: Array<{ binding_id: string }> };
+
+    expect(discovered.bindings.map((row) => row.binding_id)).toEqual([
+      iosA.id,
+      macA.id,
+    ]);
+  });
+
   test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios", identityGeneration: 4 });
