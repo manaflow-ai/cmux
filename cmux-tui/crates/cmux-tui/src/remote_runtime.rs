@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, OpenOptions};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1906,19 +1907,26 @@ async fn run_daemon(
         let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
         services.run_with_shutdown(clients, shutdown).await;
 
+        let mut shutdown_failures = Vec::new();
         admin.shutdown().await;
-        if let Some(listener) = iroh {
-            listener.shutdown().await?;
+        if let Some(listener) = iroh
+            && let Err(error) = listener.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("Iroh listener shutdown failed"));
         }
         for registration in relays {
             shutdown_relay(registration).await;
         }
-        if let Some(server) = websocket {
-            server.shutdown().await?;
+        if let Some(server) = websocket
+            && let Err(error) = server.shutdown().await
+        {
+            shutdown_failures
+                .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
         }
         unix.shutdown().await;
         let cleanup_state_dir = state_dir.clone();
-        auth.shutdown_with_cleanup(move |finalization| {
+        let authorization_finalization = auth.shutdown_with_cleanup(move |finalization| {
             #[cfg(test)]
             pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
             let status = if finalization.is_ok() {
@@ -1927,11 +1935,12 @@ async fn run_daemon(
                 DaemonShutdownStatus::Failed
             };
             finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
-        })
-        .await?;
+        });
+        let shutdown_result =
+            finish_daemon_shutdown(shutdown_failures, authorization_finalization).await;
         #[cfg(test)]
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
-        Ok::<_, anyhow::Error>(())
+        shutdown_result
     }
     .await;
 
@@ -1976,17 +1985,60 @@ async fn load_daemon_auth_during_handoff(
 }
 
 fn verify_previous_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
-    let Some(outcome) = read_shutdown_outcome(state_dir)
-        .context("could not verify previous remote daemon authorization finalization")?
-    else {
-        return Ok(());
-    };
-    match outcome.status {
-        DaemonShutdownStatus::Succeeded => Ok(()),
-        DaemonShutdownStatus::Failed => Err(anyhow!(
+    let previous_runtime = read_runtime_info(state_dir)
+        .context("could not verify previous remote daemon lifecycle metadata")?;
+    let outcome = read_shutdown_outcome(state_dir)
+        .context("could not verify previous remote daemon authorization finalization")?;
+    // Pre-lifecycle daemons did not publish an ID or a shutdown outcome. Their
+    // authorization lease is the only compatible handoff fence. Modern
+    // metadata must prove finalization for that exact daemon instance.
+    if let Some(expected_lifecycle_id) =
+        previous_runtime.as_ref().and_then(|runtime| runtime.lifecycle_id.as_deref())
+    {
+        if expected_lifecycle_id.is_empty() {
+            return Err(anyhow!(
+                "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id"
+            ));
+        }
+        let outcome = outcome.as_ref().ok_or_else(|| {
+            anyhow!(
+                "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome"
+            )
+        })?;
+        if outcome.lifecycle_id != expected_lifecycle_id {
+            return Err(anyhow!(
+                "could not verify previous remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
+            ));
+        }
+    }
+    match outcome.map(|outcome| outcome.status) {
+        None | Some(DaemonShutdownStatus::Succeeded) => Ok(()),
+        Some(DaemonShutdownStatus::Failed) => Err(anyhow!(
             "previous remote daemon authorization finalization failed; inspect the authorization state, then acknowledge it with remote-stop --acknowledge-failed-finalization"
         )),
     }
+}
+
+fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
+    match failures.len() {
+        0 => Ok(()),
+        1 => Err(failures.pop().expect("one shutdown failure is present")),
+        _ => Err(anyhow!(
+            "remote daemon shutdown encountered multiple failures: {}",
+            failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")
+        )),
+    }
+}
+
+async fn finish_daemon_shutdown(
+    mut transport_failures: Vec<anyhow::Error>,
+    authorization_finalization: impl Future<Output = Result<(), IdentityError>>,
+) -> anyhow::Result<()> {
+    if let Err(error) = authorization_finalization.await {
+        transport_failures
+            .push(anyhow::Error::new(error).context("authorization finalization failed"));
+    }
+    combine_shutdown_failures(transport_failures)
 }
 
 fn push_unique_route(routes: &mut Vec<String>, route: String) {
@@ -2111,6 +2163,15 @@ pub fn load_runtime_info(
     .context("remote daemon runtime metadata is invalid")
 }
 
+fn read_runtime_info(state_dir: &Path) -> Result<Option<DaemonRuntimeInfo>, IdentityError> {
+    let encoded = match fs::read(state_dir.join("runtime.json")) {
+        Ok(encoded) => encoded,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
+    serde_json::from_slice(&encoded).map(Some).map_err(IdentityError::Json)
+}
+
 fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
     let path = state_dir.join("shutdown.json");
     let encoded = match fs::read(&path) {
@@ -2157,20 +2218,35 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     let auth = AuthDatabase::load_or_create(state_dir.join("auth"), daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for recovery")?;
 
-    let runtime_path = state_dir.join("runtime.json");
-    match fs::symlink_metadata(&runtime_path) {
-        Ok(_) => {
-            return Err(anyhow!(
-                "refusing to acknowledge failed authorization finalization while runtime metadata is present"
-            ));
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!("could not verify runtime metadata {}", runtime_path.display())
-            });
+    let runtime = read_runtime_info(state_dir)
+        .context("could not verify remote daemon runtime metadata for recovery")?;
+    let outcome = read_shutdown_outcome(state_dir)
+        .context("could not verify remote daemon authorization finalization for recovery")?
+        .ok_or_else(|| anyhow!("no failed remote daemon authorization finalization is recorded"))?;
+    if outcome.status != DaemonShutdownStatus::Failed {
+        return Err(anyhow!(
+            "remote daemon authorization finalization succeeded and does not need acknowledgement"
+        ));
+    }
+    if let Some(runtime) = &runtime {
+        match runtime.lifecycle_id.as_deref() {
+            Some(lifecycle_id) if lifecycle_id == outcome.lifecycle_id => {}
+            Some(_) => {
+                return Err(anyhow!(
+                    "refusing to acknowledge failed authorization finalization because runtime metadata belongs to a different daemon lifecycle"
+                ));
+            }
+            None => {
+                return Err(anyhow!(
+                    "refusing to acknowledge failed authorization finalization with legacy runtime metadata"
+                ));
+            }
         }
     }
+    let (link_socket, admin_socket) = runtime
+        .as_ref()
+        .map(|runtime| (runtime.link_socket.as_path(), runtime.admin_socket.as_path()))
+        .unwrap_or((link_socket, admin_socket));
     for socket in [link_socket, admin_socket] {
         match UnixStream::connect(socket) {
             Ok(_) => {
@@ -2192,27 +2268,19 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         }
     }
 
-    let outcome = read_shutdown_outcome(state_dir)
-        .context("could not verify remote daemon authorization finalization for recovery")?
-        .ok_or_else(|| anyhow!("no failed remote daemon authorization finalization is recorded"))?;
-    if outcome.status != DaemonShutdownStatus::Failed {
-        return Err(anyhow!(
-            "remote daemon authorization finalization succeeded and does not need acknowledgement"
-        ));
-    }
     let lifecycle_id = outcome.lifecycle_id;
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
         if finalization.is_err() {
             return Ok(());
         }
-        remove_failed_shutdown_outcome(&cleanup_state_dir, &lifecycle_id)
+        remove_failed_shutdown_evidence(&cleanup_state_dir, &lifecycle_id)
     })
     .await
     .context("could not complete remote daemon authorization recovery")
 }
 
-fn remove_failed_shutdown_outcome(
+fn remove_failed_shutdown_evidence(
     state_dir: &Path,
     expected_lifecycle_id: &str,
 ) -> Result<(), IdentityError> {
@@ -2228,6 +2296,7 @@ fn remove_failed_shutdown_outcome(
             "remote daemon authorization finalization outcome changed during recovery".into(),
         ));
     }
+    remove_owned_runtime_info(state_dir, expected_lifecycle_id)?;
     match fs::remove_file(state_dir.join("shutdown.json")) {
         Ok(()) => sync_state_directory(state_dir),
         Err(error) => Err(IdentityError::Io(error)),
@@ -2607,6 +2676,25 @@ mod tests {
             providers.supported_client_auth("unix").unwrap(),
             SupportedClientAuthModes::DeviceOrCarrier
         );
+    }
+
+    #[tokio::test]
+    async fn daemon_shutdown_finalizes_authorization_after_transport_failure() {
+        let finalized = Arc::new(AtomicBool::new(false));
+        let observed = finalized.clone();
+        let result = finish_daemon_shutdown(
+            vec![anyhow!("injected transport shutdown failure")],
+            async move {
+                observed.store(true, Ordering::SeqCst);
+                Err(IdentityError::Invalid("injected authorization failure".into()))
+            },
+        )
+        .await;
+
+        assert!(finalized.load(Ordering::SeqCst));
+        let error = result.expect_err("shutdown failures were discarded").to_string();
+        assert!(error.contains("transport shutdown failure"), "{error}");
+        assert!(error.contains("authorization finalization failed"), "{error}");
     }
 
     #[cfg(unix)]

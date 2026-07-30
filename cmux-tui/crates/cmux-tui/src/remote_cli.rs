@@ -1824,8 +1824,11 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         }
     };
     if parsed.acknowledge_failed_finalization {
-        return Err(anyhow!(
-            "--acknowledge-failed-finalization is only valid after the daemon has stopped"
+        return tokio_runtime()?.block_on(acknowledge_failed_shutdown_outcome(
+            &state_dir,
+            &parsed.session,
+            &default_link,
+            &default_admin,
         ));
     }
     if !runtime.replaceable_sidecar {
@@ -3497,6 +3500,61 @@ mod tests {
 
         assert!(!runtime_path.exists());
         assert!(!outcome.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_refuses_mismatched_stale_runtime_finalization() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "reject-mismatched-stale-runtime";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        let runtime_path = state_dir.join("runtime.json");
+        fs::write(
+            &runtime_path,
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "stopped-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("runtime-lifecycle".into()),
+                replaceable_sidecar: true,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let outcome = state_dir.join("shutdown.json");
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "different-lifecycle",
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let error = run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("mismatched shutdown evidence was acknowledged");
+
+        assert!(error.to_string().contains("different daemon lifecycle"), "{error:#}");
+        assert!(runtime_path.exists());
+        assert!(outcome.exists());
     }
 
     #[test]
