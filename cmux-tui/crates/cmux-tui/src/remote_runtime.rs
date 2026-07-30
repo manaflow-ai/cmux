@@ -61,6 +61,7 @@ const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 
 #[cfg(test)]
 struct DaemonCleanupPause {
+    expected_state_dir: PathBuf,
     reached: mpsc::SyncSender<()>,
     resume: std::sync::Mutex<mpsc::Receiver<()>>,
 }
@@ -77,13 +78,14 @@ struct DaemonCleanupPauseHandle {
 
 #[cfg(test)]
 impl DaemonCleanupPauseHandle {
-    fn install() -> Self {
+    fn install(expected_state_dir: PathBuf) -> Self {
         let (reached_tx, reached) = mpsc::sync_channel(1);
         let (resume, resume_rx) = mpsc::sync_channel(1);
         let mut installed =
             DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(installed.is_none(), "a daemon cleanup pause is already installed");
         *installed = Some(Arc::new(DaemonCleanupPause {
+            expected_state_dir,
             reached: reached_tx,
             resume: std::sync::Mutex::new(resume_rx),
         }));
@@ -94,6 +96,27 @@ impl DaemonCleanupPauseHandle {
         self.reached
             .recv_timeout(Duration::from_secs(3))
             .expect("daemon shutdown did not reach the lifecycle cleanup pause");
+    }
+
+    fn assert_not_reached_before(&self, other_shutdown: &thread::JoinHandle<anyhow::Result<()>>) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            match self.reached.try_recv() {
+                Ok(()) => panic!("an unrelated daemon entered the lifecycle cleanup pause"),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    panic!("daemon lifecycle cleanup pause disconnected")
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+            if other_shutdown.is_finished() {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "unrelated daemon shutdown did not finish"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
     }
 
     fn resume(&mut self) {
@@ -112,7 +135,7 @@ impl Drop for DaemonCleanupPauseHandle {
 }
 
 #[cfg(test)]
-fn pause_after_daemon_auth_shutdown() {
+fn pause_after_daemon_auth_shutdown(_state_dir: &Path) {
     let pause =
         DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     if let Some(pause) = pause {
@@ -1847,7 +1870,7 @@ async fn run_daemon(
         let _ = fs::remove_file(state_dir.join("runtime.json"));
         auth.shutdown().await?;
         #[cfg(test)]
-        pause_after_daemon_auth_shutdown();
+        pause_after_daemon_auth_shutdown(&state_dir);
         Ok::<_, anyhow::Error>(())
     }
     .await;
@@ -2348,7 +2371,6 @@ mod tests {
     #[test]
     fn exiting_daemon_never_removes_successor_runtime_metadata() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
-        let mut pause = DaemonCleanupPauseHandle::install();
         let runtime = start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
@@ -2367,6 +2389,30 @@ mod tests {
         )
         .unwrap();
         let info = runtime.info().clone();
+        let mut pause = DaemonCleanupPauseHandle::install(info.state_dir.clone());
+
+        let unrelated_directory = tempfile::tempdir_in("/tmp").unwrap();
+        let unrelated = start_daemon_runtime(
+            unrelated_directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "unrelated-cleanup".into(),
+                state_dir: Some(unrelated_directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let unrelated_shutdown = thread::spawn(move || unrelated.shutdown());
+        pause.assert_not_reached_before(&unrelated_shutdown);
+        unrelated_shutdown.join().unwrap().unwrap();
+
         let shutdown = thread::spawn(move || runtime.shutdown());
         pause.wait_until_reached();
 

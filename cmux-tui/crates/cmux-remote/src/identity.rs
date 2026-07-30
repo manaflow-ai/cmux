@@ -2706,6 +2706,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pending_auth_persistence_keeps_only_the_newest_full_snapshot() {
+        const MUTATIONS: usize = 32;
+
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        let mut mutations = Vec::with_capacity(MUTATIONS);
+        mutations.push(tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        }));
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("first persistence write did not start");
+        for _ in 1..MUTATIONS {
+            mutations.push(tokio::spawn({
+                let database = database.clone();
+                async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+            }));
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.revision == MUTATIONS as u64 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("authorization mutations did not enter the persistence queue");
+
+        {
+            let persistence = database.persistence.lock_state();
+            assert_eq!(
+                persistence.pending.keys().copied().collect::<Vec<_>>(),
+                [MUTATIONS as u64],
+                "superseded full snapshots accumulated behind the blocked writer"
+            );
+        }
+        drop(blocked);
+        for mutation in mutations {
+            mutation.await.unwrap().unwrap();
+        }
+
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, MUTATIONS as u64);
+        assert_eq!(persisted.invitations.len(), MUTATIONS);
+        assert_eq!(database.test_persistence_writes_started(), 2);
+    }
+
+    #[tokio::test]
     async fn older_snapshot_cannot_overwrite_newer_identity_state() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("devices.json");
