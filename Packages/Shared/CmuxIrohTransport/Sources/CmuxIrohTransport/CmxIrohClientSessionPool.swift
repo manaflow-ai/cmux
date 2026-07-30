@@ -163,12 +163,11 @@ actor CmxIrohClientSessionPool {
             let connected: CmxIrohClientSession
             do {
                 connected = try await pending.task.value
+                // Keep the completed flight registered until its session is
+                // installed. Actor reentrancy below must not start a third dial.
                 guard lifecycleRevision == revision else {
                     await connected.close()
                     throw CancellationError()
-                }
-                if connectionTasks[key]?.id == pending.id {
-                    connectionTasks[key] = nil
                 }
             } catch {
                 if connectionTasks[key]?.id == pending.id {
@@ -178,6 +177,9 @@ actor CmxIrohClientSessionPool {
             }
 
             if let installed = sessions[key] {
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
                 if installed.session !== connected {
                     await connected.close()
                 }
@@ -187,9 +189,15 @@ actor CmxIrohClientSessionPool {
             if await connected.isClosed() {
                 await connected.close()
                 guard corpseRetriesRemaining > 0 else {
+                    if connectionTasks[key]?.id == pending.id {
+                        connectionTasks[key] = nil
+                    }
                     throw CmxIrohClientSessionError.alreadyClosed
                 }
                 corpseRetriesRemaining -= 1
+                if connectionTasks[key]?.id == pending.id {
+                    connectionTasks[key] = nil
+                }
                 continue redial
             }
 
@@ -235,6 +243,9 @@ actor CmxIrohClientSessionPool {
                 pathObservationTask: pathObservationTask,
                 pathEventObservationTask: pathEventObservationTask
             )
+            if connectionTasks[key]?.id == pending.id {
+                connectionTasks[key] = nil
+            }
             sessionOrder.removeAll { $0 == key }
             sessionOrder.append(key)
             recordSessionLifecycle(
