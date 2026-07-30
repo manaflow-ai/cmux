@@ -251,14 +251,13 @@ final class PhonePushClient {
         req.timeoutInterval = 10
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        guard let targetNamespace =
-            MobileIOSPairingTargetStore().selectedNamespace else {
-            return
+        if let targetNamespace =
+            MobileIOSPairingTargetStore().selectedNamespace {
+            req.setValue(
+                targetNamespace.bundleIdentifier,
+                forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
+            )
         }
-        req.setValue(
-            targetNamespace.bundleIdentifier,
-            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
-        )
         if let teamID, !teamID.isEmpty {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }

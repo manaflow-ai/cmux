@@ -56,7 +56,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
       key: input.key,
       nowSeconds: input.nowSeconds,
     }),
-    isEndpointBound: async () => true,
+    isEndpointAuthorized: async () => true,
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -64,13 +64,24 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
   };
 }
 
-function request(body: unknown, clientNamespace?: string): Request {
+function request(
+  body: unknown,
+  clientNamespace?: string,
+  includesBindingProof = false,
+): Request {
   return new Request("https://cmux.dev/api/relay/token", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(clientNamespace
         ? { "x-cmux-app-namespace": clientNamespace }
+        : {}),
+      ...(includesBindingProof
+        ? {
+          "x-cmux-iroh-binding-id": "123e4567-e89b-42d3-a456-426614174090",
+          "x-cmux-iroh-request-time": "1700000000",
+          "x-cmux-iroh-request-signature": "a".repeat(86),
+        }
         : {}),
     },
     body: JSON.stringify(body),
@@ -137,16 +148,19 @@ describe("POST /api/relay/token", () => {
           });
         },
       }),
-      isEndpointBound: async (input: {
+      isEndpointAuthorized: async (input: {
         accountId: string;
         endpointId: string;
+        clientNamespace: string;
         nowSeconds: number;
+        bindingProof: unknown;
       }) => {
         expect(input).toEqual({
           accountId: "account-a",
           endpointId: ENDPOINT_ID,
           clientNamespace: "legacy",
           nowSeconds: 1_700_000_000,
+          bindingProof: undefined,
         });
         return false;
       },
@@ -173,19 +187,19 @@ describe("POST /api/relay/token", () => {
   test("passes the exact app namespace into endpoint ownership checks", async () => {
     let checkedNamespace = "";
     const response = await handleRelayTokenRequest(
-      request({ endpointId: ENDPOINT_ID }, "dev.cmux.app.demo"),
+      request({ endpointId: ENDPOINT_ID }, "dev.cmux.app.demo", true),
       deps({
-        isEndpointBound: async (input) => {
+        isEndpointAuthorized: async (input) => {
           checkedNamespace = input.clientNamespace;
           return false;
         },
       }),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
     expect(checkedNamespace).toBe("dev.cmux.app.demo");
     const body = await response.json() as Record<string, unknown>;
-    expect(body.relayCredentials).toBeUndefined();
+    expect(body.error).toBe("invalid_binding_request_proof");
   });
 
   test("requires binding proof before accepting a namespaced endpoint claim", async () => {
@@ -193,6 +207,8 @@ describe("POST /api/relay/token", () => {
     const response = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }, "dev.cmux.app.demo"),
       deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-token",
         checkRateLimit: async () => {
           rateLimitChecks += 1;
           return { rateLimited: false };

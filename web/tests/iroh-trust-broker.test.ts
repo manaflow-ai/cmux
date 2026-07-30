@@ -26,6 +26,7 @@ import {
   sha256,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
+import { canIOSBindingForgetMac } from "../services/iroh/buildCompatibility";
 import {
   IROH_ACTIVE_BINDING_SANITY_CAP,
   type IrohBindingRecord,
@@ -1299,14 +1300,9 @@ class MemoryRepository implements IrohRepositoryShape {
         && candidate.userId === input.userId
         && !candidate.revokedAt);
       if (input.intent === "forget_mac") {
-        const sameBuildMac = authorized?.platform === "ios"
-          && row.platform === "mac"
-          && authorized.tag === row.tag
-          && (
-            row.clientNamespace === `mac:${authorized.tag}`
-            || row.clientNamespace === "legacy"
-          );
-        if (!sameBuildMac) return Effect.succeed(false);
+        if (!authorized || !canIOSBindingForgetMac(authorized, row)) {
+          return Effect.succeed(false);
+        }
         if (row.revokedAt) return Effect.succeed(true);
       } else {
         const sameDurableSlot = authorized

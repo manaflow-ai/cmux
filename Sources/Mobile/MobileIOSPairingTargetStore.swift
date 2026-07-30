@@ -18,7 +18,7 @@ struct MobileIOSPairingTargetStore {
     }
 
     var availableNamespaces: [MobileIOSAppNamespace] {
-        if macInstanceTag != "default" {
+        if !isOfficialMacLane {
             return [
                 MobileIOSAppNamespace(
                     pairedMacInstanceTag: macInstanceTag
@@ -40,7 +40,10 @@ struct MobileIOSPairingTargetStore {
            available.contains(namespace) {
             return namespace
         }
-        return available.first
+        // Existing Stable and Nightly installations did not persist an exact
+        // iOS target. Leave them unset so push delivery keeps the rollout-safe
+        // legacy fanout until the user explicitly selects one app.
+        return isOfficialMacLane ? nil : available.first
     }
 
     var selectedPairingURLScheme: CmxPairingURLScheme? {
@@ -55,5 +58,16 @@ struct MobileIOSPairingTargetStore {
         guard availableNamespaces.contains(namespace) else { return false }
         defaults.set(namespace.bundleIdentifier, forKey: Self.defaultsKey)
         return true
+    }
+
+    private var isOfficialMacLane: Bool {
+        switch macInstanceTag
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "default", "nightly":
+            true
+        default:
+            false
+        }
     }
 }

@@ -2666,7 +2666,7 @@ extension MobileIrohRuntimeComposition {
         expectedAccountID: String
     ) async throws {
         guard let auth else { throw MobileIrohForgetError.notAuthenticated }
-        if let instanceTag, instanceTag != tag {
+        if let instanceTag, !isCompatibleMacTag(instanceTag) {
             throw MobileIrohForgetError.incompatibleBuild
         }
         // Capture the account identity AND both tokens as one consistent snapshot
@@ -2707,7 +2707,7 @@ extension MobileIrohRuntimeComposition {
             guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
                 return false
             }
-            return binding.tag == tag
+            return isCompatibleMacTag(binding.tag)
                 && (instanceTag == nil || binding.tag == instanceTag)
         }
         for binding in matches {
@@ -2717,6 +2717,16 @@ extension MobileIrohRuntimeComposition {
             )
             try await broker.forgetMac(bindingID: binding.bindingID)
         }
+    }
+
+    private func isCompatibleMacTag(_ candidate: String?) -> Bool {
+        if let discoveryCompatibilityPolicy {
+            return discoveryCompatibilityPolicy.allows(instanceTag: candidate)
+        }
+        let normalized = candidate?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == tag.lowercased()
     }
 
     private func managementBindingAuthorization(

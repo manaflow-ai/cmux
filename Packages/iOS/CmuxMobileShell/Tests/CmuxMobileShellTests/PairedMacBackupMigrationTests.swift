@@ -5,6 +5,10 @@ import Testing
 @Suite(.serialized)
 struct PairedMacBackupMigrationTests {
     @Test func emptyV3CollectionAdoptsOneExplicitLegacyCollection() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
         let record = PairedMacBackupRecord(
             macDeviceID: "legacy-mac",
             displayName: "Legacy Mac",
@@ -32,7 +36,8 @@ struct PairedMacBackupMigrationTests {
             ),
             clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
             legacyClientScopeProvider: { nil },
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
         )
 
         let snapshot = try #require(
@@ -52,6 +57,10 @@ struct PairedMacBackupMigrationTests {
     }
 
     @Test func partiallyPopulatedV3CollectionReconcilesMissingLegacyRecords() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
         let current = PairedMacBackupRecord(
             macDeviceID: "current-mac",
             displayName: "Current Mac",
@@ -88,7 +97,8 @@ struct PairedMacBackupMigrationTests {
             ),
             clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
             legacyClientScopeProvider: { nil },
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
         )
 
         let snapshot = try #require(

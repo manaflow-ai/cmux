@@ -30,6 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
+import { canIOSBindingForgetMac } from "./buildCompatibility";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -664,14 +665,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             .limit(1);
           if (!authorized) return false;
           if (input.intent === "forget_mac") {
-            const sameBuildMac = authorized.platform === "ios"
-              && binding.platform === "mac"
-              && authorized.tag === binding.tag
-              && (
-                binding.clientNamespace === `mac:${authorized.tag}`
-                || binding.clientNamespace === "legacy"
-              );
-            if (!sameBuildMac) return false;
+            if (!canIOSBindingForgetMac(authorized, binding)) return false;
             if (binding.revokedAt) return true;
           } else {
             const sameDurableSlot = authorized.deviceUuid === binding.deviceUuid

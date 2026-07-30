@@ -272,7 +272,7 @@ function invoke(
   }
 }
 
-function parseBindingRequestProof(
+export function parseBindingRequestProof(
   request: Request,
   body: Uint8Array,
 ): IrohBindingRequestProof | undefined | Response {
