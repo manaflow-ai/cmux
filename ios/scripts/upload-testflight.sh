@@ -130,7 +130,6 @@ raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]
 PY
   then
     echo "error: signed IPA keychain-access-groups must contain exactly '$expected_app_id': $app" >&2
-    plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
