@@ -183,6 +183,13 @@ Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
+Every `browser.attach` frame also carries a required nullable
+`pointer_frame_seq`. A null token permits rendering but forbids pointer input.
+`browser.input.mouse` and `browser.input.wheel` require the exact non-null
+decimal token from the frame whose pixels supplied the coordinates. Repaint,
+navigation, and geometry changes can invalidate earlier tokens; invalid input
+fails closed instead of being retargeted to the latest frame.
+
 Every domain stream item union is open for SDK decoding. `session.events`,
 `terminal.attach`, `browser.attach`, and `sidebar_view.attach` expose an
 `Unknown` variant that retains the unrecognized discriminator and complete

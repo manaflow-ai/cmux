@@ -105,8 +105,28 @@ test "package consumer imports handwritten root and generated raw module" {
         "ws_0123456789abcdef0123456789abcdef",
         workspace.slice(),
     );
+    const pointer_frame_seq = std.math.maxInt(u64);
+    const mouse = cmux.BrowserMouseOptions{
+        .kind = .move,
+        .x_px = 12,
+        .y_px = 34,
+        .pointer_frame_seq = pointer_frame_seq,
+    };
+    const wheel = cmux.BrowserWheelOptions{
+        .delta_x = 0,
+        .delta_y = 1,
+        .pointer_frame_seq = pointer_frame_seq,
+    };
     try std.testing.expectEqual(
-        @as(usize, 87),
+        pointer_frame_seq,
+        mouse.pointer_frame_seq,
+    );
+    try std.testing.expectEqual(
+        pointer_frame_seq,
+        wheel.pointer_frame_seq,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 91),
         cmux.raw.protocol.command_count,
     );
     try std.testing.expectEqual(

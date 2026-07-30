@@ -27,14 +27,23 @@ class GeneratedClientMixin:
     def browser_forward(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-forward', BrowserForwardRequest(surface=surface))
 
+    def browser_frame_presented(self, surface: Id, frame_seq: int) -> EmptyResult:
+        return self._invoke_command('browser-frame-presented', BrowserFramePresentedRequest(surface=surface, frame_seq=frame_seq))
+
     def browser_insert_text(self, surface: Id, text: str) -> EmptyResult:
         return self._invoke_command('browser-insert-text', BrowserInsertTextRequest(surface=surface, text=text))
 
     def browser_key(self, surface: Id, kind: Literal['down', 'up'], key: str, code: str, windows_virtual_key_code: int, modifiers: int, *, text: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('browser-key', BrowserKeyRequest(surface=surface, kind=kind, key=key, code=code, windows_virtual_key_code=windows_virtual_key_code, modifiers=modifiers, text=text))
 
-    def browser_mouse(self, surface: Id, kind: Literal['down', 'up', 'move'], x_px: float, y_px: float, *, button: Union[str, None, MissingType] = MISSING, click_count: Union[int, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('browser-mouse', BrowserMouseRequest(surface=surface, kind=kind, x_px=x_px, y_px=y_px, button=button, click_count=click_count))
+    def browser_key_press(self, surface: Id, code: str, key: str, modifiers: int, windows_virtual_key_code: int, *, text: Union[str, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('browser-key-press', BrowserKeyPressRequest(surface=surface, code=code, key=key, modifiers=modifiers, windows_virtual_key_code=windows_virtual_key_code, text=text))
+
+    def browser_mouse(self, surface: Id, kind: Literal['down', 'up', 'move'], x_px: float, y_px: float, *, button: Union[str, None, MissingType] = MISSING, click_count: Union[int, None, MissingType] = MISSING, frame_seq: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('browser-mouse', BrowserMouseRequest(surface=surface, kind=kind, x_px=x_px, y_px=y_px, button=button, click_count=click_count, frame_seq=frame_seq))
+
+    def browser_mouse_guarded(self, surface: Id, frame_seq: int, kind: Literal['down', 'up', 'move'], x_px: float, y_px: float, *, button: Union[str, None, MissingType] = MISSING, click_count: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('browser-mouse-guarded', BrowserMouseGuardedRequest(surface=surface, frame_seq=frame_seq, kind=kind, x_px=x_px, y_px=y_px, button=button, click_count=click_count))
 
     def browser_navigate(self, surface: Id, url: str) -> EmptyResult:
         return self._invoke_command('browser-navigate', BrowserNavigateRequest(surface=surface, url=url))
@@ -42,8 +51,11 @@ class GeneratedClientMixin:
     def browser_reload(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-reload', BrowserReloadRequest(surface=surface))
 
-    def browser_wheel(self, surface: Id, x_px: float, y_px: float, delta_y_px: float) -> EmptyResult:
-        return self._invoke_command('browser-wheel', BrowserWheelRequest(surface=surface, x_px=x_px, y_px=y_px, delta_y_px=delta_y_px))
+    def browser_wheel(self, surface: Id, x_px: float, y_px: float, delta_y_px: float, *, frame_seq: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('browser-wheel', BrowserWheelRequest(surface=surface, x_px=x_px, y_px=y_px, delta_y_px=delta_y_px, frame_seq=frame_seq))
+
+    def browser_wheel_guarded(self, surface: Id, delta_y_px: float, frame_seq: int, x_px: float, y_px: float) -> EmptyResult:
+        return self._invoke_command('browser-wheel-guarded', BrowserWheelGuardedRequest(surface=surface, delta_y_px=delta_y_px, frame_seq=frame_seq, x_px=x_px, y_px=y_px))
 
     def clear_history(self, surface: Id, *, fallback_key: Union[TerminalKeyInput, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('clear-history', ClearHistoryRequest(surface=surface, fallback_key=fallback_key))
@@ -222,8 +234,8 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, capabilities=capabilities))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
@@ -279,12 +291,16 @@ GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface'
 GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activate']
 GeneratedClientMixin.browser_back.__cmux_command__ = COMMANDS['browser-back']
 GeneratedClientMixin.browser_forward.__cmux_command__ = COMMANDS['browser-forward']
+GeneratedClientMixin.browser_frame_presented.__cmux_command__ = COMMANDS['browser-frame-presented']
 GeneratedClientMixin.browser_insert_text.__cmux_command__ = COMMANDS['browser-insert-text']
 GeneratedClientMixin.browser_key.__cmux_command__ = COMMANDS['browser-key']
+GeneratedClientMixin.browser_key_press.__cmux_command__ = COMMANDS['browser-key-press']
 GeneratedClientMixin.browser_mouse.__cmux_command__ = COMMANDS['browser-mouse']
+GeneratedClientMixin.browser_mouse_guarded.__cmux_command__ = COMMANDS['browser-mouse-guarded']
 GeneratedClientMixin.browser_navigate.__cmux_command__ = COMMANDS['browser-navigate']
 GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload']
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
+GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
 GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']

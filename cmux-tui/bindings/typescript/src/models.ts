@@ -716,6 +716,8 @@ export interface BrowserAttachFrame {
   readonly dataBase64: string;
   readonly widthPx: number;
   readonly heightPx: number;
+  /** Exact pointer-authority token for these pixels, or null when input is blocked. */
+  readonly pointerFrameSeq: DecimalString | null;
 }
 
 export interface BrowserAttachState {

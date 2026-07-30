@@ -12,7 +12,7 @@ import {
 test("generated protocol coverage matches the canonical v10 IR", () => {
   assert.equal(MUX_PROTOCOL_VERSION, 10);
   assert.equal(SDK_SCHEMA_VERSION, 2);
-  assert.equal(Object.keys(COMMAND_METADATA).length, 87);
+  assert.equal(Object.keys(COMMAND_METADATA).length, 91);
   assert.equal(Object.keys(EVENT_METADATA).length, 44);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [
@@ -41,6 +41,17 @@ test("every generated command carries authority and version metadata", () => {
 });
 
 test("generated command metadata exposes gated request fields", () => {
+  for (const command of [
+    "browser-frame-presented",
+    "browser-mouse-guarded",
+    "browser-wheel-guarded",
+  ] as const) {
+    assert.equal(
+      COMMAND_METADATA[command].capability,
+      "browser-pointer-frame-guard-v1",
+    );
+    assert.equal(COMMAND_METADATA[command].since, 10);
+  }
   assert.deepEqual(COMMAND_METADATA.send.fields.paste, {
     since: 7,
     capability: null,

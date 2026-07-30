@@ -14,6 +14,7 @@ import {
   type BrowserId,
   type BrowserMouseOptions,
   type BrowserSnapshot,
+  type BrowserWheelOptions,
   type CreatedBrowserPath,
   type CreationResolution,
   type DecimalString,
@@ -32,16 +33,12 @@ export interface BrowserKeyInput {
   readonly modifiers?: readonly ("shift" | "control" | "alt" | "meta")[];
 }
 
-export interface BrowserWheelInput {
-  readonly deltaX: number;
-  readonly deltaY: number;
-  readonly xPx: number;
-  readonly yPx: number;
-}
+export type BrowserWheelInput = BrowserWheelOptions;
 
 export interface BrowserFrameSnapshot {
   readonly browserId: BrowserId;
   readonly sequence: DecimalString;
+  readonly pointerFrameSeq: DecimalString | null;
   readonly mimeType: BrowserAttachFrame["mimeType"];
   readonly widthPx: number;
   readonly heightPx: number;
@@ -282,11 +279,7 @@ export class BrowserController {
   async wheel(browserId: BrowserId, input: BrowserWheelInput): Promise<void> {
     await this.withBrowser(
       browserId,
-      (browser) => browser.wheel(
-        input.deltaX,
-        input.deltaY,
-        { xPx: input.xPx, yPx: input.yPx },
-      ),
+      (browser) => browser.wheel(input),
     );
   }
 
@@ -325,6 +318,7 @@ export class BrowserController {
             await observer.onFrame?.({
               browserId,
               sequence: item.sequence,
+              pointerFrameSeq: event.pointerFrameSeq,
               mimeType: event.mimeType,
               widthPx: event.widthPx,
               heightPx: event.heightPx,

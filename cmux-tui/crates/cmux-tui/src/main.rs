@@ -41,6 +41,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
@@ -250,7 +251,7 @@ cmux - terminal multiplexer and resource client
 
 USAGE
   cmux [OPTIONS]           Start a session
-  cmux attach [OPTIONS]    Attach to a session
+  cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
   cmux <scope> --help      Discover resource commands
@@ -258,6 +259,7 @@ USAGE
 START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
+  --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -299,6 +301,7 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
+    terminal: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -334,6 +337,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         attach: false,
         session: "main".to_string(),
         socket: None,
+        terminal: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -362,6 +366,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--socket" => {
                 out.socket =
                     Some(args.next().ok_or_else(|| "--socket needs a value".to_string())?.into());
+            }
+            "--terminal" => {
+                out.terminal =
+                    Some(args.next().ok_or_else(|| "--terminal needs a value".to_string())?);
             }
             "--machine-provider" => {
                 if out.machine_provider.is_some() {
@@ -444,6 +452,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
+    }
+    if out.terminal.is_some() && !out.attach {
+        return Err("--terminal requires `cmux attach`".to_string());
     }
     Ok(out)
 }
@@ -726,8 +737,44 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    let remote = RemoteSession::connect(&socket_path)?;
-    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote), None)
+    let messages = &localization::catalog().attach;
+    let terminal = args
+        .terminal
+        .as_deref()
+        .map(|reference| {
+            TerminalPublicId::parse(reference.to_string())
+                .map_err(|_| anyhow::anyhow!(messages.unknown_terminal(reference)))
+        })
+        .transpose()?;
+    let remote = if terminal.is_some() {
+        RemoteSession::connect_for_terminal_attach(&socket_path)?
+    } else {
+        RemoteSession::connect(&socket_path)?
+    };
+    let surface_only = if let Some(terminal) = terminal.as_ref() {
+        let tree = remote.refresh_tree()?;
+        let surface = tree
+            .resolve_terminal(terminal)
+            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
+        if !remote.supports_surface_subscription_filter() {
+            anyhow::bail!(messages.filtered_subscription_unavailable);
+        }
+        remote.scope_events_to_surface(surface)?;
+        let tree = remote.refresh_tree()?;
+        if tree.resolve_terminal(terminal) != Some(surface) {
+            anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
+        }
+        Some(surface)
+    } else {
+        None
+    };
+    run_connected_session_client(
+        socket_path,
+        args.session,
+        config,
+        Session::Remote(remote),
+        surface_only,
+    )
 }
 
 /// Copy the control protocol byte-for-byte between stdio and a local session.
@@ -1618,9 +1665,21 @@ mod tests {
     }
 
     #[test]
+    fn terminal_attach_is_scoped_to_attach_mode() {
+        let terminal = "term_0123456789abcdef0123456789abcdef";
+        let parsed = args(&["attach", "--session", "agents", "--terminal", terminal]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
+        assert_eq!(parsed.terminal.as_deref(), Some(terminal));
+        assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
+        assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
     fn startup_help_stays_focused_on_process_modes() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
         assert!(english.contains("cmux <scope> --help"));
+        assert!(english.contains("--terminal <id>"));
         assert!(!english.contains("cmux-tui"));
         assert!(!english.contains("KEYS"));
         assert!(!english.contains("CLI VERBS"));

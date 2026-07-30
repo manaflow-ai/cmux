@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de. */
+/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
 
 
 import type * as T from "./types.js";
@@ -64,6 +64,14 @@ export interface BrowserForwardRequest extends CmuxRequestBase {
 }
 export type BrowserForwardResult = T.EmptyResult;
 
+/** Protocol v10; authority: frontend. */
+export interface BrowserFramePresentedRequest extends CmuxRequestBase {
+  cmd: "browser-frame-presented";
+  "frame_seq": bigint;
+  "surface": T.Id;
+}
+export type BrowserFramePresentedResult = T.EmptyResult;
+
 /** Protocol v6; authority: frontend. */
 export interface BrowserInsertTextRequest extends CmuxRequestBase {
   cmd: "browser-insert-text";
@@ -85,17 +93,43 @@ export interface BrowserKeyRequest extends CmuxRequestBase {
 }
 export type BrowserKeyResult = T.EmptyResult;
 
+/** Protocol v10; authority: frontend. */
+export interface BrowserKeyPressRequest extends CmuxRequestBase {
+  cmd: "browser-key-press";
+  "code": string;
+  "key": string;
+  "modifiers": number;
+  "surface": T.Id;
+  "text"?: (string) | null;
+  "windows_virtual_key_code": number;
+}
+export type BrowserKeyPressResult = T.EmptyResult;
+
 /** Protocol v6; authority: frontend. */
 export interface BrowserMouseRequest extends CmuxRequestBase {
   cmd: "browser-mouse";
   "button"?: (string) | null;
   "click_count"?: (number) | null;
+  "frame_seq"?: (bigint) | null;
   "kind": "down" | "up" | "move";
   "surface": T.Id;
   "x_px": number;
   "y_px": number;
 }
 export type BrowserMouseResult = T.EmptyResult;
+
+/** Protocol v10; authority: frontend. */
+export interface BrowserMouseGuardedRequest extends CmuxRequestBase {
+  cmd: "browser-mouse-guarded";
+  "button"?: (string) | null;
+  "click_count"?: (number) | null;
+  "frame_seq": bigint;
+  "kind": "down" | "up" | "move";
+  "surface": T.Id;
+  "x_px": number;
+  "y_px": number;
+}
+export type BrowserMouseGuardedResult = T.EmptyResult;
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserNavigateRequest extends CmuxRequestBase {
@@ -116,11 +150,23 @@ export type BrowserReloadResult = T.EmptyResult;
 export interface BrowserWheelRequest extends CmuxRequestBase {
   cmd: "browser-wheel";
   "delta_y_px": number;
+  "frame_seq"?: (bigint) | null;
   "surface": T.Id;
   "x_px": number;
   "y_px": number;
 }
 export type BrowserWheelResult = T.EmptyResult;
+
+/** Protocol v10; authority: frontend. */
+export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
+  cmd: "browser-wheel-guarded";
+  "delta_y_px": number;
+  "frame_seq": bigint;
+  "surface": T.Id;
+  "x_px": number;
+  "y_px": number;
+}
+export type BrowserWheelGuardedResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface ClearHistoryRequest extends CmuxRequestBase {
@@ -631,6 +677,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 /** Protocol v6; authority: control. */
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
+  "capabilities"?: (Array<string>) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
 }
@@ -781,12 +828,16 @@ export type CmuxRequest =
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
+  | BrowserFramePresentedRequest
   | BrowserInsertTextRequest
   | BrowserKeyRequest
+  | BrowserKeyPressRequest
   | BrowserMouseRequest
+  | BrowserMouseGuardedRequest
   | BrowserNavigateRequest
   | BrowserReloadRequest
   | BrowserWheelRequest
+  | BrowserWheelGuardedRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClosePaneRequest
@@ -906,6 +957,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "browser-frame-presented": {
+    request: BrowserFramePresentedRequest;
+    result: BrowserFramePresentedResult;
+    authority: "frontend";
+    since: 10;
+    capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
   "browser-insert-text": {
     request: BrowserInsertTextRequest;
     result: BrowserInsertTextResult;
@@ -922,12 +981,28 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "browser-key-press": {
+    request: BrowserKeyPressRequest;
+    result: BrowserKeyPressResult;
+    authority: "frontend";
+    since: 10;
+    capability: null;
+    stream: null;
+  };
   "browser-mouse": {
     request: BrowserMouseRequest;
     result: BrowserMouseResult;
     authority: "frontend";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "browser-mouse-guarded": {
+    request: BrowserMouseGuardedRequest;
+    result: BrowserMouseGuardedResult;
+    authority: "frontend";
+    since: 10;
+    capability: "browser-pointer-frame-guard-v1";
     stream: null;
   };
   "browser-navigate": {
@@ -952,6 +1027,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "browser-wheel-guarded": {
+    request: BrowserWheelGuardedRequest;
+    result: BrowserWheelGuardedResult;
+    authority: "frontend";
+    since: 10;
+    capability: "browser-pointer-frame-guard-v1";
     stream: null;
   };
   "clear-history": {

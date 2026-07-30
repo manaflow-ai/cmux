@@ -400,6 +400,17 @@ def _required_decimal(payload: Mapping[str, Any], key: str) -> str:
     return value
 
 
+def _required_nullable_decimal_int(
+    payload: Mapping[str, Any],
+    key: str,
+) -> Optional[int]:
+    if key not in payload:
+        raise ProtocolError(f"resource result omitted required field {key}")
+    if payload[key] is None:
+        return None
+    return int(_required_decimal(payload, key))
+
+
 def _required_generation(payload: Mapping[str, Any], key: str) -> str:
     value = _required_string(payload, key)
     if not 1 <= len(value) <= 128:
@@ -1875,7 +1886,14 @@ def _browser_attach_item(value: Any) -> BrowserAttachItem:
     if kind == "frame":
         _strict_object(
             payload,
-            ("kind", "mime_type", "data_base64", "width_px", "height_px"),
+            (
+                "kind",
+                "mime_type",
+                "data_base64",
+                "width_px",
+                "height_px",
+                "pointer_frame_seq",
+            ),
             "browser attach frame",
         )
         data = _required_string(payload, "data_base64")
@@ -1893,6 +1911,7 @@ def _browser_attach_item(value: Any) -> BrowserAttachItem:
             data,
             _required_positive_uint32(payload, "width_px"),
             _required_positive_uint32(payload, "height_px"),
+            _required_nullable_decimal_int(payload, "pointer_frame_seq"),
         )
     if kind == "state":
         _strict_object(
@@ -4026,9 +4045,14 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
         *,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationReceipt:
+        params = _options(options)
+        params["pointer_frame_seq"] = _decimal_param(
+            options.pointer_frame_seq,
+            "pointer_frame_seq",
+        )
         return self._client._mutation(
             Operations.BROWSER_INPUT_MOUSE,
-            {**self._params(), **_options(options)},
+            {**self._params(), **params},
             idempotency_key,
             expected_revision,
             _empty_result,
@@ -4041,6 +4065,7 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
         *,
         x_px: float,
         y_px: float,
+        pointer_frame_seq: int,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationReceipt:
         return self._client._mutation(
@@ -4051,6 +4076,10 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
                 "delta_y": delta_y,
                 "x_px": x_px,
                 "y_px": y_px,
+                "pointer_frame_seq": _decimal_param(
+                    pointer_frame_seq,
+                    "pointer_frame_seq",
+                ),
             },
             idempotency_key,
             expected_revision,

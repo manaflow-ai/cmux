@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Open typed union for browser attachment items. */
 public sealed interface BrowserAttachmentItem permits
@@ -28,11 +29,13 @@ public sealed interface BrowserAttachmentItem permits
         }
     }
 
+    /** Pixels plus their exact pointer token, empty when input is blocked. */
     record Frame(
         String mimeType,
         byte[] data,
         long widthPx,
-        long heightPx
+        long heightPx,
+        Optional<Decimal> pointerFrameSeq
     ) implements BrowserAttachmentItem {
         public Frame {
             if (!List.of("image/png", "image/jpeg").contains(mimeType)) {
@@ -41,6 +44,9 @@ public sealed interface BrowserAttachmentItem permits
             data = Arrays.copyOf(data, data.length);
             positiveUint32(widthPx, "widthPx");
             positiveUint32(heightPx, "heightPx");
+            pointerFrameSeq = pointerFrameSeq == null
+                ? Optional.empty()
+                : pointerFrameSeq;
         }
 
         @Override

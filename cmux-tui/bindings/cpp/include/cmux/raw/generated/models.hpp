@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de";
+inline constexpr std::string_view kProtocolIrSha256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -102,12 +102,16 @@ struct AttachSurfaceRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
+struct BrowserFramePresentedRequest;
 struct BrowserInsertTextRequest;
 struct BrowserKeyRequest;
+struct BrowserKeyPressRequest;
 struct BrowserMouseRequest;
+struct BrowserMouseGuardedRequest;
 struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
+struct BrowserWheelGuardedRequest;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClosePaneRequest;
@@ -244,6 +248,7 @@ enum class TabKind;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
+enum class BrowserMouseGuardedRequestKind;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
@@ -382,10 +387,26 @@ struct BrowserFrame {
     friend bool operator==(const BrowserFrame&, const BrowserFrame&) = default;
 };
 
+struct BrowserFramePresentedRequest {
+    std::uint64_t frame_seq{};
+    Id surface{};
+    friend bool operator==(const BrowserFramePresentedRequest&, const BrowserFramePresentedRequest&) = default;
+};
+
 struct BrowserInsertTextRequest {
     Id surface{};
     std::string text{};
     friend bool operator==(const BrowserInsertTextRequest&, const BrowserInsertTextRequest&) = default;
+};
+
+struct BrowserKeyPressRequest {
+    std::string code{};
+    std::string key{};
+    std::uint32_t modifiers{};
+    Id surface{};
+    Field<std::string> text{};
+    std::uint32_t windows_virtual_key_code{};
+    friend bool operator==(const BrowserKeyPressRequest&, const BrowserKeyPressRequest&) = default;
 };
 
 enum class BrowserKeyRequestKind {
@@ -404,6 +425,23 @@ struct BrowserKeyRequest {
     friend bool operator==(const BrowserKeyRequest&, const BrowserKeyRequest&) = default;
 };
 
+enum class BrowserMouseGuardedRequestKind {
+    down,
+    up,
+    move,
+};
+
+struct BrowserMouseGuardedRequest {
+    Field<std::string> button{};
+    Field<std::uint32_t> click_count{};
+    std::uint64_t frame_seq{};
+    BrowserMouseGuardedRequestKind kind{};
+    Id surface{};
+    double x_px{};
+    double y_px{};
+    friend bool operator==(const BrowserMouseGuardedRequest&, const BrowserMouseGuardedRequest&) = default;
+};
+
 enum class BrowserMouseRequestKind {
     down,
     up,
@@ -413,6 +451,7 @@ enum class BrowserMouseRequestKind {
 struct BrowserMouseRequest {
     Field<std::string> button{};
     Field<std::uint32_t> click_count{};
+    Field<std::uint64_t> frame_seq{};
     BrowserMouseRequestKind kind{};
     Id surface{};
     double x_px{};
@@ -450,8 +489,18 @@ struct BrowserStateEvent {
     friend bool operator==(const BrowserStateEvent&, const BrowserStateEvent&) = default;
 };
 
+struct BrowserWheelGuardedRequest {
+    double delta_y_px{};
+    std::uint64_t frame_seq{};
+    Id surface{};
+    double x_px{};
+    double y_px{};
+    friend bool operator==(const BrowserWheelGuardedRequest&, const BrowserWheelGuardedRequest&) = default;
+};
+
 struct BrowserWheelRequest {
     double delta_y_px{};
+    Field<std::uint64_t> frame_seq{};
     Id surface{};
     double x_px{};
     double y_px{};
@@ -1125,6 +1174,7 @@ struct Tab {
     Id surface{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    Field<std::string> terminal_resource_id{};
     std::string title{};
     friend bool operator==(const Tab&, const Tab&) = default;
 };
@@ -1705,6 +1755,7 @@ struct SetCellPixelsResult {
 };
 
 struct SetClientInfoRequest {
+    Field<std::vector<std::string>> capabilities{};
     Field<std::string> kind{};
     Field<std::string> name{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
@@ -2596,6 +2647,12 @@ struct Codec<BrowserForwardRequest> {
 };
 
 template <>
+struct Codec<BrowserFramePresentedRequest> {
+    static Result<Json> encode(const BrowserFramePresentedRequest& value);
+    static Result<BrowserFramePresentedRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserInsertTextRequest> {
     static Result<Json> encode(const BrowserInsertTextRequest& value);
     static Result<BrowserInsertTextRequest> decode(const Json& value);
@@ -2608,9 +2665,21 @@ struct Codec<BrowserKeyRequest> {
 };
 
 template <>
+struct Codec<BrowserKeyPressRequest> {
+    static Result<Json> encode(const BrowserKeyPressRequest& value);
+    static Result<BrowserKeyPressRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserMouseRequest> {
     static Result<Json> encode(const BrowserMouseRequest& value);
     static Result<BrowserMouseRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserMouseGuardedRequest> {
+    static Result<Json> encode(const BrowserMouseGuardedRequest& value);
+    static Result<BrowserMouseGuardedRequest> decode(const Json& value);
 };
 
 template <>
@@ -2629,6 +2698,12 @@ template <>
 struct Codec<BrowserWheelRequest> {
     static Result<Json> encode(const BrowserWheelRequest& value);
     static Result<BrowserWheelRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserWheelGuardedRequest> {
+    static Result<Json> encode(const BrowserWheelGuardedRequest& value);
+    static Result<BrowserWheelGuardedRequest> decode(const Json& value);
 };
 
 template <>
@@ -3445,6 +3520,12 @@ template <>
 struct Codec<BrowserMouseRequestKind> {
     static Result<Json> encode(const BrowserMouseRequestKind& value);
     static Result<BrowserMouseRequestKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserMouseGuardedRequestKind> {
+    static Result<Json> encode(const BrowserMouseGuardedRequestKind& value);
+    static Result<BrowserMouseGuardedRequestKind> decode(const Json& value);
 };
 
 template <>

@@ -707,6 +707,7 @@ class Tab:
     short_id: Union[str, MissingType] = field(default=MISSING)
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -894,6 +895,13 @@ class BrowserForwardRequest:
 
 
 @dataclass(frozen=True)
+class BrowserFramePresentedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-frame-presented/request'
+    surface: Id
+    frame_seq: int
+
+
+@dataclass(frozen=True)
 class BrowserInsertTextRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-insert-text/request'
     surface: Id
@@ -913,9 +921,33 @@ class BrowserKeyRequest:
 
 
 @dataclass(frozen=True)
+class BrowserKeyPressRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-key-press/request'
+    surface: Id
+    code: str
+    key: str
+    modifiers: int
+    windows_virtual_key_code: int
+    text: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class BrowserMouseRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-mouse/request'
     surface: Id
+    kind: Literal['down', 'up', 'move']
+    x_px: float
+    y_px: float
+    button: Union[str, None, MissingType] = field(default=MISSING)
+    click_count: Union[int, None, MissingType] = field(default=MISSING)
+    frame_seq: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserMouseGuardedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-mouse-guarded/request'
+    surface: Id
+    frame_seq: int
     kind: Literal['down', 'up', 'move']
     x_px: float
     y_px: float
@@ -943,6 +975,17 @@ class BrowserWheelRequest:
     x_px: float
     y_px: float
     delta_y_px: float
+    frame_seq: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserWheelGuardedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-wheel-guarded/request'
+    surface: Id
+    delta_y_px: float
+    frame_seq: int
+    x_px: float
+    y_px: float
 
 
 @dataclass(frozen=True)
@@ -1427,6 +1470,7 @@ class SetClientInfoRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-client-info/request'
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
+    capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2142,12 +2186,16 @@ __all__ = [
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',
+    'BrowserFramePresentedRequest',
     'BrowserInsertTextRequest',
     'BrowserKeyRequest',
+    'BrowserKeyPressRequest',
     'BrowserMouseRequest',
+    'BrowserMouseGuardedRequest',
     'BrowserNavigateRequest',
     'BrowserReloadRequest',
     'BrowserWheelRequest',
+    'BrowserWheelGuardedRequest',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClosePaneRequest',

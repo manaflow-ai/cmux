@@ -169,6 +169,24 @@ viewer state cannot accidentally be changed through the control client.
 Session event streams accept a resume cursor. Attachment options configure
 initial read-only state and terminal or browser dimensions.
 
+Every browser `frame` item requires a `pointer_frame_seq` field on the wire.
+The SDK exposes it as `?u64`: `null` keeps the bitmap renderable but disables
+pointer input. After presenting a frame, pass its exact non-null token to every
+mouse or wheel input. The SDK serializes the required token as an unsigned
+decimal string, including values above JSON's safe integer range.
+
+```zig
+const pointer_frame_seq = frame.pointer_frame_seq orelse
+    return error.PointerInputUnavailable;
+var sent = try browser.sendBrowserMouse(.{
+    .kind = .move,
+    .x_px = 240,
+    .y_px = 120,
+    .pointer_frame_seq = pointer_frame_seq,
+}, cmux.MutationOptions.random());
+defer sent.deinit();
+```
+
 Catalog errors use the `ResourceErrorDetails` tagged union. For example,
 `selector_ambiguous.candidates` contains typed `ErrorResourceId` values and
 `mutation_indeterminate` exposes its operation, idempotency key, and recovery

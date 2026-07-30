@@ -1,6 +1,7 @@
 use std::io::{Cursor, Write};
 use std::sync::OnceLock;
 
+use cmux_tui_core::BrowserFailure;
 use cmux_tui_machine_protocol::provider_action_id;
 use unicode_width::UnicodeWidthStr;
 
@@ -107,6 +108,33 @@ pub(crate) struct ShortcutMessages {
     pub title: &'static str,
     pub close_button: &'static str,
     pub footer: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BrowserMessages {
+    failed_prefix: &'static str,
+    not_responding: &'static str,
+    resize_recovery: &'static str,
+    new_page_verification_prefix: &'static str,
+    updated_page_verification_prefix: &'static str,
+    verification_suffix: &'static str,
+}
+
+impl BrowserMessages {
+    pub(crate) fn failure_message(&self, failure: BrowserFailure<'_>) -> String {
+        match failure {
+            BrowserFailure::NotResponding => self.not_responding.to_string(),
+            BrowserFailure::ResizeRecovery => self.resize_recovery.to_string(),
+            BrowserFailure::NewPageVerification(detail) => {
+                format!("{}{detail}{}", self.new_page_verification_prefix, self.verification_suffix)
+            }
+            BrowserFailure::UpdatedPageVerification(detail) => format!(
+                "{}{detail}{}",
+                self.updated_page_verification_prefix, self.verification_suffix
+            ),
+            BrowserFailure::Other(detail) => format!("{}{detail}", self.failed_prefix),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -255,7 +283,6 @@ pub(crate) struct AttachMessages {
 }
 
 impl AttachMessages {
-    #[cfg(test)]
     pub fn unknown_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
@@ -438,6 +465,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
     pub config: ConfigMessages,
@@ -541,6 +569,14 @@ edits shell files. Authenticate with the configured host before retrying.
         close_button: "Esc close",
         footer: "↑/↓ or wheel scroll · Esc or ? close",
     },
+    browser: BrowserMessages {
+        failed_prefix: "browser failed: ",
+        not_responding: "browser failed: browser is not responding",
+        resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
+        new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
+        updated_page_verification_prefix: "browser failed: could not verify updated page pixels: ",
+        verification_suffix: "; reload to retry",
+    },
     layout: LayoutMessages {
         startup_shortcuts: "  g  new 2/3 column right   U    undo layout",
         verb_help_heading: "VERB HELP",
@@ -593,9 +629,9 @@ edits shell files. Authenticate with the configured host before retrying.
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -773,6 +809,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         close_button: "Esc 閉じる",
         footer: "↑/↓ またはホイールでスクロール · Esc または ? で閉じる",
     },
+    browser: BrowserMessages {
+        failed_prefix: "ブラウザでエラーが発生しました: ",
+        not_responding: "ブラウザが応答していません",
+        resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+        new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
+        updated_page_verification_prefix: "更新後のページ表示を確認できませんでした: ",
+        verification_suffix: "。再読み込みして再試行してください",
+    },
     layout: LayoutMessages {
         startup_shortcuts: "  g  右に 2/3 幅の列を追加   U    レイアウトを元に戻す",
         verb_help_heading: "コマンドヘルプ",
@@ -825,9 +869,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -950,16 +994,32 @@ mod tests {
         assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
         assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
         assert_eq!(
+            ENGLISH.terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+        assert_eq!(
+            ENGLISH.terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            JAPANESE.terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+        assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),
@@ -1182,6 +1242,18 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_discard_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_destination_changed,
+            "Deferred input was discarded because its destination changed"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_destination_changed,
+            "遅延入力は送信先が変更されたため破棄されました"
+        );
+    }
+
+    #[test]
     fn option_mode_config_warning_is_localized() {
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
@@ -1191,6 +1263,49 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
             "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
         );
+    }
+
+    #[test]
+    fn deferred_input_overflow_status_is_catalog_backed() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_queue_full,
+            "Input queue byte limit reached while a session change is pending"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_queue_full,
+            "セッション変更の保留中に入力キューのバイト上限に達しました"
+        );
+    }
+
+    #[test]
+    fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
+        let cases = [
+            (
+                "browser resize recovery failed; reload to retry",
+                "browser failed: browser resize recovery failed; reload to retry",
+                "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify new page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify new page pixels: capture timed out; reload to retry",
+                "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+            (
+                "could not verify updated page pixels: capture timed out; reload to retry",
+                "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
+                "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
+            ),
+        ];
+
+        for (error, english, japanese) in cases {
+            let status = cmux_tui_core::BrowserStatus::Failed(error.to_string());
+            let failure = status.failure().expect("failed status");
+            assert_eq!(catalog_for_locale("en_US.UTF-8").browser.failure_message(failure), english);
+            assert_eq!(
+                catalog_for_locale("ja_JP.UTF-8").browser.failure_message(failure),
+                japanese
+            );
+        }
     }
 
     #[test]

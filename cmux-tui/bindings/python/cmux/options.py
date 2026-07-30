@@ -202,6 +202,7 @@ class BrowserMouseOptions:
     kind: str
     x_px: float
     y_px: float
+    pointer_frame_seq: int
     button: Optional[str] = None
     click_count: Optional[int] = None
 

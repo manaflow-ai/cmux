@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de";
+pub const ir_sha256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -827,6 +827,7 @@ pub const Tab = struct {
     surface: Id,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: wire.Field([]const u8) = .absent,
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -1503,6 +1504,26 @@ pub fn browserForward(client: anytype, request: BrowserForwardRequest) !wire.Dec
     );
 }
 
+pub const BrowserFramePresentedRequest = struct {
+    frame_seq: u64,
+    surface: Id,
+};
+
+pub const BrowserFramePresentedResult = EmptyResult;
+
+pub fn browserFramePresented(client: anytype, request: BrowserFramePresentedRequest) !wire.Decoded(BrowserFramePresentedResult) {
+    return client.callTyped(
+        BrowserFramePresentedResult,
+        .{
+            .name = "browser-frame-presented",
+            .authority = "frontend",
+            .since = 10,
+            .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
 pub const BrowserInsertTextRequest = struct {
     surface: Id,
     text: []const u8,
@@ -1566,6 +1587,30 @@ pub fn browserKey(client: anytype, request: BrowserKeyRequest) !wire.Decoded(Bro
     );
 }
 
+pub const BrowserKeyPressRequest = struct {
+    code: []const u8,
+    key: []const u8,
+    modifiers: u32,
+    surface: Id,
+    text: wire.Field([]const u8) = .absent,
+    windows_virtual_key_code: u32,
+};
+
+pub const BrowserKeyPressResult = EmptyResult;
+
+pub fn browserKeyPress(client: anytype, request: BrowserKeyPressRequest) !wire.Decoded(BrowserKeyPressResult) {
+    return client.callTyped(
+        BrowserKeyPressResult,
+        .{
+            .name = "browser-key-press",
+            .authority = "frontend",
+            .since = 10,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const BrowserMouseRequestKind = enum {
     down,
     up,
@@ -1590,6 +1635,7 @@ pub const BrowserMouseRequestKind = enum {
 pub const BrowserMouseRequest = struct {
     button: wire.Field([]const u8) = .absent,
     click_count: wire.Field(u32) = .absent,
+    frame_seq: wire.Field(u64) = .absent,
     kind: BrowserMouseRequestKind,
     surface: Id,
     x_px: f64,
@@ -1606,6 +1652,52 @@ pub fn browserMouse(client: anytype, request: BrowserMouseRequest) !wire.Decoded
             .authority = "frontend",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const BrowserMouseGuardedRequestKind = enum {
+    down,
+    up,
+    move,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "down")) return .down;
+        if (std.mem.eql(u8, value, "up")) return .up;
+        if (std.mem.eql(u8, value, "move")) return .move;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .down => "down",
+            .up => "up",
+            .move => "move",
+        };
+    }
+};
+
+pub const BrowserMouseGuardedRequest = struct {
+    button: wire.Field([]const u8) = .absent,
+    click_count: wire.Field(u32) = .absent,
+    frame_seq: u64,
+    kind: BrowserMouseGuardedRequestKind,
+    surface: Id,
+    x_px: f64,
+    y_px: f64,
+};
+
+pub const BrowserMouseGuardedResult = EmptyResult;
+
+pub fn browserMouseGuarded(client: anytype, request: BrowserMouseGuardedRequest) !wire.Decoded(BrowserMouseGuardedResult) {
+    return client.callTyped(
+        BrowserMouseGuardedResult,
+        .{
+            .name = "browser-mouse-guarded",
+            .authority = "frontend",
+            .since = 10,
+            .capability = "browser-pointer-frame-guard-v1",
         },
         request,
     );
@@ -1652,6 +1744,7 @@ pub fn browserReload(client: anytype, request: BrowserReloadRequest) !wire.Decod
 
 pub const BrowserWheelRequest = struct {
     delta_y_px: f64,
+    frame_seq: wire.Field(u64) = .absent,
     surface: Id,
     x_px: f64,
     y_px: f64,
@@ -1667,6 +1760,29 @@ pub fn browserWheel(client: anytype, request: BrowserWheelRequest) !wire.Decoded
             .authority = "frontend",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const BrowserWheelGuardedRequest = struct {
+    delta_y_px: f64,
+    frame_seq: u64,
+    surface: Id,
+    x_px: f64,
+    y_px: f64,
+};
+
+pub const BrowserWheelGuardedResult = EmptyResult;
+
+pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest) !wire.Decoded(BrowserWheelGuardedResult) {
+    return client.callTyped(
+        BrowserWheelGuardedResult,
+        .{
+            .name = "browser-wheel-guarded",
+            .authority = "frontend",
+            .since = 10,
+            .capability = "browser-pointer-frame-guard-v1",
         },
         request,
     );
@@ -2949,6 +3065,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 }
 
 pub const SetClientInfoRequest = struct {
+    capabilities: wire.Field([]const []const u8) = .absent,
     kind: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
@@ -4134,19 +4251,23 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 87;
+pub const command_count: usize = 91;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "browser-frame-presented", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "browser-insert-text", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-key", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "browser-key-press", .authority = "frontend", .since = 10, .capability = null, .stream = null },
     .{ .name = "browser-mouse", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "browser-mouse-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "browser-navigate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "close-pane", .authority = "control", .since = 5, .capability = null, .stream = null },

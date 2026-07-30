@@ -32,6 +32,11 @@ Tests cover every browser control, direct and recovered creation, the
 256-message SDK stream bound, explicit cancellation, reconnect, gap resync,
 WebSocket injection, and a clean packaged consumer.
 
+Each frame exposes its stream `sequence` and independent
+`pointerFrameSeq`. Pointer controls require a non-null `pointerFrameSeq` from
+the exact frame being presented; a null token keeps the image visible while
+blocking clicks and scrolling.
+
 The controller imports `Client`, `WebSocketTransport`, typed IDs, resource
 handles, models, errors, and transport interfaces from `cmux/browser`. It uses
 no low-level client or private import.

@@ -5,7 +5,10 @@ import type {
   Agent,
   AgentReportOptions,
   Browser,
+  BrowserAttachFrame,
+  BrowserMouseOptions,
   BrowserViewerResizeResult,
+  BrowserWheelOptions,
   CellPixelsResult,
   ConfirmationRequiredDetails,
   ConnectedClient,
@@ -14,6 +17,7 @@ import type {
   CreatedTerminalPath,
   CreatedWorkspacePath,
   CreationResolution,
+  DecimalString,
   MutationResult,
   Pane,
   PairingRequest,
@@ -156,6 +160,18 @@ type _TerminalResize = Expect<
 type _BrowserResize = Expect<
   Equal<Result<Browser["resizeViewer"]>, BrowserViewerResizeResult>
 >;
+type _BrowserFramePointer = Expect<
+  Equal<BrowserAttachFrame["pointerFrameSeq"], DecimalString | null>
+>;
+type _BrowserMousePointer = Expect<
+  Equal<BrowserMouseOptions["pointerFrameSeq"], DecimalString>
+>;
+type _BrowserWheelPointer = Expect<
+  Equal<BrowserWheelOptions["pointerFrameSeq"], DecimalString>
+>;
+type _BrowserWheelInput = Expect<
+  Equal<Parameters<Browser["wheel"]>[0], BrowserWheelOptions>
+>;
 type _CellPixels = Expect<
   Equal<Result<ConnectedClient["setCellPixels"]>, CellPixelsResult>
 >;
@@ -188,7 +204,37 @@ function compileNarrowCreatedPath(path: CreatedPath): void {
   }
 }
 
+function compileBrowserPointerInput(
+  browser: Browser,
+  pointerFrameSeq: DecimalString,
+): void {
+  void browser.mouse({
+    kind: "move",
+    xPx: 10,
+    yPx: 20,
+    pointerFrameSeq,
+  });
+  void browser.wheel({
+    deltaX: 0,
+    deltaY: -120,
+    xPx: 10,
+    yPx: 20,
+    pointerFrameSeq,
+  });
+  // @ts-expect-error Pointer input cannot omit the exact presented frame token.
+  void browser.mouse({ kind: "move", xPx: 10, yPx: 20 });
+  void browser.wheel({
+    deltaX: 0,
+    deltaY: -120,
+    xPx: 10,
+    yPx: 20,
+    // @ts-expect-error Pointer input cannot use a nullable frame token.
+    pointerFrameSeq: null,
+  });
+}
+
 test("published resource API exposes catalog-specific result types", () => {
   void compileNarrowCreatedPath;
+  void compileBrowserPointerInput;
   assert.equal(true, true);
 });

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de'
+IR_SHA256 = 'c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd'
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'browser-frame-presented': CommandMetadata(
+        'browser-frame-presented',
+        'frontend',
+        10,
+        'browser-pointer-frame-guard-v1',
+        ('frontend',),
+        None,
+        {
+            'frame_seq': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'browser-insert-text': CommandMetadata(
         'browser-insert-text',
         'frontend',
@@ -129,6 +141,22 @@ COMMANDS = {
             'windows_virtual_key_code': CommandFieldMetadata(None, None),
         },
     ),
+    'browser-key-press': CommandMetadata(
+        'browser-key-press',
+        'frontend',
+        10,
+        None,
+        ('frontend',),
+        None,
+        {
+            'code': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'modifiers': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+            'windows_virtual_key_code': CommandFieldMetadata(None, None),
+        },
+    ),
     'browser-mouse': CommandMetadata(
         'browser-mouse',
         'frontend',
@@ -139,6 +167,24 @@ COMMANDS = {
         {
             'button': CommandFieldMetadata(None, None),
             'click_count': CommandFieldMetadata(None, None),
+            'frame_seq': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'x_px': CommandFieldMetadata(None, None),
+            'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'browser-mouse-guarded': CommandMetadata(
+        'browser-mouse-guarded',
+        'frontend',
+        10,
+        'browser-pointer-frame-guard-v1',
+        ('frontend',),
+        None,
+        {
+            'button': CommandFieldMetadata(None, None),
+            'click_count': CommandFieldMetadata(None, None),
+            'frame_seq': CommandFieldMetadata(None, None),
             'kind': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
@@ -177,6 +223,22 @@ COMMANDS = {
         None,
         {
             'delta_y_px': CommandFieldMetadata(None, None),
+            'frame_seq': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'x_px': CommandFieldMetadata(None, None),
+            'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'browser-wheel-guarded': CommandMetadata(
+        'browser-wheel-guarded',
+        'frontend',
+        10,
+        'browser-pointer-frame-guard-v1',
+        ('frontend',),
+        None,
+        {
+            'delta_y_px': CommandFieldMetadata(None, None),
+            'frame_seq': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
@@ -948,6 +1010,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'capabilities': CommandFieldMetadata(None, None),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
         },

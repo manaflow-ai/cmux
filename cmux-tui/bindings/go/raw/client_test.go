@@ -20,8 +20,8 @@ import (
 
 func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 	commands := AllCommandMetadata()
-	if len(commands) != 87 {
-		t.Fatalf("generated commands = %d, want 87", len(commands))
+	if len(commands) != 91 {
+		t.Fatalf("generated commands = %d, want 91", len(commands))
 	}
 	clientType := reflect.TypeOf((*Client)(nil))
 	commandNames := make(map[string]struct{}, len(commands))
@@ -38,6 +38,10 @@ func TestGeneratedInventoryHasTypedMethodForEveryCommand(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
+		"browser-frame-presented",
+		"browser-key-press",
+		"browser-mouse-guarded",
+		"browser-wheel-guarded",
 		"clear-history",
 		"new-pane-right",
 		"set-viewport-pane-width",
@@ -132,6 +136,92 @@ func TestTypedCommandPreservesUint64RequestAndResult(t *testing.T) {
 	}
 	if result.WorkspaceRevision == nil || *result.WorkspaceRevision != ^uint64(0) {
 		t.Fatalf("workspace revision = %v", result.WorkspaceRevision)
+	}
+}
+
+func TestProtocolTenBrowserCommandsPreserveFrameGuards(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+	protocol := uint32(MuxProtocolVersion)
+	client := &Client{
+		timeout:  time.Second,
+		conn:     &jsonLineConn{conn: clientConn, reader: bufio.NewReader(clientConn)},
+		protocol: &protocol,
+		capabilities: map[string]struct{}{
+			"browser-pointer-frame-guard-v1": {},
+		},
+	}
+	defer client.Close()
+
+	requests := make(chan []map[string]any, 1)
+	go func() {
+		decoder := json.NewDecoder(serverConn)
+		decoder.UseNumber()
+		values := make([]map[string]any, 0, 4)
+		for range 4 {
+			var request map[string]any
+			if decoder.Decode(&request) != nil {
+				return
+			}
+			values = append(values, request)
+			if json.NewEncoder(serverConn).Encode(map[string]any{
+				"id": request["id"], "ok": true, "data": map[string]any{},
+			}) != nil {
+				return
+			}
+		}
+		requests <- values
+	}()
+
+	const maximum = ^uint64(0)
+	if err := client.BrowserFramePresented(context.Background(), 7, maximum); err != nil {
+		t.Fatalf("browser frame presented: %v", err)
+	}
+	if err := client.BrowserKeyPress(context.Background(), BrowserKeyPressRequest{
+		Code: "KeyA", Key: "a", Modifiers: 1, Surface: 7,
+		Text: Value("a"), WindowsVirtualKeyCode: 65,
+	}); err != nil {
+		t.Fatalf("browser key press: %v", err)
+	}
+	if err := client.BrowserMouseGuarded(context.Background(), BrowserMouseGuardedRequest{
+		Button: Value("left"), ClickCount: Value(uint32(2)),
+		FrameSeq: maximum - 1, Kind: "down", Surface: 7, XPx: 1.5, YPx: 2.5,
+	}); err != nil {
+		t.Fatalf("guarded browser mouse: %v", err)
+	}
+	if err := client.BrowserWheelGuarded(context.Background(), BrowserWheelGuardedRequest{
+		DeltaYPx: -3.5, FrameSeq: 42, Surface: 7, XPx: 4.5, YPx: 5.5,
+	}); err != nil {
+		t.Fatalf("guarded browser wheel: %v", err)
+	}
+
+	got := <-requests
+	if len(got) != 4 {
+		t.Fatalf("browser command count = %d", len(got))
+	}
+	for index, expected := range []struct {
+		command  string
+		frameSeq string
+	}{
+		{"browser-frame-presented", "18446744073709551615"},
+		{"browser-key-press", ""},
+		{"browser-mouse-guarded", "18446744073709551614"},
+		{"browser-wheel-guarded", "42"},
+	} {
+		if got[index]["cmd"] != expected.command {
+			t.Fatalf("request %d command = %#v", index, got[index]["cmd"])
+		}
+		frameSeq, present := got[index]["frame_seq"]
+		if expected.frameSeq == "" {
+			if present {
+				t.Fatalf("request %d unexpected frame_seq = %#v", index, frameSeq)
+			}
+			continue
+		}
+		number, ok := frameSeq.(json.Number)
+		if !ok || number.String() != expected.frameSeq {
+			t.Fatalf("request %d frame_seq = %#v", index, frameSeq)
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de.
+// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -75,6 +75,16 @@ pub type BrowserForwardResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserFramePresentedRequest {
+    pub frame_seq: u64,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type BrowserFramePresentedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserInsertTextRequest {
     pub surface: T::Id,
     pub text: String,
@@ -109,6 +119,21 @@ pub struct BrowserKeyRequest {
 pub type BrowserKeyResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserKeyPressRequest {
+    pub code: String,
+    pub key: String,
+    pub modifiers: u32,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub text: Optional<String>,
+    pub windows_virtual_key_code: u32,
+}
+
+#[rustfmt::skip]
+pub type BrowserKeyPressResult = T::EmptyResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BrowserMouseRequestKind {
     #[serde(rename = "down")]
@@ -126,6 +151,8 @@ pub struct BrowserMouseRequest {
     pub button: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub click_count: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frame_seq: Optional<u64>,
     pub kind: BrowserMouseRequestKind,
     pub surface: T::Id,
     pub x_px: f64,
@@ -134,6 +161,34 @@ pub struct BrowserMouseRequest {
 
 #[rustfmt::skip]
 pub type BrowserMouseResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserMouseGuardedRequestKind {
+    #[serde(rename = "down")]
+    Down,
+    #[serde(rename = "up")]
+    Up,
+    #[serde(rename = "move")]
+    Move,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserMouseGuardedRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub button: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub click_count: Optional<u32>,
+    pub frame_seq: u64,
+    pub kind: BrowserMouseGuardedRequestKind,
+    pub surface: T::Id,
+    pub x_px: f64,
+    pub y_px: f64,
+}
+
+#[rustfmt::skip]
+pub type BrowserMouseGuardedResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,6 +213,8 @@ pub type BrowserReloadResult = T::EmptyResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserWheelRequest {
     pub delta_y_px: f64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frame_seq: Optional<u64>,
     pub surface: T::Id,
     pub x_px: f64,
     pub y_px: f64,
@@ -165,6 +222,19 @@ pub struct BrowserWheelRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserWheelGuardedRequest {
+    pub delta_y_px: f64,
+    pub frame_seq: u64,
+    pub surface: T::Id,
+    pub x_px: f64,
+    pub y_px: f64,
+}
+
+#[rustfmt::skip]
+pub type BrowserWheelGuardedResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -876,6 +946,8 @@ pub struct SetCellPixelsRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub capabilities: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
@@ -1118,6 +1190,10 @@ impl CmuxClient {
         self.execute(&BROWSER_FORWARD_METADATA, &request)
     }
 
+    pub fn browser_frame_presented(&mut self, request: BrowserFramePresentedRequest) -> Result<BrowserFramePresentedResult> {
+        self.execute(&BROWSER_FRAME_PRESENTED_METADATA, &request)
+    }
+
     pub fn browser_insert_text(&mut self, request: BrowserInsertTextRequest) -> Result<BrowserInsertTextResult> {
         self.execute(&BROWSER_INSERT_TEXT_METADATA, &request)
     }
@@ -1126,8 +1202,16 @@ impl CmuxClient {
         self.execute(&BROWSER_KEY_METADATA, &request)
     }
 
+    pub fn browser_key_press(&mut self, request: BrowserKeyPressRequest) -> Result<BrowserKeyPressResult> {
+        self.execute(&BROWSER_KEY_PRESS_METADATA, &request)
+    }
+
     pub fn browser_mouse(&mut self, request: BrowserMouseRequest) -> Result<BrowserMouseResult> {
         self.execute(&BROWSER_MOUSE_METADATA, &request)
+    }
+
+    pub fn browser_mouse_guarded(&mut self, request: BrowserMouseGuardedRequest) -> Result<BrowserMouseGuardedResult> {
+        self.execute(&BROWSER_MOUSE_GUARDED_METADATA, &request)
     }
 
     pub fn browser_navigate(&mut self, request: BrowserNavigateRequest) -> Result<BrowserNavigateResult> {
@@ -1140,6 +1224,10 @@ impl CmuxClient {
 
     pub fn browser_wheel(&mut self, request: BrowserWheelRequest) -> Result<BrowserWheelResult> {
         self.execute(&BROWSER_WHEEL_METADATA, &request)
+    }
+
+    pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
+        self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
     }
 
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {

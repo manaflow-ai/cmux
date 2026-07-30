@@ -1033,6 +1033,9 @@ fn parse_browser(
             params.insert("kind".into(), Value::String(kind.clone()));
             insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
             insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
+            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
+            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
+            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
             match (kind.as_str(), flags.take("button"), flags.take("click-count")) {
                 ("down" | "up", Some(button), click_count) => {
                     validate_one_of(
@@ -1066,6 +1069,9 @@ fn parse_browser(
             insert_float(&mut params, "delta_y", "--delta-y", flags.required("delta-y")?)?;
             insert_float(&mut params, "x_px", "--x-px", flags.required("x-px")?)?;
             insert_float(&mut params, "y_px", "--y-px", flags.required("y-px")?)?;
+            let pointer_frame_seq = flags.required("pointer-frame-seq")?;
+            validate_decimal("--pointer-frame-seq", &pointer_frame_seq)?;
+            params.insert("pointer_frame_seq".into(), Value::String(pointer_frame_seq));
             request(ResourceOperation::BrowserInputWheel, selectors, flags, params)
         }
         [selector, "attach"] => {
@@ -2454,6 +2460,44 @@ mod tests {
             ]))
             .is_err()
         );
+        assert!(
+            parse(&strings(&[
+                "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
+            ]))
+            .is_err()
+        );
+        let guarded = protocol(&[
+            "browser",
+            BROWSER,
+            "mouse",
+            "--kind",
+            "move",
+            "--x-px",
+            "1",
+            "--y-px",
+            "1",
+            "--pointer-frame-seq",
+            "18446744073709551615",
+        ]);
+        assert_eq!(guarded.params["pointer_frame_seq"], "18446744073709551615");
+        assert!(
+            parse(&strings(&[
+                "browser",
+                BROWSER,
+                "wheel",
+                "--delta-x",
+                "0",
+                "--delta-y",
+                "1",
+                "--x-px",
+                "1",
+                "--y-px",
+                "1",
+                "--pointer-frame-seq",
+                "18446744073709551616",
+            ]))
+            .is_err()
+        );
     }
 
     #[test]
@@ -3048,6 +3092,8 @@ mod tests {
                     "left",
                     "--click-count",
                     "2",
+                    "--pointer-frame-seq",
+                    "42",
                 ],
                 "browser.input.mouse",
             ),
@@ -3064,6 +3110,8 @@ mod tests {
                     "10",
                     "--y-px",
                     "20",
+                    "--pointer-frame-seq",
+                    "42",
                 ],
                 "browser.input.wheel",
             ),

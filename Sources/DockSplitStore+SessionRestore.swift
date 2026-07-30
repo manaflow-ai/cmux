@@ -91,9 +91,15 @@ extension DockSplitStore {
                snapshot,
                snapshotWorkspaceId: sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities
-           ) {
+            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
-            if restoredPanelId == nil { detached.panel.close() }
+            if restoredPanelId == nil {
+                AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                    workspaceId: detached.sourceWorkspaceId,
+                    panelId: detached.panelId
+                )
+                detached.panel.close()
+            }
             return restoredPanelId
         }
         if sourceWorkspaceId != nil, snapshot.terminal?.isRemoteTerminal == true {
@@ -133,6 +139,26 @@ extension DockSplitStore {
             terminalSnapshot.resumeBinding,
             restorableAgent: restorableAgent
         )
+        let managedResumeBinding = (
+            terminalSnapshot.managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
+                ?? terminalSnapshot.resumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                }
+        ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
+            if restorableAgent != nil,
+               Workspace.restorableAgentForSessionRestore(
+                   restorableAgent,
+                   resumeBinding: candidate
+               ) == nil {
+                return nil
+            }
+            return Workspace.resumeBindingForSessionRestore(
+                candidate,
+                restorableAgent: restorableAgent
+            )
+        }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
@@ -215,7 +241,10 @@ extension DockSplitStore {
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: TerminalFontSizeCreationPolicy.sessionRestore(
-                overrideBasePoints: terminalSnapshot.fontSize
+                overrideBasePoints: terminalSnapshot.fontSize,
+                representedChangeTokens: Set(
+                    terminalSnapshot.fontSizeChangeTokens ?? []
+                )
             ).applying(to: nil),
             workingDirectory: startupHandlesWorkingDirectory ? nil : workingDirectory,
             initialCommand: initialCommand,
@@ -245,6 +274,9 @@ extension DockSplitStore {
         if let resumeBinding {
             surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
         }
+        if let managedResumeBinding {
+            managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
+        }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
         }
@@ -255,7 +287,7 @@ extension DockSplitStore {
         seedSessionRestoredAgentState(
             panelId: terminal.id,
             restorableAgent: restorableAgent,
-            resumeBinding: resumeBinding,
+            resumeBinding: managedResumeBinding ?? resumeBinding,
             willRunStartupCommand: willRunAgentCommand,
             willRunStartupInput: willRunAgentInput
         )
@@ -331,8 +363,7 @@ extension DockSplitStore {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id

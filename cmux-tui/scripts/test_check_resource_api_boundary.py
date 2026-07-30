@@ -621,7 +621,23 @@ class ContractRegistryTests(unittest.TestCase):
                 "y_px",
                 "delta_x",
                 "delta_y",
+                "pointer_frame_seq",
             ))
+        )
+        decimal = {"kind": "primitive", "name": "decimal"}
+        self.assertEqual(wheel["fields"]["pointer_frame_seq"]["type"], decimal)
+        mouse_pointer = catalog["operations"]["browser.input.mouse"]["params"]["fields"][
+            "pointer_frame_seq"
+        ]
+        self.assertTrue(mouse_pointer["required"])
+        self.assertEqual(mouse_pointer["type"], decimal)
+        frame_pointer = catalog["types"]["BrowserAttachFrame"]["fields"][
+            "pointer_frame_seq"
+        ]
+        self.assertTrue(frame_pointer["required"])
+        self.assertEqual(
+            frame_pointer["type"],
+            {"kind": "nullable", "value": decimal},
         )
 
     def test_live_catalog_counts_and_local_endpoint_scope_are_frozen(self) -> None:

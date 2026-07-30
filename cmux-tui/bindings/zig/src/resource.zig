@@ -2811,6 +2811,7 @@ pub const BrowserAttachmentItem = union(enum) {
         data: []const u8,
         width_px: u32,
         height_px: u32,
+        pointer_frame_seq: ?u64,
     },
     state: struct {
         url: []const u8,
@@ -3393,6 +3394,7 @@ fn decodeBrowserAttachmentItem(
                 "data_base64",
                 "width_px",
                 "height_px",
+                "pointer_frame_seq",
             },
         );
         const encoded = try objectString(object, "data_base64");
@@ -3413,6 +3415,10 @@ fn decodeBrowserAttachmentItem(
                 object,
                 "height_px",
                 1,
+            ),
+            .pointer_frame_seq = try requiredNullableDecimalU64(
+                object,
+                "pointer_frame_seq",
             ),
         } };
     }
@@ -4492,6 +4498,7 @@ pub const BrowserMouseOptions = struct {
     kind: BrowserMouseKind,
     x_px: u32,
     y_px: u32,
+    pointer_frame_seq: u64,
     button: ?u8 = null,
     click_count: ?u8 = null,
 };
@@ -4499,6 +4506,7 @@ pub const BrowserMouseOptions = struct {
 pub const BrowserWheelOptions = struct {
     delta_x: f64,
     delta_y: f64,
+    pointer_frame_seq: u64,
     x_px: ?u32 = null,
     y_px: ?u32 = null,
 };
@@ -4652,6 +4660,19 @@ fn Params(comptime Id: type) type {
                 try allocator.dupe(u8, name),
                 .{ .string = try allocator.dupe(u8, text) },
             );
+        }
+
+        fn putDecimal(
+            self: *Self,
+            name: []const u8,
+            value: u64,
+        ) !void {
+            const encoded = try std.fmt.allocPrint(
+                self.arena.allocator(),
+                "{d}",
+                .{value},
+            );
+            try self.putString(name, encoded);
         }
 
         fn putNull(self: *Self, name: []const u8) !void {
@@ -6070,6 +6091,17 @@ fn requiredNullableUnsigned(
     return switch (value) {
         .null => null,
         else => try unsignedValue(Int, value, minimum),
+    };
+}
+
+fn requiredNullableDecimalU64(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?u64 {
+    const value = object.get(name) orelse return error.MissingField;
+    return switch (value) {
+        .null => null,
+        else => try decimalU64(value),
     };
 }
 
@@ -10313,6 +10345,10 @@ fn HandleImpl(
             try params.putString("kind", mouse.kind.wireName());
             try params.putValue("x_px", .{ .integer = mouse.x_px });
             try params.putValue("y_px", .{ .integer = mouse.y_px });
+            try params.putDecimal(
+                "pointer_frame_seq",
+                mouse.pointer_frame_seq,
+            );
             if (mouse.button) |button| {
                 try params.putValue("button", .{ .integer = button });
             }
@@ -10359,6 +10395,10 @@ fn HandleImpl(
             try params.putValue(
                 "delta_y",
                 .{ .float = wheel.delta_y },
+            );
+            try params.putDecimal(
+                "pointer_frame_seq",
+                wheel.pointer_frame_seq,
             );
             if (wheel.x_px) |x| {
                 try params.putValue("x_px", .{ .integer = x });
@@ -12804,6 +12844,14 @@ const FakeShared = struct {
                 u8,
                 operation,
                 "terminal.viewport.scroll",
+            ) or std.mem.eql(
+                u8,
+                operation,
+                "browser.input.mouse",
+            ) or std.mem.eql(
+                u8,
+                operation,
+                "browser.input.wheel",
             )) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
@@ -13436,6 +13484,75 @@ test "client metadata preserves omitted set-empty and clear states" {
     try std.testing.expect(
         std.mem.indexOf(u8, shared.output.items, "idempotency_key") ==
             null,
+    );
+}
+
+test "browser pointer inputs require and encode the exact frame token" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const browser_id = try BrowserId.parse(
+        "browser_0123456789abcdef0123456789abcdef",
+    );
+    const pointer_frame_seq = std.math.maxInt(u64);
+
+    var mouse_result = try client.browser(browser_id).sendBrowserMouse(
+        .{
+            .kind = .move,
+            .x_px = 12,
+            .y_px = 34,
+            .pointer_frame_seq = pointer_frame_seq,
+        },
+        try MutationOptions.withKey("browser-mouse-frame-token"),
+    );
+    defer mouse_result.deinit();
+    var wheel_result = try client.browser(browser_id).sendBrowserWheel(
+        .{
+            .delta_x = -1.5,
+            .delta_y = 2.25,
+            .pointer_frame_seq = pointer_frame_seq,
+            .x_px = 12,
+            .y_px = 34,
+        },
+        try MutationOptions.withKey("browser-wheel-frame-token"),
+    );
+    defer wheel_result.deinit();
+
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"browser.input.mouse\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"browser.input.wheel\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 2),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"pointer_frame_seq\":\"18446744073709551615\"",
+        ),
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"pointer_frame_seq\":18446744073709551615",
+        ) == null,
     );
 }
 
@@ -14803,6 +14920,95 @@ test "typed attachment decoders preserve unknown discriminators" {
             malformed.value,
         ),
     );
+}
+
+test "browser frames require a nullable canonical pointer token" {
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+
+    var maximum = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+            "\"data_base64\":\"AA==\",\"width_px\":1," ++
+            "\"height_px\":1,\"pointer_frame_seq\":" ++
+            "\"18446744073709551615\"}",
+        .{},
+    );
+    defer maximum.deinit();
+    switch (try decodeBrowserAttachmentItem(
+        decoded.allocator(),
+        maximum.value,
+    )) {
+        .frame => |frame| {
+            try std.testing.expectEqual(
+                @as(?u64, std.math.maxInt(u64)),
+                frame.pointer_frame_seq,
+            );
+            try std.testing.expectEqualSlices(
+                u8,
+                &.{0},
+                frame.data,
+            );
+        },
+        else => return error.ExpectedBrowserFrame,
+    }
+
+    var unavailable = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+            "\"data_base64\":\"AA==\",\"width_px\":1," ++
+            "\"height_px\":1,\"pointer_frame_seq\":null}",
+        .{},
+    );
+    defer unavailable.deinit();
+    switch (try decodeBrowserAttachmentItem(
+        decoded.allocator(),
+        unavailable.value,
+    )) {
+        .frame => |frame| try std.testing.expect(
+            frame.pointer_frame_seq == null,
+        ),
+        else => return error.ExpectedBrowserFrame,
+    }
+
+    const invalid_cases = [_]struct {
+        json: []const u8,
+        expected: anyerror,
+    }{
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1}",
+            .expected = error.MissingField,
+        },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":7}",
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":\"07\"}",
+            .expected = error.InvalidDecimalString,
+        },
+    };
+    for (invalid_cases) |case| {
+        var parsed = try raw.wire.parse(
+            std.testing.allocator,
+            case.json,
+            .{},
+        );
+        defer parsed.deinit();
+        try std.testing.expectError(
+            case.expected,
+            decodeBrowserAttachmentItem(
+                decoded.allocator(),
+                parsed.value,
+            ),
+        );
+    }
 }
 
 test "typed session stream preserves unknown payload and cancel end order" {

@@ -109,8 +109,19 @@ export interface BrowserMouseOptions {
   readonly kind: "down" | "up" | "move";
   readonly xPx: number;
   readonly yPx: number;
+  /** Non-null token from the exact BrowserAttachFrame being presented. */
+  readonly pointerFrameSeq: DecimalString;
   readonly button?: "left" | "middle" | "right" | "back" | "forward";
   readonly clickCount?: number;
+}
+
+export interface BrowserWheelOptions {
+  readonly deltaX: number;
+  readonly deltaY: number;
+  readonly xPx: number;
+  readonly yPx: number;
+  /** Non-null token from the exact BrowserAttachFrame being presented. */
+  readonly pointerFrameSeq: DecimalString;
 }
 
 export interface ViewerSizeOptions {

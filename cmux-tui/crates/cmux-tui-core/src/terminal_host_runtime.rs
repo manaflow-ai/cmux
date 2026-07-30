@@ -2149,6 +2149,24 @@ mod unix {
             self.pty_drained.load(Ordering::Acquire)
         }
 
+        fn publish_child_wait_predicate(&self, predicate: &AtomicBool) {
+            // Every predicate consumed by child_exit.wait_* must change while
+            // holding this mutex. Otherwise a notifier can run after a waiter
+            // checks the atomic but before Condvar::wait arms, losing the only
+            // wake that allows the terminal exit to be published.
+            let _state = self.child_exit.0.lock().unwrap();
+            predicate.store(true, Ordering::Release);
+            self.child_exit.1.notify_all();
+        }
+
+        fn mark_child_waitable(&self) {
+            self.publish_child_wait_predicate(&self.child_waitable);
+        }
+
+        fn mark_pty_drained(&self) {
+            self.publish_child_wait_predicate(&self.pty_drained);
+        }
+
         fn signal_terminal_process_groups(&self, signal: libc::c_int) {
             let mut groups = Vec::with_capacity(2);
             // The wait thread observes exit with WNOWAIT, then takes this lock
@@ -2215,8 +2233,7 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
-            self.group_escalation_complete.store(true, Ordering::Release);
-            self.child_exit.1.notify_all();
+            self.publish_child_wait_predicate(&self.group_escalation_complete);
         }
 
         fn publish_exit_if_drained(&self) {
@@ -2729,8 +2746,7 @@ mod unix {
             // The reader publishes every final PTY byte before declaring the
             // stream drained. Exit is emitted only after this flag and the
             // child wait rendezvous, so clients can safely stop at Exit.
-            reader_host.pty_drained.store(true, Ordering::Release);
-            reader_host.child_exit.1.notify_all();
+            reader_host.mark_pty_drained();
             reader_host.publish_exit_if_drained();
         })?;
         let child_host = shared.clone();
@@ -2740,8 +2756,7 @@ mod unix {
                 .and_then(|pid| libc::pid_t::try_from(pid).ok())
                 .is_some_and(|pid| wait_for_child_exit_without_reaping(pid).is_ok());
             if observed_without_reaping {
-                child_host.child_waitable.store(true, Ordering::Release);
-                child_host.child_exit.1.notify_all();
+                child_host.mark_child_waitable();
                 loop {
                     let signal = child_host.child_signal_lock.lock().unwrap();
                     let escalation_complete =
@@ -2775,7 +2790,7 @@ mod unix {
                 // retain a conservative fallback for alternate backends.
                 let exit = wait_for_native_child_status(child.as_mut());
                 child_host.child_reaped.store(true, Ordering::Release);
-                child_host.child_waitable.store(true, Ordering::Release);
+                child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
                 *exited = Some(exit);
                 child_host.child_exit.1.notify_all();

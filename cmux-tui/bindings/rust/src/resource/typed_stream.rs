@@ -268,10 +268,25 @@ pub enum BrowserFrameMime {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BrowserAttachmentItem {
-    Snapshot { browser: BrowserSnapshot, size: PixelSize },
-    Frame { mime_type: BrowserFrameMime, data: Vec<u8>, size: PixelSize },
-    State { url: String, title: String, loading: bool },
-    Unknown { kind: String, raw: Document },
+    Snapshot {
+        browser: BrowserSnapshot,
+        size: PixelSize,
+    },
+    Frame {
+        mime_type: BrowserFrameMime,
+        data: Vec<u8>,
+        size: PixelSize,
+        pointer_frame_seq: Option<u64>,
+    },
+    State {
+        url: String,
+        title: String,
+        loading: bool,
+    },
+    Unknown {
+        kind: String,
+        raw: Document,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -599,8 +614,9 @@ fn decode_browser_item(
                     "browser frame pixel dimensions must be greater than zero".to_string(),
                 ));
             }
+            let pointer_frame_seq = take_nullable_decimal(&mut object, "pointer_frame_seq")?;
             finish(object, "browser frame item")?;
-            Ok(BrowserAttachmentItem::Frame { mime_type, data, size })
+            Ok(BrowserAttachmentItem::Frame { mime_type, data, size, pointer_frame_seq })
         }
         "state" => {
             let url = take_required_string(&mut object, "url")?;
@@ -945,6 +961,13 @@ fn take_decimal(object: &mut Map<String, Value>, key: &str) -> Result<u64> {
     wire::parse_decimal(&take_required(object, key)?, key)
 }
 
+fn take_nullable_decimal(object: &mut Map<String, Value>, key: &str) -> Result<Option<u64>> {
+    match take_required(object, key)? {
+        Value::Null => Ok(None),
+        value => wire::parse_decimal(&value, key).map(Some),
+    }
+}
+
 fn take_array(object: &mut Map<String, Value>, key: &str) -> Result<Vec<Value>> {
     take_required(object, key)?
         .as_array()
@@ -1084,6 +1107,62 @@ mod tests {
             decode_terminal_item(json!({"kind": "snapshot", "terminal_id": TERMINAL}), None, 0)
                 .unwrap_err();
         assert!(matches!(error, Error::UnexpectedEnvelope(_)));
+    }
+
+    #[test]
+    fn browser_frames_require_nullable_decimal_pointer_authority() {
+        for (value, expected) in
+            [(json!(null), None), (json!("18446744073709551615"), Some(u64::MAX))]
+        {
+            let item = decode_browser_item(
+                json!({
+                    "kind": "frame",
+                    "mime_type": "image/png",
+                    "data_base64": "AA==",
+                    "width_px": 1,
+                    "height_px": 1,
+                    "pointer_frame_seq": value
+                }),
+                None,
+                0,
+            )
+            .unwrap();
+            let BrowserAttachmentItem::Frame { pointer_frame_seq, .. } = item else {
+                panic!("expected frame");
+            };
+            assert_eq!(pointer_frame_seq, expected);
+        }
+
+        for invalid in [
+            json!({
+                "kind": "frame",
+                "mime_type": "image/png",
+                "data_base64": "AA==",
+                "width_px": 1,
+                "height_px": 1
+            }),
+            json!({
+                "kind": "frame",
+                "mime_type": "image/png",
+                "data_base64": "AA==",
+                "width_px": 1,
+                "height_px": 1,
+                "pointer_frame_seq": 7
+            }),
+            json!({
+                "kind": "frame",
+                "mime_type": "image/png",
+                "data_base64": "AA==",
+                "width_px": 1,
+                "height_px": 1,
+                "pointer_frame_seq": "07"
+            }),
+        ] {
+            assert!(matches!(
+                decode_browser_item(invalid, None, 0),
+                Err(Error::UnexpectedEnvelope(_))
+            ));
+        }
     }
 
     #[test]

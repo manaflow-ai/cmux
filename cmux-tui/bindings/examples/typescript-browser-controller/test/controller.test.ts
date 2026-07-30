@@ -5,6 +5,7 @@ import {
   CmuxConnectionError,
   MAX_STREAM_MESSAGES,
   browserId,
+  decimalString,
   paneId,
   screenId,
   tabId,
@@ -183,6 +184,7 @@ class BrowserServer {
             data_base64: "ZnJhbWU=",
             width_px: 1200,
             height_px: 800,
+            pointer_frame_seq: "41",
           });
           transport.end(
             streamId,
@@ -255,6 +257,7 @@ test("drives every browser control through public resource handles", async () =>
     recoveryDelayMs: 0,
   });
   const id = browserId(BROWSER_ID);
+  const pointerFrameSeq = decimalString("41");
 
   assert.equal((await controller.listBrowserTabs())[0]?.id, id);
   await controller.navigate(id, "https://example.com");
@@ -274,12 +277,14 @@ test("drives every browser control through public resource handles", async () =>
     yPx: 20,
     button: "left",
     clickCount: 1,
+    pointerFrameSeq,
   });
   await controller.wheel(id, {
     xPx: 10,
     yPx: 20,
     deltaX: 0,
     deltaY: -120,
+    pointerFrameSeq,
   });
 
   assert.deepEqual(
@@ -302,7 +307,9 @@ test("drives every browser control through public resource handles", async () =>
   const wheel = server.requests[9]?.params as Record<string, unknown>;
   assert.deepEqual(key.modifiers, ["shift"]);
   assert.equal(mouse.click_count, 1);
+  assert.equal(mouse.pointer_frame_seq, pointerFrameSeq);
   assert.equal(wheel.delta_y, -120);
+  assert.equal(wheel.pointer_frame_seq, pointerFrameSeq);
   await controller.close();
 });
 
@@ -429,8 +436,16 @@ test("resyncs after a gap and stops when the browser disappears", async () => {
 
   assert.deepEqual(states, ["https://cmux.dev/updated"]);
   assert.deepEqual(
-    frames.map(({ sequence, mimeType }) => ({ sequence, mimeType })),
-    [{ sequence: "2", mimeType: "image/png" }],
+    frames.map(({ sequence, pointerFrameSeq, mimeType }) => ({
+      sequence,
+      pointerFrameSeq,
+      mimeType,
+    })),
+    [{
+      sequence: "2",
+      pointerFrameSeq: "41",
+      mimeType: "image/png",
+    }],
   );
   assert.deepEqual(
     recoveries.map(({ reason, attempt, browserPresent }) => ({

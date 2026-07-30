@@ -2456,13 +2456,17 @@ def _operation_catalog(
         )
         browser_mouse = operations.get("browser.input.mouse", {}).get("params", {})
         browser_wheel = operations.get("browser.input.wheel", {}).get("params", {})
+        browser_frame_fields = types.get("BrowserAttachFrame", {}).get("fields", {})
+        browser_mouse_fields = browser_mouse.get("fields", {})
         wheel_fields = browser_wheel.get("fields", {})
+        pointer_decimal = {"kind": "primitive", "name": "decimal"}
+        nullable_pointer_decimal = {"kind": "nullable", "value": pointer_decimal}
         if (
             input_modifier
             != {"kind": "enum", "values": ["shift", "control", "alt", "meta"]}
             or browser_key_modifiers != {"kind": "ref", "name": "InputModifier"}
             or terminal_modifiers != {"kind": "ref", "name": "InputModifier"}
-            or browser_mouse.get("fields", {}).get("button", {}).get("type", {}).get("values")
+            or browser_mouse_fields.get("button", {}).get("type", {}).get("values")
             != ["left", "middle", "right", "back", "forward"]
             or any(wheel_fields.get(name, {}).get("required") is not True for name in (
                 "x_px",
@@ -2470,6 +2474,13 @@ def _operation_catalog(
                 "delta_x",
                 "delta_y",
             ))
+            or browser_frame_fields.get("pointer_frame_seq", {}).get("required") is not True
+            or browser_frame_fields.get("pointer_frame_seq", {}).get("type")
+            != nullable_pointer_decimal
+            or browser_mouse_fields.get("pointer_frame_seq", {}).get("required") is not True
+            or browser_mouse_fields.get("pointer_frame_seq", {}).get("type") != pointer_decimal
+            or wheel_fields.get("pointer_frame_seq", {}).get("required") is not True
+            or wheel_fields.get("pointer_frame_seq", {}).get("type") != pointer_decimal
             or not any("nonzero delta_rows" in value for value in terminal_mouse.get("constraints", []))
             or not any("must all be finite" in value for value in browser_wheel.get("constraints", []))
         ):
@@ -2477,7 +2488,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "input operations must share modifiers and enforce exact finite mouse variants",
+                "input operations must share modifiers, require browser frame authority, and enforce exact finite mouse variants",
                 "InputModifier",
             )
 

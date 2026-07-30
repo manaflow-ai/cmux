@@ -3671,6 +3671,17 @@
             "name": "uint32",
             "minimum": 1
           }
+        },
+        "pointer_frame_seq": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "Opaque authority token for pointer input against this exact frame. Null means the frame is renderable but cannot receive pointer input."
         }
       },
       "extra": false
@@ -5197,6 +5208,14 @@
               "name": "float64"
             }
           },
+          "pointer_frame_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Exact non-null pointer authority token from the rendered BrowserAttachFrame."
+          },
           "button": {
             "required": false,
             "type": {
@@ -5229,7 +5248,8 @@
         "extra": false,
         "constraints": [
           "x_px and y_px must be finite CSS-pixel coordinates.",
-          "down and up require button; move forbids button and click_count."
+          "down and up require button; move forbids button and click_count.",
+          "pointer_frame_seq must equal the token from the exact frame used to choose the coordinates; stale or invalidated tokens fail closed."
         ]
       },
       "result": {
@@ -5368,6 +5388,14 @@
               "name": "float64"
             }
           },
+          "pointer_frame_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Exact non-null pointer authority token from the rendered BrowserAttachFrame."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -5379,7 +5407,8 @@
         },
         "extra": false,
         "constraints": [
-          "x_px, y_px, delta_x, and delta_y must all be finite CSS-pixel numbers."
+          "x_px, y_px, delta_x, and delta_y must all be finite CSS-pixel numbers.",
+          "pointer_frame_seq must equal the token from the exact frame used to choose the coordinates; stale or invalidated tokens fail closed."
         ]
       },
       "result": {

@@ -58,3 +58,8 @@ never use a protocol envelope:
 
 High-level transported SDKs expose sidebar views, not plugin resource handles.
 The noun-first CLI exposes the local operations under `sidebar plugin`.
+
+Browser attachment frames carry a required nullable `pointer_frame_seq`.
+Mouse and wheel mutations require the exact non-null decimal token from the
+rendered frame used to choose their coordinates. A null or stale token cannot
+authorize pointer input.

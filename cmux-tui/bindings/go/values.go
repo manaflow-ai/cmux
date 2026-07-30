@@ -766,17 +766,18 @@ type TerminalAttachmentItem struct {
 }
 
 type BrowserAttachmentItem struct {
-	Kind     string
-	Browser  *BrowserSnapshot
-	Size     *PixelSize
-	URL      string
-	Title    string
-	Loading  bool
-	MIMEType string
-	Frame    []byte
-	WidthPX  uint32
-	HeightPX uint32
-	Raw      Document
+	Kind            string
+	Browser         *BrowserSnapshot
+	Size            *PixelSize
+	URL             string
+	Title           string
+	Loading         bool
+	MIMEType        string
+	Frame           []byte
+	WidthPX         uint32
+	HeightPX        uint32
+	PointerFrameSeq *Decimal
+	Raw             Document
 }
 
 type SidebarViewItem struct {

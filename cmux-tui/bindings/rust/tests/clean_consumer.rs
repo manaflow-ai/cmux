@@ -59,6 +59,25 @@ fn clean_consumer_imports_high_level_and_raw_namespaces_together() {
 fn newly_cataloged_raw_commands_are_public() {
     let _: fn(
         &mut cmux::raw::Client,
+        cmux::raw::BrowserFramePresentedRequest,
+    ) -> cmux::raw::Result<cmux::raw::BrowserFramePresentedResult> =
+        cmux::raw::Client::browser_frame_presented;
+    let _: fn(
+        &mut cmux::raw::Client,
+        cmux::raw::BrowserKeyPressRequest,
+    ) -> cmux::raw::Result<cmux::raw::BrowserKeyPressResult> = cmux::raw::Client::browser_key_press;
+    let _: fn(
+        &mut cmux::raw::Client,
+        cmux::raw::BrowserMouseGuardedRequest,
+    ) -> cmux::raw::Result<cmux::raw::BrowserMouseGuardedResult> =
+        cmux::raw::Client::browser_mouse_guarded;
+    let _: fn(
+        &mut cmux::raw::Client,
+        cmux::raw::BrowserWheelGuardedRequest,
+    ) -> cmux::raw::Result<cmux::raw::BrowserWheelGuardedResult> =
+        cmux::raw::Client::browser_wheel_guarded;
+    let _: fn(
+        &mut cmux::raw::Client,
         cmux::raw::ClearHistoryRequest,
     ) -> cmux::raw::Result<cmux::raw::ClearHistoryResult> = cmux::raw::Client::clear_history;
     let _: fn(
@@ -77,11 +96,24 @@ fn newly_cataloged_raw_commands_are_public() {
 
     assert_eq!(
         [
+            cmux::raw::BROWSER_FRAME_PRESENTED_METADATA.name,
+            cmux::raw::BROWSER_KEY_PRESS_METADATA.name,
+            cmux::raw::BROWSER_MOUSE_GUARDED_METADATA.name,
+            cmux::raw::BROWSER_WHEEL_GUARDED_METADATA.name,
             cmux::raw::CLEAR_HISTORY_METADATA.name,
             cmux::raw::NEW_PANE_RIGHT_METADATA.name,
             cmux::raw::SET_VIEWPORT_PANE_WIDTH_METADATA.name,
             cmux::raw::UNDO_LAYOUT_METADATA.name,
         ],
-        ["clear-history", "new-pane-right", "set-viewport-pane-width", "undo-layout"]
+        [
+            "browser-frame-presented",
+            "browser-key-press",
+            "browser-mouse-guarded",
+            "browser-wheel-guarded",
+            "clear-history",
+            "new-pane-right",
+            "set-viewport-pane-width",
+            "undo-layout",
+        ]
     );
 }

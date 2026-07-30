@@ -63,6 +63,7 @@ pub(crate) mod field {
     pub(crate) const DELTA_Y: &str = "delta_y";
     pub(crate) const X_PX: &str = "x_px";
     pub(crate) const Y_PX: &str = "y_px";
+    pub(crate) const POINTER_FRAME_SEQ: &str = "pointer_frame_seq";
     pub(crate) const CLICK_COUNT: &str = "click_count";
     pub(crate) const CURSOR: &str = "cursor";
     pub(crate) const TITLE: &str = "title";
@@ -484,6 +485,7 @@ pub(crate) fn browser_mouse(options: BrowserMouseOptions) -> Result<Params> {
         .string(field::KIND, options.kind.wire_name())
         .f64(field::X_PX, options.x_px)
         .f64(field::Y_PX, options.y_px)
+        .u64(field::POINTER_FRAME_SEQ, options.pointer_frame_seq)
         .optional_string(field::BUTTON, options.button.map(|button| button.wire_name().to_string()))
         .optional_u32(field::CLICK_COUNT, options.click_count))
 }
@@ -502,7 +504,8 @@ pub(crate) fn wheel(options: WheelOptions) -> Result<Params> {
         .f64(field::DELTA_X, options.delta_x)
         .f64(field::DELTA_Y, options.delta_y)
         .f64(field::X_PX, options.x_px)
-        .f64(field::Y_PX, options.y_px))
+        .f64(field::Y_PX, options.y_px)
+        .u64(field::POINTER_FRAME_SEQ, options.pointer_frame_seq))
 }
 
 pub(crate) fn move_destination(options: MoveDestination) -> Params {

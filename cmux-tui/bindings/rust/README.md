@@ -89,6 +89,11 @@ available through `session.creation().resolve(key)`. Terminal lifecycle waits
 use `terminal.wait_exit(timeout_ms)` and return strict pending or exited
 variants with typed exit, signal, and unknown outcomes.
 
+Each browser frame includes `pointer_frame_seq: Option<u64>`. Mouse and wheel
+options require that sequence and encode it as a decimal string. Send pointer
+input only for frames whose sequence is `Some`; `None` means the frame cannot
+authorize pointer input.
+
 Destructive layout undo returns `Error::ConfirmationRequired` with a typed
 preview token, revision, and panes. Retry with that token, its revision, and a
 new idempotency key.

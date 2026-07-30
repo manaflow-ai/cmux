@@ -13,7 +13,8 @@ for test_class in \
   com.cmux.raw.StreamModeTest \
   com.cmux.raw.LifecycleTest \
   com.cmux.raw.ErgonomicsTest \
-  com.cmux.ResourceApiTest
+  com.cmux.ResourceApiTest \
+  com.cmux.BrowserPointerFrameTest
 do
   java -ea -cp "$CLASSPATH" "$test_class"
 done

@@ -57,6 +57,32 @@ stream with a recoverable gap and sends best-effort cancellation. Close the
 stream or its client explicitly. `stream.next(timeout=...)` raises
 `cmux.TimeoutError` without closing the stream.
 
+Browser frames always carry `pointer_frame_seq` on the wire. The SDK exposes
+it as `int | None`: `None` means the frame cannot authorize pointer input.
+Mouse and wheel calls require the exact non-null token from the rendered frame
+and encode it as an unsigned decimal string:
+
+```python
+from cmux import BrowserAttachFrame, BrowserId
+from cmux.options import BrowserMouseOptions
+
+browser = session.browser(
+    BrowserId("browser_cccccccccccccccccccccccccccccccc")
+)
+with browser.attach() as frames:
+    for event in frames:
+        frame = event.item
+        if isinstance(frame, BrowserAttachFrame):
+            if frame.pointer_frame_seq is not None:
+                browser.mouse(BrowserMouseOptions(
+                    kind="move",
+                    x_px=12.5,
+                    y_px=20.0,
+                    pointer_frame_seq=frame.pointer_frame_seq,
+                ))
+            break
+```
+
 The asyncio facade mirrors the resource graph:
 
 ```python

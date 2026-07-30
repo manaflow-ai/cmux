@@ -1,14 +1,15 @@
 use cmux::{
-    BrowserAttachOptions, BrowserCreateOptions, CancellationToken, CellPixelsOptions,
-    ClientMetadataOptions, ClientSizingOptions, Config, CopyOptions, CreatePaneOptions,
-    CreateScreenOptions, CreateWorkspaceOptions, CreationRecovery, CreationState, Direction, Error,
-    EventStreamOptions, InitialContent, LabelOptions, MutationOptions, PairingDecision,
-    PairingResolveOptions, PixelSize, ReadHistoryOptions, ReadScreenOptions, RendererGrantOptions,
-    RequestOptions, ResourceChange, ResourceEntitySnapshot, RunCommand, RunOptions, Selector,
-    SessionEvent, SessionId, ShutdownOptions, Size, SplitOptions, StreamEndReason, StreamPoll,
+    BrowserAttachOptions, BrowserCreateOptions, BrowserId, BrowserMouseButton, BrowserMouseKind,
+    BrowserMouseOptions, CancellationToken, CellPixelsOptions, ClientMetadataOptions,
+    ClientSizingOptions, Config, CopyOptions, CreatePaneOptions, CreateScreenOptions,
+    CreateWorkspaceOptions, CreationRecovery, CreationState, Direction, Error, EventStreamOptions,
+    InitialContent, LabelOptions, MutationOptions, PairingDecision, PairingResolveOptions,
+    PixelSize, ReadHistoryOptions, ReadScreenOptions, RendererGrantOptions, RequestOptions,
+    ResourceChange, ResourceEntitySnapshot, RunCommand, RunOptions, Selector, SessionEvent,
+    SessionId, ShutdownOptions, Size, SplitOptions, StreamEndReason, StreamPoll,
     TerminalAttachOptions, TerminalCreateOptions, TerminalDefaultsOptions, TerminalExitOutcome,
     TerminalId, TerminalLifecycle, TerminalSnapshot, TerminalWaitExitResult, UndoLayoutOptions,
-    Update, WaitOptions, WorkspaceId,
+    Update, WaitOptions, WheelOptions, WorkspaceId,
 };
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -507,6 +508,84 @@ fn nullable_names_encode_clear_and_empty_distinctly() {
         .screen(cmux::ScreenId::parse(SCREEN).unwrap());
     screen.set_name_with(LabelOptions::clear(), MutationOptions::new("clear").unwrap()).unwrap();
     screen.set_name_with(LabelOptions::set(""), MutationOptions::new("empty").unwrap()).unwrap();
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn browser_pointer_input_encodes_required_frame_sequence_as_decimal() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let mouse = request(&mut reader);
+        assert_eq!(mouse["operation"], "browser.input.mouse");
+        assert_eq!(
+            mouse["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "browser": BROWSER,
+                "kind": "down",
+                "x_px": 12.5,
+                "y_px": 8.25,
+                "pointer_frame_seq": "18446744073709551615",
+                "button": "left",
+                "click_count": 2
+            })
+        );
+        success(&mut stream, &mouse, mutation_result(&mouse, json!({})));
+
+        let wheel = request(&mut reader);
+        assert_eq!(wheel["operation"], "browser.input.wheel");
+        assert_eq!(
+            wheel["params"],
+            json!({
+                "machine": "current",
+                "session": SESSION,
+                "browser": BROWSER,
+                "delta_x": -1.5,
+                "delta_y": 2.25,
+                "x_px": 100.0,
+                "y_px": 200.0,
+                "pointer_frame_seq": "9007199254740993"
+            })
+        );
+        success(&mut stream, &wheel, mutation_result(&wheel, json!({})));
+    });
+
+    let client = connect(&path);
+    let browser = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .browser(BrowserId::parse(BROWSER).unwrap());
+    browser
+        .mouse_with(
+            BrowserMouseOptions {
+                kind: BrowserMouseKind::Down,
+                x_px: 12.5,
+                y_px: 8.25,
+                pointer_frame_seq: u64::MAX,
+                button: Some(BrowserMouseButton::Left),
+                click_count: Some(2),
+            },
+            MutationOptions::new("mouse").unwrap(),
+        )
+        .unwrap();
+    browser
+        .wheel_with(
+            WheelOptions {
+                delta_x: -1.5,
+                delta_y: 2.25,
+                x_px: 100.0,
+                y_px: 200.0,
+                pointer_frame_seq: 9_007_199_254_740_993,
+            },
+            MutationOptions::new("wheel").unwrap(),
+        )
+        .unwrap();
     client.close().unwrap();
     server.join().unwrap();
     std::fs::remove_file(path).unwrap();
@@ -1022,7 +1101,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
     terminal.cancel().unwrap();
 
     let mut browser = session
-        .browser(cmux::BrowserId::parse(BROWSER).unwrap())
+        .browser(BrowserId::parse(BROWSER).unwrap())
         .attach(BrowserAttachOptions::default())
         .unwrap();
     assert_eq!(browser.resize(PixelSize::new(1280, 720).unwrap()).unwrap().size.width_px, 1280);

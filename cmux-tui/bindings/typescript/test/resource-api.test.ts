@@ -637,6 +637,163 @@ test("request and stream receive bounds are operation-scoped", async () => {
   client.close();
 });
 
+test("browser frames expose the exact pointer token used by mouse and wheel", async () => {
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "browser.attach") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    current.ok(request, {
+      value: {},
+      generation: "generation-a",
+      revision: "12",
+      replayed: false,
+    });
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_B,
+  });
+  const browser = client.session(SESSION).browser(BROWSER);
+  const stream = await browser.attach();
+  const pointerFrameSeq = decimalString("18446744073709551615");
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "1",
+    item: {
+      kind: "frame",
+      mime_type: "image/png",
+      data_base64: "ZnJhbWU=",
+      width_px: 1200,
+      height_px: 800,
+      pointer_frame_seq: pointerFrameSeq,
+    },
+  });
+  const frame = await stream.next();
+  assert.equal(frame.value?.value.kind, "frame");
+  if (frame.value?.value.kind !== "frame") {
+    assert.fail("expected a browser frame");
+  }
+  assert.equal(frame.value.value.pointerFrameSeq, pointerFrameSeq);
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "2",
+    item: {
+      kind: "frame",
+      mime_type: "image/jpeg",
+      data_base64: "ZnJhbWU=",
+      width_px: 1200,
+      height_px: 800,
+      pointer_frame_seq: null,
+    },
+  });
+  const blockedFrame = await stream.next();
+  assert.equal(blockedFrame.value?.value.kind, "frame");
+  if (blockedFrame.value?.value.kind !== "frame") {
+    assert.fail("expected a browser frame");
+  }
+  assert.equal(blockedFrame.value.value.pointerFrameSeq, null);
+
+  await browser.mouse({
+    kind: "down",
+    xPx: 10,
+    yPx: 20,
+    button: "left",
+    clickCount: 1,
+    pointerFrameSeq,
+  });
+  await browser.wheel({
+    deltaX: 0,
+    deltaY: -120,
+    xPx: 10,
+    yPx: 20,
+    pointerFrameSeq,
+  });
+
+  const mouse = transport.requests[1]?.params as Envelope;
+  const wheel = transport.requests[2]?.params as Envelope;
+  assert.equal(mouse.pointer_frame_seq, pointerFrameSeq);
+  assert.equal(wheel.pointer_frame_seq, pointerFrameSeq);
+  assert.equal("pointerFrameSeq" in mouse, false);
+  assert.equal("pointerFrameSeq" in wheel, false);
+  assert.throws(
+    () => browser.mouse({
+      kind: "move",
+      xPx: 0,
+      yPx: 0,
+      pointerFrameSeq: null as never,
+    }),
+    /pointerFrameSeq must be a non-null DecimalString/,
+  );
+  assert.throws(
+    () => browser.wheel({
+      deltaX: 0,
+      deltaY: 1,
+      xPx: 0,
+      yPx: 0,
+      pointerFrameSeq: "01" as never,
+    }),
+    /pointerFrameSeq must be a non-null DecimalString/,
+  );
+  client.close();
+});
+
+test("browser frames reject a missing or non-string pointer token", async () => {
+  const invalidFrames = [
+    {
+      frame: {
+        kind: "frame",
+        mime_type: "image/png",
+        data_base64: "ZnJhbWU=",
+        width_px: 1200,
+        height_px: 800,
+      },
+      message: /pointer_frame_seq is required/,
+    },
+    {
+      frame: {
+        kind: "frame",
+        mime_type: "image/png",
+        data_base64: "ZnJhbWU=",
+        width_px: 1200,
+        height_px: 800,
+        pointer_frame_seq: 7,
+      },
+      message: /invalid pointer_frame_seq/,
+    },
+  ] as const;
+
+  for (const invalid of invalidFrames) {
+    let openedStream = "";
+    const transport = new FakeTransport((request, current) => {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+    });
+    const client = new Client({
+      transport,
+      randomHex128: () => HEX_C,
+    });
+    const stream = await client.session(SESSION).browser(BROWSER).attach();
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: "1",
+      item: invalid.frame,
+    });
+    await assert.rejects(() => stream.next(), invalid.message);
+    client.close();
+  }
+});
+
 test("mutations update and return the receiver handle", async () => {
   const transport = new FakeTransport((request, current) => {
     current.ok(request, {

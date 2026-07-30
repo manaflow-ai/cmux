@@ -50,6 +50,7 @@ import {
   Client,
   WebSocketTransport,
   browserId,
+  decimalString,
   paneId,
   screenId,
   selectCurrent,
@@ -83,6 +84,20 @@ void session.creation.resolve("packaged-browser");
 const browser = session
   .browser(browserId("browser_ffffffffffffffffffffffffffffffff"));
 void browser.navigate("https://example.com");
+const pointerFrameSeq = decimalString("42");
+void browser.mouse({
+  kind: "move",
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
+void browser.wheel({
+  deltaX: 0,
+  deltaY: -120,
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
 void browser.attach({ signal: new AbortController().signal }).then((stream) => (
   stream.cancel()
 ));

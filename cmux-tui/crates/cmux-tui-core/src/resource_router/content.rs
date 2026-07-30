@@ -966,8 +966,9 @@ fn browser_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
     let y = required_f64(fields, "y_px")?;
     let button = fields.get("button").and_then(Value::as_str);
     let click_count = fields.get("click_count").and_then(Value::as_u64).map(|value| value as u32);
+    let pointer_frame_seq = required_decimal_action(fields, "pointer_frame_seq")?;
     surface
-        .browser_mouse_event_confirmed(event_type, x, y, button, click_count)
+        .browser_mouse_event_confirmed(event_type, x, y, button, click_count, pointer_frame_seq)
         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
 
@@ -978,6 +979,7 @@ fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
             required_f64(fields, "y_px")?,
             required_f64(fields, "delta_x")?,
             required_f64(fields, "delta_y")?,
+            required_decimal_action(fields, "pointer_frame_seq")?,
         )
         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
@@ -1200,6 +1202,15 @@ fn required_i64(fields: &Map<String, Value>, field: &str) -> Result<i64, Resourc
 
 fn required_u64_action(fields: &Map<String, Value>, field: &str) -> Result<u64, ActionFailure> {
     required_u64(fields, field).map_err(ActionFailure::Known)
+}
+
+fn required_decimal_action(fields: &Map<String, Value>, field: &str) -> Result<u64, ActionFailure> {
+    optional_decimal(fields, field).map_err(ActionFailure::Known)?.ok_or_else(|| {
+        ActionFailure::Known(validation_error(
+            "required unsigned decimal field is missing",
+            json!({"field":field}),
+        ))
+    })
 }
 
 fn required_i64_action(fields: &Map<String, Value>, field: &str) -> Result<i64, ActionFailure> {

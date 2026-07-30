@@ -70,6 +70,7 @@ public final class Wire {
     public static final String INPUT = "input";
     public static final String SCOPE = "scope";
     public static final String METADATA = "metadata";
+    public static final String POINTER_FRAME_SEQ = "pointer_frame_seq";
 
     private Wire() {}
 

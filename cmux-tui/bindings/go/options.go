@@ -365,18 +365,20 @@ type BrowserInputTextOptions struct {
 }
 type BrowserInputMouseOptions struct {
 	MutationOptions
-	Kind       string
-	XPX        float64
-	YPX        float64
-	Button     *string
-	ClickCount *uint32
+	Kind            string
+	XPX             float64
+	YPX             float64
+	Button          *string
+	ClickCount      *uint32
+	PointerFrameSeq Decimal
 }
 type BrowserInputWheelOptions struct {
 	MutationOptions
-	DeltaX float64
-	DeltaY float64
-	XPX    float64
-	YPX    float64
+	DeltaX          float64
+	DeltaY          float64
+	XPX             float64
+	YPX             float64
+	PointerFrameSeq Decimal
 }
 type BrowserViewerResizeOptions struct {
 	ControlOptions

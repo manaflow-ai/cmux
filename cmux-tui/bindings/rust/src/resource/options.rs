@@ -645,6 +645,7 @@ pub struct BrowserMouseOptions {
     pub kind: BrowserMouseKind,
     pub x_px: f64,
     pub y_px: f64,
+    pub pointer_frame_seq: u64,
     pub button: Option<BrowserMouseButton>,
     pub click_count: Option<u32>,
 }
@@ -655,6 +656,7 @@ pub struct WheelOptions {
     pub delta_y: f64,
     pub x_px: f64,
     pub y_px: f64,
+    pub pointer_frame_seq: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

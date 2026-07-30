@@ -20,7 +20,7 @@ public final class GeneratedCoverageTest {
     public static void main(String[] args) throws Exception {
         check(Protocol.VERSION == 10, "protocol version");
         check("0.4.0".equals(Protocol.SDK_VERSION), "SDK release version");
-        check(Commands.ALL.size() == 87, "all 87 commands generated");
+        check(Commands.ALL.size() == 91, "all 91 commands generated");
         check(Events.ALL.size() == 44, "all 44 events generated");
 
         Map<String, Method> methods = Arrays.stream(GeneratedCmuxClient.class.getDeclaredMethods())
@@ -63,6 +63,7 @@ public final class GeneratedCoverageTest {
         }
         verifyLayoutCommandRequests();
         verifyLayoutUndoVariants();
+        verifyBrowserInputCommandRequests();
 
         for (EventMetadata event : Events.ALL.values()) {
             check(event.since() <= Protocol.VERSION, "future event version " + event.wireName());
@@ -151,6 +152,117 @@ public final class GeneratedCoverageTest {
                 java.util.List.of(UInt64.of(11), UInt64.of(12))
             ),
             "layout undo confirmation panes"
+        );
+    }
+
+    private static void verifyBrowserInputCommandRequests() {
+        check(
+            BrowserFramePresentedRequest.builder()
+                .surface(UInt64.of(1))
+                .frameSeq(UInt64.MAX_VALUE)
+                .build()
+                .toWire()
+                .keySet()
+                .equals(Set.of("surface", "frame_seq")),
+            "browser-frame-presented wire fields"
+        );
+        check(
+            BrowserMouseGuardedRequest.builder()
+                .surface(UInt64.of(2))
+                .frameSeq(UInt64.MAX_VALUE)
+                .kind(BrowserMouseGuardedRequestKind.MOVE)
+                .xPx(3.5)
+                .yPx(4.5)
+                .build()
+                .toWire()
+                .keySet()
+                .equals(Set.of(
+                    "surface",
+                    "frame_seq",
+                    "kind",
+                    "x_px",
+                    "y_px"
+                )),
+            "browser-mouse-guarded wire fields"
+        );
+        check(
+            BrowserWheelGuardedRequest.builder()
+                .surface(UInt64.of(5))
+                .frameSeq(UInt64.MAX_VALUE)
+                .xPx(6.5)
+                .yPx(7.5)
+                .deltaYPx(-8.5)
+                .build()
+                .toWire()
+                .keySet()
+                .equals(Set.of(
+                    "surface",
+                    "frame_seq",
+                    "x_px",
+                    "y_px",
+                    "delta_y_px"
+                )),
+            "browser-wheel-guarded wire fields"
+        );
+        check(
+            BrowserKeyPressRequest.builder()
+                .surface(UInt64.of(9))
+                .key("a")
+                .code("KeyA")
+                .windowsVirtualKeyCode(0)
+                .modifiers(0)
+                .build()
+                .toWire()
+                .keySet()
+                .equals(Set.of(
+                    "surface",
+                    "key",
+                    "code",
+                    "windows_virtual_key_code",
+                    "modifiers"
+                )),
+            "browser-key-press wire fields"
+        );
+        check(
+            "browser-pointer-frame-guard-v1".equals(
+                Commands.BROWSER_FRAME_PRESENTED.capability()
+            ) &&
+                "browser-pointer-frame-guard-v1".equals(
+                    Commands.BROWSER_MOUSE_GUARDED.capability()
+                ) &&
+                "browser-pointer-frame-guard-v1".equals(
+                    Commands.BROWSER_WHEEL_GUARDED.capability()
+                ),
+            "browser pointer guard capability metadata"
+        );
+
+        BrowserMouseRequest legacyMouse = BrowserMouseRequest.builder()
+            .surface(UInt64.of(10))
+            .kind(BrowserMouseRequestKind.MOVE)
+            .xPx(11.5)
+            .yPx(12.5)
+            .frameSeq(UInt64.MAX_VALUE)
+            .build();
+        check(
+            legacyMouse.toWire().get("frame_seq").equals(
+                UInt64.MAX_VALUE.toBigInteger()
+            ) && BrowserMouseRequest.fromWire(legacyMouse.toWire())
+                .equals(legacyMouse),
+            "legacy browser-mouse optional frame token round trip"
+        );
+        BrowserWheelRequest legacyWheel = BrowserWheelRequest.builder()
+            .surface(UInt64.of(13))
+            .xPx(14.5)
+            .yPx(15.5)
+            .deltaYPx(-16.5)
+            .frameSeq(null)
+            .build();
+        check(
+            legacyWheel.toWire().containsKey("frame_seq") &&
+                legacyWheel.toWire().get("frame_seq") == null &&
+                BrowserWheelRequest.fromWire(legacyWheel.toWire())
+                    .equals(legacyWheel),
+            "legacy browser-wheel explicit null frame token round trip"
         );
     }
 

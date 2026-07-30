@@ -11,6 +11,7 @@ import cmux.aio
 import cmux.raw
 from cmux import (
     AgentId,
+    BrowserId,
     CancelledError,
     CancellationToken,
     Client,
@@ -35,6 +36,7 @@ from cmux import (
 )
 from cmux.options import (
     AgentReportOptions,
+    BrowserMouseOptions,
     CreateBrowserOptions,
     CreatePaneOptions,
     CreateScreenOptions,
@@ -54,6 +56,7 @@ HEX_C = "c" * 32
 SESSION = SessionId(f"session_{HEX_A}")
 WORKSPACE = WorkspaceId(f"ws_{HEX_B}")
 TERMINAL = TerminalId(f"term_{HEX_C}")
+BROWSER = BrowserId(f"browser_{HEX_B}")
 MACHINE = MachineId(f"machine_{HEX_A}")
 SCREEN = ScreenId(f"screen_{HEX_C}")
 PANE = PaneId(f"pane_{HEX_A}")
@@ -508,6 +511,170 @@ class ResourceApiTests(unittest.TestCase):
             },
         )
         self.assertNotIn("agent", by_operation["agent.report"]["params"])
+
+    def test_browser_pointer_frame_tokens_are_exact_decimal_strings(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            for request in frames(connection):
+                observed.append(request)
+                ok(
+                    connection,
+                    request,
+                    {
+                        "value": {},
+                        "generation": "generation-a",
+                        "revision": "1",
+                        "replayed": False,
+                    },
+                )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                browser = client.session(SESSION).browser(BROWSER)
+                browser.mouse(
+                    BrowserMouseOptions(
+                        "down",
+                        10.5,
+                        20.25,
+                        18_446_744_073_709_551_615,
+                        button="left",
+                        click_count=1,
+                    ),
+                    idempotency_key="mouse-token",
+                )
+                browser.wheel(
+                    1.5,
+                    -2.5,
+                    x_px=30.0,
+                    y_px=40.0,
+                    pointer_frame_seq=7,
+                    idempotency_key="wheel-token",
+                )
+
+        self.assertEqual(
+            observed[0]["params"]["pointer_frame_seq"],
+            "18446744073709551615",
+        )
+        self.assertEqual(observed[1]["params"]["pointer_frame_seq"], "7")
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["browser.input.mouse", "browser.input.wheel"],
+        )
+
+    def test_browser_pointer_input_rejects_non_uint64_tokens_before_write(
+        self,
+    ) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        invalid_tokens = (
+            None,
+            True,
+            1.0,
+            -1,
+            18_446_744_073_709_551_616,
+        )
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                browser = client.session(SESSION).browser(BROWSER)
+                for token in invalid_tokens:
+                    with self.assertRaises(ValueError):
+                        browser.mouse(
+                            BrowserMouseOptions(
+                                "move",
+                                1.0,
+                                2.0,
+                                token,  # type: ignore[arg-type]
+                            ),
+                            idempotency_key="invalid-mouse",
+                        )
+                    with self.assertRaises(ValueError):
+                        browser.wheel(
+                            1.0,
+                            2.0,
+                            x_px=3.0,
+                            y_px=4.0,
+                            pointer_frame_seq=token,  # type: ignore[arg-type]
+                            idempotency_key="invalid-wheel",
+                        )
+                client.session(SESSION).ping()
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.ping"],
+        )
+
+    def test_browser_attach_frame_requires_nullable_decimal_pointer_token(
+        self,
+    ) -> None:
+        def read_frame(pointer_frame_seq):
+            def handler(connection, _index):
+                requests = frames(connection)
+                opened = next(requests)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                item = {
+                    "kind": "frame",
+                    "mime_type": "image/png",
+                    "data_base64": "AA==",
+                    "width_px": 1,
+                    "height_px": 1,
+                }
+                if pointer_frame_seq is not missing:
+                    item["pointer_frame_seq"] = pointer_frame_seq
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "stream_item",
+                        "stream_id": stream_id,
+                        "sequence": "1",
+                        "item": item,
+                    },
+                )
+                for request in requests:
+                    ok(connection, request, {})
+
+            with UnixJsonServer(handler) as server:
+                with Client(server.path) as client:
+                    stream = client.session(SESSION).browser(BROWSER).attach()
+                    return next(stream).item
+
+        missing = object()
+        maximum = read_frame("18446744073709551615")
+        self.assertIsInstance(maximum, cmux.BrowserAttachFrame)
+        self.assertEqual(
+            maximum.pointer_frame_seq,
+            18_446_744_073_709_551_615,
+        )
+        self.assertIsNone(read_frame(None).pointer_frame_seq)
+
+        for malformed in (
+            missing,
+            7,
+            True,
+            "",
+            "01",
+            "-1",
+            "18446744073709551616",
+        ):
+            with self.assertRaises(cmux.ProtocolError):
+                read_frame(malformed)
 
     def test_indeterminate_mutation_is_typed_and_never_retried(self) -> None:
         observed = []

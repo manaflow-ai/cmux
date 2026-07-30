@@ -23,6 +23,7 @@ const (
 	testTabID       = TabID("tab_00000000000000000000000000000006")
 	testTerminalID  = TerminalID("term_00000000000000000000000000000007")
 	testAgentID     = AgentID("agent_00000000000000000000000000000008")
+	testBrowserID   = BrowserID("browser_00000000000000000000000000000009")
 )
 
 func TestIDsSelectorsAndDecimals(t *testing.T) {
@@ -61,6 +62,81 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 			t.Fatalf("invalid decimal accepted: %s", invalid)
 		}
 	}
+}
+
+func TestBrowserFrameRequiresNullablePointerFrameSequence(t *testing.T) {
+	decode := func(pointerField string) (BrowserAttachmentItem, error) {
+		return decodeBrowserAttachment(json.RawMessage(
+			`{"kind":"frame","mime_type":"image/png","data_base64":"AA==",` +
+				`"width_px":1,"height_px":1` + pointerField + `}`,
+		))
+	}
+
+	nullFrame, err := decode(`,"pointer_frame_seq":null`)
+	if err != nil || nullFrame.PointerFrameSeq != nil {
+		t.Fatalf("nullable pointer frame sequence = %#v, %v", nullFrame, err)
+	}
+	maximumFrame, err := decode(`,"pointer_frame_seq":"18446744073709551615"`)
+	if err != nil || maximumFrame.PointerFrameSeq == nil ||
+		maximumFrame.PointerFrameSeq.Uint64() != ^uint64(0) {
+		t.Fatalf("maximum pointer frame sequence = %#v, %v", maximumFrame, err)
+	}
+
+	for name, pointerField := range map[string]string{
+		"missing":       "",
+		"number":        `,"pointer_frame_seq":7`,
+		"non-canonical": `,"pointer_frame_seq":"07"`,
+		"overflow":      `,"pointer_frame_seq":"18446744073709551616"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decode(pointerField); !errors.Is(err, ErrProtocol) {
+				t.Fatalf("error = %T %v", err, err)
+			}
+		})
+	}
+}
+
+func TestBrowserPointerInputsEncodeRequiredDecimalToken(t *testing.T) {
+	client, requests := pipeClient(t, nil, 2)
+	defer client.Close(context.Background()) //nolint:errcheck
+	browser := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Browser(SelectID(testBrowserID))
+	button := "left"
+	maximum := Decimal(^uint64(0))
+
+	if _, err := browser.Mouse(context.Background(), BrowserInputMouseOptions{
+		MutationOptions: MutationOptions{
+			Extra: map[string]JSONValue{"pointer_frame_seq": nil},
+		},
+		Kind:            "down",
+		XPX:             10.5,
+		YPX:             20.5,
+		Button:          &button,
+		PointerFrameSeq: maximum,
+	}); err != nil {
+		t.Fatalf("mouse: %v", err)
+	}
+	if _, err := browser.Wheel(context.Background(), BrowserInputWheelOptions{
+		DeltaX:          1.25,
+		DeltaY:          -2.5,
+		XPX:             30.5,
+		YPX:             40.5,
+		PointerFrameSeq: Decimal(42),
+	}); err != nil {
+		t.Fatalf("wheel: %v", err)
+	}
+
+	mouse := <-requests
+	if mouse["operation"] != "browser.input.mouse" {
+		t.Fatalf("mouse operation = %#v", mouse["operation"])
+	}
+	requireParam(t, mouse, "pointer_frame_seq", "18446744073709551615")
+	wheel := <-requests
+	if wheel["operation"] != "browser.input.wheel" {
+		t.Fatalf("wheel operation = %#v", wheel["operation"])
+	}
+	requireParam(t, wheel, "pointer_frame_seq", "42")
 }
 
 func TestCatalogResultsDecodeStrictly(t *testing.T) {
@@ -1077,6 +1153,13 @@ func pipeClient(
 			switch request["operation"] {
 			case "workspace.run":
 				result = createdPathResult()
+			case "browser.input.mouse", "browser.input.wheel":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "1",
+					"replayed":   false,
+					"value":      map[string]any{},
+				}
 			case "workspace.rename":
 				result = map[string]any{
 					"generation": "g",

@@ -1,7 +1,10 @@
 package com.cmux.consumer;
 
+import com.cmux.Browser;
+import com.cmux.BrowserAttachmentItem;
 import com.cmux.Client;
 import com.cmux.CreatedTerminalPath;
+import com.cmux.Decimal;
 import com.cmux.ExactCommand;
 import com.cmux.MutationOutcomeUncertain;
 import com.cmux.MutationResult;
@@ -20,6 +23,8 @@ import com.cmux.raw.RenderRow;
 import com.cmux.raw.RenderRun;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public final class ExternalJarConsumerTest {
     private ExternalJarConsumerTest() {}
@@ -97,6 +102,32 @@ public final class ExternalJarConsumerTest {
         ResourceStream.class.getMethod("poll", Duration.class);
         MutationOutcomeUncertain.class.getMethod("operation");
         MutationOutcomeUncertain.class.getMethod("idempotencyKey");
+        Browser.class.getMethod("mouse", Options.BrowserMouse.class);
+        Browser.class.getMethod("wheel", Options.Wheel.class);
+        BrowserAttachmentItem.Frame frame =
+            new BrowserAttachmentItem.Frame(
+                "image/png",
+                new byte[] {0},
+                1,
+                1,
+                Optional.of(Decimal.MAX_VALUE)
+            );
+        require(
+            frame.pointerFrameSeq().orElseThrow().equals(Decimal.MAX_VALUE),
+            "browser pointer token is public from the jar"
+        );
+        require(
+            new Options.BrowserMouse(
+                Options.Mutation.defaults(),
+                Map.of(
+                    "kind", "move",
+                    "x_px", 0.0,
+                    "y_px", 0.0
+                ),
+                Decimal.MAX_VALUE
+            ).pointerFrameSeq().equals(Decimal.MAX_VALUE),
+            "browser mouse requires an exact pointer token"
+        );
     }
 
     private static void require(boolean condition, String message) {

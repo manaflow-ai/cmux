@@ -31,6 +31,29 @@ static_assert(std::is_same_v<
                   std::declval<const cmux::raw::AttachSurfaceRequest&>())),
               cmux::raw::Result<cmux::raw::BrowserStream>>);
 static_assert(std::is_same_v<
+              decltype(
+                  std::declval<cmux::raw::Client&>().browser_frame_presented(
+                      std::declval<
+                          const cmux::raw::BrowserFramePresentedRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::raw::Client&>().browser_key_press(
+                  std::declval<
+                      const cmux::raw::BrowserKeyPressRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
+              decltype(
+                  std::declval<cmux::raw::Client&>().browser_mouse_guarded(
+                      std::declval<
+                          const cmux::raw::BrowserMouseGuardedRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
+              decltype(
+                  std::declval<cmux::raw::Client&>().browser_wheel_guarded(
+                      std::declval<
+                          const cmux::raw::BrowserWheelGuardedRequest&>())),
+              cmux::raw::Result<cmux::raw::EmptyResult>>);
+static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().clear_history(
                   std::declval<const cmux::raw::ClearHistoryRequest&>())),
               cmux::raw::Result<cmux::raw::EmptyResult>>);
@@ -61,12 +84,18 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 87U;
+constexpr std::size_t kExpectedRawCommandCount = 91U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",
     "set-viewport-pane-width",
     "undo-layout",
+};
+constexpr std::array<std::string_view, 4> kBrowserPointerCommandNames{
+    "browser-frame-presented",
+    "browser-key-press",
+    "browser-mouse-guarded",
+    "browser-wheel-guarded",
 };
 
 TEST("generated command and event metadata is exhaustive and unique") {
@@ -104,6 +133,9 @@ TEST("generated command and event metadata is exhaustive and unique") {
     for (const auto name : kViewportHistoryCommandNames) {
         CHECK(command_names.contains(name));
     }
+    for (const auto name : kBrowserPointerCommandNames) {
+        CHECK(command_names.contains(name));
+    }
 
     std::set<std::string_view> event_names;
     for (const auto& event : events) {
@@ -112,6 +144,78 @@ TEST("generated command and event metadata is exhaustive and unique") {
         event_names.insert(event.name);
     }
     CHECK_EQ(event_names.size(), events.size());
+}
+
+TEST("generated guarded browser requests preserve exact fields") {
+    constexpr auto frame_seq = std::numeric_limits<std::uint64_t>::max();
+
+    cmux::raw::BrowserFramePresentedRequest presented;
+    presented.frame_seq = frame_seq;
+    presented.surface = cmux::raw::Id{7};
+    auto encoded_presented = cmux::raw::encode_value(presented);
+    CHECK(encoded_presented);
+    CHECK_EQ(
+        encoded_presented.value()
+            .find("frame_seq")
+            ->as_uint64()
+            .value(),
+        frame_seq);
+    auto decoded_presented =
+        cmux::raw::decode_value<cmux::raw::BrowserFramePresentedRequest>(
+            encoded_presented.value());
+    CHECK(decoded_presented);
+    CHECK_EQ(decoded_presented.value(), presented);
+
+    cmux::raw::BrowserKeyPressRequest key;
+    key.code = "KeyA";
+    key.key = "a";
+    key.modifiers = 3;
+    key.surface = cmux::raw::Id{7};
+    key.text = cmux::raw::Field<std::string>("a");
+    key.windows_virtual_key_code = 65;
+    auto encoded_key = cmux::raw::encode_value(key);
+    CHECK(encoded_key);
+    auto decoded_key =
+        cmux::raw::decode_value<cmux::raw::BrowserKeyPressRequest>(
+            encoded_key.value());
+    CHECK(decoded_key);
+    CHECK_EQ(decoded_key.value(), key);
+
+    cmux::raw::BrowserMouseGuardedRequest mouse;
+    mouse.button = cmux::raw::Field<std::string>("left");
+    mouse.click_count = cmux::raw::Field<std::uint32_t>(2);
+    mouse.frame_seq = frame_seq;
+    mouse.kind = cmux::raw::BrowserMouseGuardedRequestKind::down;
+    mouse.surface = cmux::raw::Id{7};
+    mouse.x_px = 12.5;
+    mouse.y_px = 34.5;
+    auto encoded_mouse = cmux::raw::encode_value(mouse);
+    CHECK(encoded_mouse);
+    CHECK_EQ(
+        encoded_mouse.value().find("frame_seq")->as_uint64().value(),
+        frame_seq);
+    auto decoded_mouse =
+        cmux::raw::decode_value<cmux::raw::BrowserMouseGuardedRequest>(
+            encoded_mouse.value());
+    CHECK(decoded_mouse);
+    CHECK_EQ(decoded_mouse.value(), mouse);
+
+    cmux::raw::BrowserWheelGuardedRequest wheel;
+    wheel.delta_y_px = -120.25;
+    wheel.frame_seq = frame_seq;
+    wheel.surface = cmux::raw::Id{7};
+    wheel.x_px = 640.5;
+    wheel.y_px = 360.25;
+    auto encoded_wheel = cmux::raw::encode_value(wheel);
+    CHECK(encoded_wheel);
+    CHECK_EQ(
+        encoded_wheel.value().find("frame_seq")->as_uint64().value(),
+        frame_seq);
+    auto decoded_wheel =
+        cmux::raw::decode_value<cmux::raw::BrowserWheelGuardedRequest>(
+            encoded_wheel.value());
+    CHECK(decoded_wheel);
+    CHECK_EQ(decoded_wheel.value(), wheel);
 }
 
 TEST("layout undo result variants round trip without losing their branch") {

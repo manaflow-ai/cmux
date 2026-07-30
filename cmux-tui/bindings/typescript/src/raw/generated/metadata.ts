@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de. */
+/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "6ec4faf7e81bef34601b18d0f7f608f4685a4c90d428d31aacdc3de352c1c9de" as const;
+export const SDK_IR_SHA256 = "c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -143,6 +143,17 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; queue acknowledgement is not page-load success."
     ]
   },
+  "browser-frame-presented": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "browser-pointer-frame-guard-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Acknowledges the exact rendered browser frame for this connection.",
+      "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
   "browser-insert-text": {
     "authority": "frontend",
     "since": 6,
@@ -165,6 +176,17 @@ export const COMMAND_METADATA = {
       "The bounded disposable input queue drops newest input when full."
     ]
   },
+  "browser-key-press": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Browser surfaces only.",
+      "One request preserves the atomic press sequence through the bounded input queue."
+    ]
+  },
   "browser-mouse": {
     "authority": "frontend",
     "since": 6,
@@ -174,6 +196,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Browser surfaces only; coordinates are CSS pixels.",
       "The bounded disposable input queue drops newest input when full."
+    ]
+  },
+  "browser-mouse-guarded": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "browser-pointer-frame-guard-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Browser surfaces only; coordinates are CSS pixels.",
+      "The frame sequence must be the exact presented token for this connection.",
+      "Requires browser-pointer-frame-guard-v1."
     ]
   },
   "browser-navigate": {
@@ -206,6 +240,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Browser surfaces only; values are CSS pixels.",
       "The bounded disposable input queue drops newest input when full."
+    ]
+  },
+  "browser-wheel-guarded": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "browser-pointer-frame-guard-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Browser surfaces only; values are CSS pixels.",
+      "The frame sequence must be the exact presented token for this connection.",
+      "Requires browser-pointer-frame-guard-v1."
     ]
   },
   "clear-history": {
@@ -3864,6 +3910,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "terminal_resource_id": {
+        "constraints": [
+          {
+            "pattern": "^term_[0-9a-f]{32}$"
+          }
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "title": {
         "nullable": false,
         "presence": "required",
@@ -4991,6 +5051,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "browser-frame-presented": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "frame_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "browser-insert-text": {
     "request": {
       "additional_properties": false,
@@ -5091,6 +5179,67 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "browser-key-press": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "code": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "modifiers": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "text": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "windows_virtual_key_code": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "browser-mouse": {
     "request": {
       "additional_properties": false,
@@ -5111,6 +5260,89 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint32"
+          }
+        },
+        "frame_seq": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "kind": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "down",
+              "up",
+              "move"
+            ]
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "x_px": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y_px": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "browser-mouse-guarded": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "button": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "click_count": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "frame_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "kind": {
@@ -5215,6 +5447,67 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float64"
+          }
+        },
+        "frame_seq": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "x_px": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y_px": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "browser-wheel-guarded": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "delta_y_px": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "frame_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "surface": {
@@ -7649,6 +7942,21 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "capabilities": {
+          "constraints": [
+            "Advertises additive client capabilities for this connection."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "kind": {
           "constraints": [
             "Control characters become spaces; at most 64 Unicode characters are retained."

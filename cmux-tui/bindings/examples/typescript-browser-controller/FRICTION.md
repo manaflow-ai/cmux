@@ -12,6 +12,10 @@
 4. Creation paths are a strict discriminated union. Fixed operations such as
    `Pane.createBrowserTab` return their exact path variant, so browser, tab,
    pane, and screen handles are required after successful decoding.
+5. Browser frames expose a nullable pointer-authority token. Mouse and wheel
+   options require the exact non-null token and serialize it as
+   `pointer_frame_seq`, preventing stale rendered pixels from authorizing
+   input.
 
 ## Remaining SDK friction
 

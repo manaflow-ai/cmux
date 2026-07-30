@@ -12,14 +12,17 @@ request:
 
 ```text
 cmux [START OPTIONS]
-cmux attach [START OPTIONS]
+cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
 socket. Machine connectors use it as a transport primitive. `attach` opens the
-complete session TUI.
+complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
+from `cmux terminal list` and renders only that terminal, without session
+chrome or unrelated event traffic. Startup attach does not accept internal
+runtime identifiers, abbreviated identifiers, names, or `current`.
 
 ## Public grammar
 
@@ -186,7 +189,8 @@ terminal <selector> viewport scroll
 
 browser list
 browser <selector> show|navigate|back|forward|reload|activate
-browser <selector> key|text|mouse|wheel|attach|close
+browser <selector> key|text|attach|close
+browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
 notification list|create
 agent list|report
@@ -211,7 +215,8 @@ close nothing.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never
-expose raw PTY bytes.
+expose raw PTY bytes. Each frame includes a nullable `pointer_frame_seq`.
+Pointer commands require the exact non-null token from the rendered frame.
 Stream cancellation and terminal/browser viewer leases remain owned by the
 long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`

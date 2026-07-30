@@ -2,6 +2,8 @@
 #include <cmux/raw/client.hpp>
 #include <cmux/version.hpp>
 
+#include <cstdint>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -20,6 +22,25 @@ static_assert(std::is_same_v<
                   std::declval<cmux::TerminalAttachOptions>(),
                   std::declval<cmux::CallOptions>())),
               cmux::Result<cmux::TerminalAttachmentStream>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::BrowserAttachFrame>()
+                           .pointer_frame_seq),
+              std::optional<std::uint64_t>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Browser&>().mouse(
+                  std::declval<cmux::Json::Object>(),
+                  std::declval<std::uint64_t>(),
+                  std::declval<cmux::MutationOptions>())),
+              cmux::Result<cmux::MutationResult<cmux::EmptyResult>>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::Browser&>().wheel(
+                  std::declval<double>(),
+                  std::declval<double>(),
+                  std::declval<double>(),
+                  std::declval<double>(),
+                  std::declval<std::uint64_t>(),
+                  std::declval<cmux::MutationOptions>())),
+              cmux::Result<cmux::MutationResult<cmux::EmptyResult>>>);
 static_assert(std::is_same_v<
               decltype(std::declval<cmux::Workspace&>().run(
                   std::declval<cmux::RunOptions>(),

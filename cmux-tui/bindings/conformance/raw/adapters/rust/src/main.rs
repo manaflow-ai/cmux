@@ -165,7 +165,11 @@ fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
         }
     };
     let mut client = CmuxClient::connect(config(request))?;
-    client.set_client_info(SetClientInfoRequest { kind: Optional::Missing, name })?;
+    client.set_client_info(SetClientInfoRequest {
+        capabilities: Optional::Missing,
+        kind: Optional::Missing,
+        name,
+    })?;
     Ok(json!({"presence": request.presence}))
 }
 

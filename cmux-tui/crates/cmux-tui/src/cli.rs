@@ -380,7 +380,8 @@ const BROWSER_HELP: &str = "\
 USAGE
   cmux browser list
   cmux browser <selector> show|navigate|back|forward|reload|activate
-  cmux browser <selector> key|text|mouse|wheel [OPTIONS]
+  cmux browser <selector> key|text [OPTIONS]
+  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
   cmux browser <selector> attach|close [OPTIONS]
 ";
 

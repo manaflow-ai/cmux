@@ -36,6 +36,12 @@ of secure random data. The client never retries mutations. `Decimal` encodes
 the full unsigned 64-bit range as a canonical JSON string. Renderer grants
 redact their values from formatted output.
 
+Each `frame` item from `Browser.Attach` includes `PointerFrameSeq *Decimal`.
+`nil` means the frame cannot authorize pointer input. Pass a non-nil frame's
+exact value to `BrowserInputMouseOptions.PointerFrameSeq` or
+`BrowserInputWheelOptions.PointerFrameSeq`; both inputs always encode the token
+as an unsigned decimal string.
+
 `ClientOptions.DialContext` supports injected transports and tests. The default
 transport uses a Unix session socket, with a Windows-compatible build fallback
 that requires injection.

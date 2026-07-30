@@ -46,12 +46,16 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> browser_frame_presented(const BrowserFramePresentedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_insert_text(const BrowserInsertTextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_key(const BrowserKeyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> browser_key_press(const BrowserKeyPressRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_mouse(const BrowserMouseRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> browser_mouse_guarded(const BrowserMouseGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_navigate(const BrowserNavigateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});

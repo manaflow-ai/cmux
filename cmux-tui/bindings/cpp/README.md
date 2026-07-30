@@ -102,6 +102,27 @@ details, and retryability. Attachment `resize_viewer()` and
 `release_viewer()` calls use the dedicated
 stream connection. Handle methods use the control connection.
 
+Browser attachment frames require a `pointer_frame_seq` field on the wire.
+The typed frame exposes it as `std::optional<std::uint64_t>` because a null
+token keeps the image renderable while withholding pointer authority. Browser
+`mouse()` and `wheel()` require the exact non-null frame token and encode it as
+an unsigned decimal string without passing through a floating-point value.
+`wheel(delta_x, delta_y, x_px, y_px, pointer_frame_seq)` also requires the
+CSS-pixel coordinates used to target the frame.
+
+```cpp
+if (const auto* frame = std::get_if<cmux::BrowserAttachFrame>(&item.value);
+    frame != nullptr && frame->pointer_frame_seq) {
+    auto moved = browser.mouse(
+        {
+            {"kind", cmux::Json("move")},
+            {"x_px", cmux::Json(320.0)},
+            {"y_px", cmux::Json(180.0)},
+        },
+        *frame->pointer_frame_seq);
+}
+```
+
 Renderer grants expose endpoint, terminal ID, rights, TTL, and a
 `SensitiveString` token. Formatting a grant prints `[REDACTED]`.
 

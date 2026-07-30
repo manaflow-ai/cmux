@@ -1462,6 +1462,7 @@ struct BrowserAttachFrame {
     std::vector<std::byte> data;
     std::uint32_t width_px = 0;
     std::uint32_t height_px = 0;
+    std::optional<std::uint64_t> pointer_frame_seq;
 };
 
 struct BrowserAttachState {
@@ -2027,10 +2028,14 @@ public:
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<EmptyResult>> mouse(
         Json::Object params,
+        std::uint64_t pointer_frame_seq,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<MutationResult<EmptyResult>> wheel(
         double delta_x,
         double delta_y,
+        double x_px,
+        double y_px,
+        std::uint64_t pointer_frame_seq,
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<BrowserViewerResizeResult> resize_viewer(
         std::uint32_t width_px,

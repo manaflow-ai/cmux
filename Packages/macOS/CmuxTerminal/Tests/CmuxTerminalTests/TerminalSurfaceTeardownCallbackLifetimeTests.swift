@@ -77,6 +77,64 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func agentHibernationResumeWaitsForNativeFreeCompletion() async {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let allowFree = DispatchSemaphore(value: 0)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            freeStarted.continuation.yield()
+            allowFree.wait()
+        }
+        defer {
+            allowFree.signal()
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+        }
+
+        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+
+        #expect(!surface.prepareAgentHibernationResume(initialInput: nil))
+
+        allowFree.signal()
+        #expect(await surface.waitForAgentHibernationRuntimeTeardown(timeout: .seconds(1)))
+        #expect(surface.prepareAgentHibernationResume(initialInput: nil))
+        freeStarted.continuation.finish()
+    }
+
+    @Test func hibernationAdmissionFailurePreservesLiveRuntimeSurface() throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let firstReservation = try #require(
+            coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let secondReservation = try #require(
+            coordinator.reserveIsolatedHibernationTeardown()
+        )
+        defer {
+            coordinator.cancelIsolatedHibernationTeardown(firstReservation)
+            coordinator.cancelIsolatedHibernationTeardown(secondReservation)
+        }
+
+        let surface = makeSurface(runtimeTeardown: coordinator)
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        #expect(
+            surface.suspendRuntimeSurfaceForAgentHibernation(
+                reason: "test.admissionFailure"
+            ) == false
+        )
+        #expect(surface.hasLiveSurface)
+
+        surface.teardownSurface()
+    }
+
     @Test func deinitKeepsTeeLeaseUntilCoordinatorFree() async {
         let recorder = TeardownOrderRecorder()
         var surface: TerminalSurface? = makeSurface()
@@ -161,7 +219,9 @@ import Testing
     }
 
     private func makeSurface(
-        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry()
+        registry: any TerminalSurfaceRegistering = FakeSurfaceRegistry(),
+        runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator =
+            TerminalSurfaceRuntimeTeardownCoordinator()
     ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
@@ -177,7 +237,7 @@ import Testing
                 byteTee: FakeTerminalByteTee(),
                 rendererRealization: FakeRendererRealizationScheduler(),
                 hibernationRecorder: FakeHibernationRecorder(),
-                runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
+                runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                     claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),

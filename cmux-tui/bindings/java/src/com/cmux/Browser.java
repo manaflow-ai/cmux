@@ -88,9 +88,10 @@ public final class Browser {
         return emptyMutation(Operations.BROWSER_INPUT_TEXT, params, options.mutation());
     }
 
-    public MutationResult<EmptyResult> mouse(Options.Mouse options) {
+    public MutationResult<EmptyResult> mouse(Options.BrowserMouse options) {
         Map<String, Object> params = mutationParams(options.mutation());
         params.putAll(options.mouse());
+        params.put(Wire.POINTER_FRAME_SEQ, options.pointerFrameSeq());
         return emptyMutation(
             Operations.BROWSER_INPUT_MOUSE, params, options.mutation()
         );
@@ -100,8 +101,9 @@ public final class Browser {
         Map<String, Object> params = mutationParams(options.mutation());
         params.put("delta_x", options.deltaX());
         params.put("delta_y", options.deltaY());
-        options.x().ifPresent(value -> params.put("x_px", value));
-        options.y().ifPresent(value -> params.put("y_px", value));
+        params.put("x_px", options.x());
+        params.put("y_px", options.y());
+        params.put(Wire.POINTER_FRAME_SEQ, options.pointerFrameSeq());
         return emptyMutation(
             Operations.BROWSER_INPUT_WHEEL, params, options.mutation()
         );
@@ -224,8 +226,15 @@ public final class Browser {
                 "mime_type",
                 "data_base64",
                 "width_px",
-                "height_px"
+                "height_px",
+                Wire.POINTER_FRAME_SEQ
             );
+            if (!fields.containsKey(Wire.POINTER_FRAME_SEQ)) {
+                throw new ProtocolError(
+                    "browser frame item omitted required field " +
+                        "pointer_frame_seq"
+                );
+            }
             String mimeType = Wire.string(
                 fields.get("mime_type"),
                 "browser frame mime_type"
@@ -242,11 +251,30 @@ public final class Browser {
             rawDimensions.put("height_px", fields.get("height_px"));
             Snapshots.PixelSize dimensions =
                 Client.decodePixelSize(rawDimensions);
+            Optional<Decimal> pointerFrameSeq;
+            Object rawPointerFrameSeq = fields.get(Wire.POINTER_FRAME_SEQ);
+            if (rawPointerFrameSeq == null) {
+                pointerFrameSeq = Optional.empty();
+            } else {
+                try {
+                    pointerFrameSeq = Optional.of(Wire.decimal(
+                        rawPointerFrameSeq,
+                        "browser frame pointer_frame_seq"
+                    ));
+                } catch (IllegalArgumentException error) {
+                    throw new ProtocolError(
+                        "browser frame pointer_frame_seq must be a canonical " +
+                            "unsigned decimal string",
+                        error
+                    );
+                }
+            }
             return new BrowserAttachmentItem.Frame(
                 mimeType,
                 frame,
                 dimensions.widthPx(),
-                dimensions.heightPx()
+                dimensions.heightPx(),
+                pointerFrameSeq
             );
         }
         if (kind.equals("state")) {

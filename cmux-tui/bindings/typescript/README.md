@@ -48,6 +48,23 @@ if (created.value.kind === "workspace") {
 `Session.creation.resolve()` remains union-valued because a correlation key can
 refer to any creation operation.
 
+Browser frames expose `pointerFrameSeq: DecimalString | null`. A null token
+means the retained pixels are renderable but cannot receive pointer input.
+Pass the non-null token from the exact presented frame to `mouse` or `wheel`;
+the SDK requires and validates it before sending `pointer_frame_seq`:
+
+```ts
+if (frame.pointerFrameSeq !== null) {
+  await browser.mouse({
+    kind: "down",
+    xPx: 24,
+    yPx: 40,
+    button: "left",
+    pointerFrameSeq: frame.pointerFrameSeq,
+  });
+}
+```
+
 Report a terminal's first agent state directly through its session:
 
 ```ts

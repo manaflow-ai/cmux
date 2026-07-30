@@ -882,6 +882,155 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
         pending.value()));
 }
 
+TEST("browser attachment frames require nullable decimal pointer guards") {
+    auto guarded = cmux::detail::decode_browser_attachment(
+        cmux::Json::parse(
+            R"({"kind":"frame","mime_type":"image/png","data_base64":"AA==","width_px":1280,"height_px":720,"pointer_frame_seq":"18446744073709551615"})")
+            .value(),
+        std::nullopt);
+    CHECK(guarded);
+    const auto* guarded_frame =
+        std::get_if<cmux::BrowserAttachFrame>(&guarded.value());
+    CHECK(guarded_frame != nullptr);
+    CHECK(guarded_frame->pointer_frame_seq.has_value());
+    CHECK_EQ(
+        *guarded_frame->pointer_frame_seq,
+        std::numeric_limits<std::uint64_t>::max());
+
+    auto unguarded = cmux::detail::decode_browser_attachment(
+        cmux::Json::parse(
+            R"({"kind":"frame","mime_type":"image/jpeg","data_base64":"AA==","width_px":1,"height_px":1,"pointer_frame_seq":null})")
+            .value(),
+        std::nullopt);
+    CHECK(unguarded);
+    const auto* unguarded_frame =
+        std::get_if<cmux::BrowserAttachFrame>(&unguarded.value());
+    CHECK(unguarded_frame != nullptr);
+    CHECK(!unguarded_frame->pointer_frame_seq.has_value());
+
+    auto missing = cmux::detail::decode_browser_attachment(
+        cmux::Json::parse(
+            R"({"kind":"frame","mime_type":"image/png","data_base64":"AA==","width_px":1,"height_px":1})")
+            .value(),
+        std::nullopt);
+    CHECK(!missing);
+    CHECK_EQ(missing.error().code, cmux::ErrorCode::decode);
+    CHECK(
+        missing.error().message.find("pointer_frame_seq") !=
+        std::string::npos);
+
+    auto numeric = cmux::detail::decode_browser_attachment(
+        cmux::Json::parse(
+            R"({"kind":"frame","mime_type":"image/png","data_base64":"AA==","width_px":1,"height_px":1,"pointer_frame_seq":42})")
+            .value(),
+        std::nullopt);
+    CHECK(!numeric);
+    CHECK_EQ(numeric.error().code, cmux::ErrorCode::decode);
+    CHECK(
+        numeric.error().message.find("canonical decimal string") !=
+        std::string::npos);
+}
+
+TEST("browser pointer inputs require and exactly encode frame guards") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"value":{},"generation":"g","revision":"1","replayed":false})"));
+    enqueue(
+        state,
+        response(
+            "cpp-request-2",
+            R"({"value":{},"generation":"g","revision":"2","replayed":false})"));
+
+    auto browser_id = cmux::BrowserId::parse(
+        "browser_0123456789abcdef0123456789abcdef");
+    CHECK(browser_id);
+    auto browser = client.browser(std::move(browser_id).value());
+    auto mouse_key = cmux::MutationOptions::with_key("browser-mouse-guard");
+    auto wheel_key = cmux::MutationOptions::with_key("browser-wheel-guard");
+    CHECK(mouse_key);
+    CHECK(wheel_key);
+    constexpr auto pointer_frame_seq =
+        std::numeric_limits<std::uint64_t>::max();
+
+    auto mouse = browser.mouse(
+        {
+            {"kind", cmux::Json("move")},
+            {"x_px", cmux::Json(12.5)},
+            {"y_px", cmux::Json(34.5)},
+            {"pointer_frame_seq", cmux::Json("caller-value")},
+        },
+        pointer_frame_seq,
+        std::move(mouse_key).value());
+    CHECK(mouse);
+    auto wheel = browser.wheel(
+        1.25,
+        -2.5,
+        640.5,
+        360.25,
+        pointer_frame_seq,
+        std::move(wheel_key).value());
+    CHECK(wheel);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 2U);
+    auto mouse_envelope = cmux::Json::parse(state->outgoing.at(0));
+    auto wheel_envelope = cmux::Json::parse(state->outgoing.at(1));
+    CHECK(mouse_envelope);
+    CHECK(wheel_envelope);
+    CHECK_EQ(
+        mouse_envelope.value().find("operation")->as_string().value(),
+        std::string_view("browser.input.mouse"));
+    CHECK_EQ(
+        wheel_envelope.value().find("operation")->as_string().value(),
+        std::string_view("browser.input.wheel"));
+    const auto* mouse_params =
+        mouse_envelope.value().find("params")->as_object().value();
+    const auto* wheel_params =
+        wheel_envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        mouse_params->at("pointer_frame_seq").as_string().value(),
+        std::string_view("18446744073709551615"));
+    CHECK_EQ(
+        wheel_params->at("pointer_frame_seq").as_string().value(),
+        std::string_view("18446744073709551615"));
+    CHECK(!mouse_params->at("pointer_frame_seq").as_uint64());
+    CHECK(!wheel_params->at("pointer_frame_seq").as_uint64());
+    CHECK_EQ(
+        mouse_params->at("kind").as_string().value(),
+        std::string_view("move"));
+    CHECK_EQ(wheel_params->at("delta_x").as_double().value(), 1.25);
+    CHECK_EQ(wheel_params->at("delta_y").as_double().value(), -2.5);
+    CHECK_EQ(wheel_params->at("x_px").as_double().value(), 640.5);
+    CHECK_EQ(wheel_params->at("y_px").as_double().value(), 360.25);
+}
+
+TEST("browser wheel rejects non-finite targeting before IO") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    auto browser_id = cmux::BrowserId::parse(
+        "browser_0123456789abcdef0123456789abcdef");
+    CHECK(browser_id);
+    auto key = cmux::MutationOptions::with_key("invalid-browser-wheel");
+    CHECK(key);
+    auto result =
+        client.browser(std::move(browser_id).value())
+            .wheel(
+                0.0,
+                std::numeric_limits<double>::infinity(),
+                10.0,
+                20.0,
+                1,
+                std::move(key).value());
+    CHECK(!result);
+    CHECK_EQ(result.error().code, cmux::ErrorCode::invalid_argument);
+    std::lock_guard lock(state->mutex);
+    CHECK(state->outgoing.empty());
+}
+
 TEST("client metadata preserves omitted set-empty and clear states") {
     auto state = std::make_shared<FakeState>();
     auto client = client_for(state);

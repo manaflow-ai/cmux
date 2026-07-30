@@ -856,6 +856,7 @@ class BrowserAttachFrame:
     data_base64: str
     width_px: int
     height_px: int
+    pointer_frame_seq: Optional[int]
 
 
 @dataclass(frozen=True)

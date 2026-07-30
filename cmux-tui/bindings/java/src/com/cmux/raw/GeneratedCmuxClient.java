@@ -38,6 +38,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult browserFramePresented(BrowserFramePresentedRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_FRAME_PRESENTED, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final EmptyResult browserInsertText(BrowserInsertTextRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_INSERT_TEXT, request.toWire());
         return EmptyResult.fromWire(result);
@@ -48,8 +53,18 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult browserKeyPress(BrowserKeyPressRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_KEY_PRESS, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final EmptyResult browserMouse(BrowserMouseRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_MOUSE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult browserMouseGuarded(BrowserMouseGuardedRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_MOUSE_GUARDED, request.toWire());
         return EmptyResult.fromWire(result);
     }
 
@@ -65,6 +80,11 @@ public abstract class GeneratedCmuxClient {
 
     public final EmptyResult browserWheel(BrowserWheelRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_WHEEL, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult browserWheelGuarded(BrowserWheelGuardedRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_WHEEL_GUARDED, request.toWire());
         return EmptyResult.fromWire(result);
     }
 

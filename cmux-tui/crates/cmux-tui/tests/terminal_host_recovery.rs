@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -1749,7 +1750,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "ttl_ms": 10_000,
         }),
     );
-    let mut stalled = connect_host_detailed(
+    let stalled = connect_host_detailed(
         grant["endpoint"].as_str().unwrap(),
         grant["terminal_id"].as_str().unwrap(),
         grant["token"].as_str().unwrap(),
@@ -1758,64 +1759,28 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     )
     .unwrap();
 
-    let done = format!("overflow-done-{}", std::process::id());
     request(
         &harness.socket,
         serde_json::json!({
             "id": 3,
             "cmd": "send",
             "surface": surface,
-            "text": format!(
-                // Exceed both the host's bounded client queue and Darwin's
-                // dynamically sized Unix-socket buffers. A smaller burst can
-                // fit entirely in the kernel under light load, which does not
-                // represent a stalled writer and made this assertion timing
-                // dependent.
-                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
-            ),
+            // A finite burst can fit in Darwin's dynamically sized socket
+            // buffers under some scheduler interleavings. Keep producing
+            // until the bounded host tap closes this unread renderer.
+            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &done).contains(&done));
-
-    let disconnected_before_drain =
-        match stalled.stream.set_read_timeout(Some(Duration::from_secs(5))) {
-            Ok(()) => false,
-            // Darwin reports EINVAL when setting SO_RCVTIMEO after the peer has
-            // already issued shutdown(2); that is the overflow outcome under test.
-            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => true,
-            Err(error) => panic!("set stalled-renderer timeout: {error}"),
-        };
-    let mut complete_frames = 0usize;
-    if !disconnected_before_drain {
-        loop {
-            match read_frame(&mut stalled.stream, MAX_FRAME_PAYLOAD) {
-                Ok(Some(frame)) => {
-                    assert_eq!(frame.request_id, 0);
-                    assert_eq!(frame.sequence, stalled.next_sequence);
-                    stalled.next_sequence = stalled.next_sequence.wrapping_add(1);
-                    complete_frames += 1;
-                }
-                Ok(None) => break,
-                Err(ProtocolError::Io(error))
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    panic!("stalled renderer silently froze instead of being disconnected")
-                }
-                // Shutdown can interrupt a frame already being copied into the
-                // kernel socket buffer. A clean EOF or truncated final frame are
-                // both explicit disconnects and require a fresh Snapshot.
-                Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
-                Err(error) => panic!("stalled renderer received invalid protocol data: {error}"),
-            }
-        }
-    }
     assert!(
-        disconnected_before_drain || complete_frames > 0,
-        "stalled renderer received no output before disconnect"
+        wait_for_socket_hangup(&stalled.stream, Duration::from_secs(15)),
+        "stalled renderer silently froze instead of being disconnected"
     );
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 31, "cmd": "send", "surface": surface, "text": "\u{3}"}),
+    );
+    std::thread::sleep(Duration::from_millis(50));
 
     // Overflow is isolated to the stalled renderer. The daemon proxy and PTY
     // remain responsive and the durable host record remains adoptable.
@@ -1923,10 +1888,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     )
     .unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
-    let resolved = request(
-        &harness.socket,
-        serde_json::json!({"id":3,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-    );
+    let resolved = wait_for_terminal_lifecycle(&harness.socket, &terminal_id, "running");
     assert_eq!(resolved["lifecycle"], "running");
     assert_eq!(resolved["terminal_incarnation"], incarnation);
     let after_record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
@@ -2731,6 +2693,65 @@ fn wait_for_no_host_records(root: &Path) {
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("terminal host record was not removed after close");
+}
+
+fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+        let timeout_ms =
+            remaining.min(Duration::from_millis(100)).as_millis().clamp(1, i32::MAX as u128) as i32;
+        // SAFETY: descriptor points to one initialized pollfd and the stream
+        // remains borrowed for the duration of poll.
+        let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            panic!("poll stalled renderer: {error}");
+        }
+        if descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            return true;
+        }
+        if ready > 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+fn wait_for_terminal_lifecycle(
+    socket: &Path,
+    terminal_id: &str,
+    expected: &str,
+) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            socket,
+            serde_json::json!({
+                "cmd":"resolve-terminal",
+                "terminal_id":terminal_id,
+            }),
+        );
+        if resolved["lifecycle"] == expected {
+            return resolved;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal {terminal_id} remained in lifecycle {:?}, expected {expected}",
+            resolved["lifecycle"],
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {

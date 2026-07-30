@@ -1823,6 +1823,7 @@ func (b *Browser) Mouse(ctx context.Context, options BrowserInputMouseOptions) (
 	if options.ClickCount != nil {
 		input["click_count"] = *options.ClickCount
 	}
+	input[wirev1.FieldPointerFrameSeq] = options.PointerFrameSeq
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
 		ctx, b.client, wirev1.BrowserInputMouse, input, options.MutationOptions,
@@ -1835,6 +1836,7 @@ func (b *Browser) Wheel(ctx context.Context, options BrowserInputWheelOptions) (
 	input["delta_y"] = options.DeltaY
 	input["x_px"] = options.XPX
 	input["y_px"] = options.YPX
+	input[wirev1.FieldPointerFrameSeq] = options.PointerFrameSeq
 	merge(input, options.Extra)
 	return mutationValue[EmptyResult](
 		ctx, b.client, wirev1.BrowserInputWheel, input, options.MutationOptions,
@@ -2327,11 +2329,12 @@ func decodeBrowserAttachment(raw json.RawMessage) (BrowserAttachmentItem, error)
 		}, nil
 	case "frame":
 		var known struct {
-			Kind       string  `json:"kind"`
-			MIMEType   *string `json:"mime_type"`
-			DataBase64 *string `json:"data_base64"`
-			WidthPX    *uint32 `json:"width_px"`
-			HeightPX   *uint32 `json:"height_px"`
+			Kind            string          `json:"kind"`
+			MIMEType        *string         `json:"mime_type"`
+			DataBase64      *string         `json:"data_base64"`
+			WidthPX         *uint32         `json:"width_px"`
+			HeightPX        *uint32         `json:"height_px"`
+			PointerFrameSeq json.RawMessage `json:"pointer_frame_seq"`
 		}
 		if err := strictDecode(raw, &known); err != nil {
 			return BrowserAttachmentItem{}, &ProtocolError{
@@ -2340,9 +2343,10 @@ func decodeBrowserAttachment(raw json.RawMessage) (BrowserAttachmentItem, error)
 		}
 		if known.MIMEType == nil || known.DataBase64 == nil ||
 			known.WidthPX == nil || *known.WidthPX == 0 ||
-			known.HeightPX == nil || *known.HeightPX == 0 {
+			known.HeightPX == nil || *known.HeightPX == 0 ||
+			len(known.PointerFrameSeq) == 0 {
 			return BrowserAttachmentItem{}, &ProtocolError{
-				Message: "browser frame item requires mime_type, data_base64, and non-zero dimensions",
+				Message: "browser frame item requires mime_type, data_base64, non-zero dimensions, and pointer_frame_seq",
 			}
 		}
 		if *known.MIMEType != "image/png" && *known.MIMEType != "image/jpeg" {
@@ -2354,12 +2358,23 @@ func decodeBrowserAttachment(raw json.RawMessage) (BrowserAttachmentItem, error)
 				Message: "invalid browser frame data_base64: " + err.Error(),
 			}
 		}
+		var pointerFrameSeq *Decimal
+		if !bytes.Equal(bytes.TrimSpace(known.PointerFrameSeq), []byte("null")) {
+			var value Decimal
+			if err := json.Unmarshal(known.PointerFrameSeq, &value); err != nil {
+				return BrowserAttachmentItem{}, &ProtocolError{
+					Message: "invalid browser frame pointer_frame_seq: " + err.Error(),
+				}
+			}
+			pointerFrameSeq = &value
+		}
 		return BrowserAttachmentItem{
-			Kind:     known.Kind,
-			MIMEType: *known.MIMEType,
-			Frame:    frame,
-			WidthPX:  *known.WidthPX,
-			HeightPX: *known.HeightPX,
+			Kind:            known.Kind,
+			MIMEType:        *known.MIMEType,
+			Frame:           frame,
+			WidthPX:         *known.WidthPX,
+			HeightPX:        *known.HeightPX,
+			PointerFrameSeq: pointerFrameSeq,
 		}, nil
 	case "state":
 		var known struct {

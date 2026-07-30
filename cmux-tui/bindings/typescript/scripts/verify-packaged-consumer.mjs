@@ -48,6 +48,7 @@ try {
   writeFileSync(join(consumer, "consumer.ts"), `
 import {
   Client,
+  browserId,
   decimalString,
   exact,
   paneId,
@@ -77,6 +78,7 @@ const client = new Client({ transport, timeoutMs: 5_000 });
 const session = client.session(sessionId("session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 const selectedTerminalId = terminalId("term_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 const terminal = session.terminal(selectedTerminalId);
+const pointerFrameSeq = decimalString("42");
 const write: Promise<MutationReceipt> = terminal.write(
   "printf",
   { idempotencyKey: "consumer-write", expectedRevision: decimalString("7") },
@@ -102,6 +104,22 @@ const pane = workspace
   .pane(paneId("pane_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"));
 const createdBrowser: Promise<MutationResult<CreatedBrowserPath>> =
   pane.createBrowserTab({ url: "https://example.com" });
+const browserHandle = session.browser(
+  browserId("browser_ffffffffffffffffffffffffffffffff"),
+);
+void browserHandle.mouse({
+  kind: "move",
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
+void browserHandle.wheel({
+  deltaX: 0,
+  deltaY: -120,
+  xPx: 10,
+  yPx: 20,
+  pointerFrameSeq,
+});
 function narrow(path: CreatedPath) {
   if (path.kind === "terminal") return path.terminal.id;
   if (path.kind === "browser") return path.browser.id;

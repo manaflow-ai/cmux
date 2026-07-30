@@ -65,6 +65,37 @@ try (ResourceStream<TerminalAttachmentItem> stream =
 }
 ```
 
+Browser frames carry a required nullable `pointerFrameSeq`. An empty value
+means pointer input is blocked for those pixels. After presenting a frame,
+pass its exact non-null `Decimal` token with every mouse or wheel input:
+
+```java
+if (item.value() instanceof BrowserAttachmentItem.Frame frame &&
+        frame.pointerFrameSeq().isPresent()) {
+    byte[] pixels = frame.data();
+    // Present pixels at frame.widthPx() by frame.heightPx() before input.
+    Decimal token = frame.pointerFrameSeq().orElseThrow();
+    browser.mouse(new Options.BrowserMouse(
+        Options.Mutation.defaults(),
+        Map.of("kind", "move", "x_px", 40.0, "y_px", 20.0),
+        token
+    ));
+    browser.wheel(new Options.Wheel(
+        Options.Mutation.defaults(),
+        0.0,
+        -24.0,
+        40.0,
+        20.0,
+        token
+    ));
+}
+```
+
+Do not manufacture, round, or reuse the token for different pixels. The SDK
+encodes its full unsigned 64-bit value as the required decimal string.
+The complete helper example is
+`examples/com/cmux/examples/BrowserPointerInput.java`.
+
 Mutations receive an idempotency key generated from 128 bits of secure random
 data unless the caller supplies one. The client never retries mutations. A
 transport failure before a structured response throws

@@ -119,6 +119,7 @@ import type {
   AgentReportOptions,
   BrowserAttachOptions,
   BrowserMouseOptions,
+  BrowserWheelOptions,
   BrowserViewerSizeOptions,
   CreateBrowserOptions,
   CreatePaneOptions,
@@ -388,6 +389,16 @@ function requiredDecimal(
   } catch (error) {
     throw new CmuxProtocolError(`invalid ${key}: ${String(error)}`);
   }
+}
+
+function requiredNullableDecimal(
+  payload: Record<string, unknown>,
+  key: string,
+): DecimalString | null {
+  if (!(key in payload)) {
+    throw new CmuxProtocolError(`resource field ${key} is required`);
+  }
+  return payload[key] === null ? null : requiredDecimal(payload, key);
 }
 
 function requiredGeneration(
@@ -976,9 +987,12 @@ function optionFields(options: object): Record<string, unknown> {
       heightPx: "height_px",
       readOnly: "read_only",
       deltaRows: "delta_rows",
+      deltaX: "delta_x",
+      deltaY: "delta_y",
       xPx: "x_px",
       yPx: "y_px",
       clickCount: "click_count",
+      pointerFrameSeq: "pointer_frame_seq",
       terminalId: "terminal_id",
       sourceSession: "source_session",
       selectionBackground: "selection_background",
@@ -991,6 +1005,18 @@ function optionFields(options: object): Record<string, unknown> {
     result[wireKey] = value;
   }
   return result;
+}
+
+function browserPointerFields(
+  input: BrowserMouseOptions | BrowserWheelOptions,
+): Record<string, unknown> {
+  const fields = optionFields(input);
+  try {
+    fields.pointer_frame_seq = decimalString(input.pointerFrameSeq);
+  } catch (error) {
+    throw new TypeError(`pointerFrameSeq must be a non-null DecimalString: ${String(error)}`);
+  }
+  return fields;
 }
 
 function mutationParams(
@@ -1500,7 +1526,14 @@ function browserAttachItem(value: unknown): BrowserAttachItem {
   if (kind === "frame") {
     strictObject(
       payload,
-      ["kind", "mime_type", "data_base64", "width_px", "height_px"],
+      [
+        "kind",
+        "mime_type",
+        "data_base64",
+        "width_px",
+        "height_px",
+        "pointer_frame_seq",
+      ],
       "browser attach frame",
     );
     const dataBase64 = requiredString(payload, "data_base64");
@@ -1522,6 +1555,7 @@ function browserAttachItem(value: unknown): BrowserAttachItem {
       dataBase64,
       widthPx: requiredPositiveUint32(payload, "width_px"),
       heightPx: requiredPositiveUint32(payload, "height_px"),
+      pointerFrameSeq: requiredNullableDecimal(payload, "pointer_frame_seq"),
     }) satisfies BrowserAttachFrame;
   }
   if (kind === "state") {
@@ -3657,25 +3691,18 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
   mouse(input: BrowserMouseOptions, options: MutationOptions = {}): Promise<MutationReceipt> {
     return this.client[mutateEmptyOperation](
       operations.browserInputMouse,
-      { ...this.params(), ...optionFields(input) },
+      { ...this.params(), ...browserPointerFields(input) },
       options,
     );
   }
 
   wheel(
-    deltaX: number,
-    deltaY: number,
-    position: { xPx: number; yPx: number },
+    input: BrowserWheelOptions,
     options: MutationOptions = {},
   ): Promise<MutationReceipt> {
     return this.client[mutateEmptyOperation](
       operations.browserInputWheel,
-      {
-        ...this.params(),
-        delta_x: deltaX,
-        delta_y: deltaY,
-        ...optionFields(position),
-      },
+      { ...this.params(), ...browserPointerFields(input) },
       options,
     );
   }

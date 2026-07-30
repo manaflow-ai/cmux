@@ -773,6 +773,20 @@
           "nullable": true,
           "since": 9
         },
+        "terminal_resource_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true,
+          "since": 10,
+          "constraints": [
+            {
+              "pattern": "^term_[0-9a-f]{32}$"
+            }
+          ]
+        },
         "terminal_incarnation": {
           "type": {
             "kind": "scalar",
@@ -3459,6 +3473,21 @@
             "default": null,
             "constraints": [
               "Control characters become spaces; at most 64 Unicode characters are retained."
+            ]
+          },
+          "capabilities": {
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "scalar",
+                "name": "string"
+              }
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "constraints": [
+              "Advertises additive client capabilities for this connection."
             ]
           }
         },
@@ -6758,6 +6787,42 @@
         "Accepted browser resizes complete asynchronously."
       ]
     },
+    "browser-frame-presented": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "browser-pointer-frame-guard-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "frame_seq": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Acknowledges the exact rendered browser frame for this connection.",
+        "Requires browser-pointer-frame-guard-v1."
+      ]
+    },
     "browser-mouse": {
       "authority": "frontend",
       "since": 6,
@@ -6818,6 +6883,15 @@
             "presence": "optional",
             "nullable": true,
             "default": null
+          },
+          "frame_seq": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
           }
         },
         "additional_properties": false
@@ -6830,6 +6904,89 @@
       "constraints": [
         "Browser surfaces only; coordinates are CSS pixels.",
         "The bounded disposable input queue drops newest input when full."
+      ]
+    },
+    "browser-mouse-guarded": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "browser-pointer-frame-guard-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "kind": {
+            "type": {
+              "kind": "enum",
+              "values": [
+                "down",
+                "up",
+                "move"
+              ]
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "x_px": {
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "y_px": {
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "button": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "click_count": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint32"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "frame_seq": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Browser surfaces only; coordinates are CSS pixels.",
+        "The frame sequence must be the exact presented token for this connection.",
+        "Requires browser-pointer-frame-guard-v1."
       ]
     },
     "browser-wheel": {
@@ -6870,6 +7027,15 @@
             },
             "presence": "required",
             "nullable": false
+          },
+          "frame_seq": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
           }
         },
         "additional_properties": false
@@ -6882,6 +7048,67 @@
       "constraints": [
         "Browser surfaces only; values are CSS pixels.",
         "The bounded disposable input queue drops newest input when full."
+      ]
+    },
+    "browser-wheel-guarded": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "browser-pointer-frame-guard-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "x_px": {
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "y_px": {
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "delta_y_px": {
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "frame_seq": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Browser surfaces only; values are CSS pixels.",
+        "The frame sequence must be the exact presented token for this connection.",
+        "Requires browser-pointer-frame-guard-v1."
       ]
     },
     "browser-key": {
@@ -6962,6 +7189,75 @@
       "constraints": [
         "Browser surfaces only.",
         "The bounded disposable input queue drops newest input when full."
+      ]
+    },
+    "browser-key-press": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "key": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "code": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "windows_virtual_key_code": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint32"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "modifiers": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint32"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "text": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "EmptyResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Browser surfaces only.",
+        "One request preserves the atomic press sequence through the bounded input queue."
       ]
     },
     "browser-insert-text": {

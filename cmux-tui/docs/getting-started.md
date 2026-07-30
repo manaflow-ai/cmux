@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
 
 ```bash
 cd cmux-tui
@@ -41,7 +41,13 @@ cd cmux-tui
 cargo run -p cmux-tui -- attach --session agents
 ```
 
-Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree.
+Detach from an attached TUI with prefix `d`. With default keys, that is `Ctrl-b d`. The server keeps running, and another `attach` reconnects to the same tree. PTY tabs attach with a Ghostty VT-state replay followed by a live output stream.
+
+Attach one terminal without the sidebar, status bar, pane border, or other tabs:
+
+```bash
+cargo run -p cmux-tui -- attach --session agents --terminal <terminal-id>
+```
 
 Use the noun-first public CLI to inspect or automate individual resources:
 

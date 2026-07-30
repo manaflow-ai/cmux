@@ -2555,6 +2555,7 @@ Result<BrowserAttachmentItem> decode_browser_attachment(
                     "data_base64",
                     "width_px",
                     "height_px",
+                    "pointer_frame_seq",
                 },
                 {
                     "kind",
@@ -2562,6 +2563,7 @@ Result<BrowserAttachmentItem> decode_browser_attachment(
                     "data_base64",
                     "width_px",
                     "height_px",
+                    "pointer_frame_seq",
                 },
                 "browser attachment frame");
             const auto mime = string_value(
@@ -2576,6 +2578,14 @@ Result<BrowserAttachmentItem> decode_browser_attachment(
             if (!data) {
                 fail("browser frame data_base64 is invalid");
             }
+            std::optional<std::uint64_t> pointer_frame_seq;
+            const auto& raw_pointer_frame_seq =
+                field(object, "pointer_frame_seq", "browser frame");
+            if (!raw_pointer_frame_seq.is_null()) {
+                pointer_frame_seq = decimal_value(
+                    raw_pointer_frame_seq,
+                    "browser frame pointer_frame_seq");
+            }
             return BrowserAttachmentItem(BrowserAttachFrame{
                 mime,
                 std::move(data).value(),
@@ -2589,6 +2599,7 @@ Result<BrowserAttachmentItem> decode_browser_attachment(
                     std::numeric_limits<std::uint32_t>::max(),
                     "browser frame height",
                     true)),
+                pointer_frame_seq,
             });
         }
         if (kind == "state") {

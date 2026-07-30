@@ -2226,7 +2226,11 @@ Result<MutationResult<EmptyResult>> Browser::text(
 
 Result<MutationResult<EmptyResult>> Browser::mouse(
     Json::Object params,
+    std::uint64_t pointer_frame_seq,
     MutationOptions options) const {
+    params.insert_or_assign(
+        "pointer_frame_seq",
+        Json(std::to_string(pointer_frame_seq)));
     return mutate(
         Operation::browser_input_mouse,
         std::move(params),
@@ -2236,12 +2240,27 @@ Result<MutationResult<EmptyResult>> Browser::mouse(
 Result<MutationResult<EmptyResult>> Browser::wheel(
     double delta_x,
     double delta_y,
+    double x_px,
+    double y_px,
+    std::uint64_t pointer_frame_seq,
     MutationOptions options) const {
+    if (!std::isfinite(delta_x) || !std::isfinite(delta_y) ||
+        !std::isfinite(x_px) || !std::isfinite(y_px)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "browser wheel coordinates and deltas must be finite");
+    }
     return mutate(
         Operation::browser_input_wheel,
         Json::Object{
             {"delta_x", Json(delta_x)},
             {"delta_y", Json(delta_y)},
+            {"x_px", Json(x_px)},
+            {"y_px", Json(y_px)},
+            {
+                "pointer_frame_seq",
+                Json(std::to_string(pointer_frame_seq)),
+            },
         },
         std::move(options));
 }

@@ -31,7 +31,7 @@ pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 
-pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
@@ -57,11 +57,13 @@ pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTar
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
-    BrowserFrameStream, BrowserSource, BrowserStatus, CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR,
-    CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR, CLEAR_HISTORY_PRESERVATION_ERROR,
-    CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery, ClearHistoryFailure, DefaultColors,
-    RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind, SurfaceOptions,
-    SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
+    CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+    CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
+    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
+    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
     FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,

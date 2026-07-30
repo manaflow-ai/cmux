@@ -54,10 +54,17 @@ try {
       process.once("SIGINT", () => abort.abort());
       await controller.followBrowser(id, {
         onState: (state) => console.log(JSON.stringify(state)),
-        onFrame: ({ sequence, mimeType, widthPx, heightPx }) => {
+        onFrame: ({
+          sequence,
+          pointerFrameSeq,
+          mimeType,
+          widthPx,
+          heightPx,
+        }) => {
           console.log(JSON.stringify({
             kind: "frame",
             sequence,
+            pointerFrameSeq,
             mimeType,
             widthPx,
             heightPx,

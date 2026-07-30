@@ -496,6 +496,18 @@ public final class Options {
     public record Mouse(Mutation mutation, Map<String, Object> mouse) {
         public Mouse { mutation = mut(mutation); mouse = copy(mouse); }
     }
+    /** Browser pointer input authorized by one exact attached frame token. */
+    public record BrowserMouse(
+        Mutation mutation,
+        Map<String, Object> mouse,
+        Decimal pointerFrameSeq
+    ) {
+        public BrowserMouse {
+            mutation = mut(mutation);
+            mouse = copy(mouse);
+            Objects.requireNonNull(pointerFrameSeq, "pointerFrameSeq");
+        }
+    }
     public record FocusInput(Mutation mutation, boolean focused) {
         public FocusInput { mutation = mut(mutation); }
     }
@@ -570,31 +582,22 @@ public final class Options {
     public record Text(Mutation mutation, String text) {
         public Text { mutation = mut(mutation); Objects.requireNonNull(text, "text"); }
     }
+    /** Browser wheel input authorized by one exact attached frame token. */
     public record Wheel(
         Mutation mutation,
         double deltaX,
         double deltaY,
-        Optional<Double> x,
-        Optional<Double> y
+        double x,
+        double y,
+        Decimal pointerFrameSeq
     ) {
         public Wheel {
             mutation = mut(mutation);
             finite(deltaX, "deltaX");
             finite(deltaY, "deltaY");
-            x = opt(x);
-            y = opt(y);
-            x.ifPresent(value -> finite(value, "x"));
-            y.ifPresent(value -> finite(value, "y"));
-        }
-
-        public Wheel(Mutation mutation, double deltaX, double deltaY) {
-            this(
-                mutation,
-                deltaX,
-                deltaY,
-                Optional.empty(),
-                Optional.empty()
-            );
+            finite(x, "x");
+            finite(y, "y");
+            Objects.requireNonNull(pointerFrameSeq, "pointerFrameSeq");
         }
     }
     public record BrowserAttach(Stream stream, Optional<Integer> width, Optional<Integer> height) {
