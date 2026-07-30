@@ -34320,6 +34320,91 @@
         }
       }
     },
+    "cli.codexTeams.watcher.subagent.depthExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: depth %1$lld exceeds the automatic pane limit %2$lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: 深さ %1$lld がペイン自動作成の上限 %2$lld を超えています。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした（エラーコード: %@）。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.readinessFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは、再開されたスレッドの準備ができていないため Codex サブエージェントをアタッチできませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.statusNotAttachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: thread status %@ is not attachable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: スレッドの状態 %@ はアタッチ可能ではありません。"
+          }
+        }
+      }
+    },
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {

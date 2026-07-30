@@ -105,6 +105,11 @@ final class CodexTeamsAppServerFixture: @unchecked Sendable {
         let accepted = Darwin.accept(listenerFD, nil, nil)
         guard accepted >= 0 else { return }
         stateLock.lock()
+        guard !stopped else {
+            stateLock.unlock()
+            Darwin.close(accepted)
+            return
+        }
         clientFD = accepted
         stateLock.unlock()
         defer {
@@ -298,10 +303,16 @@ final class CodexTeamsAppServerFixture: @unchecked Sendable {
         var frame = Data([0x80 | opcode])
         if payload.count < 126 {
             frame.append(UInt8(payload.count))
-        } else {
+        } else if payload.count <= Int(UInt16.max) {
             frame.append(126)
             frame.append(UInt8((payload.count >> 8) & 0xFF))
             frame.append(UInt8(payload.count & 0xFF))
+        } else {
+            frame.append(127)
+            var length = UInt64(payload.count).bigEndian
+            withUnsafeBytes(of: &length) {
+                frame.append(contentsOf: $0)
+            }
         }
         frame.append(payload)
         try writeAll(frame, clientFD: clientFD)

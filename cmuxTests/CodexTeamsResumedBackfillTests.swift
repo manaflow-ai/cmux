@@ -51,8 +51,11 @@ struct CodexTeamsResumedBackfillTests {
             data: running.stderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        #expect(diagnostic.contains("fixture pane creation denied"))
-        #expect(diagnostic.contains("cmux codex-teams watcher skipped thread child-"))
+        #expect(diagnostic.contains("cmux codex-teams watcher"))
+        #expect(diagnostic.contains("could not create a pane"))
+        #expect(diagnostic.contains("fixture_split_failure"))
+        #expect(!diagnostic.contains("child-"))
+        #expect(!diagnostic.contains("fixture pane creation denied"))
     }
 
     private func startWatcher(

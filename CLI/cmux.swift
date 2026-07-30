@@ -21167,7 +21167,10 @@ struct CMUXCLI {
                 reportSubagentDiagnosticOnce(
                     threadId: thread.id,
                     reason: "depth",
-                    message: "cmux codex-teams watcher skipped subagent \(thread.id): depth \(depth) exceeds max auto depth \(maxAutoDepth)\n"
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.depthExceeded",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: depth \(depth) exceeds the automatic pane limit \(maxAutoDepth)."
+                    ) + "\n"
                 )
                 return
             }
@@ -21180,7 +21183,10 @@ struct CMUXCLI {
                 reportSubagentDiagnosticOnce(
                     threadId: thread.id,
                     reason: "status",
-                    message: "cmux codex-teams watcher skipped subagent \(thread.id): thread status \(thread.statusType ?? "missing") is not attachable\n"
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.statusNotAttachable",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: thread status \(thread.statusType ?? "missing") is not attachable."
+                    ) + "\n"
                 )
                 return
             }
@@ -21194,9 +21200,15 @@ struct CMUXCLI {
             } catch {
                 if lastAgentSurfaceId != nil {
                     lastAgentSurfaceId = nil
-                    try openSubagent(thread, spawn: spawn, depth: depth)
+                    do {
+                        try openSubagent(thread, spawn: spawn, depth: depth)
+                    } catch {
+                        reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                        return
+                    }
                 } else {
-                    throw error
+                    reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                    return
                 }
             }
             openedThreadIds.insert(thread.id)
@@ -21231,7 +21243,10 @@ struct CMUXCLI {
                     self.reportSubagentDiagnosticOnce(
                         threadId: threadId,
                         reason: "readiness",
-                        message: "cmux codex-teams watcher could not attach subagent \(threadId): readiness thread/resume failed\n"
+                        message: String(
+                            localized: "cli.codexTeams.watcher.subagent.readinessFailed",
+                            defaultValue: "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+                        ) + "\n"
                     )
                     self.stateLock.unlock()
                     return
@@ -21278,6 +21293,27 @@ struct CMUXCLI {
                 return false
             }
             return true
+        }
+
+        /// Called while `stateLock` is held after both supported split targets fail.
+        private func reportPaneCreationFailureOnce(threadId: String, error: Error) {
+            let message: String
+            if let code = (error as? CLIError)?.v2Code {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: \(code))."
+                )
+            } else {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailed",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+                )
+            }
+            reportSubagentDiagnosticOnce(
+                threadId: threadId,
+                reason: "pane",
+                message: message + "\n"
+            )
         }
 
         /// Called while `stateLock` is held so each stable skip reason is logged once.

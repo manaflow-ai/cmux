@@ -96,6 +96,11 @@ final class CodexTeamsSocketFixture: @unchecked Sendable {
         let accepted = Darwin.accept(listenerFD, nil, nil)
         guard accepted >= 0 else { return }
         stateLock.lock()
+        guard !stopped else {
+            stateLock.unlock()
+            Darwin.close(accepted)
+            return
+        }
         clientFD = accepted
         stateLock.unlock()
         defer {
