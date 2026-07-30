@@ -4,9 +4,7 @@ import Foundation
 
 extension TaskComposerSheet {
     func selectTemplate(_ template: MobileTaskTemplate, modelID: String? = nil) {
-        let validatedModelID = modelID.flatMap { id in
-            MobileTaskAgentProvider(command: template.command)?.model(id: id)?.id
-        }
+        let validatedModelID = validatedModelID(modelID, for: template)
         updateSubmissionRequest(reconcileRecovery: true) {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
@@ -22,10 +20,12 @@ extension TaskComposerSheet {
         prompt = snapshot.prompt
         workspaceName = snapshot.workspaceName
         selectedTemplateID = snapshot.templateID
-        selectedModelID = snapshot.modelID.flatMap { id in
-            selectedTemplate.flatMap {
-                MobileTaskAgentProvider(command: $0.command)?.model(id: id)?.id
-            }
+        selectedModelID = selectedTemplate.flatMap {
+            validatedModelID(
+                snapshot.modelID,
+                for: $0,
+                previouslyValidModelID: snapshot.modelID
+            )
         }
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag

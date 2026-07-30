@@ -49,7 +49,9 @@ struct TaskComposerAgentMenuContent: View {
     @ViewBuilder
     private var combinedChoices: some View {
         ForEach(value.templates) { template in
-            let models = MobileTaskAgentProvider(command: template.command)?.models ?? []
+            let models = template.id == value.selectedTemplateID
+                ? value.models
+                : MobileTaskAgentProvider(command: template.command)?.models ?? []
             if models.isEmpty {
                 Button {
                     actions.selectTemplate(template.id)

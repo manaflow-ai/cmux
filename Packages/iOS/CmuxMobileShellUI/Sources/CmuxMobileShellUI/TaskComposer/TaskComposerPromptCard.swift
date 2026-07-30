@@ -116,6 +116,7 @@ struct TaskComposerPromptCard: View {
                 templates: templates,
                 selectedTemplateID: selectedTemplateID,
                 modelPickerVariant: modelPickerVariant,
+                models: models,
                 selectedModelID: selectedModelID,
                 isDisabled: isDisabled
             ),

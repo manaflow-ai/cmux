@@ -39,6 +39,7 @@ extension MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
+             "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.

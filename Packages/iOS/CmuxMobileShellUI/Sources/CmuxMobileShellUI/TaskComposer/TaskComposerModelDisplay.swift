@@ -7,8 +7,13 @@ extension Array where Element == MobileTaskAgentModel {
     /// The selected model's display name, or the localized "Default"
     /// fallback shared by every model-picker treatment.
     func displayName(forSelected id: String?) -> String {
-        first { $0.id == id }?.displayName
-            ?? L10n.string("mobile.taskComposer.model.default", defaultValue: "Default")
+        guard let id else {
+            return L10n.string(
+                "mobile.taskComposer.model.default",
+                defaultValue: "Default"
+            )
+        }
+        return first { $0.id == id }?.displayName ?? id
     }
 }
 

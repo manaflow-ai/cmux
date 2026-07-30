@@ -62,6 +62,7 @@ extension MobileHostService {
             "workspace.create_in_group.v1",
             "workspace.task_create.v1",
             "task.attachments.v1",
+            "task.models.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",

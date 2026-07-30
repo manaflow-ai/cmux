@@ -8,7 +8,7 @@ public enum MobileTaskAgentProvider: String, CaseIterable, Sendable {
     /// OpenAI's Codex CLI.
     case codex
     /// The OpenCode CLI.
-    case openCode
+    case openCode = "opencode"
 
     /// Lexically detects a provider from the command's first
     /// whitespace-delimited token.

@@ -136,12 +136,22 @@ struct TaskComposerSheet: View {
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
+        let initialProvider = selectedTemplate.flatMap {
+            MobileTaskAgentProvider(command: $0.command)
+        }
+        let initialDiscoveredModels = initialProvider.flatMap {
+            store.discoveredTaskModels(
+                provider: $0,
+                macDeviceID: selectedMacID,
+                instanceTag: selectedMac?.instanceTag
+            )
+        }
+        let initialModelAvailability = MobileTaskModelAvailability(
+            template: selectedTemplate,
+            discoveredModels: initialDiscoveredModels
+        )
         let initialModelID = (draft?.templateID == selectedTemplateID)
-            ? draft?.modelID.flatMap { id in
-                selectedTemplate.flatMap {
-                    MobileTaskAgentProvider(command: $0.command)?.model(id: id)?.id
-                }
-            }
+            ? initialModelAvailability.validatedModelID(draft?.modelID)
             : nil
         let openDirectory = Self.preferredOpenDirectory(
             workspaces: store.workspaces,
@@ -161,7 +171,7 @@ struct TaskComposerSheet: View {
                 templateStore: store.taskTemplateStore,
                 openDirectory: openDirectory
             )
-        // A draft model that fails curated-list validation changes the request
+        // A draft model that fails the cached effective-list validation changes the request
         // bytes, so its operation ID (and any recovery bound to it) must not
         // be reused for the resulting default-model command.
         let draftModelSurvivedValidation = draft?.modelID == nil || initialModelID != nil
@@ -270,6 +280,15 @@ struct TaskComposerSheet: View {
             }
             .onChange(of: machines.map(\.id)) { _, _ in
                 validateMacSelection()
+            }
+            .task(id: modelRefreshID) {
+                guard let provider = modelRefreshID.provider,
+                      !selectedMacDeviceID.isEmpty else { return }
+                await store.refreshTaskModels(
+                    provider: provider,
+                    macDeviceID: selectedMacDeviceID,
+                    instanceTag: selectedMacInstanceTag
+                )
             }
             .modifier(TaskComposerStartAgainConfirmationModifier(
                 isPresented: $isStartAgainConfirmationPresented,
@@ -517,6 +536,15 @@ struct TaskComposerSheet: View {
         MobilePairedMac.pairingID(
             macDeviceID: selectedMacDeviceID,
             instanceTag: selectedMacInstanceTag
+        )
+    }
+
+    private var modelRefreshID: TaskComposerModelRefreshID {
+        TaskComposerModelRefreshID(
+            provider: selectedTemplate.flatMap {
+                MobileTaskAgentProvider(command: $0.command)
+            },
+            macPairingID: selectedMacPairingID
         )
     }
 

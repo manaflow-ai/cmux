@@ -21,10 +21,12 @@ struct TaskComposerAgentMenu: View, Equatable {
 
     private var selectedModel: MobileTaskAgentModel? {
         guard value.modelPickerVariant.renderedVariant == .combined,
-              let selectedTemplate,
               let selectedModelID = value.selectedModelID else { return nil }
-        return MobileTaskAgentProvider(command: selectedTemplate.command)?
-            .model(id: selectedModelID)
+        return value.models.first { $0.id == selectedModelID }
+            ?? MobileTaskAgentModel(
+                id: selectedModelID,
+                displayName: selectedModelID
+            )
     }
 
     var body: some View {

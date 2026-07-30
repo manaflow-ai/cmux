@@ -394,6 +394,7 @@ struct TaskComposerMinimalLayout: View {
             modelPickerVariant: modelPickerVariant.renderedVariant == .combined
                 ? .separateRow
                 : modelPickerVariant,
+            models: models,
             selectedModelID: selectedModelID,
             isDisabled: isDisabled
         )
