@@ -20,7 +20,7 @@ if(CMUX_CPP_SDK_DIR)
         "${CMAKE_CURRENT_BINARY_DIR}/cmux-sdk"
         EXCLUDE_FROM_ALL)
 else()
-    find_package(cmux-tui-sdk 0.4 CONFIG REQUIRED)
+    find_package(cmux-tui-sdk 1.0 CONFIG REQUIRED)
 endif()
 
 add_library(cmux_terminal_frontend_core src/frontend.cpp)
