@@ -301,15 +301,21 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
-        set -l tmp_root /tmp
-        if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmp_root "$TMPDIR"
-        end
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
             set surface_component "$CMUX_SURFACE_ID"
         end
-        set -l shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_root ""
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+            set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
+        end
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"
+            set -l tmp_root /tmp
+            if set -q TMPDIR; and test -n "$TMPDIR"
+                set tmp_root "$TMPDIR"
+            end
+            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        end
         set -l shim_path "$shim_root/$command_name"
         mkdir -p "$shim_root" >/dev/null 2>&1; or return 0
         begin
