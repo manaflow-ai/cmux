@@ -214,6 +214,23 @@ export function parseBindingIdBody(value: unknown): { readonly bindingId: string
   return result;
 }
 
+export function parseRevokeBindingBody(value: unknown): {
+  readonly bindingId: string;
+  readonly intent: "self" | "forget_mac";
+} {
+  const body = record(value);
+  const intent = body.intent === undefined ? "self" : body.intent;
+  if (intent !== "self" && intent !== "forget_mac") {
+    throw new IrohInvalidInputError({ code: "invalid_revoke_intent" });
+  }
+  const result = {
+    bindingId: uuid(body.bindingId, "invalid_binding_id"),
+    intent,
+  } as const;
+  rejectUnknownKeys(body, ["bindingId", "intent"]);
+  return result;
+}
+
 export function parsePairGrantRequest(value: unknown): {
   readonly initiatorBindingId: string;
   readonly acceptorBindingId: string;

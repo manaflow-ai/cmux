@@ -48,6 +48,7 @@ import {
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
   parseBindingIdBody,
+  parseRevokeBindingBody,
   parseChallengeRequest,
   parseIrohPathHint,
   parsePairGrantRequest,
@@ -399,13 +400,16 @@ export function makeIrohTrustBroker(
       clientNamespace = "legacy",
       bindingProof,
     ) => Effect.gen(function* () {
-      const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
+      const { bindingId, intent } = yield* parseEffect(
+        () => parseRevokeBindingBody(raw),
+      );
       const caller = yield* authorizeBinding(userId, bindingProof, clientNamespace, now);
       const revoked = yield* repository.revokeBinding({
         userId,
         bindingId,
         clientNamespace: caller?.clientNamespace ?? clientNamespace,
         authorizedBindingId: caller?.id,
+        intent,
         now,
       });
       if (!revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));

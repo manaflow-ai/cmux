@@ -136,6 +136,7 @@ export type IrohRepositoryShape = {
     readonly bindingId: string;
     readonly clientNamespace?: string;
     readonly authorizedBindingId?: string;
+    readonly intent?: "self" | "forget_mac";
     readonly now: Date;
   }) => Effect.Effect<boolean, RepositoryError>;
   readonly pruneExpiredState: (input: {
@@ -662,23 +663,38 @@ function makeLiveRepository(): IrohRepositoryShape {
             ))
             .limit(1);
           if (!authorized) return false;
-          const sameDurableSlot = authorized.deviceUuid === binding.deviceUuid
-            && authorized.tag === binding.tag
-            && authorized.platform === binding.platform
-            && (
-              authorized.clientNamespace === binding.clientNamespace
-              || binding.clientNamespace === "legacy"
-            );
-          if (
-            binding.revokedAt
-            && (authorized.id === binding.id || sameDurableSlot)
-          ) {
-            return true;
+          if (input.intent === "forget_mac") {
+            const sameBuildMac = authorized.platform === "ios"
+              && binding.platform === "mac"
+              && authorized.tag === binding.tag
+              && (
+                binding.clientNamespace === `mac:${authorized.tag}`
+                || binding.clientNamespace === "legacy"
+              );
+            if (!sameBuildMac) return false;
+            if (binding.revokedAt) return true;
+          } else {
+            const sameDurableSlot = authorized.deviceUuid === binding.deviceUuid
+              && authorized.tag === binding.tag
+              && authorized.platform === binding.platform
+              && (
+                authorized.clientNamespace === binding.clientNamespace
+                || binding.clientNamespace === "legacy"
+              );
+            if (
+              binding.revokedAt
+              && (authorized.id === binding.id || sameDurableSlot)
+            ) {
+              return true;
+            }
+            const sameOwnedSlot = sameDurableSlot
+              && authorized.appInstanceId === binding.appInstanceId;
+            if (authorized.id !== binding.id && !sameOwnedSlot) {
+              return false;
+            }
           }
-          const sameOwnedSlot = sameDurableSlot
-            && authorized.appInstanceId === binding.appInstanceId;
-          if (authorized.id !== binding.id && !sameOwnedSlot) return false;
         } else {
+          if (input.intent === "forget_mac") return false;
           const requestedNamespace = input.clientNamespace ?? "legacy";
           if (
             requestedNamespace !== "legacy"

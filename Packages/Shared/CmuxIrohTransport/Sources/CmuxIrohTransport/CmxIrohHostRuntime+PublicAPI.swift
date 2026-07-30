@@ -119,6 +119,7 @@ extension CmxIrohHostRuntime {
         let bindingAuthorization = localBinding.flatMap { binding in
             try? CmxIrohBindingRequestAuthorization(
                 bindingID: binding.bindingID,
+                clientNamespace: configuration.clientNamespace,
                 identity: configuration.identity,
                 endpointID: binding.endpointID
             )

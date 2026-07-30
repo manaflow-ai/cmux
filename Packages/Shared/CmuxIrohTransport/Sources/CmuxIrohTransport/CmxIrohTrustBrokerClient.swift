@@ -87,6 +87,10 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct BindingRequest: Encodable { let bindingId: String }
+    private struct MacForgetRequest: Encodable {
+        let bindingId: String
+        let intent = "forget_mac"
+    }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessCredential: Decodable, Sendable {
         let relayUrl: String
@@ -178,6 +182,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     ) throws {
         guard Self.isAllowedBaseURL(baseURL),
               cmxIsSafeClientNamespace(clientNamespace),
+              bindingAuthorization?.clientNamespace == nil
+                || bindingAuthorization?.clientNamespace == clientNamespace,
               requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
@@ -247,6 +253,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         bindingAuthorization = CmxIrohBindingRequestAuthorization(
             bindingID: response.binding.bindingID,
+            clientNamespace: clientNamespace,
             signer: signer
         )
         return response
@@ -362,6 +369,18 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             path: "api/devices/iroh",
             method: "DELETE",
             body: BindingRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    public func forgetMac(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: MacForgetRequest(bindingId: bindingID),
             operation: .revocation
         )
         guard response.revoked, response.lanRendezvousRotated else {

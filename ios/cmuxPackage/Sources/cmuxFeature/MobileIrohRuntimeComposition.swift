@@ -1444,7 +1444,16 @@ public final class MobileIrohRuntimeComposition:
                           let tokens = try? await auth.currentTokens() else { return nil }
                     return tokens.refreshToken
                 }
-            )
+            ),
+            bindingAuthorization: try cachedBinding.flatMap { binding in
+                guard bindingMatches else { return nil }
+                return try CmxIrohBindingRequestAuthorization(
+                    bindingID: binding.bindingID,
+                    clientNamespace: clientNamespace,
+                    identity: identity,
+                    endpointID: endpointID
+                )
+            }
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -2639,6 +2648,8 @@ enum MobileIrohForgetError: Error {
     /// The authenticated account changed after the forget began, so the revoke
     /// was aborted rather than applied to a different account's bindings.
     case accountChanged
+    /// The requested Mac belongs to another build lane.
+    case incompatibleBuild
 }
 
 extension MobileIrohRuntimeComposition {
@@ -2655,6 +2666,9 @@ extension MobileIrohRuntimeComposition {
         expectedAccountID: String
     ) async throws {
         guard let auth else { throw MobileIrohForgetError.notAuthenticated }
+        if let instanceTag, instanceTag != tag {
+            throw MobileIrohForgetError.incompatibleBuild
+        }
         // Capture the account identity AND both tokens as one consistent snapshot
         // from a single auth-session generation, so the revoke acts with
         // credentials that provably belong to `expectedAccountID`. Reading the
@@ -2693,15 +2707,15 @@ extension MobileIrohRuntimeComposition {
             guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
                 return false
             }
-            if let instanceTag { return binding.tag == instanceTag }
-            return true
+            return binding.tag == tag
+                && (instanceTag == nil || binding.tag == instanceTag)
         }
         for binding in matches {
             try ensureSessionUnchanged(
                 generation: session.generation,
                 expectedAccountID: expectedAccountID
             )
-            try await broker.revoke(bindingID: binding.bindingID)
+            try await broker.forgetMac(bindingID: binding.bindingID)
         }
     }
 
@@ -2730,6 +2744,7 @@ extension MobileIrohRuntimeComposition {
         }
         return try CmxIrohBindingRequestAuthorization(
             bindingID: binding.bindingID,
+            clientNamespace: clientNamespace,
             identity: identity,
             endpointID: endpointID
         )
