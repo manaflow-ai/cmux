@@ -1069,21 +1069,27 @@ public final class MobileIrohRuntimeComposition:
                   accountID == pendingRevocation.accountID,
                   let auth else { return false }
             do {
+                let expectedAccountID = pendingRevocation.accountID
                 let broker = try makeBrokerBundle(
-                    accountID: pendingRevocation.accountID,
+                    accountID: expectedAccountID,
                     tokenSource: CmxIrohBrokerTokenSource(
-                        // A coherent store-level pair per fetch: both tokens
-                        // come from ONE refresh-bracketed capture, never from
-                        // currentTokens()'s two independent awaits that a
-                        // rotation could land between.
+                        // An ATOMIC authenticated snapshot per fetch, pinned to
+                        // the PENDING revocation's account: the equality guard
+                        // above ran before this destructive retry, and the
+                        // user can switch accounts before the revoke request
+                        // captures credentials — an unpinned live read would
+                        // then send account B's tokens with account A's
+                        // pending binding id. A mismatch yields nil and the
+                        // retry fails closed.
                         credentialPair: { [weak auth] in
                             guard let auth,
-                                  let pair = try? await auth.coherentTokenPair() else {
+                                  let session = try? await auth.authenticatedSessionSnapshot(),
+                                  session.accountID == expectedAccountID else {
                                 return nil
                             }
                             return CmxIrohBrokerCredentials(
-                                accessToken: pair.accessToken,
-                                refreshToken: pair.refreshToken
+                                accessToken: session.accessToken,
+                                refreshToken: session.refreshToken
                             )
                         }
                     )

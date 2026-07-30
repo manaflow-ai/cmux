@@ -318,9 +318,28 @@ extension MobileShellComposite {
                 let survivorKeys = Set(survivors.map { row in
                     "\(row.instanceTag ?? "")\u{0}\(row.teamID ?? "")"
                 })
-                for scope in scopes
-                where !survivorKeys.contains("\(scope.instanceTag ?? "")\u{0}\(scope.teamID ?? "")")
-                    && scope.teamID != displayScope.teamID {
+                for scope in scopes {
+                    let scopeKey = "\(scope.instanceTag ?? "")\u{0}\(scope.teamID ?? "")"
+                    if survivorKeys.contains(scopeKey) {
+                        // A SURVIVING failed scope needs a durable retry entry
+                        // in ITS OWN team: normally only the displayed row was
+                        // hidden, and once the deleted primary's marker turns
+                        // rowless and migrates away, this sibling — whose
+                        // binding is already revoked — would resurface as a
+                        // normal computer with nothing left to retry from.
+                        await rememberHiddenMacDeviceID(
+                            MobilePairedMac.pairingID(
+                                macDeviceID: scope.macDeviceID,
+                                instanceTag: scope.instanceTag
+                            ),
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: scope.teamID
+                            )
+                        )
+                        continue
+                    }
+                    guard scope.teamID != displayScope.teamID else { continue }
                     let ids = [
                         scope.macDeviceID,
                         MobilePairedMac.pairingID(

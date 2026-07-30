@@ -305,11 +305,6 @@ public struct PairedMacRestoreSuppression: Sendable {
         self.stampMs = stampMs
     }
 
-    /// Clock-skew allowance biased toward REVIVAL: wrongly retiring a
-    /// tombstone leaves one restorable stale copy, while wrongly deleting
-    /// kills a genuine re-pair on every restore.
-    public static let revivalSkewMarginMs: Double = 60_000
-
     /// Whether this tombstone covers the pairing (exact, or any tag of the
     /// device for a tag-less wildcard).
     public func covers(pairingID other: String) -> Bool {
@@ -322,9 +317,16 @@ public struct PairedMacRestoreSuppression: Sendable {
     }
 
     /// Whether a record the server last wrote at `serverUpdatedAtMs` counts as
-    /// a post-forget revival for this tombstone.
+    /// a post-forget revival for this tombstone: STRICTLY after the stamp,
+    /// never earlier. Forgetting a currently-online Mac whose backup was
+    /// route-mirrored seconds earlier is the COMMON case, so any allowance
+    /// accepting pre-forget writes would bypass suppression for it. The
+    /// residual (phone clock behind the server by more than NTP drift) fails
+    /// in the recoverable direction: the revival is deleted ONCE, the other
+    /// device's next mirror re-uploads it with a fresh server stamp, and the
+    /// following restore classifies it correctly.
     public func treatsAsRevived(serverUpdatedAtMs: Double?) -> Bool {
         guard stampMs > 0, let serverUpdatedAtMs else { return false }
-        return serverUpdatedAtMs > stampMs - Self.revivalSkewMarginMs
+        return serverUpdatedAtMs > stampMs
     }
 }

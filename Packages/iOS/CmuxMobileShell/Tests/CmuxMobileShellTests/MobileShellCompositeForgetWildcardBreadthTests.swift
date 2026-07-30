@@ -931,9 +931,14 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
+            // OFFLINE for the whole scenario: with the network up, the
+            // account-wide parked intent finishes the sibling's cleanup on the
+            // next restore anyway; offline, the marker is the only thing
+            // standing between the user and a dead-binding ghost with no retry
+            // entry.
             pairedMacStore: BackingUpPairedMacStore(
                 inner: failing,
-                backup: FakeBackup(),
+                backup: FakeBackup(failNextFetches: 99),
                 teamIDProvider: { team.value }
             ),
             personalIrohForget: forget,
