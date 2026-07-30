@@ -921,6 +921,12 @@ type LocalChildReaperLease = crate::process_session::ReservedChildReaperLease;
 static DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(all(unix, test))]
+static FAIL_NEXT_FRAME_PRODUCER_SPAWN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(unix, test))]
+static FAIL_NEXT_LOCAL_READER_SPAWN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(unix, test))]
 fn dedicated_local_child_observer_spawns_for_test() -> usize {
     DEDICATED_LOCAL_CHILD_OBSERVER_SPAWNS.load(Ordering::Acquire)
 }
@@ -1938,7 +1944,7 @@ impl Surface {
         }
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
-        let reader = std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
+        let reader = spawn_local_pty_reader(id, {
             let surface = surface.clone();
             move || {
                 let mut buf = [0u8; 64 * 1024];
@@ -4334,6 +4340,10 @@ fn terminal_color_override_delta(
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 
 fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyhow::Result<()> {
+    #[cfg(all(unix, test))]
+    if FAIL_NEXT_FRAME_PRODUCER_SPAWN.swap(false, Ordering::AcqRel) {
+        return Err(std::io::Error::other("forced frame producer spawn failure").into());
+    }
     let weak = Arc::downgrade(surface);
     let id = surface.id;
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
@@ -4369,6 +4379,17 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
         }
     })?;
     Ok(())
+}
+
+fn spawn_local_pty_reader(
+    id: SurfaceId,
+    run: impl FnOnce() + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    #[cfg(all(unix, test))]
+    if FAIL_NEXT_LOCAL_READER_SPAWN.swap(false, Ordering::AcqRel) {
+        return Err(std::io::Error::other("forced local PTY reader spawn failure"));
+    }
+    std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn(run)
 }
 
 fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
@@ -4552,6 +4573,71 @@ mod tests {
         assert!(
             descendant_gone,
             "failed local PTY initialization left descendant {descendant_pid} running"
+        );
+    }
+
+    #[cfg(unix)]
+    fn assert_failed_local_worker_start_releases_reaper(
+        child_env: &str,
+        test_name: &str,
+        failure: &AtomicBool,
+        expected_error: &str,
+    ) {
+        if std::env::var_os(child_env).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test_name])
+                .env(child_env, "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "worker-start cleanup subprocess failed: {status}");
+            return;
+        }
+
+        drop(reserve_local_child_reaper().unwrap());
+        let baseline = crate::process_session::reserved_child_reaper_active_for_test();
+        failure.store(true, Ordering::Release);
+        let mux = Mux::new_for_test("local-worker-start-failure", SurfaceOptions::default());
+        let options = SurfaceOptions {
+            command: Some(vec!["/bin/sleep".into(), "60".into()]),
+            ..SurfaceOptions::default()
+        };
+
+        let error = Surface::spawn(1, options, Arc::downgrade(&mux))
+            .expect_err("forced local worker-start failure unexpectedly succeeded");
+        assert!(error.to_string().contains(expected_error), "unexpected spawn error: {error:#}");
+
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while crate::process_session::reserved_child_reaper_active_for_test() != baseline
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            crate::process_session::reserved_child_reaper_active_for_test(),
+            baseline,
+            "failed local worker startup retained a child-reaper reservation"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_frame_producer_start_releases_local_child() {
+        assert_failed_local_worker_start_releases_reaper(
+            "CMUX_TUI_TEST_FRAME_PRODUCER_START_FAILURE",
+            "surface::tests::failed_frame_producer_start_releases_local_child",
+            &FAIL_NEXT_FRAME_PRODUCER_SPAWN,
+            "forced frame producer spawn failure",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_pty_reader_start_releases_local_child() {
+        assert_failed_local_worker_start_releases_reaper(
+            "CMUX_TUI_TEST_PTY_READER_START_FAILURE",
+            "surface::tests::failed_pty_reader_start_releases_local_child",
+            &FAIL_NEXT_LOCAL_READER_SPAWN,
+            "forced local PTY reader spawn failure",
         );
     }
 

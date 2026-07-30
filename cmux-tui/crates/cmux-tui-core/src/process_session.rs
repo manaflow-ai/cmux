@@ -49,6 +49,13 @@ pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
 }
 
 #[cfg(test)]
+pub(crate) fn reserved_child_reaper_active_for_test() -> usize {
+    let Some(slot) = NATURAL_REAPER.get() else { return 0 };
+    let slot = slot.lock().unwrap();
+    slot.as_ref().map_or(0, |reaper| reaper.active.load(Ordering::Acquire))
+}
+
+#[cfg(test)]
 pub(crate) fn set_process_session_preflight_failure_for_test(enabled: bool) {
     FORCE_PROCESS_SESSION_PREFLIGHT_FAILURE.set(enabled);
 }
