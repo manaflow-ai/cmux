@@ -850,7 +850,7 @@ class TabManager: ObservableObject {
 
     func findNext() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
+            _ = TerminalSearchNavigation.next.perform { panel.performBindingAction($0) }
             return
         }
 
@@ -859,7 +859,7 @@ class TabManager: ObservableObject {
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
+            _ = TerminalSearchNavigation.previous.perform { panel.performBindingAction($0) }
             return
         }
 
@@ -1696,6 +1696,25 @@ class TabManager: ObservableObject {
     ) -> Bool {
         workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation,
+            usesTopLevelRows: usesTopLevelRows,
+            explicitGroupId: explicitGroupId
+        )
+    }
+
+    @discardableResult
+    func reorderSidebarWorkspaces(
+        tabIds: [UUID],
+        draggedTabId: UUID,
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
+    ) -> Bool {
+        workspaceReordering.reorderSidebarWorkspaces(
+            tabIds: tabIds,
+            draggedTabId: draggedTabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
             usesTopLevelRows: usesTopLevelRows,

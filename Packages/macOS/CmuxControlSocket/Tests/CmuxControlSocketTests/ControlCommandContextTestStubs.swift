@@ -346,7 +346,8 @@ extension ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution { .notFound(workspaceID: workspaceID) }
 
     func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
@@ -444,10 +445,6 @@ extension ControlSurfaceContext {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
-    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
-        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
-    }
-
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
@@ -480,8 +477,7 @@ extension ControlSurfaceContext {
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?,
-        agentSessionEnded: Bool
+        expectedSource: String?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }

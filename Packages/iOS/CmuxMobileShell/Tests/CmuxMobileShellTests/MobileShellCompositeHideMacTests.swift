@@ -589,7 +589,7 @@ import Testing
         await store.loadPairedMacs()
         #expect(store.applyNotificationFeedSnapshot(
             try Self.notificationResponse(revision: 7, id: "active-mac-notification"),
-            ownerKey: "mac-a",
+            macDeviceID: "mac-a",
             displayName: "Desk Mac"
         ))
         store.setWorkspaceStatesForTesting([
@@ -786,7 +786,7 @@ import Testing
         await store.loadPairedMacs()
         #expect(store.applyNotificationFeedSnapshot(
             try Self.notificationResponse(revision: 5, id: "mac-a-notification"),
-            ownerKey: "mac-a",
+            macDeviceID: "mac-a",
             displayName: "Desk Mac"
         ))
         store.setWorkspaceStatesForTesting([
@@ -846,7 +846,7 @@ import Testing
         await store.loadPairedMacs()
         #expect(store.applyNotificationFeedSnapshot(
             try Self.notificationResponse(revision: 5, id: "mac-a-notification"),
-            ownerKey: "mac-a",
+            macDeviceID: "mac-a",
             displayName: "Desk Mac"
         ))
 

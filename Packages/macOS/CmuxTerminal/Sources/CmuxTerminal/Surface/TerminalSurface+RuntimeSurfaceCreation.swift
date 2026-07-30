@@ -270,7 +270,6 @@ extension TerminalSurface {
             }
             return baseConfig.initialInput
         }()
-
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in

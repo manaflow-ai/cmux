@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxRemoteSession
 import CmuxWorkspaces
 import Foundation
 
@@ -436,13 +437,24 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlWorkspaceRemoteForegroundAuthReady(
         workspaceID: UUID,
-        foregroundAuthToken: String?
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
     ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+        guard workspace.notifyRemoteForegroundAuthenticationReady(
+            token: foregroundAuthToken,
+            resolvedControlPath: resolvedControlPath
+        ) else {
+            return .unavailable(
+                workspaceID: workspaceID,
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -526,6 +538,8 @@ extension TerminalController: ControlWorkspaceContext {
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredRemoteCommand = v2RawString(params, "configured_remote_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let managedCloudVMID = v2RawString(params, "managed_cloud_vm_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -643,6 +657,7 @@ extension TerminalController: ControlWorkspaceContext {
             localSocketPath: localSocketPath,
             managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand?.isEmpty == true ? nil : configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: sshOptions,
@@ -654,7 +669,18 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        guard workspace.configureRemoteConnection(
+            config,
+            autoConnect: autoConnect
+        ) else {
+            return .err(
+                code: "unavailable",
+                message:
+                    RemoteSessionStrings.appLocalized
+                    .controlMasterOwnershipUnavailable,
+                data: nil
+            )
+        }
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)

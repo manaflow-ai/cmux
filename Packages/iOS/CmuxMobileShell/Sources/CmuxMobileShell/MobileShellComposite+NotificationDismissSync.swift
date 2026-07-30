@@ -76,9 +76,9 @@ extension MobileShellComposite {
         if foregroundMacDeviceID == macDeviceID, let remoteClient {
             return remoteClient
         }
-        return secondaryMacSubscriptions.values
-            .first { $0.macDeviceID == macDeviceID }?
-            .client
+        return secondaryMacSubscriptions
+            .first { $0.value.macDeviceID == macDeviceID }?
+            .value.client
     }
 
     func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {

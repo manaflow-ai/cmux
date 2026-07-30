@@ -87,7 +87,7 @@ extension MobileShellComposite {
             guard let rowDeviceID = workspace.macDeviceID else { return false }
             guard aliases.contains(rowDeviceID) else { return false }
             guard let rowTag = workspace.macInstanceTag, let instanceTag else { return true }
-            return MobileMacInstanceTagAuthority.sameStoredAuthority(rowTag, instanceTag)
+            return macInstanceTagAuthority.sameStoredAuthority(rowTag, instanceTag)
         }.count
     }
 

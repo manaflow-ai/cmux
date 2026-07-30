@@ -117,6 +117,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
+        4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
@@ -133,6 +135,13 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    /// Bounds worker threads and completion contexts parked for synchronous
+    /// `reload_config` acknowledgements. Excess callers receive backpressure.
+    private nonisolated let reloadConfigurationWaiterAdmission =
+        SocketReloadConfigurationWaiterAdmission(
+            maximumConcurrentWaiters:
+                maximumConcurrentReloadConfigurationWaiters
+        )
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -1178,6 +1187,8 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "reload_config":
+                return (true, reloadConfigurationAndWait(args))
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -1202,6 +1213,42 @@ class TerminalController {
                 return (true, "ERROR: internal: v1 worker command '\(cmd)' has no worker handler")
             }
         }
+    }
+
+    private nonisolated func reloadConfigurationAndWait(
+        _ args: String
+    ) -> String {
+        guard args.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            return "ERROR: Usage: reload_config"
+        }
+        guard let waiterLease =
+                reloadConfigurationWaiterAdmission.claim() else {
+            return "ERROR: reload_config busy"
+        }
+        let reloadDidComplete: Bool? = socketAwaitCallback(
+            timeout: 30
+        ) { completion in
+            Task { @MainActor in
+                let completionWasAdmitted =
+                    self.controlSidebarReloadConfigWithAdmission {
+                        completion(true)
+                        waiterLease.retire()
+                    }
+                if !completionWasAdmitted {
+                    completion(false)
+                    waiterLease.retire()
+                }
+            }
+        }
+        guard let reloadDidComplete else {
+            return "ERROR: reload_config timed out"
+        }
+        guard reloadDidComplete else {
+            return "ERROR: reload_config busy"
+        }
+        return "OK Reloaded config"
     }
 
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
@@ -10966,7 +11013,7 @@ class TerminalController {
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
           set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
-          agent_hibernation <on|off> - Enable or disable Agent Hibernation
+          agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -14837,6 +14884,12 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.in.recv",
+            "s=\(surfaceId.uuidString.prefix(8).lowercased()) bytes=\(text.utf8.count)"
+        )
+        #endif
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14869,6 +14922,14 @@ class TerminalController {
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
+            #if DEBUG
+            if sendResult == .sent {
+                HostLatencyTrace.stamp(
+                    "host.in.applied",
+                    "s=\(surfaceId.uuidString.prefix(8).lowercased()) seq=\(seq)"
+                )
+            }
+            #endif
         }
         return .ok(payload)
     }

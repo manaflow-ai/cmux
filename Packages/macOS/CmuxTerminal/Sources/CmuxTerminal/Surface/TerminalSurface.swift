@@ -91,7 +91,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Presentation state for the current runtime renderer. This distinguishes a
     /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving strict native unrealize/realize alternation.
+    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
@@ -149,6 +149,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
     var lastKnownFontSizeLineage: TerminalFontSizeLineage?
+    var pendingFontSizeConfigurationReloadState:
+        TerminalFontSizeConfigurationReloadState?
+    var fontSizeActionObservationSuppressionDepth = 0
+    var lastAppliedFontSizeChangeToken: UUID?
+    var transferReconciledFontSizeChangeTokens: Set<UUID> = []
+    var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0
+    var fontSizeLineageConfigurationGeneration: UInt64
+    /// Whether runtime creation should ignore inherited lineage and follow current config.
+    var followsConfiguredFontSize: Bool
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -253,8 +262,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
+    var configurationReloadDeferredRuntimeSurfaceCreation = false
+    var configurationReloadDeferredRuntimeSurfaceCreationSource:
+        RuntimeSurfaceCreationSource?
+    weak var configurationReloadDeferredRuntimeSurfaceView:
+        (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
+    var agentHibernationRuntimeTeardownReservation:
+        TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
@@ -476,6 +493,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
+        self.lastAppliedFontSizeChangeToken =
+            configTemplate?.fontSizeChangeToken
+        self.transferReconciledFontSizeChangeTokens =
+            configTemplate?.fontSizeChangeTokens ?? []
+        self.fontSizeLineageConfigurationGeneration =
+            dependencies.engine
+                .terminalFontConfigurationGeneration
+        self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
         self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {

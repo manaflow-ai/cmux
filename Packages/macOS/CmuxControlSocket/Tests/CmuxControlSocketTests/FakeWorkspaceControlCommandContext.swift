@@ -19,6 +19,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
         sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     )?
+    var foregroundAuthResolution:
+        ControlWorkspaceRemoteResolution = .missingWorkspaceID
+    var foregroundAuthCall: (
+        workspaceID: UUID,
+        token: String?,
+        controlPath: String?
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -85,5 +92,18 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
         terminalSessionEndCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID, lifecycleOnly)
         return terminalSessionEndResolution
+    }
+
+    func controlWorkspaceRemoteForegroundAuthReady(
+        workspaceID: UUID,
+        foregroundAuthToken: String?,
+        resolvedControlPath: String?
+    ) -> ControlWorkspaceRemoteResolution {
+        foregroundAuthCall = (
+            workspaceID,
+            foregroundAuthToken,
+            resolvedControlPath
+        )
+        return foregroundAuthResolution
     }
 }

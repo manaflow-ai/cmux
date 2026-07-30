@@ -42,6 +42,10 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface 
 
 The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
 
+## iOS builds open on the iPhone by default
+
+For any iOS-related build, install and launch the tagged build on the user's connected iPhone in addition to the simulator, without being asked. Use `ios/scripts/reload-cloud.sh --tag <tag> --device-id <id>` (find the device with `xcrun devicectl list devices`); auto sign-in and auto-pair apply as usual, and launch the app so it is immediately open on the phone. If no iPhone is reachable, say so explicitly in the handoff and include the exact retry command instead of silently stopping at simulator-only.
+
 ## iOS dev auth
 
 `ios/scripts/reload.sh` and `scripts/mobile-dev-launch.sh` auto-sign-in from `~/.secrets/cmuxterm-dev.env`. If the phone lands on the login screen or the helper reports missing credentials, do not ask the user to authenticate every build. Tell them to run `scripts/setup-team-dev.sh` once; it verifies their Stack login and writes the file chmod 600. Manual fallback: create it with `CMUX_DOGFOOD_STACK_EMAIL=...` and `CMUX_DOGFOOD_STACK_PASSWORD=...`.
@@ -52,13 +56,13 @@ Two commits, so CI proves the test catches the bug: commit 1 adds the failing te
 
 ## First pass, then dogfood
 
-A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not fix CI failures, merge conflicts, or review findings inline in the main conversation after that point.
+A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
 
-At handoff, launch one background `$autoreview` subagent with a bounded prompt (PR URL, worktree, base ref, allowed write scope, required verification), never a vague "make it green". That loop owns CI and spawns a bounded repair subagent only when a check actually fails. One writer per worktree: do not run a second CI repair agent against the same worktree, and if dogfood feedback needs main-agent edits while the loop runs, stop the loop first or give it a sibling worktree.
+Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and the automatic review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
 
-The loop may commit and push scoped fixes but never merges and never rebuilds the user's tagged build. The main agent inspects every pushed commit, rejects out-of-scope edits, and owns dogfood, approval, and merge. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a pushed fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
+The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
 
-Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. The loop reports its own outcome, e.g. `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
+Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
 
 ## Pitfalls
 

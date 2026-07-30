@@ -34,7 +34,7 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    let signOut: (() -> Void)?
+    let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(ToastCenter.self) private var toasts
@@ -92,6 +92,9 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     var terminalFilesChipEnabled: Bool {
         displaySettings.terminalFilesChipEnabled
+    }
+    var showMissingFiles: Bool {
+        displaySettings.showMissingFiles
     }
     var terminalFolderTapEnabled: Bool {
         displaySettings.terminalFolderTapEnabled
@@ -309,32 +312,47 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
+        // With the fullscreen overlay gone, the disconnected terminal stays
+        // visible; block interaction so keystrokes aren't silently dropped by
+        // the disconnected drain path. The pill and toast overlays attach
+        // after this modifier and stay tappable.
+        .allowsHitTesting(!terminalInputIsBlocked)
+        #if os(iOS)
+        // Hit-testing only blocks new touches: a terminal focused before the
+        // drop (or autofocused on window attach) keeps its keyboard, and its
+        // keystrokes drain into the disconnected path silently. Release the
+        // input proxy on mount, on status changes, and on flag flips.
+        .onChange(of: terminalInputIsBlocked, initial: true) { _, isBlocked in
+            resignTerminalInputIfBlocked(isBlocked)
+        }
+        .onChange(of: store.selectedWorkspaceID) { _, _ in
+            // A retained detail can go unavailable while hidden (the
+            // selection guard skips it); when it becomes selected again the
+            // blocked predicate may not change, so re-check on selection.
+            resignTerminalInputIfBlocked(terminalInputIsBlocked)
+        }
+        #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
-            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+            MobileMacConnectionStatusPill(
+                host: host,
+                // Flag off keeps the raw per-workspace status (legacy
+                // byte-for-byte); flag on folds in foreground recovery so
+                // the pill matches the toast capsule and input gating.
+                status: toasts.isEnabled ? effectiveConnectionStatus : connectionStatus,
+                reconnect: toasts.isEnabled ? { reconnectToWorkspaceMac() } : nil
+            )
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
-            if connectionStatus != .connected {
+            if !toasts.isEnabled && connectionStatus != .connected {
                 TerminalDisconnectedOverlay(
                     status: connectionStatus,
                     host: host,
                     theme: store.activeTerminalTheme
-                ) {
-                    Task {
-                        if let macDeviceID = workspace.macDeviceID,
-                           !macDeviceID.isEmpty,
-                           await store.switchToMac(
-                               macDeviceID: macDeviceID,
-                               instanceTag: workspace.macInstanceTag
-                           ) {
-                            return
-                        }
-                        await store.reconnectOrRefresh()
-                    }
-                }
+                ) { reconnectToWorkspaceMac() }
             }
         }
         #if os(iOS) && DEBUG
@@ -386,6 +404,80 @@ struct WorkspaceDetailView: View {
         }
         #endif
     }
+
+    private func reconnectToWorkspaceMac() {
+        Task {
+            if toasts.isEnabled {
+                await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
+                return
+            }
+            // Flag off is byte-for-byte legacy: the fullscreen overlay's
+            // Reconnect keeps the original sequence, including switchToMac's
+            // already-foreground fast path and aggregate recovery.
+            if let macDeviceID = workspace.macDeviceID,
+               !macDeviceID.isEmpty,
+               await store.switchToMac(
+                   macDeviceID: macDeviceID,
+                   instanceTag: workspace.macInstanceTag
+               ) {
+                return
+            }
+            await store.reconnectOrRefresh()
+        }
+    }
+
+    /// Same-client foreground recovery flips the store's recovery flags while
+    /// `workspace.macConnectionStatus` stays `.connected`; the flag-on pill
+    /// reflects the recovery, matching the presenter's derivation. Input
+    /// gating deliberately does NOT use this (see `terminalInputIsBlocked`):
+    /// a probe's "Reconnecting" display coexists with a working keyboard.
+    /// Hidden retained details keep their raw status: the guard only applies
+    /// to the selected workspace on the foreground connection.
+    private var effectiveConnectionStatus: MobileMacConnectionStatus {
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection {
+            if store.connectionRecoveryFailed {
+                return .unavailable
+            }
+            if store.isRecoveringConnection {
+                return .reconnecting
+            }
+        }
+        return connectionStatus
+    }
+
+    /// Input viability is narrower than the displayed status: a same-client
+    /// probe reads "Reconnecting" while the transport is still connected and
+    /// the RPC client still carries keystrokes, so blocking or resigning
+    /// there would dismiss a working keyboard mid-typing. Block only when
+    /// the workspace status itself is disconnected or foreground recovery
+    /// actually failed. Internal so the +Surfaces chrome-return refocus can
+    /// share the same policy.
+    var terminalInputIsBlocked: Bool {
+        guard toasts.isEnabled else { return false }
+        if connectionStatus != .connected {
+            return true
+        }
+        if store.selectedWorkspaceID == workspace.id,
+           store.selectedWorkspaceUsesForegroundConnection,
+           store.connectionRecoveryFailed {
+            return true
+        }
+        return false
+    }
+
+    #if os(iOS)
+    private func resignTerminalInputIfBlocked(_ isBlocked: Bool) {
+        // resignActiveInput() acts on the process-wide active surface, and
+        // hidden details retained by other tab stacks observe their own
+        // status; only the selected workspace may resign it, or background
+        // connection churn would steal the visible terminal's keyboard.
+        guard store.selectedWorkspaceID == workspace.id else { return }
+        if isBlocked {
+            GhosttySurfaceView.resignActiveInput()
+        }
+    }
+    #endif
 
     #if os(iOS)
     private var terminalArtifactIsPresented: Binding<Bool> {

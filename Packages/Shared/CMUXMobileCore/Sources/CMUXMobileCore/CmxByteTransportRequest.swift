@@ -11,12 +11,16 @@ public enum CmxTransportAuthorizationMode: Equatable, Sendable {
 
 /// Route plus peer intent required to build a transport without substitution.
 public struct CmxByteTransportRequest: Equatable, Sendable {
+    /// The route the transport must dial without substituting another peer.
     public let route: CmxAttachRoute
+    /// The authenticated peer device expected on the route, when known.
     public let expectedPeerDeviceID: String?
+    /// The authorization evidence permitted on the transport.
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
     public let sessionPurpose: CmxTransportSessionPurpose
 
+    /// Creates a route-bound transport request with explicit peer authority.
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
@@ -27,5 +31,17 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
+    }
+
+    /// Returns the same route and authority with a different local owner role.
+    public func withSessionPurpose(
+        _ sessionPurpose: CmxTransportSessionPurpose
+    ) -> Self {
+        Self(
+            route: route,
+            expectedPeerDeviceID: expectedPeerDeviceID,
+            authorizationMode: authorizationMode,
+            sessionPurpose: sessionPurpose
+        )
     }
 }

@@ -1692,52 +1692,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
-    }
-
-    func testClaudeSessionEndWithoutAuthoritativeCheckpointDoesNotMarkBindingEnded() throws {
-        let context = try makeClaudeHookContext(name: "claude-session-end-missing-checkpoint")
-        defer { context.cleanup() }
-
-        let reportedSessionId = "reported-session"
-        let now = Date().timeIntervalSince1970
-        let store: [String: Any] = [
-            "version": 1,
-            "sessions": [
-                reportedSessionId: [
-                    "sessionId": "   ",
-                    "workspaceId": context.workspaceId,
-                    "surfaceId": context.surfaceId,
-                    "cwd": context.root.path,
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
-        ]
-        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
-        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
-            .write(to: stateURL, options: .atomic)
-
-        let result = runClaudeHook(
-            context: context,
-            arguments: ["hooks", "claude", "session-end"],
-            standardInput: #"{"session_id":"\#(reportedSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let clearRequests = context.state.commands.compactMap { command -> [String: Any]? in
-            guard let payload = jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else {
-                return nil
-            }
-            return payload["params"] as? [String: Any]
-        }
-        let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
-        XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertNil(request["checkpoint_id"])
-        XCTAssertNil(request["agent_session_ended"])
     }
 
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
@@ -3701,6 +3655,37 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    private func assertSSHPTYAttachAuthUsesRetryLoop(
+        _ script: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let retryLoop = script.range(of: "while :; do"),
+              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
+              let initialAuth = script.range(
+                of: "cmux_ssh_reauth_required=1",
+                range: script.startIndex..<retryLoop.lowerBound
+              ) else {
+            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
+        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
+        XCTAssertEqual(
+            script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1,
+            1,
+            script,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            script.contains("case \"$cmux_ssh_status\" in 254|255"),
+            script,
+            file: file,
+            line: line
+        )
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -3732,7 +3717,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
         XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
         XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(initialScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
@@ -3758,7 +3743,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(terminalStartupScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
@@ -3900,7 +3885,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachBridgeEOFWhileSessionRunsPreservesLifecycleForRetry() throws {
+    func testSSHPTYAttachExhaustedZeroOutputBridgeEOFReleasesSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3971,6 +3956,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "detached": true,
                     ]
                 )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
             default:
                 return self.v2Response(
                     id: id,
@@ -3985,6 +3975,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] = "2"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] = "3"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4001,13 +3993,23 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 254, result.stderr)
+        XCTAssertEqual(result.status, 252, result.stderr)
         XCTAssertTrue(
-            result.stderr.contains("ssh-pty-attach: bridge closed while remote PTY session is still running"),
+            result.stderr.contains("bridge closed without receiving new output"),
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
+        XCTAssertEqual(
+            methods,
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_detach",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
@@ -4678,7 +4680,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
+            XCTAssertTrue(initialCommand.contains("251|254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
@@ -8136,7 +8138,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertEqual(request["agent_session_ended"] as? Bool, true)
     }
 
     func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
@@ -8196,7 +8197,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, "new-session")
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertNil(request["agent_session_ended"])
     }
 
     func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {
