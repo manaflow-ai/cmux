@@ -68,7 +68,10 @@ extension CMUXCLI {
                   pid: incomingClaudePid,
                   lastPermissionMode: observedPermissionMode,
                   turnId: parsedInput.turnId,
-                  authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                  authorization: .ordinaryActivity(
+                      incomingPID: incomingClaudePid,
+                      routeIsAuthoritative: resolvedSurface.isAuthoritative
+                  )
               ) else {
             markFeedTelemetryHandled()
             telemetry.breadcrumb("claude-hook.push-notification.store-rejected")

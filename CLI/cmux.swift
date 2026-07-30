@@ -225,8 +225,8 @@ final class ClaudeHookSessionStore {
 
     enum MutationAuthorization {
         case unrestricted
-        case ordinaryActivity(incomingPID: Int?)
-        case turnStart(incomingPID: Int?)
+        case ordinaryActivity(incomingPID: Int?, routeIsAuthoritative: Bool)
+        case turnStart(incomingPID: Int?, routeIsAuthoritative: Bool)
     }
 
     enum ConsumptionAuthorization {
@@ -713,7 +713,7 @@ final class ClaudeHookSessionStore {
             switch authorization {
             case .unrestricted:
                 break
-            case .ordinaryActivity(let incomingPID):
+            case .ordinaryActivity(let incomingPID, let routeIsAuthoritative):
                 guard activityIsAuthorized(
                     in: state,
                     sessionId: normalized,
@@ -721,11 +721,12 @@ final class ClaudeHookSessionStore {
                     surfaceId: surfaceId,
                     turnId: turnId,
                     incomingPID: incomingPID,
+                    routeIsAuthoritative: routeIsAuthoritative,
                     establishesTurn: false
                 ) else {
                     return nil
                 }
-            case .turnStart(let incomingPID):
+            case .turnStart(let incomingPID, let routeIsAuthoritative):
                 guard activityIsAuthorized(
                     in: state,
                     sessionId: normalized,
@@ -733,6 +734,7 @@ final class ClaudeHookSessionStore {
                     surfaceId: surfaceId,
                     turnId: turnId,
                     incomingPID: incomingPID,
+                    routeIsAuthoritative: routeIsAuthoritative,
                     establishesTurn: true
                 ) else {
                     return nil
@@ -1560,6 +1562,7 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         turnId: String?,
         incomingPID: Int?,
+        routeIsAuthoritative: Bool,
         establishesTurn: Bool
     ) -> Bool {
         guard let normalizedWorkspaceId = normalizeOptional(workspaceId),
@@ -1639,6 +1642,16 @@ final class ClaudeHookSessionStore {
            existingRecord.pidStartSeconds == nil,
            existingRecord.pidStartMicroseconds == nil {
             return activeOwner == nil || activeOwner?.sessionId == sessionId
+        }
+        // Legacy records can contain a numeric PID without process-generation
+        // fields. Only the current owner, routed from the hook's own live pane,
+        // may lazily upgrade that exact PID; cross-session replacement remains
+        // generation-checked below.
+        if existingRecord.pid == incomingPID,
+           existingRecord.pidStartSeconds == nil,
+           existingRecord.pidStartMicroseconds == nil {
+            return routeIsAuthoritative
+                && activeOwner?.sessionId == sessionId
         }
         let existingGeneration = compareProcessGeneration(
             recordedPID: existingRecord.pid,
@@ -25158,7 +25171,10 @@ struct CMUXCLI {
                         pendingBackgroundWorkBoundary: pendingBackgroundWorkBoundary,
                         authorization: shouldAttemptActiveSessionBoundary
                             ? .unrestricted
-                            : .ordinaryActivity(incomingPID: claudePid)
+                            : .ordinaryActivity(
+                                incomingPID: claudePid,
+                                routeIsAuthoritative: resolvedSurface.isAuthoritative
+                            )
                     )?.session
                     acceptedSessionStartRecord = updatedRecord
                     if shouldAttemptActiveSessionBoundary,
@@ -25396,7 +25412,10 @@ struct CMUXCLI {
                           markActive: true,
                           turnId: parsedInput.turnId,
                           allowsNewSessionReplacement: true,
-                          authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                          authorization: .ordinaryActivity(
+                              incomingPID: incomingClaudePid,
+                              routeIsAuthoritative: resolvedSurface.isAuthoritative
+                          )
                       ) else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.store-rejected")
@@ -25440,8 +25459,13 @@ struct CMUXCLI {
                         ),
                         claudeDisplayName
                     )
+                    var statusCommand =
+                        "set_status \(Self.claudeCodeStatusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    if let acceptedPID = acceptedRecord.pid {
+                        statusCommand += " --pid=\(acceptedPID)"
+                    }
                     _ = try? sendV1Command(
-                        "set_status \(Self.claudeCodeStatusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        statusCommand,
                         client: client
                     )
                 } else if acceptedLifecycle == .running {
@@ -25455,7 +25479,8 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        color: "#4C8DFF",
+                        pid: acceptedRecord.pid
                     )
                 } else {
                     try? setClaudeStatus(
@@ -25464,7 +25489,8 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                         icon: "pause.circle.fill",
-                        color: "#8E8E93"
+                        color: "#8E8E93",
+                        pid: acceptedRecord.pid
                     )
                 }
                 if let failureSummary {
@@ -25558,7 +25584,10 @@ struct CMUXCLI {
                       updateRuntimeStatus: true,
                       markActive: true,
                       turnId: parsedInput.turnId,
-                      authorization: .turnStart(incomingPID: incomingClaudePid)
+                      authorization: .turnStart(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
                   ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.store-rejected")
@@ -25598,7 +25627,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                pid: acceptedRecord.pid
             )
             printClaudeHookAck()
 
@@ -25762,7 +25792,10 @@ struct CMUXCLI {
                       lastSubtitle: suppressNeedsInputState ? nil : summary.subtitle,
                       lastBody: suppressNeedsInputState ? nil : summary.body,
                       turnId: parsedInput.turnId,
-                      authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                      authorization: .ordinaryActivity(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
                   ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.store-rejected")
@@ -26071,7 +26104,10 @@ struct CMUXCLI {
                           lastSubtitle: waitingSubtitle,
                           lastBody: needsInputBody,
                           turnId: parsedInput.turnId,
-                          authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                          authorization: .ordinaryActivity(
+                              incomingPID: incomingClaudePid,
+                              routeIsAuthoritative: resolvedSurface.isAuthoritative
+                          )
                       ) else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.pre-tool-use.store-rejected")
@@ -26152,7 +26188,10 @@ struct CMUXCLI {
                       lastPermissionMode: observedHookPermissionMode,
                       agentLifecycle: .running,
                       turnId: parsedInput.turnId,
-                      authorization: .ordinaryActivity(incomingPID: incomingClaudePid)
+                      authorization: .ordinaryActivity(
+                          incomingPID: incomingClaudePid,
+                          routeIsAuthoritative: resolvedSurface.isAuthoritative
+                      )
                   ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.store-rejected")
