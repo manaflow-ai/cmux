@@ -681,6 +681,12 @@ impl PersistenceTestHooks {
         {
             return Err(format!("injected persistence failure for revision {revision}"));
         }
+        if let Some(gate) = std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_GATE") {
+            let gate = PathBuf::from(gate);
+            while !gate.exists() {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
         Ok(())
     }
 
@@ -2065,6 +2071,158 @@ mod tests {
                 Err(error) => panic!("successor failed after persistence completed: {error}"),
             };
         }
+    }
+
+    #[test]
+    fn auth_persistence_drains_queued_revisions_after_runtime_shutdown() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let (database, hooks) = runtime.block_on(async {
+            let database = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();
+            let hooks = database.persistence.hooks.clone();
+            hooks.block();
+            tokio::spawn({
+                let database = database.clone();
+                async move {
+                    let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(1), hooks.wait_for_started(1))
+                .await
+                .expect("first persistence write did not start");
+            tokio::spawn({
+                let database = database.clone();
+                async move {
+                    let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    if database.state.lock().await.revision == 2 {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("second authorization revision was not accepted");
+            (database, hooks)
+        });
+        let blocked = PersistenceReleaseGuard(hooks);
+
+        runtime.shutdown_timeout(Duration::from_millis(10));
+        drop(database);
+        drop(blocked);
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            match AuthDatabase::load_or_create(temp.path(), "successor", false) {
+                Ok(successor) => {
+                    drop(successor);
+                    break;
+                }
+                Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the state lease remained held after queued persistence completed"
+                    );
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("successor failed after persistence completed: {error}"),
+            }
+        }
+
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 2);
+        assert_eq!(persisted.invitations.len(), 2);
+    }
+
+    #[test]
+    fn auth_persistence_child_process() {
+        let Some(state_dir) = std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_STATE") else {
+            return;
+        };
+        let queued = PathBuf::from(std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_QUEUED").unwrap());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let database = runtime.block_on(async {
+            let database = AuthDatabase::load_or_create(state_dir, "child", false).unwrap();
+            let hooks = database.persistence.hooks.clone();
+            tokio::spawn({
+                let database = database.clone();
+                async move {
+                    let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(1), hooks.wait_for_started(1))
+                .await
+                .expect("child persistence write did not start");
+            tokio::spawn({
+                let database = database.clone();
+                async move {
+                    let _ = database.create_invitation(Duration::from_secs(60), Vec::new()).await;
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    if database.state.lock().await.revision == 2 {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("child did not accept its second authorization revision");
+            fs::write(queued, b"queued").unwrap();
+            database
+        });
+
+        runtime.shutdown_timeout(Duration::from_millis(10));
+        drop(database);
+    }
+
+    #[test]
+    fn auth_persistence_process_exit_joins_queued_revisions() {
+        use std::process::{Command, Stdio};
+
+        let temp = tempfile::tempdir().unwrap();
+        let state_dir = temp.path().join("state");
+        let gate = temp.path().join("release-write");
+        let queued = temp.path().join("queued");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "identity::tests::auth_persistence_child_process", "--nocapture"])
+            .env("CMUX_TEST_AUTH_PERSISTENCE_STATE", &state_dir)
+            .env("CMUX_TEST_AUTH_PERSISTENCE_GATE", &gate)
+            .env("CMUX_TEST_AUTH_PERSISTENCE_QUEUED", &queued)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !queued.exists() {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("persistence child exited before queueing its second revision: {status}");
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "persistence child did not queue its second revision"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        fs::write(&gate, b"release").unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "persistence child failed: {status}");
+        let persisted = load_state(&state_dir.join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 2);
+        assert_eq!(persisted.invitations.len(), 2);
     }
 
     #[cfg(unix)]
