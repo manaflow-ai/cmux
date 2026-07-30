@@ -348,10 +348,13 @@ impl HostedFrameStager {
                 _ => Err("unknown Output flags"),
             },
             MessageKind::Resized => {
-                if frame.flags != FLAG_COLORS_FOLLOW
-                    || frame.payload.len() < 4
-                    || frame.payload.len() - 4 > VT_REPLAY_MAX_BYTES
-                {
+                if frame.flags != FLAG_COLORS_FOLLOW || frame.payload.len() < 8 {
+                    return Err("invalid Resized frame");
+                }
+                let replay_len = u32::from_le_bytes(
+                    frame.payload[4..8].try_into().expect("validated resize prefix"),
+                ) as usize;
+                if replay_len > VT_REPLAY_MAX_BYTES || frame.payload.len() != 8 + replay_len {
                     return Err("invalid Resized frame");
                 }
                 let (cols, rows) = crate::terminal_host_runtime::normalize_terminal_geometry(
@@ -362,7 +365,7 @@ impl HostedFrameStager {
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
-                    replay: frame.payload[4..].to_vec(),
+                    replay: frame.payload[8..].to_vec(),
                 });
                 Ok(None)
             }
