@@ -14,6 +14,40 @@ CONSUMER_NAMES = (
     "scripts/ghostty-zig-version.sh",
 )
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
+RUN_HEADER = re.compile(r"^(?P<indent>\s*)(?:-\s+)?run:\s*(?P<command>.*)$")
+BLOCK_SCALAR = re.compile(r"^[>|][+-]?(?:\s+#.*)?$")
+
+
+def consumer_run_lines(lines: list[str]) -> set[int]:
+    consumers: set[int] = set()
+    run_block_indent: int | None = None
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if run_block_indent is not None:
+            line_indent = len(line) - len(line.lstrip())
+            if stripped and line_indent <= run_block_indent:
+                run_block_indent = None
+            else:
+                if not stripped.startswith("#") and any(
+                    name in line for name in CONSUMER_NAMES
+                ):
+                    consumers.add(index)
+                continue
+
+        match = RUN_HEADER.match(line)
+        if not match:
+            continue
+
+        command = match.group("command").strip()
+        if BLOCK_SCALAR.fullmatch(command):
+            run_block_indent = len(match.group("indent"))
+        elif not command.startswith("#") and any(
+            name in command for name in CONSUMER_NAMES
+        ):
+            consumers.add(index)
+
+    return consumers
 
 
 def workflow_failures(workflow_dir: Path) -> list[str]:
@@ -21,6 +55,7 @@ def workflow_failures(workflow_dir: Path) -> list[str]:
     paths = sorted((*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")))
     for path in paths:
         lines = path.read_text().splitlines()
+        consumer_lines = consumer_run_lines(lines)
         current_job: str | None = None
         job_start = 0
         for index, line in enumerate(lines):
@@ -30,10 +65,7 @@ def workflow_failures(workflow_dir: Path) -> list[str]:
                 job_start = index
                 continue
 
-            stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith(("- \"scripts/", "- 'scripts/")):
-                continue
-            if not any(name in line for name in CONSUMER_NAMES):
+            if index not in consumer_lines:
                 continue
             if current_job is None:
                 failures.append(f"{path.name}:{index + 1}: consumer is outside a job")
