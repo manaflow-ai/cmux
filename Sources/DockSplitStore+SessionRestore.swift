@@ -222,20 +222,12 @@ extension DockSplitStore {
             : nil
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ?? agentLaunch?.initialInput
-        let startupHandlesWorkingDirectory = tmuxLauncher != nil || agentLaunch != nil ||
-            (bindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
+        let startupHandlesWorkingDirectory =
+            tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
-            guard let candidate,
-                  FileManager.default.isExecutableFile(atPath: candidate) else {
-                return nil
-            }
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory)
-                && isDirectory.boolValue
-                ? candidate
-                : nil
+            return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
         }()
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,

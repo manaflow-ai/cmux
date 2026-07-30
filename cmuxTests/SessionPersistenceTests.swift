@@ -2397,7 +2397,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: root))
         XCTAssertTrue(
             startupInput.utf8.allSatisfy { $0 < 0x80 },
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
@@ -2543,6 +2543,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testRestorableAgentStartupInputUsesLauncherWhenShort() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-short-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -2563,7 +2568,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
         XCTAssertTrue(startupInput.hasPrefix(" /bin/zsh '"), startupInput)
         let resumeCommand = try inlineResumeCommandResolvingLauncherScript(from: startupInput)
         XCTAssertTrue(
@@ -2577,6 +2582,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testRestorableAgentRestoreMarkerRequiresSupportedProviderAndUUIDSession() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-marker-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
         let unsupported = SessionRestorableAgentSnapshot(
             kind: .gemini,
             sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
@@ -2606,8 +2616,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let unsupportedInput = try XCTUnwrap(unsupported.resumeStartupInput())
-        let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput())
+        let unsupportedInput = try XCTUnwrap(unsupported.resumeStartupInput(temporaryDirectory: tempDir))
+        let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput(temporaryDirectory: tempDir))
         XCTAssertFalse(
             try inlineResumeCommandResolvingLauncherScript(from: unsupportedInput)
                 .contains("CMUX_AGENT_RESTORE_LAUNCH")

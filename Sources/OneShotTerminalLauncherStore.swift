@@ -1,6 +1,11 @@
 import Foundation
 import os
 
+nonisolated private let oneShotTerminalLauncherLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "OneShotTerminalLauncherStore"
+)
+
 /// Stores one-shot terminal actions in private, self-deleting launcher scripts.
 struct OneShotTerminalLauncherStore {
     enum CommandExecution {
@@ -15,7 +20,6 @@ struct OneShotTerminalLauncherStore {
     private let fileManager: FileManager
     private let temporaryDirectory: URL
     private let currentDate: Date
-    private let logger: Logger
 
     private let directoryName = "cmux-r"
     private let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -30,7 +34,25 @@ struct OneShotTerminalLauncherStore {
         self.fileManager = fileManager
         self.temporaryDirectory = temporaryDirectory
         self.currentDate = currentDate
-        logger = Logger(subsystem: "com.cmuxterm.app", category: "OneShotTerminalLauncherStore")
+    }
+
+    /// Returns a directory that the terminal host can safely enter before
+    /// delivering launcher input, or nil so the launcher guard owns fallback.
+    static func enterableWorkingDirectory(
+        _ value: String?,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              fileManager.isExecutableFile(atPath: trimmed) else {
+            return nil
+        }
+        return trimmed
     }
 
     /// Writes a private action payload and returns its one-shot script.
@@ -77,7 +99,9 @@ struct OneShotTerminalLauncherStore {
             return scriptURL
         } catch {
             try? fileManager.removeItem(at: scriptURL)
-            logger.error("Failed to write one-shot terminal launcher: \(error.localizedDescription, privacy: .public)")
+            oneShotTerminalLauncherLogger.error(
+                "Failed to write one-shot terminal launcher: \(error.localizedDescription, privacy: .public)"
+            )
             return nil
         }
     }
@@ -147,7 +171,9 @@ struct OneShotTerminalLauncherStore {
                 ofItemAtPath: markerURL.path
             )
         } catch {
-            logger.error("Failed to record one-shot launcher pruning: \(error.localizedDescription, privacy: .public)")
+            oneShotTerminalLauncherLogger.error(
+                "Failed to record one-shot launcher pruning: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 

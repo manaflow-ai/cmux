@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -149,9 +150,11 @@ struct AgentResumeReturnShellStartupTests {
         try expectLauncherInvocation(presentInput)
         let presentResult = try runShellInput(presentInput, currentDirectory: root)
         #expect(presentResult.status == 0, Comment(rawValue: presentResult.stderr))
+        let presentCwd = try #require(
+            String(bytes: Data(contentsOf: presentOutput), encoding: .utf8)
+        )
         #expect(
-            String(decoding: try Data(contentsOf: presentOutput), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines) == presentDirectory.path
+            presentCwd.trimmingCharacters(in: .whitespacesAndNewlines) == presentDirectory.path
         )
 
         let missingOutput = root.appendingPathComponent("missing.txt", isDirectory: false)
@@ -163,21 +166,25 @@ struct AgentResumeReturnShellStartupTests {
         try expectLauncherInvocation(missingInput)
         let missingResult = try runShellInput(missingInput, currentDirectory: root)
         #expect(missingResult.status == 0, Comment(rawValue: missingResult.stderr))
+        let missingCwd = try #require(
+            String(bytes: Data(contentsOf: missingOutput), encoding: .utf8)
+        )
         #expect(
-            String(decoding: try Data(contentsOf: missingOutput), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines) == root.path
+            missingCwd.trimmingCharacters(in: .whitespacesAndNewlines) == root.path
         )
 
-        let inaccessibleOutput = root.appendingPathComponent("inaccessible.txt", isDirectory: false)
-        let inaccessibleInput = try launcherInput(
-            command: "print ran > \(TerminalStartupShellQuoting.singleQuoted(inaccessibleOutput.path))",
-            workingDirectory: inaccessibleDirectory.path,
-            root: root
-        )
-        try expectLauncherInvocation(inaccessibleInput)
-        let inaccessibleResult = try runShellInput(inaccessibleInput, currentDirectory: root)
-        #expect(inaccessibleResult.status != 0)
-        #expect(!fileManager.fileExists(atPath: inaccessibleOutput.path))
+        if getuid() != 0 {
+            let inaccessibleOutput = root.appendingPathComponent("inaccessible.txt", isDirectory: false)
+            let inaccessibleInput = try launcherInput(
+                command: "print ran > \(TerminalStartupShellQuoting.singleQuoted(inaccessibleOutput.path))",
+                workingDirectory: inaccessibleDirectory.path,
+                root: root
+            )
+            try expectLauncherInvocation(inaccessibleInput)
+            let inaccessibleResult = try runShellInput(inaccessibleInput, currentDirectory: root)
+            #expect(inaccessibleResult.status != 0)
+            #expect(!fileManager.fileExists(atPath: inaccessibleOutput.path))
+        }
     }
 
     @Test("pre-change hook and CLI bindings with an outside cwd prefix still resume")
@@ -209,9 +216,11 @@ struct AgentResumeReturnShellStartupTests {
             try expectLauncherInvocation(input)
             let result = try runShellInput(input, currentDirectory: root)
             #expect(result.status == 0, Comment(rawValue: "\(source): \(result.stderr)"))
+            let restoredCwd = try #require(
+                String(bytes: Data(contentsOf: output), encoding: .utf8)
+            )
             #expect(
-                String(decoding: try Data(contentsOf: output), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines) == workingDirectory.path
+                restoredCwd.trimmingCharacters(in: .whitespacesAndNewlines) == workingDirectory.path
             )
         }
     }
@@ -325,7 +334,9 @@ struct AgentResumeReturnShellStartupTests {
         #expect(stdout.contains("zlogin_count=1"), Comment(rawValue: diagnostic))
         #expect(stdout.contains("cwd=\(workingDirectory.path)"), Comment(rawValue: diagnostic))
         #expect(stdout.contains("alias=present"), Comment(rawValue: diagnostic))
-        let history = String(decoding: try Data(contentsOf: historyURL), as: UTF8.self)
+        let history = try #require(
+            String(bytes: Data(contentsOf: historyURL), encoding: .utf8)
+        )
         #expect(history.contains("history-control"), Comment(rawValue: history))
         #expect(!history.contains(root.path), Comment(rawValue: history))
     }
