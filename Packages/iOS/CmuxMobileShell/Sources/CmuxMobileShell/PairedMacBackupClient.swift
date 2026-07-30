@@ -166,19 +166,20 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             teamID: teamID,
             expectedUserID: expectedUserID
         )
-        guard !migrationDefaults.bool(forKey: migrationKey),
-              let legacy = await fetchSnapshot(
-                teamID: teamID,
-                expectedUserID: expectedUserID,
-                scope: .explicit(legacyScope)
-              ) else {
+        if migrationDefaults.bool(forKey: migrationKey) {
             return primary
         }
+        guard let legacy = await fetchSnapshot(
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            scope: .explicit(legacyScope)
+        ) else { return nil }
         let currentIDs = Set(primary.records.map(pairedMacBackupPairingID))
         let currentTombstones = Set(primary.deletedMacDeviceIDs)
         let legacyTombstones = Set(legacy.deletedMacDeviceIDs)
         let missingLegacyTombstones = legacyTombstones
             .subtracting(currentTombstones)
+            .subtracting(currentIDs)
         let missingLegacy = legacy.records.filter {
             let pairingID = pairedMacBackupPairingID($0)
             return !currentIDs.contains(pairingID)

@@ -30,7 +30,10 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
-import { canIOSBindingForgetMac } from "./buildCompatibility";
+import {
+  canIOSBindingForgetMac,
+  canIOSBindingUseMac,
+} from "./buildCompatibility";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -601,8 +604,23 @@ function makeLiveRepository(): IrohRepositoryShape {
             isNull(irohEndpointBindings.revokedAt),
           ))
           .orderBy(asc(irohEndpointBindings.registeredAt));
+        const visibleBindings = input.callerBindingId && input.callerPlatform
+          ? (() => {
+            const caller = bindings.find((binding) =>
+              binding.id === input.callerBindingId
+              && binding.platform === input.callerPlatform);
+            if (!caller) return [];
+            return bindings.filter((binding) =>
+              binding.id === caller.id
+              || (
+                caller.platform === "ios"
+                  ? canIOSBindingUseMac(caller, binding)
+                  : canIOSBindingUseMac(binding, caller)
+              ));
+          })()
+          : bindings;
         return {
-          bindings,
+          bindings: visibleBindings,
           lanDiscoveryGeneration: state.generation,
         };
       });

@@ -26,7 +26,10 @@ import {
   sha256,
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
-import { canIOSBindingForgetMac } from "../services/iroh/buildCompatibility";
+import {
+  canIOSBindingForgetMac,
+  canIOSBindingUseMac,
+} from "../services/iroh/buildCompatibility";
 import {
   IROH_ACTIVE_BINDING_SANITY_CAP,
   type IrohBindingRecord,
@@ -1383,15 +1386,31 @@ class MemoryRepository implements IrohRepositoryShape {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
       const clientNamespace = input.clientNamespace ?? "legacy";
+      const candidateBindings = this.bindings.filter((row) =>
+        row.userId === input.userId &&
+        !row.revokedAt &&
+        (input.callerBindingId && input.callerPlatform
+          ? row.id === input.callerBindingId
+            || row.platform === (input.callerPlatform === "mac" ? "ios" : "mac")
+          : clientNamespace === "legacy"
+            || row.clientNamespace === clientNamespace));
+      const caller = input.callerBindingId && input.callerPlatform
+        ? candidateBindings.find((row) =>
+          row.id === input.callerBindingId
+          && row.platform === input.callerPlatform)
+        : undefined;
       return {
-        bindings: this.bindings.filter((row) =>
-          row.userId === input.userId &&
-          !row.revokedAt &&
-          (input.callerBindingId && input.callerPlatform
-            ? row.id === input.callerBindingId
-              || row.platform === (input.callerPlatform === "mac" ? "ios" : "mac")
-            : clientNamespace === "legacy"
-              || row.clientNamespace === clientNamespace)),
+        bindings: input.callerBindingId && input.callerPlatform
+          ? caller
+            ? candidateBindings.filter((row) =>
+              row.id === caller.id
+              || (
+                caller.platform === "ios"
+                  ? canIOSBindingUseMac(caller, row)
+                  : canIOSBindingUseMac(row, caller)
+              ))
+            : []
+          : candidateBindings,
         lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
       };
     });
