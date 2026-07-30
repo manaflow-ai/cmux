@@ -101,6 +101,87 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func visibleRowClickWhileRevealApplyIsPendingReplaysWhenActionsReturn() async throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let initiallySelectedWorkspace = try #require(tabManager.selectedWorkspace)
+        let clickedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            workspaceId: clickedWorkspace.id
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                workspace: clickedWorkspace,
+                tabManager: tabManager
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.setPresentationActive(false, workspaceIds: [clickedWorkspace.id])
+        controller.setPresentationActive(true, workspaceIds: [clickedWorkspace.id])
+
+        let table = container.tableView
+        let clickPoint = NSPoint(x: table.bounds.midX, y: table.rect(ofRow: 0).midY)
+        #expect(!table.isHidden)
+        #expect(table.row(at: clickPoint) == 0)
+        #expect(table.hitTest(clickPoint) != nil)
+        let action = try #require(table.action)
+        let target = try #require(table.target)
+        table.setValue(0, forKey: "clickedRow")
+        defer { table.setValue(-1, forKey: "clickedRow") }
+        #expect(table.sendAction(action, to: target))
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            tabManager.selectedTabId == clickedWorkspace.id,
+            "A completed click on a visible reveal-time row must replay once live row actions return."
+        )
+    }
+
+    @Test
     func hidingRetiresNativeReorderSession() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
