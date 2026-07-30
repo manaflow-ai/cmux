@@ -62,12 +62,13 @@ public struct SimulatorUIAutomationTickSequence: AsyncSequence, Sendable {
         public mutating func next() async throws -> Int64? {
             try Task.checkCancellation()
             let beforeWait = scheduler.nowMilliseconds()
-            guard beforeWait < deadlineMilliseconds else { return nil }
             if isFirstEvent, includesImmediateEvent {
                 isFirstEvent = false
+                guard beforeWait <= deadlineMilliseconds else { return nil }
                 return beforeWait
             }
             isFirstEvent = false
+            guard beforeWait < deadlineMilliseconds else { return nil }
             try await scheduler.nextEvent(after: .milliseconds(Swift.min(
                 intervalMilliseconds,
                 deadlineMilliseconds - beforeWait

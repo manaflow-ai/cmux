@@ -107,6 +107,7 @@ extension TerminalController {
                     coordinator.endUIAutomationTransaction()
                 }
             }
+            try Task.checkCancellation()
             switch operation {
             case .context, .prepareScreenshot:
                 guard let deviceID = coordinator.selectedDeviceID ?? persistedDeviceID else {

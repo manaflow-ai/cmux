@@ -16,6 +16,7 @@ struct SimulatorUIAutomationCaptureRetry {
 
     func capture<Value>(
         until deadlineMilliseconds: Int64,
+        retrying failureCodes: Set<String> = ["snapshot_capture_failed"],
         operation: @MainActor (Duration) async throws -> Value
     ) async throws -> Value {
         let beforeCapture = scheduler.nowMilliseconds()
@@ -27,7 +28,7 @@ struct SimulatorUIAutomationCaptureRetry {
                 deadlineMilliseconds - beforeCapture
             ))
         } catch let failure as SimulatorUIAutomationFailure {
-            guard failure.code == "snapshot_capture_failed" else {
+            guard failureCodes.contains(failure.code) else {
                 throw failure
             }
             var lastFailure = failure
@@ -43,7 +44,7 @@ struct SimulatorUIAutomationCaptureRetry {
                         deadlineMilliseconds - eventMilliseconds
                     ))
                 } catch let retryFailure as SimulatorUIAutomationFailure {
-                    guard retryFailure.code == "snapshot_capture_failed" else {
+                    guard failureCodes.contains(retryFailure.code) else {
                         throw retryFailure
                     }
                     lastFailure = retryFailure

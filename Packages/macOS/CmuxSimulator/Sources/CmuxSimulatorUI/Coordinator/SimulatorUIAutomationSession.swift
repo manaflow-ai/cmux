@@ -26,8 +26,9 @@ final class SimulatorUIAutomationSession {
     func withTransaction<T>(
         _ operation: @MainActor () async throws -> T
     ) async throws -> T {
-        try await acquireTransaction()
+        try await beginTransaction()
         defer { releaseTransaction() }
+        try Task.checkCancellation()
         return try await operation()
     }
 
@@ -138,6 +139,12 @@ final class SimulatorUIAutomationSession {
 
     func beginTransaction() async throws {
         try await acquireTransaction()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            releaseTransaction()
+            throw error
+        }
     }
 
     func endTransaction() {

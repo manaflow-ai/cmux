@@ -8,6 +8,7 @@ import Foundation
 public struct SimulatorUIAutomationExecutor {
     /// Minimum accessibility-settle interval after an input mutation.
     public static let postMutationAccessibilityQuiescenceMilliseconds = 750
+    private static let accessibilityCaptureTimeoutMilliseconds: Int64 = 30_000
 
     private struct ActionPreflight {
         let sourceRecord: SimulatorUIAutomationSnapshotRecord?
@@ -42,8 +43,13 @@ public struct SimulatorUIAutomationExecutor {
                 if sinceScreenHash == record.snapshot.screenHash,
                    let previousRecord,
                    previousRecord.snapshot.screenHash == record.snapshot.screenHash {
-                    coordinator.restoreUIAutomationSnapshot(previousRecord)
-                    return simulatorUIUnchangedPayload(previousRecord.snapshot)
+                    let preservedRecord = SimulatorUIAutomationSnapshotRecord(
+                        snapshot: previousRecord.snapshot,
+                        elementRecords: previousRecord.elementRecords,
+                        display: record.display
+                    )
+                    coordinator.restoreUIAutomationSnapshot(preservedRecord)
+                    return simulatorUIUnchangedPayload(preservedRecord.snapshot)
                 }
                 return simulatorUISnapshotPayload(record.snapshot)
             }
@@ -223,8 +229,10 @@ public struct SimulatorUIAutomationExecutor {
                     point: point,
                     display: snapshotDisplay
                 )
-            } else if !down, up {
-                coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
+            } else if up {
+                if !down {
+                    coordinator.releaseHeldUIAutomationTouch(elementRef: elementRef)
+                }
                 postActionSettleDelayMilliseconds =
                     Self.postMutationAccessibilityQuiescenceMilliseconds
             }
@@ -667,6 +675,11 @@ public struct SimulatorUIAutomationExecutor {
         try requireSimulatorCapability(.accessibility, coordinator: coordinator)
         let startedAt = simulatorUINowMilliseconds()
         let deadline = startedAt + Int64(wait.timeoutMilliseconds)
+        // Zero means one current sample rather than no samples. Keep that
+        // sample's worker response bounded by the standard capture timeout.
+        let captureDeadline = wait.timeoutMilliseconds == 0
+            ? startedAt + Self.accessibilityCaptureTimeoutMilliseconds
+            : deadline
         let selector: SimulatorUIAutomationSelector?
         if let elementRef = wait.elementRef {
             do {
@@ -700,7 +713,8 @@ public struct SimulatorUIAutomationExecutor {
         for try await _ in events {
             let record = try await captureSimulatorUIAutomationSnapshot(
                 coordinator: coordinator,
-                retryingUntil: deadline
+                retryingUntil: captureDeadline,
+                retryingUIStateChanges: true
             )
             latestRecord = record
             let now = simulatorUINowMilliseconds()
@@ -915,19 +929,23 @@ public struct SimulatorUIAutomationExecutor {
 
     private func captureSimulatorUIAutomationSnapshot(
         coordinator: SimulatorPaneCoordinator,
-        retryingUntil deadlineMilliseconds: Int64? = nil
+        retryingUntil deadlineMilliseconds: Int64? = nil,
+        retryingUIStateChanges: Bool = false
     ) async throws -> SimulatorUIAutomationSnapshotRecord {
         guard let deadlineMilliseconds else {
             return try await captureSimulatorUIAutomationSnapshotOnce(
                 coordinator: coordinator,
-                timeout: .seconds(30)
+                timeout: .milliseconds(Self.accessibilityCaptureTimeoutMilliseconds)
             )
         }
         do {
             return try await SimulatorUIAutomationCaptureRetry(
                 scheduler: scheduler
             ).capture(
-                until: deadlineMilliseconds
+                until: deadlineMilliseconds,
+                retrying: retryingUIStateChanges
+                    ? ["snapshot_capture_failed", "ui_state_changed"]
+                    : ["snapshot_capture_failed"]
             ) { remaining in
                 try await captureSimulatorUIAutomationSnapshotOnce(
                     coordinator: coordinator,

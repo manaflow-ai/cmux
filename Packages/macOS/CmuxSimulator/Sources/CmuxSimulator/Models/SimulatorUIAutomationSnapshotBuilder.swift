@@ -413,7 +413,11 @@ struct SimulatorUIAutomationSnapshotBuilder {
         _ first: SimulatorRect,
         _ second: SimulatorRect
     ) -> SimulatorRect? {
-        guard framesIntersect(first, second) else { return nil }
+        guard simulatorUIAutomationIsValidFrame(first),
+              simulatorUIAutomationIsValidFrame(second),
+              framesIntersect(first, second) else {
+            return nil
+        }
         let x = max(first.x, second.x)
         let y = max(first.y, second.y)
         return SimulatorRect(
