@@ -14,14 +14,27 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
     }
 }
 
+struct SidebarFooterCircularIconStyle: Equatable {
+    static let standard = SidebarFooterCircularIconStyle(
+        pointSize: 14,
+        weight: .regular
+    )
+
+    let pointSize: CGFloat
+    let weight: Font.Weight
+
+    func resized(to pointSize: CGFloat) -> SidebarFooterCircularIconStyle {
+        SidebarFooterCircularIconStyle(pointSize: pointSize, weight: weight)
+    }
+}
+
 enum SidebarFooterButtonMetrics {
     static let buttonSize: CGFloat = 22
-    static let accountAndHelpVisualSize: CGFloat = 14
+    static let accountAndHelpVisualSize = SidebarFooterCircularIconStyle.standard.pointSize
     static let profilePictureSize = accountAndHelpVisualSize
     static let profileIconSize = accountAndHelpVisualSize
     static let mobileIconSize: CGFloat = 12
     static let helpIconSize = accountAndHelpVisualSize
-    static let helpIconWeight: Font.Weight = .regular
     static let hoverOpacity = 0.08
 }
 
@@ -175,13 +188,30 @@ enum SidebarFooterHelpIconDebugSettings {
 }
 #endif
 
+struct SidebarFooterCircularIcon: View {
+    let systemName: String
+    let style: SidebarFooterCircularIconStyle
+
+    var body: some View {
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: style.pointSize,
+            weight: style.weight
+        )
+        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+    }
+}
+
 struct SidebarFooterHelpIcon: View {
-    let pointSize: CGFloat
-    let weight: Font.Weight
+    let style: SidebarFooterCircularIconStyle
 #if DEBUG
     @AppStorage(SidebarFooterHelpIconDebugSettings.iconKey)
     private var debugIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
 #endif
+
+    init(pointSize: CGFloat, weight: Font.Weight) {
+        style = SidebarFooterCircularIconStyle(pointSize: pointSize, weight: weight)
+    }
 
     private var systemName: String {
 #if DEBUG
@@ -193,8 +223,7 @@ struct SidebarFooterHelpIcon: View {
     }
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: pointSize, weight: weight)
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        SidebarFooterCircularIcon(systemName: systemName, style: style)
     }
 }
 
@@ -396,12 +425,10 @@ struct SidebarAccountAvatar: View {
                 size: size
             )
         } else {
-            CmuxSystemSymbolImage(
+            SidebarFooterCircularIcon(
                 systemName: signedOutSystemName,
-                pointSize: size,
-                weight: .medium
+                style: SidebarFooterCircularIconStyle.standard.resized(to: size)
             )
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .frame(width: size, height: size, alignment: .center)
         }
     }

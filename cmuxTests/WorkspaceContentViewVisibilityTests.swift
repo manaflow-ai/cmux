@@ -306,8 +306,17 @@ final class WorkspaceContentViewVisibilityTests {
             SidebarFooterButtonMetrics.profileIconSize
                 == SidebarFooterButtonMetrics.helpIconSize
         )
+        #expect(
+            SidebarFooterCircularIconStyle.standard.pointSize
+                == SidebarFooterButtonMetrics.accountAndHelpVisualSize
+        )
+        #expect(SidebarFooterCircularIconStyle.standard.weight == .regular)
 #if DEBUG
         #expect(SidebarFooterProfileIconDebugSettings.defaultIcon == .cropCircle)
+        #expect(
+            SidebarFooterHelpIconDebugSettings.defaultWeight.fontWeight
+                == SidebarFooterCircularIconStyle.standard.weight
+        )
 #endif
     }
 

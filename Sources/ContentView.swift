@@ -14610,9 +14610,10 @@ private struct SidebarHelpMenuButton: View {
 
     private var iconWeight: Font.Weight {
 #if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight ?? .regular
+        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight
+            ?? SidebarFooterCircularIconStyle.standard.weight
 #else
-        SidebarFooterButtonMetrics.helpIconWeight
+        SidebarFooterCircularIconStyle.standard.weight
 #endif
     }
 
