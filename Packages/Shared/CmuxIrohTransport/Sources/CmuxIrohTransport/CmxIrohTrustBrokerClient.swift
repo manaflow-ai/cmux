@@ -144,6 +144,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
     private let clientNamespace: String
+    private var bindingAuthorization: (
+        bindingID: String,
+        signer: CmxIrohRegistrationSigner
+    )?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
@@ -225,7 +229,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
-        try await withBackpressure(operation: .registration) {
+        let response: CmxIrohRegistrationResponse = try await withBackpressure(
+            operation: .registration
+        ) {
             let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
                 path: "api/devices/iroh/challenge",
                 method: "POST",
@@ -238,6 +244,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 body: request
             )
         }
+        bindingAuthorization = (
+            bindingID: response.binding.bindingID,
+            signer: signer
+        )
+        return response
     }
 
     public func discover() async throws -> CmxIrohDiscoveryResponse {
@@ -437,6 +448,30 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        if let bindingAuthorization,
+           path != "api/devices/iroh/challenge",
+           path != "api/devices/iroh/register" {
+            let timestamp = Int64(Date().timeIntervalSince1970)
+            let signature = try bindingAuthorization.signer.signBrokerRequest(
+                bindingID: bindingAuthorization.bindingID,
+                method: method,
+                path: path,
+                timestamp: timestamp,
+                body: body ?? Data()
+            )
+            request.setValue(
+                bindingAuthorization.bindingID,
+                forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID"
+            )
+            request.setValue(
+                String(timestamp),
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+            )
+            request.setValue(
+                signature,
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body

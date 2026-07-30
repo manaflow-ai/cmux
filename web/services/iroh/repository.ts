@@ -115,6 +115,8 @@ export type IrohRepositoryShape = {
   readonly discoverySnapshot: (input: {
     readonly userId: string;
     readonly clientNamespace?: string;
+    readonly callerBindingId?: string;
+    readonly callerPlatform?: "mac" | "ios";
     readonly now: Date;
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
@@ -133,6 +135,7 @@ export type IrohRepositoryShape = {
     readonly userId: string;
     readonly bindingId: string;
     readonly clientNamespace?: string;
+    readonly authorizedBindingId?: string;
     readonly now: Date;
   }) => Effect.Effect<boolean, RepositoryError>;
   readonly pruneExpiredState: (input: {
@@ -565,10 +568,6 @@ function makeLiveRepository(): IrohRepositoryShape {
     discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
       return await cloudDb().transaction(async (tx) => {
         const clientNamespace = input.clientNamespace ?? "legacy";
-        // iOS callers see only their exact iOS namespace plus Mac hosts. Mac
-        // hosts see iOS initiators because online admission must revalidate the
-        // signed peer binding. No iOS caller can discover a sibling iOS build.
-        const peerPlatform = clientNamespace.startsWith("mac:") ? "ios" : "mac";
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const [state] = await tx
@@ -580,18 +579,23 @@ function makeLiveRepository(): IrohRepositoryShape {
           })
           .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
         if (!state) throw new Error("account security state returned no row");
+        const visibility = input.callerBindingId && input.callerPlatform
+          ? or(
+            eq(irohEndpointBindings.id, input.callerBindingId),
+            eq(
+              irohEndpointBindings.platform,
+              input.callerPlatform === "mac" ? "ios" : "mac",
+            ),
+          )
+          : clientNamespace === "legacy"
+            ? undefined
+            : eq(irohEndpointBindings.clientNamespace, clientNamespace);
         const bindings = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
-            or(
-              eq(
-                irohEndpointBindings.clientNamespace,
-                clientNamespace,
-              ),
-              eq(irohEndpointBindings.platform, peerPlatform),
-            ),
+            visibility,
             isNull(irohEndpointBindings.revokedAt),
           ))
           .orderBy(asc(irohEndpointBindings.registeredAt));
@@ -638,10 +642,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const [binding] = await tx
-          .select({
-            revokedAt: irohEndpointBindings.revokedAt,
-            clientNamespace: irohEndpointBindings.clientNamespace,
-          })
+          .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.id, input.bindingId),
@@ -650,15 +651,34 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) return false;
-        const requestedNamespace = input.clientNamespace ?? "legacy";
-        if (
-          binding.clientNamespace !== requestedNamespace
-          && !(
-            binding.clientNamespace === "legacy"
-            && requestedNamespace !== "legacy"
-          )
-        ) {
-          return false;
+        if (input.authorizedBindingId) {
+          const [authorized] = await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.id, input.authorizedBindingId),
+              eq(irohEndpointBindings.userId, input.userId),
+              isNull(irohEndpointBindings.revokedAt),
+            ))
+            .limit(1);
+          if (!authorized) return false;
+          const sameOwnedSlot = authorized.deviceUuid === binding.deviceUuid
+            && authorized.appInstanceId === binding.appInstanceId
+            && authorized.tag === binding.tag
+            && authorized.platform === binding.platform
+            && (
+              authorized.clientNamespace === binding.clientNamespace
+              || binding.clientNamespace === "legacy"
+            );
+          if (authorized.id !== binding.id && !sameOwnedSlot) return false;
+        } else {
+          const requestedNamespace = input.clientNamespace ?? "legacy";
+          if (
+            requestedNamespace !== "legacy"
+            || binding.clientNamespace !== "legacy"
+          ) {
+            return false;
+          }
         }
         if (binding.revokedAt) return true;
 

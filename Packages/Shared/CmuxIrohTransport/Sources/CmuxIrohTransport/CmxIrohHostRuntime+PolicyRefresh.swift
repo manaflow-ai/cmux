@@ -1,19 +1,21 @@
 import CMUXMobileCore
 import Foundation
 
+private struct CmxIrohPostRegistrationRevocationFailure: Error {
+    let underlying: any Error
+}
+
 extension CmxIrohHostRuntime {
     func resolveInitialPolicy(
         supervisor: CmxIrohEndpointSupervisor,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
     ) async throws -> ResolvedPolicy {
-        try await revokePendingBeforeRegistration()
-        try requireCurrent(revision)
         var failureCount = 0
         while true {
             try requireCurrent(revision)
             do {
-                return try await resolvePolicyAfterPendingRevocations(
+                return try await resolvePolicyAfterAuthenticatedRegistration(
                     supervisor: supervisor,
                     expectedEndpointID: expectedEndpointID,
                     revision: revision,
@@ -21,6 +23,8 @@ extension CmxIrohHostRuntime {
                 )
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let failure as CmxIrohPostRegistrationRevocationFailure {
+                throw failure.underlying
             } catch {
                 try requireCurrent(revision)
                 guard CmxIrohTrustBrokerClientError
@@ -48,17 +52,19 @@ extension CmxIrohHostRuntime {
         revision: UInt64,
         allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
-        try await revokePendingBeforeRegistration()
-        try requireCurrent(revision)
-        return try await resolvePolicyAfterPendingRevocations(
-            supervisor: supervisor,
-            expectedEndpointID: expectedEndpointID,
-            revision: revision,
-            allowCachedFallback: allowCachedFallback
-        )
+        do {
+            return try await resolvePolicyAfterAuthenticatedRegistration(
+                supervisor: supervisor,
+                expectedEndpointID: expectedEndpointID,
+                revision: revision,
+                allowCachedFallback: allowCachedFallback
+            )
+        } catch let failure as CmxIrohPostRegistrationRevocationFailure {
+            throw failure.underlying
+        }
     }
 
-    private func revokePendingBeforeRegistration() async throws {
+    private func revokePendingAfterRegistration() async throws {
         try await pendingRevocations.revokePending(
             accountID: configuration.accountID,
             beforeRegisteringTag: configuration.tag,
@@ -66,7 +72,7 @@ extension CmxIrohHostRuntime {
         )
     }
 
-    private func resolvePolicyAfterPendingRevocations(
+    private func resolvePolicyAfterAuthenticatedRegistration(
         supervisor: CmxIrohEndpointSupervisor,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
@@ -132,6 +138,12 @@ extension CmxIrohHostRuntime {
         }
         try requireCurrent(revision)
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
+        do {
+            try await revokePendingAfterRegistration()
+        } catch {
+            throw CmxIrohPostRegistrationRevocationFailure(underlying: error)
+        }
+        try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
             discovery = try await broker.discover()

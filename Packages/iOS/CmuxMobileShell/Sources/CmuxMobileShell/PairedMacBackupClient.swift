@@ -12,6 +12,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let tokenSource: PresenceTokenSource
     private let teamIDProvider: @Sendable () async -> String?
     private let clientScopeProvider: @Sendable () async -> String?
+    private let legacyClientScopeProvider: (@Sendable () async -> String?)?
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
@@ -21,6 +22,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         clientScopeProvider: @escaping @Sendable () async -> String? = { nil },
+        legacyClientScopeProvider: (@Sendable () async -> String?)? = nil,
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5
     ) {
@@ -28,6 +30,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
         self.clientScopeProvider = clientScopeProvider
+        self.legacyClientScopeProvider = legacyClientScopeProvider
         self.session = session
         self.requestTimeout = requestTimeout
     }
@@ -140,11 +143,46 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch live records and tombstones only if auth still belongs to the captured account.
     public func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
+        guard let primary = await fetchSnapshot(
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            scope: .current
+        ) else { return nil }
+        guard primary.records.isEmpty,
+              primary.deletedMacDeviceIDs.isEmpty,
+              let legacyClientScopeProvider else {
+            return primary
+        }
+        let legacyScope = await legacyClientScopeProvider()
+        let currentScope = await clientScope()
+        guard legacyScope != currentScope,
+              let legacy = await fetchSnapshot(
+                teamID: teamID,
+                expectedUserID: expectedUserID,
+                scope: .explicit(legacyScope)
+              ) else {
+            return primary
+        }
+        guard !legacy.records.isEmpty else { return legacy }
+        _ = await upload(
+            ops: legacy.records.map { .upsert($0) },
+            teamID: teamID,
+            expectedUserID: expectedUserID
+        )
+        return legacy
+    }
+
+    private func fetchSnapshot(
+        teamID: String?,
+        expectedUserID: String?,
+        scope: ClientScopeSelection
+    ) async -> PairedMacBackupSnapshot? {
         guard let request = await makeRequest(
             method: "GET",
             body: nil,
             teamID: teamID,
-            expectedUserID: expectedUserID
+            expectedUserID: expectedUserID,
+            scope: scope
         ) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
@@ -169,7 +207,8 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         method: String,
         body: Data?,
         teamID: String?,
-        expectedUserID: String?
+        expectedUserID: String?,
+        scope: ClientScopeSelection = .current
     ) async -> URLRequest? {
         guard let accessToken = await tokenSource.accessToken(expectedUserID: expectedUserID),
               let url = Self.endpointURL(serviceBaseURL: serviceBaseURL) else {
@@ -182,13 +221,26 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let scope = await clientScope() {
-            request.setValue(scope, forHTTPHeaderField: "X-Cmux-Client-Scope")
+        let resolvedScope: String?
+        switch scope {
+        case .current:
+            resolvedScope = await clientScope()
+        case .explicit(let explicit):
+            let trimmed = explicit?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            resolvedScope = trimmed.isEmpty ? nil : trimmed
+        }
+        if let resolvedScope {
+            request.setValue(resolvedScope, forHTTPHeaderField: "X-Cmux-Client-Scope")
         }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = body
         }
         return request
+    }
+
+    private enum ClientScopeSelection: Sendable {
+        case current
+        case explicit(String?)
     }
 }

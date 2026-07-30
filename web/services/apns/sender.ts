@@ -26,6 +26,7 @@ export interface ApnsTarget {
 
 export interface ApnsSendResult {
   readonly deviceToken: string;
+  readonly bundleId?: string;
   readonly status: number; // 0 = transport error / timeout
   readonly reason?: string;
   readonly prune: boolean;
@@ -147,6 +148,7 @@ function collapseIdFor(notificationId: string | null | undefined): string | unde
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
   return hostTargets.map((target) => ({
     deviceToken: target.deviceToken,
+    bundleId: target.bundleId,
     status: 0,
     reason: "connection_error",
     prune: false,
@@ -196,7 +198,13 @@ function sendOne(
     const finish = (status: number, reason?: string) => {
       if (settled) return;
       settled = true;
-      resolve({ deviceToken: target.deviceToken, status, reason, prune: shouldPruneToken(status, reason) });
+      resolve({
+        deviceToken: target.deviceToken,
+        bundleId: target.bundleId,
+        status,
+        reason,
+        prune: shouldPruneToken(status, reason),
+      });
     };
     void connError.then(() => finish(0, "connection_error"));
 

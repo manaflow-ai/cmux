@@ -15,6 +15,7 @@ import {
   IrohTrustBrokerRuntime,
   type IrohTrustBrokerShape,
 } from "./trustBroker";
+import type { IrohBindingRequestProof } from "./crypto";
 
 const MAX_BODY_BYTES = 64 * 1_024;
 const FIREWALL_TIMEOUT_MS = 2_500;
@@ -162,9 +163,11 @@ export async function handleIrohRoute(
   }
 
   bodyResult ??= operation === "discover"
-    ? { ok: true as const, value: undefined }
+    ? { ok: true as const, value: undefined, bytes: Buffer.alloc(0) }
     : await readBoundedJson(request);
   if (!bodyResult.ok) return bodyResult.response;
+  const bindingProof = parseBindingRequestProof(request, bodyResult.bytes);
+  if (bindingProof instanceof Response) return bindingProof;
 
   try {
     const value = dependencies.broker
@@ -175,6 +178,7 @@ export async function handleIrohRoute(
           user.id,
           bodyResult.value,
           clientNamespace,
+          bindingProof,
         ),
       )
       : await Effect.runPromise(
@@ -186,6 +190,7 @@ export async function handleIrohRoute(
             user.id,
             bodyResult.value,
             clientNamespace,
+            bindingProof,
           );
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
@@ -247,6 +252,7 @@ function invoke(
   userId: string,
   body: unknown,
   clientNamespace: string,
+  bindingProof: IrohBindingRequestProof | undefined,
 ) {
   switch (operation) {
     case "challenge":
@@ -254,20 +260,52 @@ function invoke(
     case "register":
       return broker.register(userId, body, undefined, clientNamespace);
     case "discover":
-      return broker.discover(userId, undefined, clientNamespace);
+      return broker.discover(userId, undefined, clientNamespace, bindingProof);
     case "endpoint_attestation":
-      return broker.issueEndpointAttestation(userId, body, undefined, clientNamespace);
+      return broker.issueEndpointAttestation(userId, body, undefined, clientNamespace, bindingProof);
     case "revoke":
-      return broker.revoke(userId, body, undefined, clientNamespace);
+      return broker.revoke(userId, body, undefined, clientNamespace, bindingProof);
     case "pair_grant":
-      return broker.issuePairGrant(userId, body, undefined, clientNamespace);
+      return broker.issuePairGrant(userId, body, undefined, clientNamespace, bindingProof);
     case "relay_token":
-      return broker.issueRelayToken(userId, body, undefined, clientNamespace);
+      return broker.issueRelayToken(userId, body, undefined, clientNamespace, bindingProof);
   }
 }
 
+function parseBindingRequestProof(
+  request: Request,
+  body: Uint8Array,
+): IrohBindingRequestProof | undefined | Response {
+  const bindingId = request.headers.get("x-cmux-iroh-binding-id");
+  const timestamp = request.headers.get("x-cmux-iroh-request-time");
+  const signature = request.headers.get("x-cmux-iroh-request-signature");
+  if (!bindingId && !timestamp && !signature) return undefined;
+  if (
+    !bindingId
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(bindingId)
+    || !timestamp
+    || !/^[1-9][0-9]{0,15}$/.test(timestamp)
+    || !signature
+    || !/^[A-Za-z0-9_-]{86}$/.test(signature)
+  ) {
+    return jsonResponse({ error: "invalid_binding_request_proof" }, 400);
+  }
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isSafeInteger(timestampSeconds)) {
+    return jsonResponse({ error: "invalid_binding_request_proof" }, 400);
+  }
+  return {
+    bindingId,
+    method: request.method,
+    path: new URL(request.url).pathname.replace(/^\/+/, ""),
+    timestampSeconds,
+    bodySha256: createHash("sha256").update(body).digest("hex"),
+    signature,
+  };
+}
+
 async function readBoundedJson(request: Request): Promise<
-  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: true; readonly value: unknown; readonly bytes: Uint8Array }
   | { readonly ok: false; readonly response: Response }
 > {
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -301,7 +339,7 @@ async function readBoundedJson(request: Request): Promise<
   if (total === 0) return { ok: false, response: jsonResponse({ error: "missing_body" }, 400) };
   const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total);
   try {
-    return { ok: true, value: JSON.parse(bytes.toString("utf8")) };
+    return { ok: true, value: JSON.parse(bytes.toString("utf8")), bytes };
   } catch {
     return { ok: false, response: jsonResponse({ error: "invalid_json" }, 400) };
   }

@@ -1,11 +1,8 @@
-// Send a push to the authenticated user's registered devices in one exact iOS
-// app namespace. Called by the macOS app when it shows a terminal notification
-// AND the user enabled phone forwarding. No-ops (no APNs traffic) when the
-// selected app has no registered devices. Auth: Stack Bearer from the Mac's
-// signed-in user; routing is by user id plus exact iOS bundle identifier.
+// New Mac builds send one exact iOS target. Older Mac builds omit the target
+// header and retain their pre-isolation account fanout during the rollout.
 
 import { checkRateLimit } from "@vercel/firewall";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { env } from "../../../env";
 import { cloudDb } from "../../../../db/client";
 import { deviceTokens } from "../../../../db/schema";
@@ -49,11 +46,11 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
 
 type NotificationDb = ReturnType<typeof cloudDb>;
 
-/** Selects push targets owned by one exact iOS app bundle. */
+/** Selects one exact bundle, or all iOS bundles for a legacy Mac sender. */
 export async function selectNotificationPushTargets(
   db: NotificationDb,
   userId: string,
-  bundleId: string,
+  bundleId?: string,
 ) {
   return db
     .select({
@@ -62,11 +59,16 @@ export async function selectNotificationPushTargets(
       environment: deviceTokens.environment,
     })
     .from(deviceTokens)
-    .where(and(
-      eq(deviceTokens.userId, userId),
-      eq(deviceTokens.platform, "ios"),
-      eq(deviceTokens.bundleId, bundleId),
-    ))
+    .where(bundleId
+      ? and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+        eq(deviceTokens.bundleId, bundleId),
+      )
+      : and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+      ))
     .limit(MAX_DEVICE_TOKENS_PER_USER);
 }
 
@@ -101,10 +103,11 @@ async function sendPush(request: Request): Promise<Response> {
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
-  const targetNamespace = normalizeApnsBundle(
-    request.headers.get("x-cmux-ios-target-namespace") ?? "com.cmux.app",
-  );
-  if (!targetNamespace) {
+  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
+  const targetNamespace = requestedNamespace
+    ? normalizeApnsBundle(requestedNamespace)
+    : null;
+  if (requestedNamespace && !targetNamespace) {
     return jsonResponse({ error: "invalid_target_namespace" }, 400);
   }
 
@@ -112,7 +115,7 @@ async function sendPush(request: Request): Promise<Response> {
   const tokens = await selectNotificationPushTargets(
     db,
     user.id,
-    targetNamespace.bundleId,
+    targetNamespace?.bundleId,
   );
 
   if (tokens.length === 0) {
@@ -135,15 +138,18 @@ async function sendPush(request: Request): Promise<Response> {
 
   const results = await sendApnsNotification(config, tokens, payload.value);
 
-  const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
+  const dead = results.filter((result) =>
+    result.prune && result.bundleId);
   if (dead.length > 0) {
     await db
       .delete(deviceTokens)
       .where(and(
         eq(deviceTokens.userId, user.id),
         eq(deviceTokens.platform, "ios"),
-        eq(deviceTokens.bundleId, targetNamespace.bundleId),
-        inArray(deviceTokens.deviceToken, dead),
+        or(...dead.map((result) => and(
+          eq(deviceTokens.bundleId, result.bundleId!),
+          eq(deviceTokens.deviceToken, result.deviceToken),
+        ))),
       ));
   }
 

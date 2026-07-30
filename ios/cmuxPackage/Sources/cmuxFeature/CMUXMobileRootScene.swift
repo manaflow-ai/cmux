@@ -268,6 +268,11 @@ public struct CMUXMobileRootScene: View {
               ) else {
             return scopedStore
         }
+        let legacyScope = appNamespace.legacyBackupScope
+        let legacyClientScopeProvider: (@Sendable () async -> String?)? =
+            legacyScope.map { scope in
+                { scope.headerValue }
+            }
         let client = PairedMacBackupClient(
             serviceBaseURL: baseURL,
             tokenSource: PresenceTokenSource(
@@ -275,7 +280,8 @@ public struct CMUXMobileRootScene: View {
                 currentUserID: { await coordinator.currentUser?.id }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { appNamespace.serverScope }
+            clientScopeProvider: { appNamespace.serverScope },
+            legacyClientScopeProvider: legacyClientScopeProvider
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,

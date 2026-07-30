@@ -6,12 +6,6 @@ extension CmxIrohClientRuntime {
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
     ) async throws -> ResolvedPolicy {
-        try await pendingRevocations.revokePending(
-            accountID: configuration.accountID,
-            beforeRegisteringTag: configuration.tag,
-            using: broker
-        )
-        try requireCurrent(revision)
         try await broker.preflight(operation: .discovery)
         try requireCurrent(revision)
         let endpoint = try await supervisor.activeEndpoint()
@@ -95,6 +89,14 @@ extension CmxIrohClientRuntime {
         try requireCurrent(revision)
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
+        }
+        if registration != nil {
+            try await pendingRevocations.revokePending(
+                accountID: configuration.accountID,
+                beforeRegisteringTag: configuration.tag,
+                using: broker
+            )
+            try requireCurrent(revision)
         }
         let discovery: CmxIrohDiscoveryResponse
         do {

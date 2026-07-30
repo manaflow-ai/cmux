@@ -69,4 +69,24 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
             .replacingOccurrences(of: "=", with: "")
         return "ios:v3:\(encoded)"
     }
+
+    /// The only legacy backup collection that can be attributed to this bundle.
+    ///
+    /// The App Store app owns the former unscoped release collection. Tagged
+    /// development bundles own their same-tag v2 collection. Beta, Internal,
+    /// and Demo intentionally adopt nothing because their old unscoped records
+    /// cannot be attributed without risking cross-build restore.
+    public var legacyBackupScope: MobileIOSLegacyBackupScope? {
+        if bundleIdentifier == "com.cmux.app" {
+            return .unscoped
+        }
+        let prefix = "dev.cmux.ios."
+        guard bundleIdentifier.hasPrefix(prefix),
+              let buildScope = MobileIOSBuildScope(
+                String(bundleIdentifier.dropFirst(prefix.count))
+              ) else {
+            return nil
+        }
+        return .scoped(buildScope.serializedScope)
+    }
 }
