@@ -9,6 +9,11 @@ actor FakeBackup: PairedMacBackingUp {
     private(set) var fetchedExpectedUserIDs: [String?] = []
     private(set) var fetchCount = 0
     private var records: [PairedMacBackupRecord]
+    /// When set, models the server's PER-TEAM Durable Objects: each team id
+    /// (`""` for the nil team) has its own record list, fetches read only their
+    /// team's bucket, and successful deletes remove from only that bucket. When
+    /// unset, one shared list backs every team (the legacy single-bucket mode).
+    private var recordsByTeam: [String: [PairedMacBackupRecord]]?
     private let deletedMacDeviceIDs: [String]
     private var failNextFetches: Int
     private var failNextUploads: Int
@@ -20,6 +25,20 @@ actor FakeBackup: PairedMacBackingUp {
         failNextUploads: Int = 0
     ) {
         self.records = records
+        self.recordsByTeam = nil
+        self.deletedMacDeviceIDs = deletedMacDeviceIDs
+        self.failNextFetches = failNextFetches
+        self.failNextUploads = failNextUploads
+    }
+
+    init(
+        recordsByTeam: [String: [PairedMacBackupRecord]],
+        deletedMacDeviceIDs: [String] = [],
+        failNextFetches: Int = 0,
+        failNextUploads: Int = 0
+    ) {
+        self.records = []
+        self.recordsByTeam = recordsByTeam
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
         self.failNextFetches = failNextFetches
         self.failNextUploads = failNextUploads
@@ -51,15 +70,23 @@ actor FakeBackup: PairedMacBackingUp {
         }
         // Mirror the server: a SUCCESSFUL delete removes the record from the
         // backup, so later fetches no longer return it. A failed upload (above)
-        // leaves the record to model an undelivered tombstone.
+        // leaves the record to model an undelivered tombstone. In per-team mode
+        // only the addressed team's bucket changes.
         for op in ops {
+            let matches: (PairedMacBackupRecord) -> Bool
             switch op {
             case .delete(let macDeviceID):
-                records.removeAll { $0.macDeviceID == macDeviceID && $0.instanceTag == nil }
+                matches = { $0.macDeviceID == macDeviceID && $0.instanceTag == nil }
             case .deleteInstance(let macDeviceID, let instanceTag):
-                records.removeAll { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
+                matches = { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
             default:
-                break
+                continue
+            }
+            if recordsByTeam != nil {
+                let bucket = teamID ?? ""
+                recordsByTeam?[bucket]?.removeAll(where: matches)
+            } else {
+                records.removeAll(where: matches)
             }
         }
         return true
@@ -109,8 +136,14 @@ actor FakeBackup: PairedMacBackingUp {
             failNextFetches -= 1
             return nil
         }
+        let fetched: [PairedMacBackupRecord]
+        if let recordsByTeam {
+            fetched = recordsByTeam[teamID ?? ""] ?? []
+        } else {
+            fetched = records
+        }
         return PairedMacBackupSnapshot(
-            records: records,
+            records: fetched,
             deletedMacDeviceIDs: deletedMacDeviceIDs,
             // Mirror the worker's echo of its verified resolved team on the
             // restore read too, matching uploadReportingResolvedTeam.

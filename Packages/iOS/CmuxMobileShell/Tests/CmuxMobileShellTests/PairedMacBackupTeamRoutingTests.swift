@@ -173,6 +173,111 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         }
     }
 
+    /// A forget's tombstones must cover backup records the phone never restored
+    /// locally. Backups live in PER-TEAM Durable Objects; after a reinstall (or
+    /// simply never selecting a team) only the current team's backup has been
+    /// restored, so `loadAllInstances` — a purely LOCAL enumeration — cannot see
+    /// the same Mac's records in other teams' backups. The wildcard revoke is
+    /// account-wide, so those records now describe a computer whose bindings are
+    /// all dead; without an account-wide tombstone, switching to that team later
+    /// restores it as an unremovable ghost.
+    @Test func forgetCoversOtherTeamsBackupRecordsItNeverRestoredLocally() async throws {
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The forgotten Mac has a local row ONLY in team A. Team B's backup —
+        // never restored on this phone — holds the same device untagged AND
+        // under a tag this phone never saw locally.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let remoteUntagged = PairedMacBackupRecord(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            createdAt: 1_000,
+            lastSeenAt: 9_000_000_000_000,
+            isActive: false
+        )
+        var remoteTagged = remoteUntagged
+        remoteTagged.instanceTag = "feature"
+        let backup = FakeBackup(recordsByTeam: [
+            "team-a": [remoteUntagged],
+            "team-b": [remoteUntagged, remoteTagged],
+        ])
+        let team = TeamBox()
+        team.value = "team-a"
+        let store = BackingUpPairedMacStore(
+            inner: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
+            backup: backup,
+            teamIDProvider: { team.value }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { team.value },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        let ok = await composite.forgetHiddenComputer(hidden)
+        #expect(ok)
+
+        // The user switches to team B, whose backup was never restored here.
+        team.value = "team-b"
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        // Neither of team B's records may come back as a local row: every
+        // binding of the device was revoked by the wildcard forget.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+        // And team B's backup records were deleted, not merely hidden: the
+        // forget's account-wide tombstone flushes to team B once its snapshot
+        // proves it holds the device.
+        let batches = await backup.uploadBatches()
+        let teams = await backup.uploadTeams()
+        var deletedUntaggedInTeamB = false
+        var deletedTaggedInTeamB = false
+        for (index, batch) in batches.enumerated() where teams.indices.contains(index) && teams[index] == "team-b" {
+            for op in batch {
+                switch op {
+                case .delete(let macDeviceID) where macDeviceID == "mac-a":
+                    deletedUntaggedInTeamB = true
+                case .deleteInstance(let macDeviceID, let instanceTag)
+                    where macDeviceID == "mac-a" && instanceTag == "feature":
+                    deletedTaggedInTeamB = true
+                default:
+                    break
+                }
+            }
+        }
+        #expect(deletedUntaggedInTeamB)
+        #expect(deletedTaggedInTeamB)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
