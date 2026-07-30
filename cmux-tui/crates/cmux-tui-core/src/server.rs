@@ -6609,6 +6609,40 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn published_socket_cleanup_waits_for_publication_lock() {
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-serialized-cleanup-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("server.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let published = PublishedSocket::claim(path.clone()).unwrap();
+        let publication_lock =
+            SocketPublicationLock::acquire(&path, Instant::now() + Duration::from_secs(1)).unwrap();
+        let (finished, observed) = std::sync::mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            published.cleanup();
+            let _ = finished.send(());
+        });
+
+        let completed_while_locked = observed.recv_timeout(Duration::from_millis(100)).is_ok();
+        drop(publication_lock);
+        if !completed_while_locked {
+            observed
+                .recv_timeout(Duration::from_secs(2))
+                .expect("socket cleanup did not resume after the publication lock was released");
+        }
+        cleanup.join().unwrap();
+        drop(listener);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(socket_publication_lock_path(&path).unwrap());
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert!(!completed_while_locked, "socket cleanup bypassed the concurrent publication lock");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn concurrent_stale_socket_reclamation_has_one_owner() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_CONCURRENT_SOCKET_RECLAMATION";
         const TEST_NAME: &str = "server::tests::concurrent_stale_socket_reclamation_has_one_owner";
