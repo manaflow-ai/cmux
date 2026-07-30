@@ -42,7 +42,7 @@ final class CmuxFeatureFlags {
     private static let proUpgradeUIDefault = false
     #endif
 
-    private static let mobileConnectButtonDefault = true
+    private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
@@ -130,10 +130,10 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Shows the bottom-left sidebar iPhone button that opens the Mobile
-            // Connect workspace. Default keeps it visible when flags are
-            // unavailable; the workspace it opens ships in every build.
+            // Connect workspace. It stays hidden until the remote flag or a
+            // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),

@@ -2503,6 +2503,8 @@ private struct SidebarFooterIconBalanceDebugView: View {
     private var selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var profileIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+    @AppStorage(SidebarFooterProfileDisplayDebugSettings.displayKey)
+    private var selectedProfileDisplay = SidebarFooterProfileDisplayDebugSettings.defaultDisplay.rawValue
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var mobileIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
     @AppStorage(SidebarFooterHelpIconDebugSettings.iconKey)
@@ -2525,6 +2527,7 @@ private struct SidebarFooterIconBalanceDebugView: View {
                 )
 
                 SidebarFooterIconChoiceControls(
+                    profileDisplay: $selectedProfileDisplay,
                     profileIcon: $selectedProfileIcon,
                     helpIcon: $selectedHelpIcon
                 )
@@ -2536,6 +2539,7 @@ private struct SidebarFooterIconBalanceDebugView: View {
                 )
 
                 SidebarFooterOpticalBalanceStudy(
+                    profileDisplay: selectedProfileDisplay,
                     profileSize: profileIconSize,
                     mobileSize: mobileIconSize,
                     helpSize: selectedPointSize,
@@ -2547,6 +2551,7 @@ private struct SidebarFooterIconBalanceDebugView: View {
 
                 SidebarFooterIconBalanceControls(
                     hoverOpacity: $hoverOpacity,
+                    profileDisplay: selectedProfileDisplay,
                     profileSize: profileIconSize,
                     mobileSize: mobileIconSize,
                     selectedPointSize: selectedPointSize,
@@ -2558,6 +2563,7 @@ private struct SidebarFooterIconBalanceDebugView: View {
                     ForEach(SidebarFooterHelpIconVariant.all) { variant in
                         SidebarFooterIconBalanceVariantCard(
                             variant: variant,
+                            profileDisplay: selectedProfileDisplay,
                             profileSize: profileIconSize,
                             mobileSize: mobileIconSize,
                             isSelected: selectedPointSize == variant.pointSize
@@ -2580,6 +2586,7 @@ private struct SidebarFooterIconBalanceDebugView: View {
         selectedPointSize = SidebarFooterHelpIconDebugSettings.defaultSize
         selectedWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
         selectedProfileIcon = SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
+        selectedProfileDisplay = SidebarFooterProfileDisplayDebugSettings.defaultDisplay.rawValue
         profileIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
         mobileIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
         selectedHelpIcon = SidebarFooterHelpIconDebugSettings.defaultIcon.rawValue
@@ -2638,11 +2645,41 @@ private struct SidebarFooterIconBalanceDebugHeader: View {
 }
 
 private struct SidebarFooterIconChoiceControls: View {
+    @Binding var profileDisplay: String
     @Binding var profileIcon: String
     @Binding var helpIcon: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.profileDisplay",
+                        defaultValue: "Profile display"
+                    )
+                )
+                .cmuxFont(size: 11, weight: .semibold)
+                Picker(
+                    String(
+                        localized: "debug.sidebarFooterIconBalance.profileDisplay",
+                        defaultValue: "Profile display"
+                    ),
+                    selection: $profileDisplay
+                ) {
+                    ForEach(SidebarFooterProfileDisplayDebugChoice.allCases) { choice in
+                        Text(choice.displayName)
+                            .tag(choice.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("SidebarFooterProfileDisplayPicker")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+                .frame(height: 50)
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(
                     String(
@@ -2796,6 +2833,7 @@ private struct SidebarFooterIconSizeSlider: View {
 }
 
 private struct SidebarFooterOpticalBalanceStudy: View {
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let helpSize: Double
@@ -2846,6 +2884,7 @@ private struct SidebarFooterOpticalBalanceStudy: View {
                     localized: "debug.sidebarFooterIconBalance.sharpPreview",
                     defaultValue: "Sharp"
                 ),
+                profileDisplay: profileDisplay,
                 profileSize: profileSize,
                 mobileSize: mobileSize,
                 helpSize: helpSize,
@@ -2858,6 +2897,7 @@ private struct SidebarFooterOpticalBalanceStudy: View {
                     localized: "debug.sidebarFooterIconBalance.squintPreview",
                     defaultValue: "Squint"
                 ),
+                profileDisplay: profileDisplay,
                 profileSize: profileSize,
                 mobileSize: mobileSize,
                 helpSize: helpSize,
@@ -2881,6 +2921,7 @@ private struct SidebarFooterOpticalBalanceStudy: View {
 
 private struct SidebarFooterOpticalBalanceRow: View {
     let title: String
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let helpSize: Double
@@ -2894,6 +2935,7 @@ private struct SidebarFooterOpticalBalanceRow: View {
                 .cmuxFont(size: 11, weight: .semibold)
                 .frame(width: 48, alignment: .leading)
             SidebarFooterIconBalanceStrip(
+                profileDisplay: profileDisplay,
                 profileSize: profileSize,
                 mobileSize: mobileSize,
                 helpSize: helpSize,
@@ -2907,6 +2949,7 @@ private struct SidebarFooterOpticalBalanceRow: View {
 
 private struct SidebarFooterIconBalanceControls: View {
     @Binding var hoverOpacity: Double
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let selectedPointSize: Double
@@ -2942,6 +2985,7 @@ private struct SidebarFooterIconBalanceControls: View {
                 }
                 .accessibilityIdentifier("SidebarFooterIconBalanceHoverIntensitySlider")
                 SidebarFooterHoverIntensityPreview(
+                    profileDisplay: profileDisplay,
                     profileSize: profileSize,
                     mobileSize: mobileSize,
                     helpPointSize: selectedPointSize,
@@ -2962,6 +3006,7 @@ private struct SidebarFooterIconBalanceControls: View {
 }
 
 private struct SidebarFooterHoverIntensityPreview: View {
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let helpPointSize: Double
@@ -2975,14 +3020,10 @@ private struct SidebarFooterHoverIntensityPreview: View {
     var body: some View {
         HStack(spacing: 4) {
             Button(action: {}) {
-                SidebarAccountAvatar(
-                    avatarURL: nil,
-                    displayName: "",
-                    email: "",
-                    isSignedIn: false,
-                    size: CGFloat(profileSize)
+                SidebarFooterProfileIconReference(
+                    profileDisplay: profileDisplay,
+                    size: profileSize
                 )
-                .frame(width: 22, height: 22)
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
             .accessibilityLabel(accessibilityLabel)
@@ -3012,6 +3053,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
 
 private struct SidebarFooterIconBalanceVariantCard: View {
     let variant: SidebarFooterHelpIconVariant
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let isSelected: Bool
@@ -3028,6 +3070,7 @@ private struct SidebarFooterIconBalanceVariantCard: View {
                         .cmuxFont(size: 10, weight: .semibold)
                 }
                 SidebarFooterIconBalanceStrip(
+                    profileDisplay: profileDisplay,
                     profileSize: profileSize,
                     mobileSize: mobileSize,
                     helpSize: variant.pointSize,
@@ -3054,6 +3097,7 @@ private struct SidebarFooterIconBalanceVariantCard: View {
 }
 
 private struct SidebarFooterIconBalanceStrip: View {
+    let profileDisplay: String
     let profileSize: Double
     let mobileSize: Double
     let helpSize: Double
@@ -3064,7 +3108,10 @@ private struct SidebarFooterIconBalanceStrip: View {
     var body: some View {
         HStack(spacing: 4) {
             SidebarFooterBalanceCell(showsGuide: showsCellGuides) {
-                SidebarFooterProfileIconReference(size: profileSize)
+                SidebarFooterProfileIconReference(
+                    profileDisplay: profileDisplay,
+                    size: profileSize
+                )
                     .compositingGroup()
                     .blur(radius: CGFloat(blurRadius))
             }
@@ -3110,15 +3157,20 @@ private struct SidebarFooterBalanceCell<Content: View>: View {
 }
 
 private struct SidebarFooterProfileIconReference: View {
+    let profileDisplay: String
     let size: Double
 
     var body: some View {
+        let showsProfilePicture =
+            SidebarFooterProfileDisplayDebugChoice(rawValue: profileDisplay) == .picture
         SidebarAccountAvatar(
             avatarURL: nil,
-            displayName: "",
+            displayName: "cmux",
             email: "",
-            isSignedIn: false,
-            size: CGFloat(size)
+            isSignedIn: showsProfilePicture,
+            size: showsProfilePicture
+                ? SidebarFooterButtonMetrics.profilePictureSize
+                : CGFloat(size)
         )
             .frame(width: 22, height: 22)
     }

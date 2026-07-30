@@ -291,6 +291,33 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(standardControls == SidebarFooterControl.allCases)
     }
 
+    @Test
+    func sidebarAccountPictureAndIconPresentationsStayDistinct() {
+        let picture = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false
+        )
+        let toggledIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: true
+        )
+        let signedOutIcon = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: false,
+            prefersProfileIcon: false
+        )
+
+        #expect(picture.visual == .profilePicture)
+        #expect(picture.size == 14)
+        #expect(
+            toggledIcon.visual == .profileIcon(
+                systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
+            )
+        )
+        #expect(toggledIcon.size == 15)
+        #expect(signedOutIcon == toggledIcon)
+        #expect(picture.size < toggledIcon.size)
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {

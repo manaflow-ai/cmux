@@ -16,11 +16,44 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
 
 enum SidebarFooterButtonMetrics {
     static let buttonSize: CGFloat = 22
+    static let profilePictureSize: CGFloat = 14
     static let profileIconSize: CGFloat = 15
     static let mobileIconSize: CGFloat = 12
     static let helpIconSize: CGFloat = 13.5
     static let helpIconWeight: Font.Weight = .regular
     static let hoverOpacity = 0.08
+}
+
+enum SidebarAccountButtonVisual: Equatable {
+    case profilePicture
+    case profileIcon(systemName: String)
+}
+
+struct SidebarAccountButtonPresentation: Equatable {
+    static let defaultProfileIconSystemName = "person.fill"
+
+    let visual: SidebarAccountButtonVisual
+    let size: CGFloat
+
+    static func resolve(
+        isSignedIn: Bool,
+        prefersProfileIcon: Bool
+    ) -> SidebarAccountButtonPresentation {
+        if isSignedIn, !prefersProfileIcon {
+            return SidebarAccountButtonPresentation(
+                visual: .profilePicture,
+                size: SidebarFooterButtonMetrics.profilePictureSize
+            )
+        }
+        return SidebarAccountButtonPresentation(
+            visual: .profileIcon(systemName: defaultProfileIconSystemName),
+            size: SidebarFooterButtonMetrics.profileIconSize
+        )
+    }
+
+    var showsProfilePicture: Bool {
+        visual == .profilePicture
+    }
 }
 
 enum SidebarFooterControl: CaseIterable, Equatable {
@@ -60,8 +93,35 @@ enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
 enum SidebarFooterProfileIconDebugSettings {
     static let iconKey = "debug.sidebarFooterProfileIcon.symbol"
     static let sizeKey = "debug.sidebarFooterProfileIcon.size"
-    static let defaultIcon = SidebarFooterProfileIconDebugChoice.outline
+    static let defaultIcon = SidebarFooterProfileIconDebugChoice.filled
     static let defaultSize = Double(SidebarFooterButtonMetrics.profileIconSize)
+}
+
+enum SidebarFooterProfileDisplayDebugChoice: String, CaseIterable, Identifiable {
+    case picture
+    case icon
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .picture:
+            String(
+                localized: "debug.sidebarFooterIconBalance.profileDisplay.picture",
+                defaultValue: "Picture"
+            )
+        case .icon:
+            String(
+                localized: "debug.sidebarFooterIconBalance.profileDisplay.icon",
+                defaultValue: "Icon"
+            )
+        }
+    }
+}
+
+enum SidebarFooterProfileDisplayDebugSettings {
+    static let displayKey = "debug.sidebarFooterProfile.display"
+    static let defaultDisplay = SidebarFooterProfileDisplayDebugChoice.picture
 }
 
 enum SidebarFooterMobileIconDebugSettings {
@@ -147,9 +207,11 @@ struct SidebarAccountMenuButton: View {
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
+    @AppStorage(SidebarFooterProfileDisplayDebugSettings.displayKey)
+    private var debugProfileDisplay = SidebarFooterProfileDisplayDebugSettings.defaultDisplay.rawValue
 #endif
 
-    private var iconSize: CGFloat {
+    private var profileIconSize: CGFloat {
 #if DEBUG
         CGFloat(debugIconSize)
 #else
@@ -157,10 +219,35 @@ struct SidebarAccountMenuButton: View {
 #endif
     }
 
+    private var prefersProfileIcon: Bool {
+#if DEBUG
+        SidebarFooterProfileDisplayDebugChoice(rawValue: debugProfileDisplay) == .icon
+#else
+        false
+#endif
+    }
+
+    private func presentation(isSignedIn: Bool) -> SidebarAccountButtonPresentation {
+        let presentation = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: isSignedIn,
+            prefersProfileIcon: prefersProfileIcon
+        )
+#if DEBUG
+        if !presentation.showsProfilePicture {
+            return SidebarAccountButtonPresentation(
+                visual: presentation.visual,
+                size: profileIconSize
+            )
+        }
+#endif
+        return presentation
+    }
+
     var body: some View {
         let identity = accountFlow?.currentIdentity
         let isSignedIn = identity != nil
         let buttonTitle = isSignedIn ? title : signInTitle
+        let presentation = presentation(isSignedIn: isSignedIn)
         Button {
             if isSignedIn {
                 isPopoverPresented.toggle()
@@ -175,8 +262,8 @@ struct SidebarAccountMenuButton: View {
                 avatarURL: identity?.avatarURL,
                 displayName: identity?.displayName ?? "",
                 email: identity?.email ?? "",
-                isSignedIn: isSignedIn,
-                size: iconSize
+                isSignedIn: presentation.showsProfilePicture,
+                size: presentation.size
             )
             .frame(width: buttonSize, height: buttonSize)
         }
@@ -295,7 +382,7 @@ struct SidebarAccountAvatar: View {
         SidebarFooterProfileIconDebugChoice(rawValue: debugIcon)?.rawValue
             ?? SidebarFooterProfileIconDebugSettings.defaultIcon.rawValue
 #else
-        "person"
+        SidebarAccountButtonPresentation.defaultProfileIconSystemName
 #endif
     }
 
