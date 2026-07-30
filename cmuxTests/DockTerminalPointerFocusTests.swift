@@ -183,44 +183,72 @@ struct DockTerminalPointerFocusTests {
         try seedSplitDock(dock, firstPanel: topPanel, secondPanel: bottomPanel)
         dock.focusPanel(topPanel.id)
 
+        let mainWorkspace = try #require(manager.selectedWorkspace)
+        let mainPanel = try #require(mainWorkspace.focusedTerminalPanel)
+        mainWorkspace.focusPanel(mainPanel.id)
+
         let contentView = try #require(window.contentView)
+        let halfWidth = contentView.bounds.width / 2
         let halfHeight = contentView.bounds.height / 2
-        bottomPanel.hostedView.frame = NSRect(
+        mainPanel.hostedView.frame = NSRect(
             x: 0,
             y: 0,
-            width: contentView.bounds.width,
+            width: halfWidth,
+            height: contentView.bounds.height
+        )
+        bottomPanel.hostedView.frame = NSRect(
+            x: halfWidth,
+            y: 0,
+            width: halfWidth,
             height: halfHeight
         )
         topPanel.hostedView.frame = NSRect(
-            x: 0,
+            x: halfWidth,
             y: halfHeight,
-            width: contentView.bounds.width,
+            width: halfWidth,
             height: halfHeight
         )
+        contentView.addSubview(mainPanel.hostedView)
         contentView.addSubview(topPanel.hostedView)
         contentView.addSubview(bottomPanel.hostedView)
+        mainPanel.hostedView.setVisibleInUI(true)
+        mainPanel.hostedView.setActive(true)
         topPanel.hostedView.setVisibleInUI(true)
-        topPanel.hostedView.setActive(true)
+        topPanel.hostedView.setActive(false)
         bottomPanel.hostedView.setVisibleInUI(true)
         bottomPanel.hostedView.setActive(false)
 
+        let dockFocusHost = DockKeyboardFocusView(
+            frame: NSRect(x: 0, y: 0, width: 1, height: 1)
+        )
+        dockFocusHost.focusFirstControl = { dock.focusFirstControl() }
+        contentView.addSubview(dockFocusHost)
+        dockFocusHost.registerWithKeyboardFocusCoordinatorIfNeeded()
+        defer { dockFocusHost.removeFromSuperview() }
+
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
+        mainPanel.hostedView.layoutSubtreeIfNeeded()
         topPanel.hostedView.layoutSubtreeIfNeeded()
         bottomPanel.hostedView.layoutSubtreeIfNeeded()
 
-        let topSurfaceView = try #require(waitForSurfaceView(in: topPanel.hostedView))
+        let mainSurfaceView = try #require(waitForSurfaceView(in: mainPanel.hostedView))
         let bottomSurfaceView = try #require(waitForSurfaceView(in: bottomPanel.hostedView))
-        #expect(window.makeFirstResponder(topSurfaceView))
-        dock.noteKeyboardFocusIntent(window: window)
+        #expect(window.makeFirstResponder(mainSurfaceView))
+        appDelegate.noteMainPanelKeyboardFocusIntent(
+            workspaceId: mainWorkspace.id,
+            panelId: mainPanel.id,
+            in: window
+        )
 
         dock.focusPanelFromDockInteraction(bottomPanel.id, window: window)
 
         #expect(dock.focusedPanelId == bottomPanel.id)
         #expect(window.firstResponder === bottomSurfaceView)
 
-        #expect(window.makeFirstResponder(window))
-        #expect(dock.focusFirstControl())
+        #expect(window.makeFirstResponder(nil))
+        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(focusController.restoreTargetAfterWindowBecameKey())
 
         #expect(dock.focusedPanelId == bottomPanel.id)
         #expect(window.firstResponder === bottomSurfaceView)
