@@ -735,11 +735,11 @@ struct ComputerUseOnboardingView: View {
 }
 
 enum ComputerUsePermissionCompanionLayout {
-    static let size = CGSize(width: 440, height: 128)
-    static let horizontalInset: CGFloat = 14
-    static let verticalInset: CGFloat = 14
-    static let leadingColumnWidth: CGFloat = 36
-    static let headerHeight: CGFloat = 44
+    static let size = CGSize(width: 432, height: 120)
+    static let horizontalInset: CGFloat = 12
+    static let verticalInset: CGFloat = 12
+    static let leadingColumnWidth: CGFloat = 32
+    static let headerHeight: CGFloat = 40
     static let dragRowHeight: CGFloat = 48
     static let columnSpacing: CGFloat = 10
     static let rowSpacing: CGFloat = 8
@@ -771,7 +771,7 @@ struct ComputerUsePermissionCompanionView: View {
         VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
             HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(
                         width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
@@ -811,16 +811,15 @@ struct ComputerUsePermissionCompanionView: View {
                 .foregroundStyle(.secondary)
                 .frame(
                     width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
-                    height: ComputerUsePermissionCompanionLayout.dragRowHeight
+                    height: ComputerUsePermissionCompanionLayout.leadingColumnWidth
                 )
                 .background(.thinMaterial, in: Circle())
                 .overlay {
                     Circle()
                         .strokeBorder(
-                            Color(nsColor: .separatorColor).opacity(0.4),
+                            Color(nsColor: .separatorColor).opacity(0.32),
                             lineWidth: 0.5
                         )
-                        .padding(2)
                 }
                 .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
                 .accessibilityLabel(
@@ -836,12 +835,12 @@ struct ComputerUsePermissionCompanionView: View {
             width: ComputerUsePermissionCompanionLayout.size.width,
             height: ComputerUsePermissionCompanionLayout.size.height
         )
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.42),
-                    lineWidth: 0.75
+                    Color(nsColor: .separatorColor).opacity(0.32),
+                    lineWidth: 0.5
                 )
         }
         .onAppear(perform: onLayoutReady)
@@ -884,19 +883,12 @@ struct ComputerUsePermissionCompanionView: View {
 
             Spacer(minLength: 10)
 
-            HStack(spacing: 5) {
-                Image(systemName: "hand.draw")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(String(
-                    localized: "computerUse.onboarding.dragAction",
-                    defaultValue: "Drag"
-                ))
-                .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(Color.accentColor.opacity(0.11), in: Capsule())
+            Image(systemName: "hand.draw")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, height: 28)
+                .background(Color.accentColor.opacity(0.10), in: Circle())
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 10)
         .frame(
@@ -907,17 +899,13 @@ struct ComputerUsePermissionCompanionView: View {
         )
         .background {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.04))
-                }
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .strokeBorder(
-                    Color.accentColor.opacity(0.24),
-                    lineWidth: 0.75
+                    Color(nsColor: .separatorColor).opacity(0.36),
+                    lineWidth: 0.5
                 )
         }
         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))

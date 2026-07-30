@@ -1099,11 +1099,11 @@ struct ComputerUseUXTests {
     @Test func permissionCompanionUsesBalancedCompactProportions() {
         let size = ComputerUsePermissionCompanionLayout.size
 
-        #expect(size == CGSize(width: 440, height: 128))
-        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 14)
-        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 14)
-        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 36)
-        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 44)
+        #expect(size == CGSize(width: 432, height: 120))
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 12)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 12)
+        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 32)
+        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 40)
         #expect(ComputerUsePermissionCompanionLayout.dragRowHeight == 48)
         #expect(ComputerUsePermissionCompanionLayout.columnSpacing == 10)
         #expect(ComputerUsePermissionCompanionLayout.rowSpacing == 8)
