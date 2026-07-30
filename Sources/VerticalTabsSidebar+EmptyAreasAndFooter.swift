@@ -23,6 +23,25 @@ enum SidebarFooterButtonMetrics {
     static let hoverOpacity = 0.08
 }
 
+enum SidebarFooterControl: CaseIterable, Equatable {
+    case account
+    case mobileConnect
+    case help
+    case shortcutDiscovery
+    case upgrade
+    case extensions
+    case update
+}
+
+enum SidebarFooterPresentationPolicy {
+    static func isVisible(
+        _ control: SidebarFooterControl,
+        presentationMode: WorkspacePresentationModeSettings.Mode
+    ) -> Bool {
+        presentationMode != .minimal || control == .upgrade
+    }
+}
+
 #if DEBUG
 enum SidebarFooterIconButtonDebugSettings {
     static let hoverOpacityKey = "debug.sidebarFooterIconButton.hoverOpacity"
@@ -208,17 +227,6 @@ private struct SidebarAccountPopover: View {
                     }
                 }
                 Divider()
-                Button {
-                    dismiss()
-                    Task { await accountFlow?.signOut() }
-                } label: {
-                    Label(
-                        String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
-                        systemImage: "rectangle.portrait.and.arrow.right"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("SidebarAccountSignOutButton")
             } else {
                 Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
                     .cmuxFont(size: 13, weight: .semibold)
@@ -233,6 +241,35 @@ private struct SidebarAccountPopover: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .accessibilityIdentifier("SidebarAccountSignInButton")
+            }
+            if accountFlow?.isProUpgradeAvailable == true {
+                if accountFlow?.currentIdentity == nil {
+                    Divider()
+                }
+                Button {
+                    dismiss()
+                    accountFlow?.openProUpgrade()
+                } label: {
+                    Label(
+                        String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                        systemImage: "sparkles"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountUpgradeButton")
+            }
+            if accountFlow?.currentIdentity != nil {
+                Button {
+                    dismiss()
+                    Task { await accountFlow?.signOut() }
+                } label: {
+                    Label(
+                        String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSignOutButton")
             }
         }
         .buttonStyle(.plain)
