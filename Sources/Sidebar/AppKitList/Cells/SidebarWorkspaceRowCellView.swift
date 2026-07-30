@@ -472,16 +472,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
+            let descriptionColor = palette.descriptionTextColor
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: descriptionColor
                 )
             } else {
                 descriptionView.stringValue = display
                 descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.textColor = descriptionColor
             }
         }
 

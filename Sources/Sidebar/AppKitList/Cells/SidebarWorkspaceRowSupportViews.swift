@@ -31,6 +31,28 @@ struct SidebarRowPalette {
         model.isActive ? selectedForeground(opacity) : .secondaryLabelColor
     }
 
+    /// `withAlphaComponent` resolves a semantic AppKit color in the *ambient*
+    /// appearance. A recycled dark sidebar row can otherwise cache black text
+    /// when its configuration runs under Aqua. Resolve the semantic color in
+    /// the model's intended scheme first, then apply the row-specific alpha.
+    func resolvedSemanticColor(_ color: NSColor, opacity: CGFloat) -> NSColor {
+        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        guard let appearance = NSAppearance(named: appearanceName) else {
+            return color.withAlphaComponent(opacity)
+        }
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved.withAlphaComponent(opacity)
+    }
+
+    var descriptionTextColor: NSColor {
+        model.isActive
+            ? selectedForeground(0.84)
+            : resolvedSemanticColor(.secondaryLabelColor, opacity: 0.95)
+    }
+
     static func attributed(_ source: AttributedString, font: NSFont, color: NSColor) -> NSAttributedString {
         let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: mutable.length)
