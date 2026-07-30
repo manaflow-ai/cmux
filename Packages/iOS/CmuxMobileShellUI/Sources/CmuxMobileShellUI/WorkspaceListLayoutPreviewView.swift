@@ -333,7 +333,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                     model.workspaces[index].name = newName
                 }
             } : nil,
-            renameWorkspaceGroup: reorderEnabled ? { _, _ in } : nil,
             setPinned: reorderEnabled ? { id, pinned in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].isPinned = pinned
@@ -359,6 +358,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 )
                 return true
             } : nil,
+            renameWorkspaceGroup: reorderEnabled ? { _, _ in } : nil,
             filterState: filterState,
             searchText: searchText
         )
