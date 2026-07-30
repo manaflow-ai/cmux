@@ -2417,10 +2417,10 @@ mod tests {
             },
         )
         .unwrap();
-        let info = runtime.info().clone();
-        let metadata = info.state_dir.join("runtime.json");
+        let state_dir = runtime.info().state_dir.clone();
+        let metadata = state_dir.join("runtime.json");
         let mut pause = DaemonCleanupPauseHandle::install(
-            info.state_dir.clone(),
+            state_dir,
             DaemonCleanupPausePhase::BeforeAuthRelease,
         );
         let shutdown = thread::spawn(move || runtime.shutdown());
