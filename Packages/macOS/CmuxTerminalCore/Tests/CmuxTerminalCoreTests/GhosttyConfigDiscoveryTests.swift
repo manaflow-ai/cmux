@@ -73,11 +73,12 @@ private struct NoFontProbe: GhosttyFontProbing {
 
     @Test func symbolFontMappingsCoverAllSymbolCodepoints() {
         let mappings = discovery.symbolFontMappings()
-        let codepoints = Set(mappings.map(\.0))
-        let expected = Set(
-            GhosttyConfigDiscovery.symbolCodepoints.map { String(format: "U+%04X", $0) }
-        )
-        #expect(codepoints == expected)
+        // A literal expected set (rather than one derived from
+        // GhosttyConfigDiscovery.symbolCodepoints) so this test still catches
+        // the production list being wrong or incomplete.
+        let expected: Set<String> = ["U+25A0", "U+25B0", "U+25B1", "U+25CB", "U+25CF", "U+2B21", "U+2B22"]
+        #expect(mappings.count == expected.count)
+        #expect(Set(mappings.map(\.0)) == expected)
         #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
     }
 
@@ -139,7 +140,14 @@ private struct NoFontProbe: GhosttyFontProbing {
         // autoInjectedSymbolFontMappings force an override even when the
         // font already has the glyph, for any future non-BMP addition to
         // symbolCodepoints).
+        //
+        // "Apple Color Emoji" is a system font rather than a repo-controlled
+        // fixture, so guard that it actually resolved (rather than silently
+        // falling back to a substitute) before asserting on its coverage.
         let font = CTFontCreateWithName("Apple Color Emoji" as CFString, 12, nil)
+        guard CTFontCopyFamilyName(font) as String == "Apple Color Emoji" else {
+            return
+        }
         #expect(GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x1F600))
         #expect(!GhosttyConfigDiscovery.fontContainsGlyph(font, forCodepoint: 0x10FFFE))
     }
