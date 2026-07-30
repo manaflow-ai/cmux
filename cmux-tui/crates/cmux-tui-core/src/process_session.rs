@@ -1723,6 +1723,51 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
+    fn state_change_wake_preempts_degraded_retry_before_shutdown_deadline() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let (sender, _receiver) = mpsc::channel();
+        let degraded = Arc::new(AtomicUsize::new(1));
+        let mut pending = vec![NaturalReapRequest {
+            session: 41,
+            cleanup_timeout: Duration::ZERO,
+            observe_child: Box::new(|| Ok(false)),
+            child_observed: false,
+            needs_cleanup: Box::new(|| false),
+            prepare_cleanup: Box::new(|| true),
+            finish: Box::new(|_| NaturalReapFinish::Pending),
+            _lease: ReservedChildReaperLease {
+                sender,
+                active: Arc::new(AtomicUsize::new(1)),
+                degraded: degraded.clone(),
+            },
+            next_attempt: now + Duration::from_secs(30),
+            retry_delay: NATURAL_REAP_RETRY_MAX,
+            attempts: NATURAL_REAP_MAX_ATTEMPTS,
+            degraded: true,
+        }];
+        let wake_pending = AtomicBool::new(true);
+
+        accept_natural_reaper_command(NaturalReaperCommand::Wake, &mut pending, &wake_pending);
+
+        assert!(
+            pending[0].next_attempt <= shutdown_deadline,
+            "the production degraded retry outlived the server shutdown deadline"
+        );
+        assert!(pending[0].degraded);
+        assert_eq!(degraded.load(Ordering::Acquire), 1);
+
+        let rescheduled_at = Instant::now();
+        pending[0].schedule_failure();
+        assert!(
+            pending[0].next_attempt.saturating_duration_since(rescheduled_at)
+                >= NATURAL_REAP_DEGRADED_RETRY.saturating_sub(Duration::from_millis(10)),
+            "an unsuccessful state-change retry disabled degraded backoff"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
     fn ignored_sigchld_fails_before_reserving_a_child_reaper() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_IGNORED_SIGCHLD";
         const TEST_NAME: &str =
