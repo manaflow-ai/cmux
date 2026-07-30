@@ -661,6 +661,20 @@ import Testing
                     host: "mac.example.test"
                 ))
         )
+        let canonicalIPv4Key = MobileRPCConnectAttemptKey(
+            route: try route(host: "127.0.0.1")
+        )
+        for alias in [
+            "127.1",
+            "0x7f.0.0.1",
+            "0177.0.0.1",
+            "2130706433",
+        ] {
+            #expect(
+                MobileRPCConnectAttemptKey(route: try route(host: alias))
+                    == canonicalIPv4Key
+            )
+        }
     }
 
     @Test func cleanupDebtCapSurfacesRestartRequiredError() async throws {

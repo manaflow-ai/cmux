@@ -1,4 +1,5 @@
 internal import CMUXMobileCore
+import Darwin
 import Foundation
 
 /// In-memory identity for one physical peer route.
@@ -87,8 +88,8 @@ private func canonicalHostIdentity(_ value: String) -> String {
 private func canonicalIPv4Address(_ value: String) -> String? {
     var address = in_addr()
     guard value.withCString({
-        inet_pton(AF_INET, $0, &address)
-    }) == 1 else {
+        inet_aton($0, &address)
+    }) != 0 else {
         return nil
     }
     var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
