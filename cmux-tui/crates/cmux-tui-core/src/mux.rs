@@ -2070,15 +2070,30 @@ impl Mux {
             // enough for healthy hosts; live or indeterminate failures
             // continue on the asynchronous adoption loop instead of retrying
             // serially ahead of every later terminal.
+            #[cfg(test)]
+            let adoption_surface_factory =
+                self.terminal_adoption_surface_factory.lock().unwrap().clone();
+            #[cfg(test)]
+            let adopted = if let Some(factory) = adoption_surface_factory {
+                factory(id)
+            } else {
+                Surface::adopt_hosted(
+                    id,
+                    options.clone(),
+                    Arc::downgrade(self),
+                    record.clone(),
+                    record_path.clone(),
+                )
+            };
+            #[cfg(not(test))]
             let adopted = Surface::adopt_hosted(
                 id,
                 options.clone(),
                 Arc::downgrade(self),
                 record.clone(),
                 record_path.clone(),
-            )
-            .ok();
-            let surface = match adopted {
+            );
+            let surface = match adopted.ok() {
                 Some(surface) => surface,
                 None => {
                     if terminal_host_record_liveness(&record_path, &record)
@@ -14026,6 +14041,106 @@ mod tests {
         assert!(
             spawned_pid.is_none(),
             "capacity rejection launched terminal process {spawned_pid:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cold_start_terminal_adoption_never_handshakes_inline() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-adoption-startup-budget-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let uid = std::fs::metadata(&root).unwrap().uid();
+        let options = SurfaceOptions::default();
+        let mux = Mux::new_for_test("adoption-startup-budget", options.clone());
+        let workspace =
+            mux.create_empty_workspace(Some("startup-budget".into()), None, None).unwrap();
+        {
+            let mut registry = mux.workspace_registry.lock().unwrap();
+            for index in 0..3 {
+                let terminal_id = TerminalId::random().unwrap().to_hex();
+                let incarnation = crate::terminal_host::HostIncarnation::random().unwrap().to_hex();
+                commit_terminal_transition(
+                    &mut registry,
+                    "terminal-reserved",
+                    &format!("startup-adoption-reserve-{index}"),
+                    &RegistryTerminal {
+                        terminal_id: terminal_id.clone(),
+                        workspace_key: workspace.key.clone(),
+                        incarnation: None,
+                        lifecycle: TerminalLifecycle::Launching,
+                        launch_spec: serde_json::json!({}),
+                        exit: None,
+                    },
+                )
+                .unwrap();
+                let record = crate::terminal_host_runtime::TerminalHostRecord {
+                    record_version: 1,
+                    terminal_id: terminal_id.clone(),
+                    incarnation,
+                    endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+                    owner_token: "01".repeat(crate::terminal_host::CAPABILITY_TOKEN_LEN),
+                    host_pid: 0,
+                    host_start_nonce: String::new(),
+                    workspace_key: workspace.key.clone(),
+                    supports_set_defaults: false,
+                    supports_terminate_only: false,
+                    supports_clear_history: false,
+                };
+                let path = root.join(format!("{terminal_id}.json"));
+                std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+                let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+                permissions.set_mode(0o600);
+                std::fs::set_permissions(path, permissions).unwrap();
+            }
+        }
+        mux.update_surface_options(|surface_options| {
+            surface_options.terminal_host_root = Some(root.clone());
+        });
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = true;
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        *mux.terminal_adoption_surface_factory.lock().unwrap() = Some(Arc::new({
+            move |_| {
+                started_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+                anyhow::bail!("blocked startup handshake")
+            }
+        }));
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let adoption = std::thread::spawn({
+            let mux = mux.clone();
+            move || {
+                done_tx.send(mux.adopt_terminal_hosts()).unwrap();
+            }
+        });
+
+        let started_inline = started_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        let completed_inline = done_rx.recv_timeout(Duration::from_millis(100)).ok();
+        let completed_without_release = completed_inline.is_some();
+        for _ in 0..3 {
+            release_tx.send(()).unwrap();
+        }
+        let result = match completed_inline {
+            Some(result) => result,
+            None => done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        };
+        adoption.join().unwrap();
+        mux.terminal_adoption_coordinator.state.lock().unwrap().stopping = false;
+        mux.request_daemon_shutdown();
+        let _ = std::fs::remove_dir_all(root);
+
+        result.unwrap();
+        assert!(!started_inline, "cold-start adoption entered a persisted host handshake inline");
+        assert!(
+            completed_without_release,
+            "cold-start adoption waited for a persisted host handshake"
         );
     }
 
