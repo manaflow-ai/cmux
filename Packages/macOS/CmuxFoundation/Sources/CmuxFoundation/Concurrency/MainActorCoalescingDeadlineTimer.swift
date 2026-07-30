@@ -48,7 +48,7 @@ public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
     ///
     /// - Parameter delay: The intended delay, clamped to zero.
     public func schedule(after delay: Duration) {
-        let deadline = DispatchTime.now() + Self.dispatchInterval(for: delay)
+        let deadline = DispatchTime.now() + dispatchInterval(for: delay)
         scheduledDeadlineUptimeNanoseconds = deadline.uptimeNanoseconds
         timer.schedule(deadline: deadline)
     }
@@ -71,7 +71,7 @@ public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
         action(owner)
     }
 
-    private static func dispatchInterval(for delay: Duration) -> DispatchTimeInterval {
+    private func dispatchInterval(for delay: Duration) -> DispatchTimeInterval {
         let components = max(delay, .zero).components
         let seconds = Double(components.seconds)
             + Double(components.attoseconds) / 1_000_000_000_000_000_000

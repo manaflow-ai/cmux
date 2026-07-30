@@ -8,15 +8,6 @@ import Foundation
 /// cannot create a recursive release chain through prior queued work.
 @MainActor
 public final class MainActorDeferredActionScheduler {
-    /// Defines how a zero-delay action reaches the main actor.
-    public enum ZeroDelayPolicy {
-        /// Enqueues the action for the next available main-actor execution.
-        case enqueue
-
-        /// Yields one additional actor turn before attempting the action.
-        case yieldOnce
-    }
-
     private let clock: any Clock<Duration>
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
@@ -49,7 +40,7 @@ public final class MainActorDeferredActionScheduler {
     ///   - action: Main-actor work to execute if it remains current.
     public func schedule(
         after delay: Duration = .zero,
-        zeroDelayPolicy: ZeroDelayPolicy = .enqueue,
+        zeroDelayPolicy: MainActorDeferredActionZeroDelayPolicy = .enqueue,
         _ action: @escaping @MainActor () -> Void
     ) {
         cancel()
