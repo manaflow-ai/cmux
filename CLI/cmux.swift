@@ -25459,14 +25459,15 @@ struct CMUXCLI {
                         ),
                         claudeDisplayName
                     )
-                    var statusCommand =
-                        "set_status \(Self.claudeCodeStatusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-                    if let acceptedPID = acceptedRecord.pid {
-                        statusCommand += " --pid=\(acceptedPID)"
-                    }
-                    _ = try? sendV1Command(
-                        statusCommand,
-                        client: client
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: statusValue,
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A",
+                        priority: 100,
+                        pid: acceptedRecord.pid
                     )
                 } else if acceptedLifecycle == .running {
                     // The turn ended but a background task or scheduled wakeup is
@@ -25675,12 +25676,6 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
-            // The classifier's subtitle is a stable internal literal ("Permission",
-            // "Waiting", "Error", "Completed", "Attention" — see
-            // classifyClaudeNotification). Capture it before the saved-body swap
-            // below so payloads without a notification_type field (older claude
-            // clients, nested payloads) can still gate under the right setting.
-            let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
@@ -25710,7 +25705,13 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                summary = AgentHookNotificationSummary(
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    status: summary.status,
+                    isFallback: summary.isFallback,
+                    notifyCategory: summary.notifyCategory
+                )
             }
 
             let title = String(
@@ -25718,60 +25719,26 @@ struct CMUXCLI {
                 defaultValue: "Claude Code"
             )
 
-            // Classify the Notification so the app can gate it by user config.
-            // `permission_prompt` = Claude is blocked on the user (always worth a
-            // ping); `idle_prompt` = the ~60s idle nag, which fires even while a
-            // background task runs — its payload lacks `background_tasks`, so read
-            // the pending flag cached by the most recent Stop.
+            // Notification is an attention channel, not a turn boundary.
+            // Only an explicitly blocking notification may change lifecycle;
+            // idle reminders and completion pings preserve the latest accepted
+            // terminal outcome. Errors retain their own runtime outcome instead
+            // of being mislabeled as either Running or Needs input.
+            let notifyCategory = summary.notifyCategory
             let notificationType = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["notification_type"])
-            }
-            let notifyCategory: AgentHookNotifyCategory
+            }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let notifyPending: Bool
-            switch notificationType {
-            case "permission_prompt":
-                notifyCategory = .needsPermission
-                notifyPending = false
-            case "idle_prompt":
-                notifyCategory = .idleReminder
-                // The cached Stop-time flag is not stale in practice: a completed
-                // background task re-invokes claude (new turn -> fresh Stop with
-                // empty background_tasks refreshes the cache before any later
-                // idle_prompt), and no fresh Stop means the work is still running,
-                // so pending=true is correct. Deliberately no freshness heuristic;
-                // permission_prompt is never gated by this flag.
+            switch notifyCategory {
+            case .idleReminder, .turnComplete:
                 notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-            default:
-                // No (or unknown) notification_type: fall back to the summarizer's
-                // cue classification so older clients still gate under the right
-                // setting. Unclassified alerts stay .other and always deliver.
-                switch classifiedSubtitle {
-                case "Permission":
-                    notifyCategory = .needsPermission
-                    notifyPending = false
-                case "Waiting":
-                    notifyCategory = .idleReminder
-                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-                case "Completed":
-                    notifyCategory = .turnComplete
-                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
-                default:
-                    notifyCategory = .other
-                    notifyPending = false
-                }
+            case .needsPermission, .other:
+                notifyPending = false
             }
 
-            // An idle reminder while background work is still pending is not a
-            // real "waiting for input" state: the pane is still running (the Stop
-            // hook set it to Running) and the app suppresses this banner. Skip the
-            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
-            // status; the app still gates the (tagged) notification itself.
-            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
-
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            let preservesTerminalOutcome =
+                notificationType == "idle_prompt" || notifyCategory == .turnComplete
+            let reportsError = summary.status == .error
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
@@ -25788,9 +25755,13 @@ struct CMUXCLI {
                       transcriptPath: parsedInput.transcriptPath,
                       pid: incomingClaudePid,
                       lastPermissionMode: observedHookPermissionMode,
-                      agentLifecycle: suppressNeedsInputState ? nil : .needsInput,
-                      lastSubtitle: suppressNeedsInputState ? nil : summary.subtitle,
-                      lastBody: suppressNeedsInputState ? nil : summary.body,
+                      agentLifecycle: preservesTerminalOutcome ? nil : .needsInput,
+                      lastSubtitle: preservesTerminalOutcome ? nil : summary.subtitle,
+                      lastBody: preservesTerminalOutcome ? nil : summary.body,
+                      lastNotificationStatus: reportsError ? .error : nil,
+                      updateLastNotificationStatus: reportsError,
+                      runtimeStatus: reportsError ? .error : nil,
+                      updateRuntimeStatus: reportsError,
                       turnId: parsedInput.turnId,
                       authorization: .ordinaryActivity(
                           incomingPID: incomingClaudePid,
@@ -25804,14 +25775,14 @@ struct CMUXCLI {
             }
             let acceptedRecord = acceptedUpsert.session
             let acceptedLifecycle = acceptedRecord.agentLifecycle
-                ?? (suppressNeedsInputState ? .running : .needsInput)
+                ?? (preservesTerminalOutcome ? .idle : .needsInput)
             sendClaudeFeedTelemetry(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 lifecycle: acceptedLifecycle
             )
 
-            if !suppressNeedsInputState {
+            if !preservesTerminalOutcome {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -25819,14 +25790,35 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                _ = try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Needs input",
-                    icon: "bell.fill",
-                    color: "#4C8DFF", pid: acceptedRecord.pid
-                )
+                if reportsError {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.generic.notification.status.error",
+                            defaultValue: "%@ error"
+                        ),
+                        title
+                    )
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: statusValue,
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A",
+                        priority: 100,
+                        pid: acceptedRecord.pid
+                    )
+                } else {
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: "Needs input",
+                        icon: "bell.fill",
+                        color: "#4C8DFF",
+                        pid: acceptedRecord.pid
+                    )
+                }
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             printClaudeHookAck()
@@ -26287,9 +26279,14 @@ struct CMUXCLI {
         value: String,
         icon: String,
         color: String,
+        priority: Int? = nil,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color)"
+        if let priority {
+            cmd += " --priority=\(priority)"
+        }
+        cmd += " --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid {
             cmd += " --pid=\(pid)"
         }
@@ -28193,12 +28190,31 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> AgentHookNotificationSummary {
+        let displayName = String(
+            localized: "cli.claude-hook.notification.title",
+            defaultValue: "Claude Code"
+        )
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                return AgentHookNotificationClassifier.classify(
+                    displayName: displayName,
+                    signal: fallback,
+                    message: fallback,
+                    isFallback: false
+                )
             }
-            return ("Waiting", "Claude is waiting for your input")
+            return AgentHookNotificationClassifier.classify(
+                displayName: displayName,
+                signal: "idle_prompt",
+                message: String(
+                    localized: "agent.generic.notification.body.waitingForInput",
+                    defaultValue: "Waiting for input"
+                ),
+                isFallback: true
+            )
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -28211,13 +28227,22 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let matchedMessage = messageCandidates.compactMap { $0 }.first
+        let message = matchedMessage ?? String.localizedStringWithFormat(
+            String(
+                localized: "agent.generic.notification.body.needsAttention",
+                defaultValue: "%@ needs your attention"
+            ),
+            displayName
+        )
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
-
-        classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return AgentHookNotificationClassifier.classify(
+            displayName: displayName,
+            signal: signal,
+            message: normalizedMessage,
+            isFallback: matchedMessage == nil
+        )
     }
 
     private func summarizeAgentHookNotification(
@@ -28521,31 +28546,6 @@ struct CMUXCLI {
             message: message,
             isFallback: isFallback
         )
-    }
-
-    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
-        let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
-        }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
-        }
-        if AgentHookNotificationClassifier.containsCompletionCue(lower) {
-            let body = message.isEmpty ? "Task completed" : message
-            return ("Completed", body)
-        }
-        if AgentHookNotificationClassifier.containsWaitingCue(lower) {
-            let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
-        }
-        // Use the message directly if it's meaningful (not a generic placeholder).
-        if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
-        }
-        return ("Attention", "Claude needs your attention")
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
