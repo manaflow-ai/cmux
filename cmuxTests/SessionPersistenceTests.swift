@@ -5086,9 +5086,17 @@ extension SessionPersistenceTests {
         )
         XCTAssertEqual(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
-                forCommand: "codex resume 01977abc --yolo"
+                forCommand: "codex resume 01977abc"
             ),
             ["codex", "resume"]
+        )
+        // Trailing arguments after the session id cannot be represented in a
+        // prefix scope; generalizing would silently drop them from the
+        // approval policy, so no generalized prefix is offered.
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "codex resume 01977abc --yolo"
+            )
         )
         XCTAssertNil(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
@@ -5106,6 +5114,21 @@ extension SessionPersistenceTests {
                 forCommand: "env FOO=1 claude --resume abc"
             ),
             ["env", "FOO=1", "claude", "--resume"]
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env -i FOO=1 claude --resume abc"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "FOO=1 env -u BAR claude --resume abc"
+            )
+        )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "env env claude --resume abc"
+            )
         )
         XCTAssertNil(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
