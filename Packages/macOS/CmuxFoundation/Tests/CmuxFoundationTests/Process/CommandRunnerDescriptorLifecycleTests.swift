@@ -24,11 +24,7 @@ struct CommandRunnerDescriptorLifecycleTests {
             )
         }
 
-        let result: CommandResult
-        do {
-            let activeExecution = try #require(execution)
-            result = await activeExecution.run(timeout: 5)
-        }
+        let result = try await runExecution(execution, timeout: 5)
         #expect(result.exitStatus == 0)
         expectDescriptorsClosed(descriptors)
         execution = nil
@@ -115,6 +111,14 @@ struct CommandRunnerDescriptorLifecycleTests {
         #expect(kill(pid, 0) == -1 && errno == ESRCH)
 
         expectDescriptorsClosed(descriptors)
+    }
+
+    private func runExecution(
+        _ execution: CommandExecution?,
+        timeout: TimeInterval
+    ) async throws -> CommandResult {
+        let activeExecution = try #require(execution)
+        return await activeExecution.run(timeout: timeout)
     }
 
     private func makeExecution(
