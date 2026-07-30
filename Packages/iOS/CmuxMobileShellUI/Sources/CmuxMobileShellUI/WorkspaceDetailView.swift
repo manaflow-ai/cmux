@@ -408,7 +408,10 @@ struct WorkspaceDetailView: View {
     private func reconnectToWorkspaceMac() {
         Task {
             if toasts.isEnabled {
-                await store.reconnectToMac(macDeviceID: workspace.macDeviceID)
+                await store.reconnectToMac(
+                    macDeviceID: workspace.macDeviceID,
+                    instanceTag: workspace.macInstanceTag
+                )
                 return
             }
             // Flag off is byte-for-byte legacy: the fullscreen overlay's

@@ -553,9 +553,12 @@ extension MobileShellComposite {
         sub.detachKeepingClient()
         let displayName = workspacesByMac[ownerKey]?.displayName
         var demotedForegroundSubscription: SecondaryMacSubscription?
-        if let previousForegroundID,
-           previousForegroundID != macID,
-           let previousForegroundConnection {
+        // Compare OWNER KEYS, not device ids: promoting a sibling build of the
+        // foreground's own physical Mac still changes owners, and skipping the
+        // handoff here would leave two focused registry entries.
+        if previousForegroundID != nil,
+           let previousForegroundConnection,
+           previousForegroundConnection.ownerKey != sub.ownerKey {
             if previousForegroundCanStayWarm {
                 let subscription = makeControlSubscription(
                     from: previousForegroundConnection

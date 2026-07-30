@@ -47,7 +47,10 @@ extension MobileShellComposite {
     /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac
     /// makes it refresh or switch elsewhere), this redials the supplied Mac
     /// directly when it is the unavailable foreground target.
-    public func reconnectToMac(macDeviceID: String?) async {
+    public func reconnectToMac(
+        macDeviceID: String?,
+        instanceTag: String? = nil
+    ) async {
         // A nil/empty target means the caller is showing the foreground
         // connection's status (anonymous foreground, or no selected
         // workspace), so the action must redial the foreground too — not the
@@ -59,7 +62,10 @@ extension MobileShellComposite {
         // state), not the cross-Mac switch whose failure cleanup does not.
         let foregroundTargetMacDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
         if let targetMacDeviceID, targetMacDeviceID != foregroundTargetMacDeviceID {
-            if await switchToMac(macDeviceID: targetMacDeviceID) {
+            if await switchToMac(
+                macDeviceID: targetMacDeviceID,
+                instanceTag: instanceTag
+            ) {
                 return
             }
             await reconnectOrRefresh()
@@ -85,7 +91,10 @@ extension MobileShellComposite {
             // a failed foreground redial must not strand them.
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
-        if let targetMacDeviceID, await switchToMac(macDeviceID: targetMacDeviceID) {
+        if let targetMacDeviceID, await switchToMac(
+            macDeviceID: targetMacDeviceID,
+            instanceTag: instanceTag
+        ) {
             return
         }
         if await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID) {

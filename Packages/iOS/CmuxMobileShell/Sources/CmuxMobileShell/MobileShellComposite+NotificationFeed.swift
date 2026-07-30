@@ -34,7 +34,7 @@ extension MobileShellComposite {
         notificationFeedStatus = .loading
         let tasks = targets.compactMap { target in
             scheduleNotificationFeedRefresh(
-                macDeviceID: target.macDeviceID,
+                macDeviceID: target.ownerKey,
                 client: target.client,
                 displayName: target.displayName
             )
@@ -848,16 +848,16 @@ extension MobileShellComposite {
             )
             let data = try await target.client.sendRequest(request)
             let response = try MobileNotificationFeedMutationResponse.decode(data)
-            guard notificationFeedClient(for: target.macDeviceID) === target.client else { return }
-            let ids = notificationFeedSnapshotsByMac[target.macDeviceID]?.items.map(\.notificationID) ?? []
+            guard notificationFeedClient(for: target.ownerKey) === target.client else { return }
+            let ids = notificationFeedSnapshotsByMac[target.ownerKey]?.items.map(\.notificationID) ?? []
             applyNotificationFeedReadStateMutation(
-                macDeviceID: target.macDeviceID,
+                macDeviceID: target.ownerKey,
                 notificationIDs: ids,
                 isRead: true,
                 revision: response.revision
             )
             _ = scheduleNotificationFeedRefresh(
-                macDeviceID: target.macDeviceID,
+                macDeviceID: target.ownerKey,
                 client: target.client,
                 displayName: target.displayName
             )
@@ -1021,9 +1021,9 @@ extension MobileShellComposite {
         guard connectedClientCount > 0 else { return .unavailable }
         let targets = notificationFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }
-        let targetIDs = Set(targets.map(\.macDeviceID))
+        let targetOwnerKeys = Set(targets.map(\.ownerKey))
         if notificationFeedItems.isEmpty,
-           notificationFeedSuccessfulMacIDs.isDisjoint(with: targetIDs) {
+           notificationFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
         }
         return targets.count < connectedClientCount ? .requiresMacUpdate : .ready

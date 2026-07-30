@@ -4499,13 +4499,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for feedOwnerKey in notificationFeedRefreshPendingMacIDs {
                 retainedOwnerKeys.insert(MacPairingKey(pairingID: feedOwnerKey))
             }
+            let visibleOwnerKeys = Set(visibleLoadedMacs.map(MacPairingKey.init))
+            let liveForegroundKey = foregroundMacKey
             for retainedOwnerKey in retainedOwnerKeys {
                 guard retainedOwnerKey != .anonymousForeground,
-                      retainedOwnerKey.canonicalMacDeviceID
-                        != canonicalForegroundMacID,
-                      !visibleCanonicalMacIDs.contains(
-                        retainedOwnerKey.canonicalMacDeviceID
-                      ) else {
+                      retainedOwnerKey != liveForegroundKey,
+                      // The foreground's device-keyed feed snapshot has no tag
+                      // dimension; only the exact live foreground device keeps
+                      // that spelling.
+                      !(retainedOwnerKey.normalizedInstanceTag == nil
+                        && retainedOwnerKey.canonicalMacDeviceID
+                            == canonicalForegroundMacID),
+                      !visibleOwnerKeys.contains(retainedOwnerKey) else {
                     continue
                 }
                 workspacesByMac[retainedOwnerKey] = nil
@@ -8295,6 +8300,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        // Capture the tagged foreground key BEFORE the identity clears below:
+        // `foregroundMacKey` derives from `activeMacInstanceTag`, which
+        // `clearActiveConnectionContext()` nils, and the offline retention
+        // filter must keep the exact tagged entry.
+        let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
@@ -8302,7 +8312,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
         // read-only connections (P3) are torn down separately.
-        let offlineForegroundKey = foregroundMacKey
         if let foreground = foregroundMacDeviceID,
            let focused = connections[foreground] {
             macConnectionRegistry.setFocusedConnection(nil, for: focused.ownerKey)
