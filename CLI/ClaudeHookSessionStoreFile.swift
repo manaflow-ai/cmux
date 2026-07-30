@@ -45,6 +45,7 @@ struct ClaudeHookSessionStoreFile: Codable {
     // one-shot transfer above, this survives successor startup so delayed
     // activity cannot recreate a consumed pre-clear session.
     var retiredSessions: [String: ClaudeHookRetiredSessionRecord] = [:]
+    var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -54,6 +55,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsBySurface
         case clearBackgroundWorkTransfersBySurface
         case retiredSessions
+        case agentHookFailureReportTimestamps
     }
 
     init() {}
@@ -82,6 +84,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: ClaudeHookRetiredSessionRecord].self,
             forKey: .retiredSessions
         ) ?? [:]
+        agentHookFailureReportTimestamps = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .agentHookFailureReportTimestamps
+        ) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,6 +111,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !retiredSessions.isEmpty {
             try container.encode(retiredSessions, forKey: .retiredSessions)
+        }
+        if !agentHookFailureReportTimestamps.isEmpty {
+            try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
         }
     }
 }

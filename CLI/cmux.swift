@@ -138,8 +138,7 @@ struct ClaudeHookSessionRecord: Codable {
     var pidStartSeconds: Int64? = nil
     var pidStartMicroseconds: Int64? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
-    /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
-    /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
+    /// Last hook-observed `permission_mode`, re-applied on user-owned restore (#8066).
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
@@ -172,17 +171,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
-    /// Wall-clock of the last summarization attempt (success OR failure), so a
-    /// persistently failing summarizer (rate-limited, signed out, timing out)
-    /// gets the same minInterval cooldown instead of respawning every turn.
+    /// Last summarization attempt, including failures, for cooldown enforcement.
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
-    /// Whether the most recent Stop reported unfinished background work
-    /// (a running `background_tasks` entry or a pending `session_crons`).
-    /// Cached here because the ~60s-later `idle_prompt` Notification payload
-    /// does not carry `background_tasks`, so the idle-reminder gate reads this.
-    /// Optional so stores written before this field decode unchanged.
     var hadPendingBackgroundWorkAtStop: Bool?
     /// Whether the most recent Stop reported work that survives `/clear`.
     /// Claude clears `session_crons` with the conversation, while running
@@ -1373,7 +1365,29 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
+    func claimAgentHookFailureReport(
+        agentName: String,
+        stage: String,
+        sessionId: String,
+        within interval: TimeInterval = 15 * 60
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        let key = "\(agentName):\(stage):\(normalized.isEmpty ? "unknown" : normalized)"
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var reports = state.agentHookFailureReportTimestamps
+            if let lastFailureAt = reports[key], now - lastFailureAt < interval {
+                return false
+            }
+            reports[key] = now
+            if reports.count > 64 {
+                let newestReports = reports.sorted { $0.value > $1.value }.prefix(64)
+                reports = Dictionary(uniqueKeysWithValues: newestReports.map { ($0.key, $0.value) })
+            }
+            state.agentHookFailureReportTimestamps = reports
+            return true
+        }
+    }
     func hasRunningSession(
         workspaceId: String,
         surfaceId: String?,
@@ -1388,6 +1402,7 @@ final class ClaudeHookSessionStore {
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
+            if onlyNewerThanExcludedSession, excludedUpdatedAt == nil { return false }
             var foundRunningSession = false
             let now = Date().timeIntervalSince1970
 
@@ -26823,42 +26838,6 @@ struct CMUXCLI {
         return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
     }
 
-    private struct CodexHookFailureSummary {
-        let statusValue: String
-        let subtitle: String
-        let body: String
-    }
-
-    private struct CodexHookFailureCandidate {
-        let message: String
-        let codexErrorInfo: String?
-        let additionalDetails: String?
-        let isStreamError: Bool
-    }
-
-    private struct CodexHookUserInputCandidate {
-        let callId: String
-        let question: String?
-    }
-
-    private struct CodexTranscriptSubagentSignals {
-        var isSubagentSession = false
-        var hasSubagentNotificationRelay = false
-    }
-
-    private enum CodexTranscriptFailureReadResult {
-        case unavailable
-        case pending
-        case healthy
-        case failure(CodexHookFailureCandidate)
-    }
-
-    private enum CodexMonitorOwnerState {
-        case alive
-        case gone
-        case unknown
-    }
-
     private func summarizeCodexHookFailure(
         parsedInput: ClaudeHookParsedInput,
         sessionId: String,
@@ -26935,6 +26914,7 @@ struct CMUXCLI {
         var sawAssistantMessage = false
         var sawTerminalTurn = false
         var sawRelevantTurn = turnId == nil
+        var lastAssistantMessage: String?
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -27028,6 +27008,7 @@ struct CMUXCLI {
                 } else if let lastMessage = payload["last_agent_message"] as? String,
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     sawAssistantMessage = true
+                    lastAssistantMessage = truncate(normalizedSingleLine(lastMessage), maxLength: 200)
                     candidate = nil
                     candidateCanPublishBeforeTerminal = false
                 } else if candidate == nil && !sawAssistantMessage {
@@ -27062,7 +27043,7 @@ struct CMUXCLI {
         if !sawTerminalTurn, !sawAssistantMessage {
             return .pending
         }
-        return .healthy
+        return .healthy(lastAssistantMessage: lastAssistantMessage)
     }
 
     private func codexTranscriptTerminalTurnIds(path: String, turnIds: Set<String>) -> Set<String> {
@@ -27836,7 +27817,11 @@ struct CMUXCLI {
         }
     }
 
-    private func runCodexTranscriptMonitor(commandArgs: [String], client: SocketClient) throws {
+    private func runCodexTranscriptMonitor(
+        commandArgs: [String],
+        client: SocketClient,
+        replayStop: (CodexTranscriptMonitorStopReplay) throws -> Void
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let workspaceId = optionValue(commandArgs, name: "--workspace") ?? env["CMUX_WORKSPACE_ID"] ?? ""
         let surfaceId = optionValue(commandArgs, name: "--surface") ?? env["CMUX_SURFACE_ID"]
@@ -27902,7 +27887,17 @@ struct CMUXCLI {
                         client: client
                     )
                     return
-                case .healthy:
+                case .healthy(let lastAssistantMessage):
+                    if let replay = CodexTranscriptMonitorStopReplay(
+                        sessionId: sessionId,
+                        turnId: turnId,
+                        transcriptPath: currentTranscriptPath,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        lastAssistantMessage: lastAssistantMessage
+                    ) {
+                        try replayStop(replay)
+                    }
                     return
                 case .pending:
                     break
@@ -31299,7 +31294,8 @@ export default CMUXSessionRestore;
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        rawInputOverride: String? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
@@ -31307,7 +31303,16 @@ export default CMUXSessionRestore;
         telemetry.breadcrumb("\(def.name)-hook.\(subcommand)")
 
         if def.name == "codex", subcommand == "monitor" {
-            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client)
+            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client) { replay in
+                try runGenericAgentHook(
+                    def: def,
+                    commandArgs: replay.commandArguments,
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword,
+                    rawInputOverride: replay.payload
+                )
+            }
             return
         }
 
@@ -31407,7 +31412,9 @@ export default CMUXSessionRestore;
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let rawInput = rawInputOverride
+            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
+            ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
         let store = ClaudeHookSessionStore(
@@ -31572,6 +31579,16 @@ export default CMUXSessionRestore;
             guard let fingerprint else { return }
             try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
         }
+        func reportTargetResolutionFailure() {
+            reportAgentHookFailure(
+                stage: .targetResolution,
+                agentName: def.name,
+                sessionId: sessionId,
+                event: subcommand,
+                store: store,
+                telemetry: telemetry
+            )
+        }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
 #if DEBUG
@@ -31704,6 +31721,7 @@ export default CMUXSessionRestore;
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -31852,6 +31870,7 @@ export default CMUXSessionRestore;
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -31867,7 +31886,7 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
@@ -32200,6 +32219,7 @@ export default CMUXSessionRestore;
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32216,7 +32236,7 @@ export default CMUXSessionRestore;
                 )
             }
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -32424,9 +32444,7 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                // Tag successful turn-end pings so the app's "Agent Finished"
-                // setting covers every built-in agent, not just Claude. Error
-                // alerts stay untagged and always deliver.
+                // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
@@ -32450,13 +32468,15 @@ export default CMUXSessionRestore;
 #endif
                     markNotificationSent(fingerprint: notificationFingerprint)
                 } catch {
-#if DEBUG
-                    agentHookDebugLog(
-                        "agentHook.stop.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) resumed=\(env["CMUX_AGENT_RESUME_LAUNCH"] == "1" ? 1 : 0) error=\(String(describing: error))",
-                        socketPath: client.socketPath,
-                        env: env
+                    reportAgentHookFailure(
+                        stage: .notificationDelivery,
+                        agentName: def.name,
+                        sessionId: sessionId,
+                        event: subcommand,
+                        error: error,
+                        store: store,
+                        telemetry: telemetry
                     )
-#endif
                 }
             } else if shouldPublishStopAlert {
 #if DEBUG
@@ -32548,6 +32568,7 @@ export default CMUXSessionRestore;
         case .approvalResponse:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32555,7 +32576,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -32620,6 +32641,7 @@ export default CMUXSessionRestore;
         case .notification:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")
                 return
@@ -32751,7 +32773,7 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
