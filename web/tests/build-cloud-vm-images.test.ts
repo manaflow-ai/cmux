@@ -173,8 +173,9 @@ describe("Cloud VM image build helpers", () => {
   });
 
   test("Freestyle systemd service inherits toolchain runtime environment", () => {
-    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote", "https://example.com/cmux-mux");
     const systemdEnv = systemdEnvironmentLines(cloudImageRuntimeEnvironment());
+    expect(dockerfile).toContain("-o /usr/local/bin/cmux-mux");
 
     for (const line of systemdEnv) {
       expect(dockerfile).toContain(line);
@@ -214,7 +215,7 @@ describe("Cloud VM image build helpers", () => {
     try {
       process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = "LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=";
       process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = "private-seed-must-not-be-baked";
-      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote", "https://example.com/cmux-mux");
       expect(dockerfile).toContain(
         "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
       );
@@ -238,9 +239,12 @@ describe("Cloud VM image build helpers", () => {
     // Image.addLocalFile validates the context file at construction time.
     const daemonPath = path.join(tmpdir(), `cmuxd-remote-test-${process.pid}`);
     writeFileSync(daemonPath, "stub");
-    const dockerfile = daytonaSnapshotImage(daemonPath).dockerfile;
+    const muxPath = path.join(tmpdir(), `cmux-mux-test-${process.pid}`);
+    writeFileSync(muxPath, "stub");
+    const dockerfile = daytonaSnapshotImage(daemonPath, muxPath).dockerfile;
     expect(dockerfile).toContain("FROM ubuntu:24.04");
     expect(dockerfile).toContain("/usr/local/bin/cmuxd-remote");
+    expect(dockerfile).toContain("/usr/local/bin/cmux-mux");
     expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-daytona-entrypoint"]');
     // Every line must be a real Dockerfile instruction: multi-line shell (heredoc profile and
     // entrypoint writers) has to be wrapped by toDockerfileRunCommand, or the Daytona builder
