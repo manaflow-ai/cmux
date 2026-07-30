@@ -48,19 +48,15 @@ use crate::{
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 #[cfg(test)]
 type ShutdownAttemptHook = Arc<dyn Fn(usize) + Send + Sync>;
+#[cfg(unix)]
+type TerminalHostRecords =
+    Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>;
 #[cfg(all(test, unix))]
 type TerminalAdoptionSurfaceFactory =
     Arc<dyn Fn(SurfaceId) -> anyhow::Result<Arc<Surface>> + Send + Sync>;
 #[cfg(all(test, unix))]
 type TerminalHostRecordLoader = Arc<
-    dyn Fn(
-            std::path::PathBuf,
-            usize,
-            Instant,
-        ) -> anyhow::Result<
-            Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>,
-        > + Send
-        + Sync,
+    dyn Fn(std::path::PathBuf, usize, Instant) -> anyhow::Result<TerminalHostRecords> + Send + Sync,
 >;
 #[cfg(test)]
 type NewPaneAfterSpawnHook = Arc<dyn Fn(Arc<Surface>) + Send + Sync>;
@@ -176,6 +172,83 @@ impl TerminalAdoptionQueueState {
 struct TerminalAdoptionCoordinator {
     state: Mutex<TerminalAdoptionQueueState>,
     wake: std::sync::Condvar,
+}
+
+#[cfg(unix)]
+struct TerminalHostRecordScanTask {
+    root: std::path::PathBuf,
+    capacity: usize,
+    result: Receiver<anyhow::Result<TerminalHostRecords>>,
+    worker: std::thread::JoinHandle<()>,
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct TerminalHostRecordScanOwner {
+    task: Mutex<Option<TerminalHostRecordScanTask>>,
+}
+
+#[cfg(unix)]
+impl TerminalHostRecordScanOwner {
+    fn scan_until<F>(
+        &self,
+        root: std::path::PathBuf,
+        capacity: usize,
+        deadline: Instant,
+        loader: F,
+    ) -> anyhow::Result<TerminalHostRecords>
+    where
+        F: FnOnce(std::path::PathBuf, usize, Instant) -> anyhow::Result<TerminalHostRecords>
+            + Send
+            + 'static,
+    {
+        let mut task = self.task.lock().unwrap();
+        if let Some(active) = task.as_ref() {
+            anyhow::ensure!(
+                active.root == root && active.capacity == capacity,
+                "terminal-host record scan parameters changed during shutdown"
+            );
+        } else {
+            let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+            let scan_root = root.clone();
+            let worker = std::thread::Builder::new()
+                .name("terminal-host-record-scan".into())
+                .spawn(move || {
+                    let result = loader(scan_root, capacity, deadline);
+                    let _ = result_tx.send(result);
+                })
+                .context("start terminal-host record scan")?;
+            *task = Some(TerminalHostRecordScanTask { root, capacity, result: result_rx, worker });
+        }
+
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            anyhow::bail!("terminal-host record scan exceeded the shutdown deadline");
+        };
+        let received = task
+            .as_ref()
+            .expect("terminal-host record scan was installed")
+            .result
+            .recv_timeout(remaining);
+        match received {
+            Ok(result) => {
+                let completed = task.take().expect("completed record scan remained installed");
+                drop(task);
+                if completed.worker.join().is_err() {
+                    anyhow::bail!("terminal-host record scan worker panicked");
+                }
+                result
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                anyhow::bail!("terminal-host record scan exceeded the shutdown deadline")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let failed = task.take().expect("failed record scan remained installed");
+                drop(task);
+                let _ = failed.worker.join();
+                anyhow::bail!("terminal-host record scan worker stopped without a result")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1672,6 +1745,8 @@ pub struct Mux {
     terminal_adoptions: Mutex<HashSet<String>>,
     #[cfg(unix)]
     terminal_adoption_coordinator: Arc<TerminalAdoptionCoordinator>,
+    #[cfg(unix)]
+    terminal_host_record_scan: TerminalHostRecordScanOwner,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
     /// its own lock so a new native-browser owner cannot race the shutdown.
@@ -1933,6 +2008,8 @@ impl Mux {
             terminal_adoptions: Mutex::new(HashSet::new()),
             #[cfg(unix)]
             terminal_adoption_coordinator: Arc::new(TerminalAdoptionCoordinator::default()),
+            #[cfg(unix)]
+            terminal_host_record_scan: TerminalHostRecordScanOwner::default(),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             daemon_shutdown_requested: AtomicBool::new(false),
@@ -5552,13 +5629,38 @@ impl Mux {
         root: std::path::PathBuf,
         capacity: usize,
         deadline: Instant,
-    ) -> anyhow::Result<Vec<(std::path::PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>>
-    {
+    ) -> anyhow::Result<TerminalHostRecords> {
         #[cfg(test)]
-        if let Some(loader) = self.terminal_host_record_loader.lock().unwrap().clone() {
-            return loader(root, capacity, deadline);
+        {
+            let loader = self.terminal_host_record_loader.lock().unwrap().clone();
+            self.terminal_host_record_scan.scan_until(
+                root,
+                capacity,
+                deadline,
+                move |root, capacity, deadline| {
+                    if let Some(loader) = loader {
+                        loader(root, capacity, deadline)
+                    } else {
+                        crate::terminal_host_runtime::load_terminal_host_records_strict(
+                            &root, capacity, deadline,
+                        )
+                    }
+                },
+            )
         }
-        crate::terminal_host_runtime::load_terminal_host_records_strict(&root, capacity, deadline)
+        #[cfg(not(test))]
+        {
+            self.terminal_host_record_scan.scan_until(
+                root,
+                capacity,
+                deadline,
+                |root, capacity, deadline| {
+                    crate::terminal_host_runtime::load_terminal_host_records_strict(
+                        &root, capacity, deadline,
+                    )
+                },
+            )
+        }
     }
 
     fn lock_shutdown_coordinator_until(
