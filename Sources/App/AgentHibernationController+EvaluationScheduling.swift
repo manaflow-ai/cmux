@@ -12,6 +12,7 @@ extension AgentHibernationController {
                   AgentHibernationTrackingGate.isEnabled(),
                   let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
                   !Task.isCancelled,
+                  // Re-check after suspension: stop() may disable tracking while the index refreshes.
                   AgentHibernationTrackingGate.isEnabled() else {
                 return
             }
