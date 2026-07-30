@@ -967,6 +967,94 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(await teams.individualSaveCalls == 0)
     }
 
+    /// A record the server wrote BEFORE the forget is a stale copy, however
+    /// recently: forgetting a currently-online Mac — whose backup was route-
+    /// mirrored seconds earlier — is the COMMON case, and a skew allowance
+    /// that accepts pre-forget writes as revivals would bypass the forget's
+    /// suppression, retire the intent, and let the supposedly forgotten Mac
+    /// restore instead of receiving its delete.
+    @Test func recentPreForgetWriteIsStillSuppressedAndDeleted() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 900)
+        )
+        // The Mac's backup was mirrored 30 SECONDS before the forget (server
+        // write at t=970s; the forget stamps t=1000s). The FIRST fetch fails,
+        // so no destination echo exists before the forget and the tombstone
+        // PARKS — the path where suppression and revival classification decide
+        // everything.
+        let backup = FakeBackup(
+            recordsByTeam: [
+                "team-shown": [
+                    PairedMacBackupRecord(
+                        macDeviceID: "mac-a",
+                        displayName: "Desk Mac",
+                        routes: [try Self.route("100.82.214.112")],
+                        createdAt: 900_000,
+                        lastSeenAt: 970_000,
+                        isActive: false,
+                        serverUpdatedAtMs: 970_000
+                    ),
+                ],
+            ],
+            failNextFetches: 99
+        )
+        let pending = InMemoryPairedMacPendingDeleteStore()
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" },
+            pendingDeleteStore: pending,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+
+        // The forget PARKS its tombstone offline.
+        #expect(await composite.forgetHiddenComputer(hidden))
+
+        // The network returns; the next restore of team-shown sees the stale
+        // pre-forget record.
+        await backup.setFailNextFetches(0)
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        // The stale copy was DELETED from the backup (the echo flushed the
+        // parked intent against it)...
+        let deleteSent = await backup.uploadedOps().contains {
+            switch $0 {
+            case .delete(let macDeviceID): return macDeviceID == "mac-a"
+            default: return false
+            }
+        }
+        #expect(deleteSent)
+        // ...and the row was not resurrected locally.
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }

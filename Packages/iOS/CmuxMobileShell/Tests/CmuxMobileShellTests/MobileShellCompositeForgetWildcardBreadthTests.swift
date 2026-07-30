@@ -875,6 +875,92 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         #expect(!store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
     }
 
+    /// A FAILED sibling in another team must keep a durable retry entry. The
+    /// displayed primary row is normally the only hidden one; when IT deletes
+    /// but an undisplayed sibling's delete fails, the primary's marker turns
+    /// rowless (the next load's migration clears it) and the sibling — whose
+    /// binding was already revoked — resurfaces as a NORMAL computer in its
+    /// team with no Hidden Computers entry left to retry from. The partial
+    /// failure must record a marker for every surviving failed scope.
+    @Test func failedUndisplayedSiblingGainsARetryMarker() async throws {
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The displayed primary in team A (its delete SUCCEEDS) and an
+        // undisplayed sibling in team B (its delete FAILS).
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team A)",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let team = TeamBox()
+        team.value = "team-a"
+        let forget = WildcardRecordingForget()
+        let failing = ExactScopeFailingStore(
+            inner: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
+            failingInstanceTag: nil,
+            failingTeamID: "team-b"
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: BackingUpPairedMacStore(
+                inner: failing,
+                backup: FakeBackup(),
+                teamIDProvider: { team.value }
+            ),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { team.value },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        // Hidden ONLY in team A — the ordinary single-team hide.
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+        #expect(!ok)
+
+        // The next team-A load runs the rowless-marker migration over the
+        // deleted primary; the surviving FAILED sibling in team B must still
+        // have a hidden entry to retry from.
+        await store.loadPairedMacs()
+        team.value = "team-b"
+        await store.loadPairedMacs()
+        #expect(store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
+        #expect(!store.pairedMacs.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
