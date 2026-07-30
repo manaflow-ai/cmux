@@ -2411,6 +2411,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_shutdown_cleans_up_lifecycle_metadata_after_terminal_persistence_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        database.test_fail_next_persistence_writes(1);
+        let mutation = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("persistence write did not start");
+        mutation.abort();
+        assert!(mutation.await.unwrap_err().is_cancelled());
+
+        let cleanup_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cleanup_retained_lease = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shutdown = tokio::spawn({
+            let database = database.clone();
+            let cleanup_called = cleanup_called.clone();
+            let cleanup_retained_lease = cleanup_retained_lease.clone();
+            let state_dir = temp.path().to_path_buf();
+            async move {
+                database
+                    .shutdown_with_cleanup(move || {
+                        cleanup_called.store(true, std::sync::atomic::Ordering::SeqCst);
+                        let successor = AuthDatabase::load_or_create(state_dir, "successor", false);
+                        cleanup_retained_lease.store(
+                            matches!(
+                                successor,
+                                Err(IdentityError::Io(error))
+                                    if error.kind() == std::io::ErrorKind::WouldBlock
+                            ),
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                    })
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.closing {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("authorization mutation admission did not close");
+
+        drop(blocked);
+        let error = shutdown.await.unwrap().unwrap_err();
+        assert!(
+            matches!(error, IdentityError::Persistence(message) if message.contains("injected"))
+        );
+        assert!(
+            cleanup_called.load(std::sync::atomic::Ordering::SeqCst),
+            "terminal persistence failure left lifecycle metadata behind"
+        );
+        assert!(
+            cleanup_retained_lease.load(std::sync::atomic::Ordering::SeqCst),
+            "lifecycle cleanup ran after releasing the authorization state lease"
+        );
+        drop(
+            AuthDatabase::load_or_create(temp.path(), "successor", false)
+                .expect("shutdown retained its state lease after lifecycle cleanup"),
+        );
+    }
+
+    #[tokio::test]
     async fn auth_shutdown_reports_a_persistence_worker_panic_without_hanging() {
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
