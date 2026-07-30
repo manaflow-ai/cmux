@@ -1456,15 +1456,12 @@ mod tests {
             1,
             vec![test_placement(11, Rect { x: 1, y: 2, width: 3, height: 4 }, 14, Some(8),)]
         ));
-        let attempt_deadline = Instant::now() + Duration::from_secs(1);
-        while attempts.load(Ordering::Acquire) == 0 {
-            assert!(
-                Instant::now() < attempt_deadline,
-                "writer never attempted backpressured output"
-            );
+        let retry_deadline = Instant::now() + Duration::from_secs(1);
+        while attempts.load(Ordering::Acquire) < 2 {
+            assert!(Instant::now() < retry_deadline, "writer did not retry backpressured output");
             std::thread::sleep(Duration::from_millis(5));
         }
-        let completed_before_shutdown = ready_rx.recv_timeout(Duration::from_millis(50)).is_ok();
+        let completed_before_shutdown = ready_rx.try_recv().is_ok();
 
         writer.shutdown(Duration::from_millis(200));
         let stopped = writer.handle.as_ref().is_none_or(|handle| handle.is_finished());

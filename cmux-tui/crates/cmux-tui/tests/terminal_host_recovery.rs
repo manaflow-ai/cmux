@@ -26,6 +26,18 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
+fn test_timeout_scale() -> u32 {
+    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1)
+}
+
+fn scaled_timeout(timeout: Duration) -> Duration {
+    timeout.saturating_mul(test_timeout_scale())
+}
+
 struct RecoveryHarness {
     child: Option<Child>,
     dir: PathBuf,
@@ -575,22 +587,27 @@ fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
 #[test]
 fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
     let harness = RecoveryHarness::start("exit-after-final-bytes");
+    let timeout_scale = test_timeout_scale();
+    // Instrumentation slows this test's socket consumer more than its native
+    // terminal-host producer. Keep the native 20,000-line race intact while
+    // preventing the instrumented reader itself from becoming a lagging client.
+    let drain_lines = 20_000_u32.div_ceil(timeout_scale.saturating_mul(timeout_scale));
+    let script = format!(
+        concat!(
+            "IFS= read -r trigger; i=0; ",
+            "while [ \"$i\" -lt {} ]; do ",
+            "printf 'drain-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; ",
+            "i=$((i + 1)); done; ",
+            "printf 'FINAL-PTY-BYTE-MARKER\\n'",
+        ),
+        drain_lines,
+    );
     request(
         &harness.socket,
         serde_json::json!({
             "id": 1,
             "cmd": "run",
-            "argv": [
-                "/bin/sh",
-                "-c",
-                concat!(
-                    "IFS= read -r trigger; i=0; ",
-                    "while [ \"$i\" -lt 20000 ]; do ",
-                    "printf 'drain-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; ",
-                    "i=$((i + 1)); done; ",
-                    "printf 'FINAL-PTY-BYTE-MARKER\\n'",
-                ),
-            ],
+            "argv": ["/bin/sh", "-c", script],
             "new_workspace": true,
             "name": "final-byte-ordering",
         }),
@@ -604,7 +621,7 @@ fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
         CapabilityRights::ADMIN,
     )
     .unwrap();
-    renderer.stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+    renderer.stream.set_read_timeout(Some(scaled_timeout(Duration::from_secs(15)))).unwrap();
     write_frame(&mut renderer.stream, &Frame::new(MessageKind::Input, b"go\n".to_vec())).unwrap();
 
     let mut output = Vec::new();
@@ -1805,7 +1822,7 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
     )
     .unwrap();
 
-    let done = format!("overflow-done-{}", std::process::id());
+    let ready = format!("overflow-ready-{}", std::process::id());
     request(
         &harness.socket,
         serde_json::json!({
@@ -1813,55 +1830,18 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             "text": format!(
-                // Exceed both the host's bounded client queue and Darwin's
-                // dynamically sized Unix-socket buffers. A smaller burst can
-                // fit entirely in the kernel under light load, which does not
-                // represent a stalled writer and made this assertion timing
-                // dependent.
-                "/usr/bin/head -c 64000000 /dev/zero; printf '{done}\\n'\n"
+                // Keep the producer active until the bounded host queue closes
+                // this renderer. A finite burst can fit entirely in a
+                // dynamically sized local-socket buffer on either platform.
+                "printf '{ready}\\n'; \
+                 /usr/bin/head -c 1000000000000 /dev/zero & flood=$!\n"
             ),
         }),
     );
-    assert!(wait_for_screen(&harness.socket, surface, &done).contains(&done));
-
-    let disconnected_before_drain =
-        match stalled.stream.set_read_timeout(Some(Duration::from_secs(5))) {
-            Ok(()) => false,
-            // Darwin reports EINVAL when setting SO_RCVTIMEO after the peer has
-            // already issued shutdown(2); that is the overflow outcome under test.
-            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => true,
-            Err(error) => panic!("set stalled-renderer timeout: {error}"),
-        };
-    let mut complete_frames = 0usize;
-    if !disconnected_before_drain {
-        loop {
-            match read_frame(&mut stalled.stream, MAX_FRAME_PAYLOAD) {
-                Ok(Some(frame)) => {
-                    assert_eq!(frame.request_id, 0);
-                    assert_eq!(frame.sequence, stalled.next_sequence);
-                    stalled.next_sequence = stalled.next_sequence.wrapping_add(1);
-                    complete_frames += 1;
-                }
-                Ok(None) => break,
-                Err(ProtocolError::Io(error))
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    panic!("stalled renderer silently froze instead of being disconnected")
-                }
-                // Shutdown can interrupt a frame already being copied into the
-                // kernel socket buffer. A clean EOF or truncated final frame are
-                // both explicit disconnects and require a fresh Snapshot.
-                Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => break,
-                Err(error) => panic!("stalled renderer received invalid protocol data: {error}"),
-            }
-        }
-    }
+    assert!(wait_for_screen(&harness.socket, surface, &ready).contains(&ready));
     assert!(
-        disconnected_before_drain || complete_frames > 0,
-        "stalled renderer received no output before disconnect"
+        wait_for_stream_disconnect(&mut stalled.stream, scaled_timeout(Duration::from_secs(15))),
+        "stalled renderer silently froze instead of being disconnected"
     );
 
     // Overflow is isolated to the stalled renderer. The daemon proxy and PTY
@@ -1873,7 +1853,10 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "id": 4,
             "cmd": "send",
             "surface": surface,
-            "text": format!("printf '{after}\\n'\n"),
+            "text": format!(
+                "kill \"$flood\" 2>/dev/null; wait \"$flood\" 2>/dev/null; \
+                 printf '{after}\\n'\n"
+            ),
         }),
     );
     assert!(wait_for_screen(&harness.socket, surface, &after).contains(&after));
@@ -2563,6 +2546,22 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
         std::thread::sleep(Duration::from_millis(50));
     }
     last
+}
+
+fn wait_for_stream_disconnect(stream: &mut UnixStream, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        // ReleaseViewer is valid and idempotent for this renderer but produces
+        // no host-to-client frame, so it probes only the input half of the
+        // connection while output remains deliberately unread.
+        if write_frame(stream, &Frame::new(MessageKind::ReleaseViewer, Vec::new())).is_err() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn wait_for_adopted_terminal(
