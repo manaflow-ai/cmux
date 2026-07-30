@@ -262,18 +262,32 @@ pub struct UnixPeerProcessExit {
     exited: bool,
 }
 
+#[cfg(all(test, target_os = "linux"))]
+std::thread_local! {
+    static FORCE_PIDFD_UNAVAILABLE: std::cell::Cell<bool> = const {
+        std::cell::Cell::new(false)
+    };
+}
+
 impl UnixPeerProcessExit {
     #[cfg(target_os = "linux")]
     fn observe(pid: libc::pid_t) -> io::Result<Self> {
+        let descriptor = Self::open_pidfd(pid)?;
+        Ok(Self { descriptor, exited: false })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn open_pidfd(pid: libc::pid_t) -> io::Result<OwnedFd> {
+        #[cfg(test)]
+        if FORCE_PIDFD_UNAVAILABLE.with(std::cell::Cell::get) {
+            return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+        }
         let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
         if descriptor < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self {
-            // SAFETY: pidfd_open returned a new owned descriptor.
-            descriptor: unsafe { OwnedFd::from_raw_fd(descriptor as libc::c_int) },
-            exited: false,
-        })
+        // SAFETY: pidfd_open returned a new owned descriptor.
+        Ok(unsafe { OwnedFd::from_raw_fd(descriptor as libc::c_int) })
     }
 
     #[cfg(target_vendor = "apple")]
@@ -853,5 +867,17 @@ mod tests {
 
         assert!(matches!(error, AdminError::UnauthorizedPeer(_)));
         assert_eq!(responder.await.unwrap(), 0, "admin request leaked to the wrong-uid responder");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn peer_exit_observer_falls_back_when_pidfd_is_unavailable() {
+        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(true));
+        let observer = UnixPeerProcessExit::observe(std::process::id() as libc::pid_t);
+        FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(false));
+
+        let mut observer =
+            observer.expect("pidfd unavailability disabled remote daemon process fencing");
+        assert!(!observer.has_exited().unwrap());
     }
 }
