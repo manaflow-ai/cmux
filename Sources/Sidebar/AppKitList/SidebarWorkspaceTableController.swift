@@ -7,10 +7,22 @@ import SwiftUI
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    private struct DeferredRowClick {
+        let rowId: SidebarWorkspaceRenderItemID
+        let modifiers: NSEvent.ModifierFlags
+    }
+
+    private enum RowClickDispatchOutcome {
+        case dispatched
+        case awaitingActions
+        case invalid
+    }
+
     private weak var containerView: SidebarWorkspaceTableContainerView?
     private let createdCellViews = NSHashTable<NSView>.weakObjects()
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
+    private var deferredRowClick: DeferredRowClick?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -149,7 +161,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         selectedScrollTargetWorkspaceId = nil
         hoveredRowId = nil
         contextMenuRowId = nil
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         clearDropViewActions(in: container)
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         container.tableView.workspaceController = nil
@@ -207,7 +219,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         contextMenuRowId = nil
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         pumpHeightOverrides.removeAll(keepingCapacity: true)
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if let containerView {
             clearDropViewActions(in: containerView)
@@ -436,6 +448,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         enforceHoverOnVisibleCells()
         updateDropTargets()
         replanReorderDragIfActive()
+        replayDeferredRowClickIfPossible()
     }
 
     /// Row clicks route through the table's action (NSTableView owns the
@@ -447,43 +460,79 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
         guard rows.indices.contains(row) else { return }
-        if let actions = rows[row].appKitWorkspaceRowActions {
-            // Capture modifiers from the clicking EVENT at action time: a
-            // coalesced (trailing) apply must not re-read the keyboard
-            // ~100ms later, and the global NSEvent.modifierFlags reads
-            // hardware state, which misses event-carried flags (synthetic
-            // clicks, exotic input methods).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            // Down-then-up highlight: the optimistic paint bridges the model
-            // round trip, applied here (action == completed click), never on
-            // the press.
+        // Capture modifiers from the clicking EVENT at action time: a
+        // deferred or coalesced apply must not re-read the keyboard later,
+        // and the global NSEvent.modifierFlags reads hardware state, which
+        // misses event-carried flags (synthetic clicks, exotic input methods).
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        let click = DeferredRowClick(rowId: rows[row].id, modifiers: modifiers)
+        switch dispatchRowClick(click) {
+        case .dispatched:
+            deferredRowClick = nil
+        case .awaitingActions:
+            // Presentation snapshots intentionally release their live action
+            // captures while hidden. The retained row can become visible
+            // before SwiftUI supplies its first authoritative reveal apply,
+            // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
-            if modifiers.contains(.command) || modifiers.contains(.shift) {
-                // Multi-select mutations are order-dependent and extend the
-                // selection the user currently sees: flush (not drop) a
-                // plain click still in the coalescing window first.
-                selectionCoalescer.flushNow()
-                actions.commands.updateSelection(modifiers: modifiers)
-            } else {
-                selectionCoalescer.request {
-                    actions.commands.updateSelection(modifiers: modifiers)
-                }
-            }
-        } else if let headerActions = rows[row].appKitGroupHeaderActions {
-            // Group headers focus their anchor workspace: same fast path as
-            // workspace rows (burst coalescing; the completed click paints
-            // the optimistic anchor-active treatment).
-            let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-            previewSelection(row: row, modifiers: modifiers, hitView: nil)
-            if modifiers.contains(.command) || modifiers.contains(.shift) {
-                selectionCoalescer.flushNow()
-                headerActions.onFocusAnchor(modifiers)
-            } else {
-                selectionCoalescer.request {
-                    headerActions.onFocusAnchor(modifiers)
-                }
-            }
+            deferredRowClick = click
+        case .invalid:
+            deferredRowClick = nil
         }
+    }
+
+    private func dispatchRowClick(_ click: DeferredRowClick) -> RowClickDispatchOutcome {
+        guard let row = rows.firstIndex(where: { $0.id == click.rowId }) else {
+            return .invalid
+        }
+        let configuration = rows[row]
+        if let actions = configuration.appKitWorkspaceRowActions {
+            previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
+            dispatchSelection(modifiers: click.modifiers) {
+                actions.commands.updateSelection(modifiers: click.modifiers)
+            }
+            return .dispatched
+        }
+        if let headerActions = configuration.appKitGroupHeaderActions {
+            previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
+            dispatchSelection(modifiers: click.modifiers) {
+                headerActions.onFocusAnchor(click.modifiers)
+            }
+            return .dispatched
+        }
+        if configuration.appKitWorkspaceRowModel != nil
+            || configuration.appKitGroupHeaderModel != nil {
+            return .awaitingActions
+        }
+        return .invalid
+    }
+
+    private func dispatchSelection(
+        modifiers: NSEvent.ModifierFlags,
+        action: @escaping @MainActor () -> Void
+    ) {
+        if modifiers.contains(.command) || modifiers.contains(.shift) {
+            // Multi-select mutations are order-dependent and extend the
+            // selection the user currently sees: flush (not drop) a plain
+            // click still in the coalescing window first.
+            selectionCoalescer.flushNow()
+            action()
+        } else {
+            selectionCoalescer.request(action)
+        }
+    }
+
+    private func replayDeferredRowClickIfPossible() {
+        guard let click = deferredRowClick else { return }
+        deferredRowClick = nil
+        if case .awaitingActions = dispatchRowClick(click) {
+            deferredRowClick = click
+        }
+    }
+
+    private func cancelSelectionIntent() {
+        deferredRowClick = nil
+        selectionCoalescer.cancel()
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -503,7 +552,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // end-editing commits the untouched title — the field flashes and
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         cell.beginInlineRename()
     }
 
@@ -682,7 +731,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // fast drag leaves the grabbed row painted selected and every other
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
-        selectionCoalescer.cancel()
+        cancelSelectionIntent()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         restoreVisibleCellPaint()
