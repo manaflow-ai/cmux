@@ -4675,6 +4675,40 @@ mod unix {
         }
 
         #[test]
+        fn adoption_record_loader_rejects_fifo_without_blocking() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-adoption-record-fifo-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            let path = root.join(format!("{}.json", TerminalId::random().unwrap().to_hex()));
+            let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: c_path is a valid, NUL-terminated path owned by this test.
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+            let loader_root = root.clone();
+            let (result_tx, result_rx) = sync_channel(1);
+            let loader = thread::spawn(move || {
+                let _ = result_tx.send(load_terminal_host_records(&loader_root));
+            });
+            let completed = match result_rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(result) => Some(result),
+                Err(RecvTimeoutError::Timeout) => {
+                    let mut writer = OpenOptions::new().write(true).open(&path).unwrap();
+                    writer.write_all(b"{}").unwrap();
+                    None
+                }
+                Err(RecvTimeoutError::Disconnected) => panic!("record loader stopped"),
+            };
+            loader.join().unwrap();
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(completed.is_some(), "terminal-host adoption blocked while opening a FIFO");
+            assert!(completed.unwrap().unwrap().is_empty(), "FIFO was adopted as a host record");
+        }
+
+        #[test]
         fn strict_record_loader_rejects_oversized_file_before_decoding() {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-oversized-{}-{}",
