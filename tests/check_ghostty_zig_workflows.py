@@ -33,6 +33,11 @@ def workflow_failures(workflow_dir: Path) -> list[str]:
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith(("- \"scripts/", "- 'scripts/")):
                 continue
+            # A line that is nothing but a quoted script path (optionally with a
+            # trailing comma) names the script without executing it, e.g. a JS
+            # path array used for change detection inside a github-script step.
+            if re.fullmatch(r"""(["'])scripts/[^"']+\1,?""", stripped):
+                continue
             if not any(name in line for name in CONSUMER_NAMES):
                 continue
             if current_job is None:
