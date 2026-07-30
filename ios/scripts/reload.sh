@@ -778,11 +778,25 @@ reload_device() {
 
   ensure_mac_build
 
-  if ! selection="$(select_device)"; then
+  # Reachability uses ONE probe implementation (the queue script's), so the
+  # local and cloud reload paths agree on what "unreachable" means, including
+  # the CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE test hook. select_device still owns
+  # name/ambiguity resolution for reachable devices, and its failure is treated
+  # as unreachable too (the phone can drop between probe and selection).
+  local probe_id="${DEVICE_ID:-$DEFAULT_DEVICE_ID}"
+  local device_unreachable=0
+  if [[ -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
+      && ! "$QUEUE_SCRIPT" probe --device-id "$probe_id" >/dev/null 2>&1; then
+    device_unreachable=1
+  elif ! selection="$(select_device)"; then
+    device_unreachable=1
+  fi
+
+  if [[ "$device_unreachable" -eq 1 ]]; then
     # The target iPhone is unreachable. Build anyway and park the signed app in
     # the offline install queue so it auto-installs when the phone reconnects,
     # instead of silently shipping simulator-only.
-    queued_device_id="${DEVICE_ID:-$DEFAULT_DEVICE_ID}"
+    queued_device_id="$probe_id"
     if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
       echo "error: --allow-device-registration needs the device connected; cannot queue" >&2
       exit 1
