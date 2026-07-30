@@ -1441,10 +1441,7 @@ public final class MobileIrohRuntimeComposition:
         }
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
-            tokenSource: brokerTokenSource(
-                pinnedTo: accountID,
-                generation: auth.authSessionGeneration
-            )
+            tokenSource: brokerTokenSource(pinnedTo: accountID)
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -2794,28 +2791,30 @@ extension MobileIrohRuntimeComposition {
     }
 
     /// Broker token source for LONG-LIVED clients (the activation runtime):
-    /// pinned to the activating session's identity, re-reading an ATOMIC
-    /// authenticated snapshot on every request. Freezing an activation-time
-    /// pair would go stale the moment an ordinary force refresh rotates the
-    /// Stack pair (rotation does not bump the session generation), leaving the
-    /// runtime's relay refresh and discovery failing until an unrelated
-    /// reconcile. The snapshot binds identity and credentials in one capture —
-    /// it rejects reads while a session transition owns the token store and
-    /// re-validates the generation and account across the token read — so a
-    /// sign-out/sign-in completing while the read is suspended can never hand
-    /// this old-account runtime the new session's credentials; validating the
-    /// snapshot against the activation pin then fails closed on any switch.
-    /// The snapshot's pair capture is store-level (no network while the stored
+    /// pinned to the activating ACCOUNT, re-reading an ATOMIC authenticated
+    /// snapshot on every request. Freezing an activation-time pair would go
+    /// stale the moment an ordinary force refresh rotates the Stack pair,
+    /// leaving the runtime's relay refresh and discovery failing until an
+    /// unrelated reconcile. The snapshot binds identity and credentials in one
+    /// capture — it rejects reads while a session transition owns the token
+    /// store — so a sign-out/sign-in completing while the read is suspended can
+    /// never hand this runtime a DIFFERENT account's credentials; the account
+    /// pin then fails closed on any switch. The pin is deliberately NOT
+    /// generation-scoped: every completed sign-in advances the generation, and
+    /// a same-account re-sign-in must keep this runtime serviceable — it is
+    /// still the same user, so serving the new session's credentials is the
+    /// correct behavior, whereas a generation pin would strand the runtime on
+    /// nil credentials until a restart. (Short-lived destructive operations —
+    /// the forget's frozen pair — stay strictly generation-pinned.) The
+    /// snapshot's pair capture is store-level (no network while the stored
     /// access token is valid), so this stays cheap per request.
     private func brokerTokenSource(
-        pinnedTo expectedAccountID: String,
-        generation: UInt64
+        pinnedTo expectedAccountID: String
     ) -> CmxIrohBrokerTokenSource {
         CmxIrohBrokerTokenSource(
             credentialPair: { [weak auth] in
                 guard let auth,
                       let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.generation == generation,
                       session.accountID == expectedAccountID else { return nil }
                 return CmxIrohBrokerCredentials(
                     accessToken: session.accessToken,

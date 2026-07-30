@@ -18,7 +18,6 @@ extension MobileHostIrohRuntime {
         guard auth.currentUser?.id == accountID else {
             throw CmxIrohHostRuntimeError.inactive
         }
-        let pinnedGeneration = auth.authSessionGeneration
         let tag = Self.currentTag()
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -103,17 +102,22 @@ extension MobileHostIrohRuntime {
             baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
                 // An ATOMIC authenticated snapshot per fetch, validated
-                // against the activation pin: identity and credentials come
-                // from one transition-checked capture, so an account switch
-                // completing while the read is suspended can never hand this
-                // runtime the new session's credentials, and the pin fails
-                // requests closed the moment auth changes. The snapshot's pair
-                // capture is store-level (no network while the stored access
-                // token is valid).
+                // against the activation's ACCOUNT pin: identity and
+                // credentials come from one transition-checked capture, so an
+                // account switch completing while the read is suspended can
+                // never hand this runtime a DIFFERENT account's credentials,
+                // and the pin fails requests closed the moment the account
+                // changes. Deliberately NOT generation-pinned: every completed
+                // sign-in advances the generation, and a same-account
+                // re-sign-in must keep this long-lived runtime serviceable —
+                // it is still the same user, so serving the new session's
+                // credentials is correct, whereas a generation pin would
+                // strand the runtime on nil credentials until relaunch. The
+                // snapshot's pair capture is store-level (no network while the
+                // stored access token is valid).
                 credentialPair: { [weak auth] in
                     guard let auth,
                           let session = try? await auth.authenticatedSessionSnapshot(),
-                          session.generation == pinnedGeneration,
                           session.accountID == accountID else { return nil }
                     return CmxIrohBrokerCredentials(
                         accessToken: session.accessToken,

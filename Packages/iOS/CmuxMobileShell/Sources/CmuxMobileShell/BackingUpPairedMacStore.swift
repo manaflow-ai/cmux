@@ -86,23 +86,27 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         "\(account)\u{0}\(rowTeamID ?? "")\u{0}\(pairingID)"
     }
 
-    /// Persist the server-verified backup team for a batch of pairings (the
-    /// restore snapshot's echo). `rowTeamID` is the team the restored rows are
-    /// stamped with (the restore scope's team).
+    /// Persist the server-verified backup team for a restore snapshot's
+    /// echoes. Each mapping is keyed by the RETAINED local row's own team when
+    /// one survived the merge (LWW can keep a newer team-less row without
+    /// re-stamping it into the restore's team, and the later forget looks the
+    /// mapping up under the row's actual scope); a record with no local row
+    /// maps under the restore scope's team, covering the reinstall case.
     private func recordResolvedBackupTeams(
-        _ pairingIDs: [String],
-        rowTeamID: String?,
+        _ echoes: [PairedMacRestoreEcho],
+        restoreTeam: String?,
         teamID: String,
         account: String
     ) async {
-        for pairingID in pairingIDs {
+        for echo in echoes {
+            let rowTeam = echo.hasRetainedLocalRow ? echo.retainedRowTeamID : restoreTeam
             await backupTeamStore.save(
                 teamID,
-                key: backupTeamKey(account: account, rowTeamID: rowTeamID, pairingID: pairingID)
+                key: backupTeamKey(account: account, rowTeamID: rowTeam, pairingID: echo.pairingID)
             )
         }
         await resolveParkedTombstones(
-            matching: pairingIDs,
+            matching: echoes,
             verifiedTeamID: teamID,
             account: account
         )
@@ -121,31 +125,74 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// the intent to retry on that team's next restore, and suppression hides
     /// the record meanwhile.
     private func resolveParkedTombstones(
-        matching pairingIDs: [String],
+        matching echoes: [PairedMacRestoreEcho],
         verifiedTeamID: String,
         account: String
     ) async {
         let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
-        let parked = await pendingRecords(scope: parkedScope)
+        var parked = await pendingRecords(scope: parkedScope)
         guard !parked.isEmpty else { return }
+        struct ParkedIntent {
+            let raw: String
+            let pairingID: String
+            let deviceID: String
+            let isDeviceWide: Bool
+            let stampMs: Double
+        }
+        func decodeIntents(_ raws: Set<String>) -> [ParkedIntent] {
+            raws.map { raw in
+                let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
+                let identity = MobilePairedMac.pairingIdentity(from: record.pairingID)
+                return ParkedIntent(
+                    raw: raw,
+                    pairingID: record.pairingID,
+                    deviceID: cmxCanonicalDeviceID(identity.macDeviceID),
+                    isDeviceWide: identity.instanceTag == nil,
+                    stampMs: Double(record.stamp) * 1_000
+                )
+            }
+        }
+        func covers(_ intent: ParkedIntent, _ echo: PairedMacRestoreEcho) -> Bool {
+            if intent.pairingID == echo.pairingID { return true }
+            guard intent.isDeviceWide else { return false }
+            let identity = MobilePairedMac.pairingIdentity(from: echo.pairingID)
+            return cmxCanonicalDeviceID(identity.macDeviceID) == intent.deviceID
+        }
+        // Retirement: a record CREATED after the intent was parked is a
+        // REVIVAL — another device re-paired the Mac — not a stale copy. The
+        // intent retires instead of deleting it; without this, the forgetting
+        // phone would delete the revival on every restore forever. Unstamped
+        // legacy intents have no boundary and keep the old delete behavior.
+        var retiredRaws: Set<String> = []
+        for intent in decodeIntents(parked) where intent.stampMs > 0 {
+            let revived = echoes.contains { echo in
+                covers(intent, echo) && echo.createdAtMs > intent.stampMs
+            }
+            if revived { retiredRaws.insert(intent.raw) }
+        }
+        if !retiredRaws.isEmpty {
+            parked.subtract(retiredRaws)
+            await savePendingRecords(parked, scope: parkedScope)
+            guard !parked.isEmpty else { return }
+        }
         var parkedExact: Set<String> = []
         var parkedDevices: Set<String> = []
-        for raw in parked {
-            let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
-            let identity = MobilePairedMac.pairingIdentity(from: record.pairingID)
-            if identity.instanceTag == nil {
-                parkedDevices.insert(cmxCanonicalDeviceID(identity.macDeviceID))
+        for intent in decodeIntents(parked) {
+            if intent.isDeviceWide {
+                parkedDevices.insert(intent.deviceID)
             }
-            parkedExact.insert(record.pairingID)
+            parkedExact.insert(intent.pairingID)
         }
         var ops: [PairedMacBackupOp] = []
         var sentPairingIDs: [String] = []
-        for pairingID in Set(pairingIDs).sorted() {
+        for echo in echoes.sorted(by: { $0.pairingID < $1.pairingID }) {
+            let pairingID = echo.pairingID
             let identity = MobilePairedMac.pairingIdentity(from: pairingID)
             let device = cmxCanonicalDeviceID(identity.macDeviceID)
             guard parkedExact.contains(pairingID) || parkedDevices.contains(device) else {
                 continue
             }
+            guard !sentPairingIDs.contains(pairingID) else { continue }
             if let instanceTag = identity.instanceTag {
                 ops.append(.deleteInstance(
                     macDeviceID: identity.macDeviceID,
@@ -886,10 +933,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     // so a restored row forgotten later (the reinstall case, when
                     // no upload ever recorded a mapping) still routes its delete
                     // tombstone to the right team's backup.
-                    onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
+                    onResolvedBackupTeam: { [weak self] echoes, resolvedTeamID in
                         await self?.recordResolvedBackupTeams(
-                            pairingIDs,
-                            rowTeamID: restoreTeam,
+                            echoes,
+                            restoreTeam: restoreTeam,
                             teamID: resolvedTeamID,
                             account: account
                         )
@@ -1079,10 +1126,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                     // so a restored row forgotten later (the reinstall case, when
                     // no upload ever recorded a mapping) still routes its delete
                     // tombstone to the right team's backup.
-                    onResolvedBackupTeam: { [weak self] pairingIDs, resolvedTeamID in
+                    onResolvedBackupTeam: { [weak self] echoes, resolvedTeamID in
                         await self?.recordResolvedBackupTeams(
-                            pairingIDs,
-                            rowTeamID: restoreTeam,
+                            echoes,
+                            restoreTeam: restoreTeam,
                             teamID: resolvedTeamID,
                             account: account
                         )

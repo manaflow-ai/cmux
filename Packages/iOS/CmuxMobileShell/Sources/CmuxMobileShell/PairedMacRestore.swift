@@ -37,12 +37,15 @@ public struct PairedMacRestore: Sendable {
     ///     already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
     ///     row is stamped with it; this is what scopes the local list per team. `nil`
     ///     when no team is selected (rows stay team-less / visible everywhere).
-    ///   - onResolvedBackupTeam: called once when the snapshot carries the
-    ///     worker's echoed resolved team, with the pairing ids of EVERY live
-    ///     record in the snapshot (not just the ones written locally — each
-    ///     record lives in that team's backup regardless of the local merge
-    ///     outcome). Lets the owner persist where each record's backup lives so
-    ///     a later delete tombstone routes there.
+    ///   - onResolvedBackupTeam: called once, AFTER the merge, when the
+    ///     snapshot carries the worker's echoed resolved team — with one echo
+    ///     per snapshot record (not just the ones written locally: each record
+    ///     lives in that team's backup regardless of the merge outcome). Every
+    ///     echo also reports whether a local row for the pairing survived the
+    ///     merge and under which team it is actually stored, plus the record's
+    ///     creation time — so the owner can persist the mapping against the
+    ///     ROW's real scope and can tell a post-forget revival from a stale
+    ///     copy.
     @discardableResult
     public func run(
         accountID: String,
@@ -51,7 +54,7 @@ public struct PairedMacRestore: Sendable {
         boundary: PairedMacRestoreBoundary? = nil,
         boundaryGeneration: UInt64? = nil,
         locallyDeletedMacDeviceIDs: Set<String> = [],
-        onResolvedBackupTeam: (@Sendable ([String], String) async -> Void)? = nil
+        onResolvedBackupTeam: (@Sendable ([PairedMacRestoreEcho], String) async -> Void)? = nil
     ) async -> RestoreOutcome {
         func isCurrent() -> Bool {
             guard !Task.isCancelled else { return false }
@@ -68,17 +71,6 @@ public struct PairedMacRestore: Sendable {
         // `completed: false` so the caller does not memoize a non-restore.
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
-        }
-        if let onResolvedBackupTeam, let resolvedTeamID = snapshot.resolvedTeamID {
-            let pairingIDs = snapshot.records.map {
-                MobilePairedMac.pairingID(
-                    macDeviceID: $0.macDeviceID,
-                    instanceTag: $0.instanceTag
-                )
-            }
-            if !pairingIDs.isEmpty {
-                await onResolvedBackupTeam(pairingIDs, resolvedTeamID)
-            }
         }
         func canonicalPairingID(_ value: String) -> String? {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -233,6 +225,61 @@ public struct PairedMacRestore: Sendable {
         if restored > 0 {
             pairedMacRestoreLog.info("restored \(restored, privacy: .public) paired mac(s) from backup")
         }
+        // The echo fires AFTER the merge so each record can report the RETAINED
+        // local row's actual scope: LWW can keep a newer team-less local row
+        // without re-stamping it into this restore's team, and a mapping keyed
+        // by the restore team would never be found by that row's later forget.
+        if let onResolvedBackupTeam, let resolvedTeamID = snapshot.resolvedTeamID,
+           !snapshot.records.isEmpty {
+            let localAfter = (try? await store.loadAll(
+                stackUserID: accountID,
+                teamID: teamID
+            )) ?? []
+            var retainedTeams: [String: String?] = [:]
+            for mac in localAfter {
+                retainedTeams[mac.id] = mac.teamID
+            }
+            let echoes = snapshot.records.map { record -> PairedMacRestoreEcho in
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: cmxCanonicalDeviceID(record.macDeviceID),
+                    instanceTag: record.instanceTag
+                )
+                let retained = retainedTeams[pairingID]
+                return PairedMacRestoreEcho(
+                    pairingID: pairingID,
+                    hasRetainedLocalRow: retained != nil,
+                    retainedRowTeamID: retained ?? nil,
+                    createdAtMs: record.createdAt
+                )
+            }
+            await onResolvedBackupTeam(echoes, resolvedTeamID)
+        }
         return RestoreOutcome(completed: true, restored: restored)
+    }
+}
+
+/// One snapshot record's routing echo (see ``PairedMacRestore/run``).
+public struct PairedMacRestoreEcho: Sendable {
+    /// The record's composite pairing id.
+    public let pairingID: String
+    /// Whether a local row for this pairing exists after the merge.
+    public let hasRetainedLocalRow: Bool
+    /// The retained local row's OWN team (nil = a team-less row); meaningful
+    /// only when ``hasRetainedLocalRow``.
+    public let retainedRowTeamID: String?
+    /// The snapshot record's creation time (ms since epoch): a record created
+    /// AFTER a forget is a revival, not a stale copy.
+    public let createdAtMs: Double
+
+    public init(
+        pairingID: String,
+        hasRetainedLocalRow: Bool,
+        retainedRowTeamID: String?,
+        createdAtMs: Double
+    ) {
+        self.pairingID = pairingID
+        self.hasRetainedLocalRow = hasRetainedLocalRow
+        self.retainedRowTeamID = retainedRowTeamID
+        self.createdAtMs = createdAtMs
     }
 }
