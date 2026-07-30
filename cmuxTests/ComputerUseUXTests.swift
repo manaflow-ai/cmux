@@ -2232,6 +2232,27 @@ struct ComputerUseUXTests {
         #expect(codexConfiguration.environment == configuration.environment)
     }
 
+    @Test func agentWrappersDeclareHostOwnedComputerUseOnboarding() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        for wrapperName in [
+            "cmux-codex-wrapper",
+            "cmux-claude-wrapper",
+        ] {
+            let wrapperURL = repositoryRoot
+                .appendingPathComponent("Resources/bin", isDirectory: true)
+                .appendingPathComponent(wrapperName, isDirectory: false)
+            let source = try String(contentsOf: wrapperURL, encoding: .utf8)
+            #expect(source.contains(
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
+            ))
+            #expect(!source.contains(
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
+            ))
+        }
+    }
+
     /// Every Codex compatibility action already returns a refreshed screenshot
     /// and accessibility snapshot. Asking the agent to scan again doubled the
     /// state captures and model/MCP round trips between Calculator clicks.
@@ -2671,6 +2692,12 @@ struct ComputerUseUXTests {
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [(driverSessionID: String, visible: Bool)] = []
+        let cursorEvents = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .unbounded
+        )
+        defer { cursorEvents.continuation.finish() }
+        var cursorIterator = cursorEvents.stream.makeAsyncIterator()
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: directory,
             featureEnabled: { featureEnabled },
@@ -2686,11 +2713,12 @@ struct ComputerUseUXTests {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
-            onFocusTerminal: { workspaceID, surfaceID in
+            onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
             },
-            onCursorVisibilityChange: { driverSessionID, visible in
+            onCursorVisibilityChange: { driverSessionID, visible, _ in
                 cursorVisibilityChanges.append((driverSessionID, visible))
+                cursorEvents.continuation.yield()
             },
             frontmostApplicationProcessIdentifier: { nil },
             activate: { application in
@@ -2707,6 +2735,7 @@ struct ComputerUseUXTests {
             logicalSessionID: backgroundLogicalSessionID,
             stateWriterIdentity: writerIdentity
         ))
+        _ = await cursorIterator.next()
         #expect(cursorVisibilityChanges.count == 1)
         #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
         #expect(cursorVisibilityChanges.first?.visible == false)
@@ -2783,6 +2812,7 @@ struct ComputerUseUXTests {
             logicalSessionID: backgroundLogicalSessionID,
             stateWriterIdentity: writerIdentity
         ))
+        _ = await cursorIterator.next()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
         #expect(cursorVisibilityChanges.count == 2)
         #expect(cursorVisibilityChanges.last?.driverSessionID == backgroundDriverSessionID)

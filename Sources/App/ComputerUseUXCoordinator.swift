@@ -84,10 +84,20 @@ final class ComputerUseUXCoordinator {
         featureEnabled && settingEnabled
     }
 
-    func install(onFocusTerminal: @escaping @MainActor (UUID, UUID) -> Void) {
+    func install(
+        onFocusTerminal:
+            @escaping ComputerUseSessionPresentationController
+                .TerminalFocusEffect
+    ) {
         guard menuBarController == nil else { return }
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
+        runtimeService.setInitialOnboardingCompletion(
+            userDefaults.bool(
+                forKey: ComputerUseOnboardingWindowController
+                    .directCaptureReadyDefaultsKey
+            )
+        )
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
             await liveSettingRepository.setEnabled(initialComputerUseEnabled)
             await runtimeService.setEnabled(initialComputerUseEnabled)
@@ -123,13 +133,13 @@ final class ComputerUseUXCoordinator {
                 authenticationKey: runtimeService.stateAuthenticationKey
             ),
             onFocusTerminal: onFocusTerminal,
-            onCursorVisibilityChange: { [runtimeService] driverSessionID, visible in
-                Task { @MainActor in
-                    _ = await runtimeService.setDriverCursorVisible(
-                        visible,
-                        driverSessionID: driverSessionID
-                    )
-                }
+            onCursorVisibilityChange: {
+                [runtimeService] driverSessionID, visible, isCurrent in
+                _ = await runtimeService.setDriverCursorVisible(
+                    visible,
+                    driverSessionID: driverSessionID,
+                    while: isCurrent
+                )
             }
         )
 
@@ -283,12 +293,7 @@ final class ComputerUseUXCoordinator {
 
         switch event.hookEventName {
         case .preToolUse where isComputerUseInvocation:
-            Task { @MainActor [runtimeService] in
-                _ = await runtimeService.setDriverCursorVisible(
-                    true,
-                    driverSessionID: driverSessionID
-                )
-            }
+            watchTargetController?.driverSessionDidStart(driverSessionID)
         case .stop, .sessionEnd:
             activityLifecycle.recordCompletion(
                 driverSessionID: driverSessionID,
@@ -296,12 +301,6 @@ final class ComputerUseUXCoordinator {
             )
             watchTargetController?.driverSessionDidComplete(driverSessionID)
             menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
-            Task { @MainActor [runtimeService] in
-                _ = await runtimeService.setDriverCursorVisible(
-                    false,
-                    driverSessionID: driverSessionID
-                )
-            }
         default:
             break
         }

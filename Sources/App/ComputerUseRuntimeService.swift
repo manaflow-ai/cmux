@@ -37,6 +37,10 @@ final class ComputerUseRuntimeService {
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
+    private(set) var permissionPhase =
+        ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
+    private var readinessPublicationTask: Task<Void, Never>?
+    private var readinessPublicationGeneration = 0
     private var acceptsNewLaunches = true
     private var desiredEnabled = false
     private var runningHelperProcesses:
@@ -71,6 +75,7 @@ final class ComputerUseRuntimeService {
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
+        readinessPublicationTask?.cancel()
     }
 
     var helperAppURL: URL? {
@@ -115,6 +120,22 @@ final class ComputerUseRuntimeService {
         cachedStatus.isKnown
     }
 
+    /// Seeds the host gate from the capture verification persisted by the last
+    /// completed onboarding run. This is called before the enabled setting is
+    /// reconciled, so starting the helper can publish the correct first value.
+    func setInitialOnboardingCompletion(_ completed: Bool) {
+        guard !desiredEnabled else { return }
+        permissionPhase = .disabled(onboardingComplete: completed)
+    }
+
+    func onboardingWasPresented() {
+        transitionPermissionPhase(.onboardingPresented)
+    }
+
+    func onboardingWasCompleted() {
+        transitionPermissionPhase(.onboardingCompleted)
+    }
+
     /// Emits coalesced filesystem changes from the user's TCC database.
     ///
     /// The event is only a refresh trigger; the helper remains the sole
@@ -131,11 +152,13 @@ final class ComputerUseRuntimeService {
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
+        permissionPhase = permissionPhase.applying(.setEnabled(newValue))
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
             startMonitoringHelperHealth()
         } else {
+            cancelReadinessPublication()
             helperHealthTask?.cancel()
             helperHealthTask = nil
             missedHelperHealthChecks = 0
@@ -507,19 +530,29 @@ final class ComputerUseRuntimeService {
     /// a menu choice applies to both the current call and later calls.
     func setDriverCursorVisible(
         _ visible: Bool,
-        driverSessionID: String
+        driverSessionID: String,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
     ) async -> Bool {
-        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
+        guard
+            ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID),
+            effectIsCurrent()
         else {
             return false
         }
         return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
-            guard let self, self.desiredEnabled, self.acceptsNewLaunches else {
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                effectIsCurrent()
+            else {
                 return false
             }
             var updated = false
             for profile in ComputerUseDaemonProfile.allCases {
                 guard
+                    effectIsCurrent(),
                     let request = Self.setDriverCursorVisibleRequest(
                         visible,
                         driverSessionID: driverSessionID,
@@ -539,6 +572,7 @@ final class ComputerUseRuntimeService {
                     expectedPeerIdentity: expectedPeerIdentity,
                     socketURL: self.socketURL(for: profile)
                 )
+                guard effectIsCurrent() else { return false }
                 updated =
                     response?["ok"] as? Bool == true
                         || updated
@@ -659,6 +693,8 @@ final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
         if result != nil, replacesExistingHelper {
+            permissionPhase = permissionPhase.applying(.helperReplaced)
+            cancelReadinessPublication()
             helperBuildReplacedHandler?()
         }
         return result
@@ -675,7 +711,7 @@ final class ComputerUseRuntimeService {
         )
         let nativeReady: Bool
         if nativeListening {
-            nativeReady = await configureStateAuthentication(for: .native)
+            nativeReady = await configureHostAuthority(for: .native)
         } else {
             nativeReady = false
         }
@@ -686,7 +722,9 @@ final class ComputerUseRuntimeService {
         )
         let codexReady: Bool
         if codexListening {
-            codexReady = await configureStateAuthentication(for: .codexCompatibility)
+            codexReady = await configureHostAuthority(
+                for: .codexCompatibility
+            )
         } else {
             codexReady = false
         }
@@ -717,7 +755,7 @@ final class ComputerUseRuntimeService {
                 _ = await stopDaemon()
                 return
             }
-            guard await configureStateAuthentication(for: profile) else {
+            guard await configureHostAuthority(for: profile) else {
                 _ = await stopDaemon()
                 return
             }
@@ -892,6 +930,86 @@ final class ComputerUseRuntimeService {
                 ] as? Bool == true
     }
 
+    private func configureHostAuthority(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        guard await configureStateAuthentication(for: profile) else {
+            return false
+        }
+        return await publishExternalPermissionReadiness(for: profile)
+    }
+
+    private func publishExternalPermissionReadiness(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        guard
+            let runningIdentity = processIdentity(for: profile),
+            AgentPIDProcessIdentity(pid: runningIdentity.pid)
+                == runningIdentity
+        else {
+            return false
+        }
+        let ready = desiredEnabled && permissionPhase.isReady
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "set_external_permission_ready",
+                "args": ["ready": ready],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 2,
+            expectedPeerIdentity: runningIdentity,
+            socketURL: socketURL(for: profile)
+        ) else {
+            return false
+        }
+        return
+            response["ok"] as? Bool == true
+                && (response["result"] as? [String: Any])?[
+                    "external_permission_ready"
+                ] as? Bool == ready
+    }
+
+    private func transitionPermissionPhase(
+        _ event: ComputerUseRuntimePermissionPhase.Event
+    ) {
+        let nextPhase = permissionPhase.applying(event)
+        guard nextPhase != permissionPhase else { return }
+        permissionPhase = nextPhase
+        scheduleReadinessPublication()
+    }
+
+    private func scheduleReadinessPublication() {
+        readinessPublicationGeneration &+= 1
+        let generation = readinessPublicationGeneration
+        readinessPublicationTask?.cancel()
+        readinessPublicationTask = Task { @MainActor [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !Task.isCancelled,
+                generation == self.readinessPublicationGeneration
+            else {
+                return
+            }
+            await self.startIfNeeded()
+            guard
+                !Task.isCancelled,
+                generation == self.readinessPublicationGeneration
+            else {
+                return
+            }
+            self.readinessPublicationTask = nil
+        }
+    }
+
+    private func cancelReadinessPublication() {
+        readinessPublicationGeneration &+= 1
+        readinessPublicationTask?.cancel()
+        readinessPublicationTask = nil
+    }
+
     private func socketURL(for profile: ComputerUseDaemonProfile) -> URL {
         Self.socketURL(for: profile, paths: paths)
     }
@@ -971,6 +1089,7 @@ final class ComputerUseRuntimeService {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
+        cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)

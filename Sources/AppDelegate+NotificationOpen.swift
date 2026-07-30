@@ -5,7 +5,13 @@ import Foundation
 extension AppDelegate {
     /// Focuses a terminal surface through the same sidebar/window/tab path used by notification opens.
     @discardableResult
-    func focusTerminal(tabId: UUID, surfaceId: UUID?) -> Bool {
+    func focusTerminal(
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
         if let context = contextContainingTabId(tabId) {
             let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
             let window = context.window
@@ -16,7 +22,8 @@ extension AppDelegate {
                 sidebarSelectionState: context.sidebarSelectionState,
                 window: window,
                 tabId: tabId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                while: effectIsCurrent
             )
         }
 
@@ -32,7 +39,8 @@ extension AppDelegate {
             sidebarSelectionState: sidebarSelectionState,
             window: window,
             tabId: tabId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            while: effectIsCurrent
         )
     }
 
@@ -272,11 +280,19 @@ extension AppDelegate {
         sidebarSelectionState: SidebarSelectionState?,
         window: NSWindow,
         tabId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool
     ) -> Bool {
+        guard effectIsCurrent() else { return false }
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
-        return tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+        guard effectIsCurrent() else { return false }
+        return tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: surfaceId,
+            effectIsCurrent: effectIsCurrent
+        )
     }
 
     private func notificationOpenCompletion(

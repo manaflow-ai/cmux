@@ -165,6 +165,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func present(startingAt startingPoint: StartingPoint = .overview) {
+        runtimeService.onboardingWasPresented()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
@@ -566,6 +567,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPermissionCompanionFrame = nil
         pendingPermissionStep = nil
         userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
+        runtimeService.onboardingWasCompleted()
         guard let window else { return }
         revealExpandedOnboarding(
             window,
