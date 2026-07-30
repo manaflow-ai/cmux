@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Télécharger pour Mac",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "Voir sur GitHub",
     "closeMenu": "Fermer le menu",
     "openMenu": "Ouvrir le menu",
@@ -3603,6 +3604,38 @@
       "primaryCta": "Télécharger le .deb",
       "requirements": "Debian ou Ubuntu · x64",
       "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Télécharger cmux Browser nightly pour Mac, Windows et Linux",
+    "metaDescription": "Téléchargez les builds nightly signés de cmux Browser pour macOS, Windows et Linux, avec mises à jour automatiques depuis un canal public unique.",
+    "eyebrow": "cmux Browser",
+    "title": "Téléchargements nightly",
+    "tagline": "Un espace de travail Chromium pour Mac, Windows et Linux.",
+    "subtitle": "Les builds nightly se mettent à jour automatiquement depuis le canal public cmux-v2. Une plateforme n’est activée ici qu’après validation de son paquet, de sa signature native et de son parcours de mise à jour.",
+    "logoAlt": "Icône de l’application cmux Browser",
+    "readyStatus": "Prêt à télécharger",
+    "pendingStatus": "Validation de la version en cours",
+    "portableCta": "ZIP de mise à jour portable",
+    "updatesTitle": "Mises à jour automatiques",
+    "updatesBody": "cmux contrôle un manifeste signé cryptographiquement, vérifie la taille et l’empreinte SHA-256 du paquet, prépare la nouvelle version, puis la remplace lorsque vous approuvez le redémarrage.",
+    "licenseBody": "Chaque version inclut les mentions de licence et le code source correspondant requis par ses composants open source. Les fichiers de distribution originaux du dépôt cmux-v2 restent propriétaires pour le moment.",
+    "releaseLink": "Détails de la version nightly",
+    "sourceLink": "Code source et licences",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Puce Apple · macOS 14 ou version ultérieure",
+      "primaryCta": "Télécharger le .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 ou version ultérieure · x64",
+      "primaryCta": "Télécharger l’installateur"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian ou Ubuntu · x64 · exécuter avec sh",
+      "primaryCta": "Télécharger l’installateur utilisateur"
     }
   }
 }

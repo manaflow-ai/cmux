@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Für Mac herunterladen",
+    "browserNightly": "cmux Browser Nightly",
     "viewOnGitHub": "Auf GitHub ansehen",
     "closeMenu": "Menü schließen",
     "openMenu": "Menü öffnen",
@@ -3601,6 +3602,38 @@
       "primaryCta": ".deb herunterladen",
       "requirements": "Debian oder Ubuntu · x64",
       "installBody": "Lade das Debian-Paket herunter und installiere es mit deiner Paketverwaltung. Wähle die portable ZIP-Datei für eine benutzerspezifische Installation und Updates innerhalb der App."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "cmux Browser Nightly für Mac, Windows und Linux herunterladen",
+    "metaDescription": "Lade signierte Nightly-Builds von cmux Browser für macOS, Windows und Linux mit automatischen Updates aus einem öffentlichen Release-Kanal herunter.",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly-Downloads",
+    "tagline": "Ein Chromium-Workspace für Mac, Windows und Linux.",
+    "subtitle": "Nightly-Builds aktualisieren sich automatisch über den öffentlichen cmux-v2-Release-Kanal. Eine Plattform wird hier erst freigeschaltet, nachdem Paket, native Signatur und Update-Pfad die Release-Prüfung bestanden haben.",
+    "logoAlt": "App-Symbol von cmux Browser",
+    "readyStatus": "Bereit zum Download",
+    "pendingStatus": "Release-Prüfung läuft",
+    "portableCta": "Portables Update-ZIP",
+    "updatesTitle": "Automatische Updates",
+    "updatesBody": "cmux prüft ein kryptografisch signiertes Manifest, verifiziert Paketgröße und SHA-256-Prüfsumme, stellt die neue Version bereit und tauscht sie aus, sobald du den Neustart bestätigst.",
+    "licenseBody": "Jedes Release enthält die für seine Open-Source-Komponenten erforderlichen Lizenzhinweise und den zugehörigen Quellcode. Die ursprünglichen Distributionsdateien des cmux-v2-Repositorys bleiben vorerst proprietär.",
+    "releaseLink": "Details zum Nightly-Release",
+    "sourceLink": "Quellcode- und Lizenzangaben",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple-Chip · macOS 14 oder neuer",
+      "primaryCta": ".dmg herunterladen"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 oder neuer · x64",
+      "primaryCta": "Installer herunterladen"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian oder Ubuntu · x64 · mit sh ausführen",
+      "primaryCta": "Benutzer-Installer herunterladen"
     }
   }
 }

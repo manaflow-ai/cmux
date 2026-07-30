@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "Pogledaj na GitHub-u",
     "closeMenu": "Zatvori meni",
     "openMenu": "Otvori meni",
@@ -3601,6 +3602,38 @@
       "primaryCta": "Preuzmite .deb",
       "requirements": "Debian ili Ubuntu · x64",
       "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Preuzmite cmux Browser nightly za Mac, Windows i Linux",
+    "metaDescription": "Preuzmite potpisane nightly verzije cmux Browsera za macOS, Windows i Linux s automatskim ažuriranjima iz jednog javnog kanala izdanja.",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly preuzimanja",
+    "tagline": "Jedan Chromium radni prostor za Mac, Windows i Linux.",
+    "subtitle": "Nightly verzije se automatski ažuriraju iz javnog cmux-v2 kanala. Platforma se otključava tek nakon što paket, izvorni potpis i put ažuriranja prođu provjeru izdanja.",
+    "logoAlt": "Ikona aplikacije cmux Browser",
+    "readyStatus": "Spremno za preuzimanje",
+    "pendingStatus": "Provjera izdanja je u toku",
+    "portableCta": "Prijenosni ZIP ažuriranja",
+    "updatesTitle": "Automatska ažuriranja",
+    "updatesBody": "cmux provjerava kriptografski potpisan manifest, veličinu paketa i SHA-256 sažetak, priprema novu verziju i zamjenjuje je kada odobrite ponovno pokretanje.",
+    "licenseBody": "Svako izdanje sadrži obavijesti o licencama i odgovarajući izvorni kod koji zahtijevaju njegove komponente otvorenog koda. Izvorne distribucijske datoteke repozitorija cmux-v2 za sada ostaju vlasničke.",
+    "releaseLink": "Detalji nightly izdanja",
+    "sourceLink": "Izvorni kod i licence",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple čip · macOS 14 ili noviji",
+      "primaryCta": "Preuzmi .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 ili noviji · x64",
+      "primaryCta": "Preuzmi instalacijski program"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian ili Ubuntu · x64 · pokreni pomoću sh",
+      "primaryCta": "Preuzmi korisnički instalacijski program"
     }
   }
 }

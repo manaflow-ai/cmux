@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Mac용 다운로드",
+    "browserNightly": "cmux 브라우저 nightly",
     "viewOnGitHub": "GitHub에서 보기",
     "closeMenu": "메뉴 닫기",
     "openMenu": "메뉴 열기",
@@ -3598,6 +3599,38 @@
       "primaryCta": ".deb 다운로드",
       "requirements": "Debian 또는 Ubuntu · x64",
       "installBody": "Debian 패키지를 다운로드하여 패키지 관리자로 설치하세요. 사용자별 설치와 앱 내 업데이트가 필요하면 포터블 ZIP을 선택하세요."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Mac, Windows, Linux용 cmux 브라우저 nightly 다운로드",
+    "metaDescription": "macOS, Windows, Linux용으로 서명된 cmux 브라우저 nightly 빌드를 다운로드하고 하나의 공개 릴리스 채널에서 자동 업데이트를 받으세요.",
+    "eyebrow": "cmux 브라우저",
+    "title": "Nightly 다운로드",
+    "tagline": "Mac, Windows, Linux를 위한 하나의 Chromium 작업 공간.",
+    "subtitle": "Nightly 빌드는 공개 cmux-v2 릴리스 채널에서 자동으로 업데이트됩니다. 패키지, 플랫폼 기본 서명, 업데이트 경로가 릴리스 검증을 통과한 플랫폼만 다운로드할 수 있습니다.",
+    "logoAlt": "cmux 브라우저 앱 아이콘",
+    "readyStatus": "다운로드 가능",
+    "pendingStatus": "릴리스 검증 진행 중",
+    "portableCta": "포터블 업데이트 ZIP",
+    "updatesTitle": "자동 업데이트",
+    "updatesBody": "cmux는 암호학적으로 서명된 매니페스트를 확인하고 패키지 크기와 SHA-256 다이제스트를 검증한 뒤 새 버전을 준비하여 재시작을 승인하면 교체합니다.",
+    "licenseBody": "각 릴리스에는 오픈 소스 구성 요소에 필요한 라이선스 고지와 대응 소스가 포함됩니다. cmux-v2 저장소의 독자적인 배포 파일은 현재 독점 자료로 유지됩니다.",
+    "releaseLink": "Nightly 릴리스 세부 정보",
+    "sourceLink": "소스 및 라이선스 공개",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 이상",
+      "primaryCta": ".dmg 다운로드"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 이상 · x64",
+      "primaryCta": "설치 프로그램 다운로드"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian 또는 Ubuntu · x64 · sh로 실행",
+      "primaryCta": "사용자 설치 프로그램 다운로드"
     }
   }
 }

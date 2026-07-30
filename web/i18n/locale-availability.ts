@@ -5,11 +5,6 @@ export const featureWorkflowContentLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
-export const browserNightlyContentLocales = [
-  "en",
-  "ja",
-] as const satisfies readonly Locale[];
-
 export const featureWorkflowDocPaths = [
   "/docs/vault",
   "/docs/task-manager",
@@ -62,14 +57,6 @@ export function hasFeatureWorkflowContent(
 ): locale is (typeof featureWorkflowContentLocales)[number] {
   return featureWorkflowContentLocales.includes(
     locale as (typeof featureWorkflowContentLocales)[number],
-  );
-}
-
-export function hasBrowserNightlyContent(
-  locale: string,
-): locale is (typeof browserNightlyContentLocales)[number] {
-  return browserNightlyContentLocales.includes(
-    locale as (typeof browserNightlyContentLocales)[number],
   );
 }
 

@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "下載 Mac 版",
+    "browserNightly": "cmux 瀏覽器 nightly",
     "viewOnGitHub": "在 GitHub 上查看",
     "closeMenu": "關閉選單",
     "openMenu": "開啟選單",
@@ -3600,6 +3601,38 @@
       "primaryCta": "下載 .deb",
       "requirements": "Debian 或 Ubuntu · x64",
       "installBody": "下載 Debian 套件並使用套件管理員安裝。若要進行每位使用者安裝和 App 內更新，請選擇可攜式 ZIP。"
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "下載 Mac、Windows 和 Linux 版 cmux 瀏覽器 nightly",
+    "metaDescription": "下載適用於 macOS、Windows 和 Linux 的已簽署 cmux 瀏覽器 nightly 組建，並透過同一個公開發佈通道自動更新。",
+    "eyebrow": "cmux 瀏覽器",
+    "title": "Nightly 下載",
+    "tagline": "一個適用於 Mac、Windows 和 Linux 的 Chromium 工作區。",
+    "subtitle": "Nightly 組建會從公開的 cmux-v2 發佈通道自動更新。只有在套件、平台原生簽章和更新路徑通過發佈驗證後，該平台才會開放下載。",
+    "logoAlt": "cmux 瀏覽器 App 圖示",
+    "readyStatus": "可供下載",
+    "pendingStatus": "正在進行發佈驗證",
+    "portableCta": "可攜式更新 ZIP",
+    "updatesTitle": "自動更新",
+    "updatesBody": "cmux 會檢查經過密碼學簽署的資訊清單，驗證套件大小和 SHA-256 摘要，暫存新版本，並在你核准重新啟動時完成替換。",
+    "licenseBody": "每個版本都包含其開放原始碼元件所需的授權聲明和對應原始碼。cmux-v2 儲存庫原創的發佈檔案目前仍為專有材料。",
+    "releaseLink": "Nightly 版本詳細資料",
+    "sourceLink": "原始碼與授權揭露",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple 晶片 · macOS 14 或更新版本",
+      "primaryCta": "下載 .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 或更新版本 · x64",
+      "primaryCta": "下載安裝程式"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian 或 Ubuntu · x64 · 使用 sh 執行",
+      "primaryCta": "下載使用者安裝程式"
     }
   }
 }

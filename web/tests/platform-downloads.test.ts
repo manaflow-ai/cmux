@@ -13,12 +13,7 @@ import {
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
 import { locales } from "../i18n/routing";
-import {
-  browserNightlyContentLocales,
-  hasBrowserNightlyContent,
-} from "../i18n/locale-availability";
 import en from "../messages/en.json";
-import ja from "../messages/ja.json";
 
 const MESSAGE_DIRECTORY = fileURLToPath(
   new URL("../messages/", import.meta.url),
@@ -67,19 +62,6 @@ describe("Windows and Linux downloads", () => {
     expect(BROWSER_NIGHTLY_DOWNLOADS.linux.primary.url).toEndWith(
       "/releases/download/nightly/cmux-linux-x64-installer.run",
     );
-  });
-
-  test("keeps the nightly page complete in English and Japanese", () => {
-    expect(messageShape(ja.browserNightly)).toEqual(
-      messageShape(en.browserNightly),
-    );
-    for (const [key, english] of Object.entries(
-      leafStrings(en.browserNightly),
-    )) {
-      const localized = leafStrings(ja.browserNightly)[key];
-      expect(localized.length).toBeGreaterThan(0);
-      expect(messageTokens(localized)).toEqual(messageTokens(english));
-    }
   });
 
   test("keeps direct links and waitlists coherent for every release state", () => {
@@ -153,6 +135,32 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
+  test("keeps every locale's nightly copy complete and token-compatible", async () => {
+    const englishLeaves = leafStrings(en.browserNightly);
+
+    for (const locale of locales) {
+      const catalog = JSON.parse(
+        await readFile(join(MESSAGE_DIRECTORY, `${locale}.json`), "utf8"),
+      );
+      const localizedLeaves = leafStrings(catalog.browserNightly);
+
+      expect(messageShape(catalog.browserNightly)).toEqual(
+        messageShape(en.browserNightly),
+      );
+      expect(Object.keys(localizedLeaves)).toEqual(Object.keys(englishLeaves));
+      for (const [key, english] of Object.entries(englishLeaves)) {
+        const localized = localizedLeaves[key];
+        expect(localized.length).toBeGreaterThan(0);
+        expect(messageTokens(localized)).toEqual(messageTokens(english));
+      }
+
+      expect(catalog.common.browserNightly.length).toBeGreaterThan(0);
+      expect(messageTokens(catalog.common.browserNightly)).toEqual(
+        messageTokens(en.common.browserNightly),
+      );
+    }
+  });
+
   test("keeps unavailable platform pages out of the sitemap", () => {
     for (const path of ["/windows", "/linux"]) {
       expect(
@@ -163,18 +171,12 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
-  test("publishes the nightly status page only in authored locales", () => {
+  test("publishes the all-platform nightly status page in every locale", () => {
     expect(
       sitemap().filter((entry) =>
         new URL(entry.url).pathname.endsWith("/browser"),
       ),
-    ).toHaveLength(browserNightlyContentLocales.length);
-    expect(browserNightlyContentLocales).toEqual(["en", "ja"]);
-    for (const locale of locales) {
-      expect(hasBrowserNightlyContent(locale)).toBe(
-        locale === "en" || locale === "ja",
-      );
-    }
+    ).toHaveLength(locales.length);
   });
 
   test("wraps long localized installer labels on narrow screens", async () => {

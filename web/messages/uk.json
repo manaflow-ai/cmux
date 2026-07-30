@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Завантажити для Mac",
+    "browserNightly": "Нічна збірка cmux Browser",
     "viewOnGitHub": "Переглянути на GitHub",
     "closeMenu": "Закрити меню",
     "openMenu": "Відкрити меню",
@@ -3683,6 +3684,38 @@
       "primaryCta": "Завантажити .deb",
       "requirements": "Debian або Ubuntu · x64",
       "installBody": "Завантажте пакет Debian і встановіть його за допомогою менеджера пакетів. Виберіть портативний ZIP для встановлення окремо для користувача й оновлень у застосунку."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Завантажити нічну збірку cmux Browser для Mac, Windows і Linux",
+    "metaDescription": "Завантажуйте підписані нічні збірки cmux Browser для macOS, Windows і Linux з автоматичними оновленнями з єдиного публічного каналу.",
+    "eyebrow": "cmux Browser",
+    "title": "Нічні збірки",
+    "tagline": "Єдиний робочий простір Chromium для Mac, Windows і Linux.",
+    "subtitle": "Нічні збірки автоматично оновлюються з публічного каналу cmux-v2. Платформа стає доступною лише після перевірки пакета, нативного підпису та шляху оновлення.",
+    "logoAlt": "Піктограма застосунку cmux Browser",
+    "readyStatus": "Готово до завантаження",
+    "pendingStatus": "Триває перевірка випуску",
+    "portableCta": "Портативний ZIP оновлення",
+    "updatesTitle": "Автоматичні оновлення",
+    "updatesBody": "cmux перевіряє криптографічно підписаний маніфест, розмір пакета й хеш SHA-256, готує нову версію та замінює поточну після підтвердження перезапуску.",
+    "licenseBody": "Кожен випуск містить ліцензійні повідомлення й відповідний вихідний код, потрібні його компонентам із відкритим кодом. Оригінальні файли дистрибутива репозиторію cmux-v2 поки залишаються пропрієтарними.",
+    "releaseLink": "Відомості про нічний випуск",
+    "sourceLink": "Вихідний код і ліцензії",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 або новіша",
+      "primaryCta": "Завантажити .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 або новіша · x64",
+      "primaryCta": "Завантажити інсталятор"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian або Ubuntu · x64 · запуск через sh",
+      "primaryCta": "Завантажити інсталятор користувача"
     }
   }
 }

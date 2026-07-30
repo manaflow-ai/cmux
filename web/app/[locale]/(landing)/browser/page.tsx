@@ -1,6 +1,5 @@
 import Image from "next/image";
 import { getTranslations } from "next-intl/server";
-import { notFound } from "next/navigation";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
 import {
   ctaButtonBase,
@@ -22,10 +21,6 @@ import {
   buildAlternates,
   seoDescription,
 } from "@/i18n/seo";
-import {
-  browserNightlyContentLocales,
-  hasBrowserNightlyContent,
-} from "@/i18n/locale-availability";
 
 const PLATFORMS = ["macos", "windows", "linux"] as const;
 
@@ -35,13 +30,8 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  if (!hasBrowserNightlyContent(locale)) notFound();
   const t = await getTranslations({ locale, namespace: "browserNightly" });
-  const alternates = buildAlternates(
-    locale,
-    "/browser",
-    browserNightlyContentLocales,
-  );
+  const alternates = buildAlternates(locale, "/browser");
   const title = t("metaTitle");
   const description = seoDescription(locale, t("metaDescription"));
 
@@ -59,14 +49,8 @@ export async function generateMetadata({
   };
 }
 
-export default async function BrowserNightlyPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
-  if (!hasBrowserNightlyContent(locale)) notFound();
-  const t = await getTranslations({ locale, namespace: "browserNightly" });
+export default async function BrowserNightlyPage() {
+  const t = await getTranslations("browserNightly");
 
   return (
     <div className="min-h-screen">

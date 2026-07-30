@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Baixar para Mac",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "Ver no GitHub",
     "closeMenu": "Fechar menu",
     "openMenu": "Abrir menu",
@@ -3601,6 +3602,38 @@
       "primaryCta": "Baixar .deb",
       "requirements": "Debian ou Ubuntu · x64",
       "installBody": "Baixe o pacote Debian e instale-o com seu gerenciador de pacotes. Escolha o ZIP portátil para uma instalação por usuário e atualizações dentro do aplicativo."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Baixe o cmux Browser nightly para Mac, Windows e Linux",
+    "metaDescription": "Baixe builds nightly assinadas do cmux Browser para macOS, Windows e Linux, com atualizações automáticas por um único canal público.",
+    "eyebrow": "cmux Browser",
+    "title": "Downloads nightly",
+    "tagline": "Um espaço de trabalho Chromium para Mac, Windows e Linux.",
+    "subtitle": "As builds nightly são atualizadas automaticamente pelo canal público cmux-v2. Uma plataforma só é liberada aqui depois que o pacote, a assinatura nativa e o caminho de atualização passam pela verificação.",
+    "logoAlt": "Ícone do aplicativo cmux Browser",
+    "readyStatus": "Pronto para baixar",
+    "pendingStatus": "Verificação da versão em andamento",
+    "portableCta": "ZIP portátil de atualização",
+    "updatesTitle": "Atualizações automáticas",
+    "updatesBody": "O cmux confere um manifesto assinado criptograficamente, verifica o tamanho e o resumo SHA-256 do pacote, prepara a nova versão e faz a troca quando você aprova a reinicialização.",
+    "licenseBody": "Cada versão inclui os avisos de licença e o código-fonte correspondente exigidos por seus componentes de código aberto. Os arquivos de distribuição originais do repositório cmux-v2 continuam proprietários por enquanto.",
+    "releaseLink": "Detalhes da versão nightly",
+    "sourceLink": "Código-fonte e licenças",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 ou posterior",
+      "primaryCta": "Baixar .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 ou posterior · x64",
+      "primaryCta": "Baixar instalador"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian ou Ubuntu · x64 · execute com sh",
+      "primaryCta": "Baixar instalador de usuário"
     }
   }
 }
