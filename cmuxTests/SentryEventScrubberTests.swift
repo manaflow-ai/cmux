@@ -244,6 +244,15 @@ import Testing
         )
     }
 
+    @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(
