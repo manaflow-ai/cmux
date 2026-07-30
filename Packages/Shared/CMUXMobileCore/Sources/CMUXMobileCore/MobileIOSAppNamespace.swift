@@ -60,11 +60,6 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
         "cmux-ios-\(bundleIdentifier)"
     }
 
-    /// The private OAuth callback scheme used only by this app's browser flow.
-    public var oauthCallbackURLScheme: String {
-        "cmux-ios-auth-\(bundleIdentifier)"
-    }
-
     /// Opaque server partition for data restored to this exact app bundle.
     public var serverScope: String {
         let encoded = Data(bundleIdentifier.utf8)

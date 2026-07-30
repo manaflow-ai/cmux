@@ -539,6 +539,79 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored?.revokedReason).toBe("user_requested");
   });
 
+  dbTest("isolates iOS discovery while Mac admission sees iOS peers", async () => {
+    const repo = requiredRepository();
+    const userId = "user-namespace-discovery";
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.internal',
+          'stable',
+          'ios',
+          ${"3a".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'dev.cmux.app.demo',
+          'stable',
+          'ios',
+          ${"3b".repeat(32)},
+          1
+        ),
+        (
+          ${userId},
+          ${randomUUID()},
+          ${randomUUID()},
+          'mac:stable',
+          'stable',
+          'mac',
+          ${"3c".repeat(32)},
+          1
+        )
+      returning id, client_namespace as "clientNamespace"
+    `;
+    const idByNamespace = new Map(
+      rows.map((row) => [row.clientNamespace, row.id]),
+    );
+
+    const demo = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "dev.cmux.app.demo",
+      now: NOW,
+    }));
+    expect(demo.bindings.map((row) => row.id).sort()).toEqual([
+      idByNamespace.get("dev.cmux.app.demo"),
+      idByNamespace.get("mac:stable"),
+    ].sort());
+
+    const mac = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      clientNamespace: "mac:stable",
+      now: NOW,
+    }));
+    expect(mac.bindings.map((row) => row.id).sort()).toEqual(
+      [...idByNamespace.values()].sort(),
+    );
+  });
+
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
     const repo = requiredRepository();
     const userId = "user-private-registration-hints";

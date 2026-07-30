@@ -24,20 +24,17 @@ public struct StackAuthClient: AuthClient {
     ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
     ///     simulator DEBUG flow and `.keychain` for real devices/release.
     ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
-    ///   - oauthCallbackScheme: The callback channel owned by this app bundle.
     public init(
         config: AuthConfig,
         tokenStore: TokenStoreInit,
-        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
-        oauthCallbackScheme: String = "stack-auth-mobile-oauth-url"
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.init(
             stack: StackClientApp(
                 projectId: config.stack.projectId,
                 publishableClientKey: config.stack.publishableClientKey,
                 tokenStore: tokenStore,
-                oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy,
-                oauthCallbackScheme: oauthCallbackScheme
+                oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
             )
         )
     }

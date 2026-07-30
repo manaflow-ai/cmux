@@ -564,6 +564,11 @@ function makeLiveRepository(): IrohRepositoryShape {
 
     discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
       return await cloudDb().transaction(async (tx) => {
+        const clientNamespace = input.clientNamespace ?? "legacy";
+        // iOS callers see only their exact iOS namespace plus Mac hosts. Mac
+        // hosts see iOS initiators because online admission must revalidate the
+        // signed peer binding. No iOS caller can discover a sibling iOS build.
+        const peerPlatform = clientNamespace.startsWith("mac:") ? "ios" : "mac";
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const [state] = await tx
@@ -583,9 +588,9 @@ function makeLiveRepository(): IrohRepositoryShape {
             or(
               eq(
                 irohEndpointBindings.clientNamespace,
-                input.clientNamespace ?? "legacy",
+                clientNamespace,
               ),
-              eq(irohEndpointBindings.platform, "mac"),
+              eq(irohEndpointBindings.platform, peerPlatform),
             ),
             isNull(irohEndpointBindings.revokedAt),
           ))

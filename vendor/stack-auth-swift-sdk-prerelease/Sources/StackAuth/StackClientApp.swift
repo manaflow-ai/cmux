@@ -37,8 +37,6 @@ public enum OAuthBrowserSessionPrivacy: Equatable, Sendable {
 public actor StackClientApp {
     public let projectId: String
     public let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy
-    /// The custom URL scheme captured by this client's OAuth browser session.
-    public let oauthCallbackScheme: String
     
     let client: APIClient
     private let baseUrl: String
@@ -51,13 +49,11 @@ public actor StackClientApp {
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .keychain,
         noAutomaticPrefetch: Bool = false,
-        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
-        oauthCallbackScheme: String = "stack-auth-mobile-oauth-url"
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
         self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
-        self.oauthCallbackScheme = oauthCallbackScheme
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -99,13 +95,11 @@ public actor StackClientApp {
         baseUrl: String = "https://api.stack-auth.com",
         tokenStore: TokenStoreInit = .memory,
         noAutomaticPrefetch: Bool = false,
-        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared,
-        oauthCallbackScheme: String = "stack-auth-mobile-oauth-url"
+        oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .shared
     ) {
         self.projectId = projectId
         self.baseUrl = baseUrl
         self.oauthBrowserSessionPrivacy = oauthBrowserSessionPrivacy
-        self.oauthCallbackScheme = oauthCallbackScheme
         
         let store: any TokenStoreProtocol
         var hasDefault = true
@@ -293,7 +287,10 @@ public actor StackClientApp {
             return
         }
 
-        let callbackScheme = oauthCallbackScheme
+        // Stack authorizes this exact redirect protocol. AuthenticationServices
+        // scopes its callback to the initiating session even when installed apps
+        // share the protocol; the ephemeral browser session isolates cookies.
+        let callbackScheme = "stack-auth-mobile-oauth-url"
         let oauth = try await getOAuthUrl(
             provider: provider,
             redirectUrl: callbackScheme + "://success",

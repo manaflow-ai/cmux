@@ -99,9 +99,7 @@ public struct MobileAuthComposition {
                 accessGroup: keychainAccessGroup,
                 legacyProjectID: resolvedConfig.stack.projectId
             ),
-            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy,
-            oauthCallbackScheme: appNamespace?.oauthCallbackURLScheme
-                ?? "cmux-ios-auth-invalid-bundle"
+            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(

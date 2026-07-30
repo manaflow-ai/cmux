@@ -618,6 +618,15 @@ describe("Iroh discovery and grants", () => {
       mac.id,
     ]);
 
+    const macDiscovered = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW, "mac:stable"),
+    ) as { bindings: Array<{ binding_id: string }> };
+    expect(macDiscovered.bindings.map((row) => row.binding_id)).toEqual([
+      internal.id,
+      demo.id,
+      mac.id,
+    ]);
+
     const legacyDiscovered = await Effect.runPromise(
       fixture.broker.discover(USER_A, NOW),
     ) as { bindings: Array<{ binding_id: string }> };
@@ -1005,13 +1014,15 @@ class MemoryRepository implements IrohRepositoryShape {
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
+      const clientNamespace = input.clientNamespace ?? "legacy";
+      const peerPlatform = clientNamespace.startsWith("mac:") ? "ios" : "mac";
       return {
         bindings: this.bindings.filter((row) =>
           row.userId === input.userId &&
           !row.revokedAt &&
           (
-            row.clientNamespace === (input.clientNamespace ?? "legacy") ||
-            row.platform === "mac"
+            row.clientNamespace === clientNamespace ||
+            row.platform === peerPlatform
           )),
         lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
       };
