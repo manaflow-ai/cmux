@@ -4,7 +4,7 @@ use std::fs::File;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Condvar, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -445,9 +445,16 @@ impl PersistenceFailure {
 }
 
 struct PersistenceCoordinator {
+    shared: Arc<PersistenceWorkerShared>,
+    worker: StdMutex<Option<std::thread::JoinHandle<()>>>,
+    #[cfg(test)]
+    hooks: Arc<PersistenceTestHooks>,
+}
+
+struct PersistenceWorkerShared {
     path: PathBuf,
-    state_lease: Arc<OwnerFileLock>,
     state: StdMutex<PersistenceCoordinatorState>,
+    changed: Condvar,
     #[cfg(test)]
     hooks: Arc<PersistenceTestHooks>,
 }
@@ -459,14 +466,19 @@ struct PersistenceCoordinatorState {
     pending: BTreeMap<u64, PersistedState>,
     waiters: BTreeMap<u64, Vec<oneshot::Sender<Result<(), PersistenceFailure>>>>,
     last_failure: Option<(u64, PersistenceFailure)>,
-    worker_running: bool,
+    closing: bool,
 }
 
 impl PersistenceCoordinator {
-    fn new(path: PathBuf, durable_revision: u64, state_lease: OwnerFileLock) -> Self {
-        Self {
+    fn new(
+        path: PathBuf,
+        durable_revision: u64,
+        state_lease: OwnerFileLock,
+    ) -> Result<Self, IdentityError> {
+        #[cfg(test)]
+        let hooks = Arc::new(PersistenceTestHooks::default());
+        let shared = Arc::new(PersistenceWorkerShared {
             path,
-            state_lease: Arc::new(state_lease),
             state: StdMutex::new(PersistenceCoordinatorState {
                 durable_revision,
                 highest_seen_revision: durable_revision,
@@ -474,24 +486,43 @@ impl PersistenceCoordinator {
                 pending: BTreeMap::new(),
                 waiters: BTreeMap::new(),
                 last_failure: None,
-                worker_running: false,
+                closing: false,
             }),
+            changed: Condvar::new(),
             #[cfg(test)]
-            hooks: Arc::new(PersistenceTestHooks::default()),
-        }
+            hooks: hooks.clone(),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let worker = std::thread::Builder::new()
+            .name("cmux-auth-persistence".into())
+            .spawn(move || {
+                let _state_lease = state_lease;
+                worker_shared.drain();
+            })
+            .map_err(IdentityError::Io)?;
+        Ok(Self {
+            shared,
+            worker: StdMutex::new(Some(worker)),
+            #[cfg(test)]
+            hooks,
+        })
     }
 
     /// Accept a snapshot synchronously so cancellation at the caller's next
     /// await cannot discard an in-memory mutation.
-    fn submit(self: &Arc<Self>, snapshot: PersistedState) -> PersistenceWaiter {
+    fn submit(&self, snapshot: PersistedState) -> PersistenceWaiter {
         let revision = snapshot.revision;
         let (sender, receiver) = oneshot::channel();
         let mut sender = Some(sender);
         let mut immediate = None;
-        let mut spawn_worker = false;
+        let mut wake_worker = false;
         {
             let mut state = self.lock_state();
-            if revision <= state.durable_revision {
+            if state.closing {
+                immediate = Some(Err(PersistenceFailure::Uncommitted(
+                    "identity persistence coordinator is shutting down".into(),
+                )));
+            } else if revision <= state.durable_revision {
                 immediate = Some(Ok(()));
             } else {
                 let covered_by_newer_work =
@@ -528,10 +559,7 @@ impl PersistenceCoordinator {
                         .push(sender.take().expect("persistence waiter is available"));
                     if !covered_by_newer_work {
                         state.pending.insert(revision, snapshot);
-                    }
-                    if !state.worker_running {
-                        state.worker_running = true;
-                        spawn_worker = true;
+                        wake_worker = true;
                     }
                 }
             }
@@ -539,59 +567,89 @@ impl PersistenceCoordinator {
         if let Some(result) = immediate {
             let _ = sender.expect("immediate persistence waiter is available").send(result);
         }
-        if spawn_worker {
-            let coordinator = Arc::clone(self);
-            tokio::spawn(async move {
-                coordinator.drain().await;
-            });
+        if wake_worker {
+            self.shared.changed.notify_one();
         }
         PersistenceWaiter { receiver }
     }
 
-    async fn drain(self: Arc<Self>) {
+    fn close_and_join(&self) -> Result<(), IdentityError> {
+        {
+            let mut state = self.lock_state();
+            state.closing = true;
+        }
+        self.shared.changed.notify_all();
+        let mut worker = self.worker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(worker) = worker.take() else {
+            return Ok(());
+        };
+        worker
+            .join()
+            .map_err(|_| IdentityError::Persistence("identity persistence worker panicked".into()))
+    }
+
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, PersistenceCoordinatorState> {
+        self.shared.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn durable_revision_at_least(&self, revision: u64) -> bool {
+        self.lock_state().durable_revision >= revision
+    }
+
+    #[cfg(test)]
+    fn durable_revision(&self) -> u64 {
+        self.lock_state().durable_revision
+    }
+}
+
+impl Drop for PersistenceCoordinator {
+    fn drop(&mut self) {
+        let _ = self.close_and_join();
+    }
+}
+
+impl PersistenceWorkerShared {
+    fn drain(self: Arc<Self>) {
         loop {
-            let Some((revision, snapshot)) = ({
-                let mut state = self.lock_state();
+            let next = {
+                let mut state =
+                    self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                while state.pending.is_empty() && !state.closing {
+                    state =
+                        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+                }
                 let next = state.pending.pop_first();
                 if let Some((revision, _)) = &next {
                     state.in_flight = Some(*revision);
-                } else {
-                    state.worker_running = false;
                 }
                 next
-            }) else {
+            };
+            let Some((revision, snapshot)) = next else {
                 return;
             };
 
-            let path = self.path.clone();
-            let state_lease = Arc::clone(&self.state_lease);
             #[cfg(test)]
-            let hooks = self.hooks.clone();
-            let result = tokio::task::spawn_blocking(move || -> Result<(), PersistenceFailure> {
-                let _state_lease = state_lease;
-                #[cfg(test)]
-                hooks.before_write(revision).map_err(PersistenceFailure::Uncommitted)?;
-                #[cfg(test)]
-                FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| {
-                    fail.set(hooks.take_parent_sync_failure());
+            let result = self
+                .hooks
+                .before_write(revision)
+                .map_err(PersistenceFailure::Uncommitted)
+                .and_then(|()| {
+                    FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| {
+                        fail.set(self.hooks.take_parent_sync_failure());
+                    });
+                    let result = atomic_json(&self.path, &snapshot)
+                        .map_err(PersistenceFailure::from_identity_error);
+                    FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
+                    self.hooks.after_write(result.is_ok());
+                    result
                 });
-                let result =
-                    atomic_json(&path, &snapshot).map_err(PersistenceFailure::from_identity_error);
-                #[cfg(test)]
-                FAIL_ATOMIC_JSON_PARENT_SYNC.with(|fail| fail.set(false));
-                #[cfg(test)]
-                hooks.after_write(result.is_ok());
-                result
-            })
-            .await
-            .unwrap_or_else(|error| {
-                Err(PersistenceFailure::Uncommitted(format!(
-                    "identity persistence worker failed to join: {error}"
-                )))
-            });
+            #[cfg(not(test))]
+            let result =
+                atomic_json(&self.path, &snapshot).map_err(PersistenceFailure::from_identity_error);
 
             let waiters = {
-                let mut state = self.lock_state();
+                let mut state =
+                    self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 debug_assert_eq!(state.in_flight, Some(revision));
                 state.in_flight = None;
                 match &result {
@@ -618,19 +676,6 @@ impl PersistenceCoordinator {
             }
         }
     }
-
-    fn lock_state(&self) -> std::sync::MutexGuard<'_, PersistenceCoordinatorState> {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn durable_revision_at_least(&self, revision: u64) -> bool {
-        self.lock_state().durable_revision >= revision
-    }
-
-    #[cfg(test)]
-    fn durable_revision(&self) -> u64 {
-        self.lock_state().durable_revision
-    }
 }
 
 fn take_waiters_through(
@@ -653,7 +698,7 @@ struct PersistenceTestHooks {
     fail_next_parent_sync: std::sync::atomic::AtomicUsize,
     started_revisions: StdMutex<Vec<u64>>,
     blocked: StdMutex<bool>,
-    released: std::sync::Condvar,
+    released: Condvar,
     started: Notify,
 }
 
@@ -787,7 +832,7 @@ impl AuthDatabase {
         let persisted = load_state(&state_path)?;
         let (revocation_tx, _) = watch::channel(persisted.revocation_generation);
         let persistence =
-            Arc::new(PersistenceCoordinator::new(state_path, persisted.revision, state_lease));
+            Arc::new(PersistenceCoordinator::new(state_path, persisted.revision, state_lease)?);
         Ok(Arc::new(Self {
             state_dir,
             daemon_name: daemon_name.into(),
@@ -812,6 +857,26 @@ impl AuthDatabase {
 
     pub fn subscribe_revocations(&self) -> watch::Receiver<u64> {
         self.revocation_tx.subscribe()
+    }
+
+    /// Stop accepting authorization mutations, durably flush the final
+    /// accepted revision, and join the persistence owner before process exit.
+    pub async fn shutdown(&self) -> Result<(), IdentityError> {
+        let final_write = {
+            let mut state = self.state.lock().await;
+            if state.closing {
+                None
+            } else {
+                state.closing = true;
+                Some(self.persistence.submit(state.to_persisted()))
+            }
+        };
+        let persistence_result = match final_write {
+            Some(final_write) => final_write.wait().await,
+            None => Ok(()),
+        };
+        let join_result = self.persistence.close_and_join();
+        persistence_result.and(join_result)
     }
 
     pub async fn create_invitation(
@@ -843,6 +908,7 @@ impl AuthDatabase {
         let mut secret = [0_u8; 32];
         getrandom::fill(&mut secret).map_err(|error| IdentityError::Random(error.to_string()))?;
         let mut state = self.state.lock().await;
+        state.ensure_open()?;
         state.prune_invitations(now);
         state.invitations.insert(
             id.clone(),
@@ -948,6 +1014,7 @@ impl AuthDatabase {
     async fn approve_durably(&self, invitation_id: &str) -> Result<DeviceRecord, IdentityError> {
         let now = unix_time()?;
         let mut state = self.state.lock().await;
+        state.ensure_open()?;
         let pending = state
             .pending
             .remove(invitation_id)
@@ -1025,6 +1092,7 @@ impl AuthDatabase {
     pub async fn deny(&self, invitation_id: &str) -> Result<(), IdentityError> {
         let (decision, persistence) = {
             let mut state = self.state.lock().await;
+            state.ensure_open()?;
             let pending = state
                 .pending
                 .remove(invitation_id)
@@ -1057,6 +1125,7 @@ impl AuthDatabase {
         let now = unix_time()?;
         let (generation, persistence) = {
             let mut state = self.state.lock().await;
+            state.ensure_open()?;
             let device = state
                 .devices
                 .get_mut(device_id)
@@ -1088,6 +1157,7 @@ impl AuthDatabase {
         let key = (device_id.to_string(), connection_attempt);
         let persistence = {
             let mut state = self.state.lock().await;
+            state.ensure_open()?;
             if let Some(revision) = state.recorded_connection_attempts.get(&key).copied() {
                 if self.persistence.durable_revision_at_least(revision) {
                     return Ok(());
@@ -1190,6 +1260,7 @@ impl AuthDatabase {
         &self,
         state: &mut AuthState,
     ) -> Result<PersistenceWaiter, IdentityError> {
+        debug_assert!(!state.closing);
         let snapshot = state.snapshot_after_mutation()?;
         Ok(self.persistence.submit(snapshot))
     }
@@ -1279,6 +1350,7 @@ impl ServerAuthenticator for AuthDatabase {
                 let (decision_tx, decision_rx) = oneshot::channel();
                 {
                     let mut state = self.state.lock().await;
+                    state.ensure_open().map_err(|error| error.to_string())?;
                     let invitation = state
                         .invitations
                         .get(&invitation_id)
@@ -1340,6 +1412,7 @@ impl ServerAuthenticator for AuthDatabase {
 struct AuthState {
     revision: u64,
     revocation_generation: u64,
+    closing: bool,
     devices: HashMap<String, DeviceRecord>,
     invitations: HashMap<String, InvitationRecord>,
     pending: HashMap<String, PendingDecision>,
@@ -1353,6 +1426,7 @@ impl AuthState {
         Self {
             revision: persisted.revision,
             revocation_generation: persisted.revocation_generation,
+            closing: false,
             devices: persisted
                 .devices
                 .into_iter()
@@ -1386,6 +1460,13 @@ impl AuthState {
             .checked_add(1)
             .ok_or_else(|| IdentityError::Invalid("identity revision exhausted".into()))?;
         Ok(self.to_persisted())
+    }
+
+    fn ensure_open(&self) -> Result<(), IdentityError> {
+        if self.closing {
+            return Err(IdentityError::Persistence("authorization state is shutting down".into()));
+        }
+        Ok(())
     }
 
     fn to_persisted(&self) -> PersistedState {
@@ -1989,7 +2070,7 @@ mod tests {
             .expect("persistence writer did not start");
         mutation.abort();
         assert!(mutation.await.unwrap_err().is_cancelled());
-        drop(database);
+        let drop_thread = std::thread::spawn(move || drop(database));
 
         let successor = AuthDatabase::load_or_create(temp.path(), "successor", false);
         assert!(
@@ -2002,6 +2083,7 @@ mod tests {
         );
 
         drop(blocked);
+        drop_thread.join().unwrap();
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 match AuthDatabase::load_or_create(temp.path(), "successor", false) {
@@ -2115,8 +2197,9 @@ mod tests {
         let blocked = PersistenceReleaseGuard(hooks);
 
         runtime.shutdown_timeout(Duration::from_millis(10));
-        drop(database);
+        let drop_thread = std::thread::spawn(move || drop(database));
         drop(blocked);
+        drop_thread.join().unwrap();
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         loop {
             match AuthDatabase::load_or_create(temp.path(), "successor", false) {
@@ -2138,6 +2221,67 @@ mod tests {
         let persisted = load_state(&temp.path().join("devices.json")).unwrap();
         assert_eq!(persisted.revision, 2);
         assert_eq!(persisted.invitations.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn auth_shutdown_drains_accepted_revisions_and_releases_the_state_lease() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        let first = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("first persistence write did not start");
+        let second = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.revision == 2 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second authorization revision was not accepted");
+
+        let shutdown = tokio::spawn({
+            let database = database.clone();
+            async move { database.shutdown().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.closing {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("authorization mutation admission did not close");
+        let rejected =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap_err();
+        assert!(
+            matches!(rejected, IdentityError::Persistence(message) if message.contains("shutting down"))
+        );
+
+        drop(blocked);
+        shutdown.await.unwrap().unwrap();
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+        database.shutdown().await.unwrap();
+
+        let successor = AuthDatabase::load_or_create(temp.path(), "successor", false)
+            .expect("joined persistence worker retained the state lease");
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.revision, 2);
+        assert_eq!(persisted.invitations.len(), 2);
+        drop(successor);
     }
 
     #[test]
@@ -2501,7 +2645,8 @@ mod tests {
         let path = temp.path().join("devices.json");
         let lease_path = sibling_lock_path(&path).unwrap();
         let state_lease = OwnerFileLock::try_acquire(&lease_path).unwrap();
-        let coordinator = Arc::new(PersistenceCoordinator::new(path.clone(), 0, state_lease));
+        let coordinator =
+            Arc::new(PersistenceCoordinator::new(path.clone(), 0, state_lease).unwrap());
         let blocked = PersistenceReleaseGuard::new(coordinator.hooks.clone());
         let device = DeviceRecord {
             id: "device".into(),

@@ -1782,6 +1782,7 @@ async fn run_daemon(
             server.shutdown().await?;
         }
         unix.shutdown().await;
+        auth.shutdown().await?;
         let _ = fs::remove_file(state_dir.join("runtime.json"));
         Ok::<_, anyhow::Error>(())
     }
