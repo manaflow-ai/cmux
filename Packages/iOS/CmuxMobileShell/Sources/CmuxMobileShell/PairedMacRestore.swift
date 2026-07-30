@@ -93,11 +93,20 @@ public struct PairedMacRestore: Sendable {
         // behavior. They no longer remove or suppress local paired-Mac rows.
         // Locally pending deletes remain authoritative until their outbox flushes.
         let pendingDeleteIDs = Set(locallyDeletedMacDeviceIDs.compactMap(canonicalPairingID))
+        // A TAG-LESS pending delete is a device-wide (wildcard) forget — the
+        // only flow that creates one — so it suppresses EVERY tag of its
+        // device, matching the broker revoke's tag-blind breadth. An exact
+        // tagged pending delete suppresses only its own pairing.
+        let wildcardDeletedDevices = Set(pendingDeleteIDs.compactMap { pairingID -> String? in
+            let identity = MobilePairedMac.pairingIdentity(from: pairingID)
+            guard identity.instanceTag == nil else { return nil }
+            return cmxCanonicalDeviceID(identity.macDeviceID)
+        })
         let liveRecords = snapshot.records.filter { record in
             !pendingDeleteIDs.contains(MobilePairedMac.pairingID(
                 macDeviceID: record.macDeviceID,
                 instanceTag: record.instanceTag
-            ))
+            )) && !wildcardDeletedDevices.contains(cmxCanonicalDeviceID(record.macDeviceID))
         }
         guard !liveRecords.isEmpty || !pendingDeleteIDs.isEmpty else {
             return RestoreOutcome(completed: true, restored: 0)

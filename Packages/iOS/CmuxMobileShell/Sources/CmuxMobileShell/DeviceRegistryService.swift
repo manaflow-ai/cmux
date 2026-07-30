@@ -173,6 +173,24 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         )
     }
 
+    /// Off-main variant of ``durableDeviceID(defaults:deviceContinuityEvidence:)``
+    /// for callers that keep synchronous Keychain work off the UI actor: the
+    /// witness (`identifierForVendor`, a MainActor read) is captured by the
+    /// caller via ``currentDeviceWitness()`` and passed in, and the Keychain +
+    /// defaults resolution runs on the calling executor.
+    public static func durableDeviceID(
+        defaults: UserDefaults = .standard,
+        deviceWitness: String?,
+        deviceContinuityEvidence: (() -> Bool)? = nil
+    ) -> String? {
+        durableDeviceID(
+            store: KeychainDeviceIdentityStore(),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            deviceContinuityEvidence: deviceContinuityEvidence
+        )
+    }
+
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
     static func durableDeviceID(
         store: any DeviceIdentityStoring,
@@ -364,8 +382,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// forward. `identifierForVendor` resets on a new device (and when the
     /// vendor's last app is removed — which also clears `UserDefaults`, so the
     /// mirror disappears with it and no stale comparison survives).
+    ///
+    /// Public so an off-main resolver can capture the witness with one MainActor
+    /// hop and run the Keychain resolution on its own executor.
     @MainActor
-    static func currentDeviceWitness() -> String? {
+    public static func currentDeviceWitness() -> String? {
         #if canImport(UIKit)
         return UIDevice.current.identifierForVendor?.uuidString
         #else

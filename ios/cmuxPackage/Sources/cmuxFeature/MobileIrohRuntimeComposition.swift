@@ -13,6 +13,49 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+/// Keeps synchronous Keychain and defaults work off the UI actor while
+/// serializing concurrent activation reads through one identity owner.
+///
+/// `UserDefaults` documents its API as thread-safe but does not conform to
+/// `Sendable`. Keep the unchecked boundary private and pass only this owner
+/// across the actor boundary.
+private final class MobileIrohSendableDefaults: @unchecked Sendable {
+    let value: UserDefaults
+
+    init(_ value: UserDefaults) {
+        self.value = value
+    }
+}
+
+/// Resolves the durable device id off the MainActor: the witness
+/// (`identifierForVendor`) is captured with one cheap MainActor hop, then the
+/// Keychain reads/writes, the defaults mirror, and the continuity probe all
+/// run on this actor's executor so activation never blocks app UI on Keychain
+/// service latency.
+private actor MobileIrohDurableDeviceIDResolver {
+    private let defaults: MobileIrohSendableDefaults
+    private let bundleIdentifier: String?
+
+    init(defaults: MobileIrohSendableDefaults, bundleIdentifier: String?) {
+        self.defaults = defaults
+        self.bundleIdentifier = bundleIdentifier
+    }
+
+    func resolve() async -> String? {
+        let witness = await DeviceRegistryService.currentDeviceWitness()
+        let bundleIdentifier = bundleIdentifier
+        return DeviceRegistryService.durableDeviceID(
+            defaults: defaults.value,
+            deviceWitness: witness,
+            deviceContinuityEvidence: {
+                MobileIrohRuntimeComposition.deviceLocalIrohIdentityExists(
+                    bundleIdentifier: bundleIdentifier
+                )
+            }
+        )
+    }
+}
+
 /// Resolves connection waiters only when the latest lifecycle revision settles.
 @MainActor
 final class MobileIrohConnectionReadinessSignal {
@@ -133,7 +176,7 @@ public final class MobileIrohRuntimeComposition:
     /// unavailable would be an ephemeral throwaway id, and registering a binding
     /// under it would orphan the retained `(user, device, tag)` binding. When
     /// this returns `nil`, activation defers and retries on the next reconcile.
-    private let deviceID: @MainActor () -> String?
+    private let deviceID: @Sendable () async -> String?
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
@@ -235,6 +278,10 @@ public final class MobileIrohRuntimeComposition:
                 )
             }
         )
+        let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
+            defaults: MobileIrohSendableDefaults(defaults),
+            bundleIdentifier: bundleIdentifier
+        )
         self.init(
             appInstances: CmxIrohAppInstanceRepository(store: installState),
             identities: CmxIrohIdentityRepository(
@@ -312,14 +359,7 @@ public final class MobileIrohRuntimeComposition:
             brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
-            deviceID: {
-                DeviceRegistryService.durableDeviceID(
-                    defaults: defaults,
-                    deviceContinuityEvidence: {
-                        Self.deviceLocalIrohIdentityExists(bundleIdentifier: bundleIdentifier)
-                    }
-                )
-            },
+            deviceID: { await durableDeviceIDResolver.resolve() },
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -363,7 +403,7 @@ public final class MobileIrohRuntimeComposition:
         automaticRelayCredentialRefreshEnabled: Bool = true,
         brokerFactory: @escaping BrokerFactory,
         brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
-        deviceID: @escaping @MainActor () -> String?,
+        deviceID: @escaping @Sendable () async -> String?,
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
@@ -1327,7 +1367,7 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID
         )
         let endpointID = try Self.peerIdentity(for: identity)
-        guard let durableDeviceID = deviceID() else {
+        guard let durableDeviceID = await deviceID() else {
             // The durable identity store is unavailable (Keychain locked before
             // first unlock, or a persistent write failure). Registering a
             // binding under an ephemeral throwaway id would orphan the retained
