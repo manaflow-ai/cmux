@@ -322,11 +322,16 @@ final class cmuxUITests: XCTestCase {
         // wrongly mounted inside it) is out of the hierarchy.
         server.stop()
 
-        let toast = app.otherElements["MobileToast"]
-        XCTAssertTrue(
-            toast.waitForExistence(timeout: 30),
-            "Losing the host must present a connection-status capsule while the Notifications tab is selected"
-        )
+        // The failure variant of the capsule combines an action Button into
+        // the single accessibility element, so its element type is not stable;
+        // match the identifier across any type like waitForWorkspaceShell.
+        let toast = app.descendants(matching: .any)["MobileToast"]
+        if !toast.waitForExistence(timeout: 60) {
+            print("TOAST-DEBUG no capsule after host loss; tree:\n\(app.debugDescription)")
+            XCTFail(
+                "Losing the host must present a connection-status capsule while the Notifications tab is selected"
+            )
+        }
         XCTAssertTrue(notificationsTab.isSelected)
 
         // Revive the host at the paired address; the recovery's success toast
@@ -344,11 +349,12 @@ final class cmuxUITests: XCTestCase {
             },
             object: app
         )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [reconnectedShown], timeout: 90),
-            .completed,
-            "Recovering the host must toast success while the Notifications tab is selected"
-        )
+        if XCTWaiter.wait(for: [reconnectedShown], timeout: 90) != .completed {
+            print("TOAST-DEBUG no reconnected toast after revival; tree:\n\(app.debugDescription)")
+            XCTFail(
+                "Recovering the host must toast success while the Notifications tab is selected"
+            )
+        }
         XCTAssertTrue(notificationsTab.isSelected)
     }
 
