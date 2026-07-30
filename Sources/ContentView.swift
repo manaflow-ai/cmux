@@ -14942,7 +14942,7 @@ struct TabItemView: View, Equatable {
     private func showsLeadingRail(
         for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     ) -> Bool {
-        explicitRailColor(for: workspaceSnapshot) != nil
+        resolvedRailColor(for: workspaceSnapshot) != nil
     }
 
     private var activeBorderLineWidth: CGFloat {
@@ -15686,14 +15686,15 @@ struct TabItemView: View, Equatable {
     private func railColor(
         for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     ) -> Color {
-        explicitRailColor(for: workspaceSnapshot) ?? .clear
+        resolvedRailColor(for: workspaceSnapshot) ?? .clear
     }
 
-    private func explicitRailColor(
+    private func resolvedRailColor(
         for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     ) -> Color? {
-        guard let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+        guard let railColor = sidebarWorkspaceRowRailNSColor(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme
         ) else {

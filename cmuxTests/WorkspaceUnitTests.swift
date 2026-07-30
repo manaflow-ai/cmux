@@ -218,8 +218,9 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
-        let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+        let railColor = sidebarWorkspaceRowRailNSColor(
             activeTabIndicatorStyle: .leftRail,
+            isActive: false,
             customColorHex: workspace.customColor,
             colorScheme: .light
         )

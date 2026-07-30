@@ -272,20 +272,23 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     static let clear = Self(color: nil, opacity: 0)
 }
 
-func sidebarWorkspaceRowExplicitRailNSColor(
+func sidebarWorkspaceRowRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    isActive: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme
 ) -> NSColor? {
-    guard activeTabIndicatorStyle == .leftRail,
-          let customColorHex else {
+    guard activeTabIndicatorStyle == .leftRail else {
         return nil
     }
-    return WorkspaceTabColorSettings.displayNSColor(
-        hex: customColorHex,
-        colorScheme: colorScheme,
-        forceBright: true
-    )
+    if let customColorHex {
+        return WorkspaceTabColorSettings.displayNSColor(
+            hex: customColorHex,
+            colorScheme: colorScheme,
+            forceBright: true
+        )
+    }
+    return isActive ? cmuxAccentNSColor(for: colorScheme) : nil
 }
 
 func sidebarWorkspaceRowBackgroundStyle(
