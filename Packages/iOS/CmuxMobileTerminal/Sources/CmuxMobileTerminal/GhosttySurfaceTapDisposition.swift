@@ -5,6 +5,8 @@ public enum GhosttySurfaceTapDisposition: Sendable {
     case openedArtifact
     /// The tap belongs to the terminal and should raise or restore its input focus.
     case focusTerminal
+    /// The tap completed after its surface was dismantled or superseded, so no action remains.
+    case ignored
 
     var shouldFocusTerminal: Bool {
         self == .focusTerminal

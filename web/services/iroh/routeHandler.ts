@@ -117,7 +117,7 @@ export async function handleIrohRoute(
       () => abortController.abort(new Error("firewall_timeout")),
       firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
     );
-    let result: IrohFirewallCheckResult;
+    let result: IrohFirewallCheckResult | undefined;
     try {
       result = await (firewall.admission ?? firewallAdmission).run(
         `${firewall.id}:${rateLimitKey}`,
@@ -132,17 +132,28 @@ export async function handleIrohRoute(
         operation,
         failure: "request_failed_or_timed_out",
       });
-      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+      // Discovery is an authenticated, read-only lookup. Its database and
+      // account boundaries remain enforced by the broker, so an optional
+      // platform rate-limit outage must not take existing devices offline.
+      // Mutations still fail closed because they create or rotate trusted
+      // state.
+      if (operation !== "discover") {
+        return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+      }
     } finally {
       clearTimeout(timeout);
     }
-    const { error, rateLimited } = result;
-    if (rateLimited || error === "blocked") {
-      return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
-    }
-    if (error) {
-      console.error("iroh trust broker firewall unavailable", { operation, failure: error });
-      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+    if (result) {
+      const { error, rateLimited } = result;
+      if (rateLimited || error === "blocked") {
+        return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
+      }
+      if (error === "not-found") {
+        // The configured rule no longer exists (Vercel returns 404). That means
+        // the operator deleted the limit, so treat it as "no limit" and fail open
+        // rather than 503-ing every request.
+        console.warn("iroh rate-limit rule not found; failing open", { operation });
+      }
     }
   }
 

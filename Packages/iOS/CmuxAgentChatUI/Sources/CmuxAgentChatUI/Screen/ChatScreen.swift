@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileToast
 import SwiftUI
 
 #if canImport(UIKit)
@@ -13,6 +14,7 @@ import UIKit
 /// source) and hands it over; this screen owns presentation state only
 /// (drafts, attachments).
 public struct ChatScreen: View {
+    @Environment(ToastCenter.self) private var toasts
     @State private var store: ChatConversationStore
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
@@ -68,14 +70,13 @@ public struct ChatScreen: View {
     public var body: some View {
         ZStack(alignment: .top) {
             chatLayout
-            // On iOS 26 `chatLayout` underlaps the top chrome
-            // (`chatTopBarUnderlapContainer` ignores the top safe area so the
-            // native scroll-edge effect can blend transcript rows into the
-            // bar). The error toast must stay *below* the navigation bar, so it
-            // lives as a ZStack sibling that still respects the top safe area —
-            // an `.overlay` on the underlapped layout would inherit the
-            // underlap and render the banner under the bar.
-            errorBanner
+            // Legacy fallback while the Toasts beta flag is off: the inline
+            // error banner below the navigation bar (see errorBanner for the
+            // layering rationale). With the flag on, errors surface through
+            // the app-wide toast layer instead.
+            if !toasts.isEnabled {
+                errorBanner
+            }
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
@@ -103,19 +104,25 @@ public struct ChatScreen: View {
             guard runsStoreTask else { return }
             await store.run()
         }
+        // With the Toasts beta flag on, errors surface through the app-wide
+        // toast layer. Presenting hands display ownership to the ToastCenter,
+        // and clearing the store state immediately lets an identical
+        // follow-up error re-fire this bridge. One coalescing key per
+        // conversation store: a newer error replaces and re-bumps the visible
+        // one instead of queueing stale errors. With the flag off, the store
+        // state stays put and drives the legacy inline banner.
+        .onChange(of: store.lastErrorDescription, initial: true) { _, error in
+            guard toasts.isEnabled, let error else { return }
+            toasts.present(.failure(
+                error,
+                coalescingKey: "chat.conversation.error.\(ObjectIdentifier(store))"
+            ))
+            store.dismissError()
+        }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
-    }
-
-    private var artifactIsPresented: Binding<Bool> {
-        Binding(
-            get: { selectedArtifact != nil },
-            set: { isPresented in
-                if !isPresented { selectedArtifact = nil }
-            }
-        )
     }
 
     @ViewBuilder
@@ -132,8 +139,7 @@ public struct ChatScreen: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .accessibilityIdentifier("ChatErrorBanner")
                 .onTapGesture { store.dismissError() }
-                // Swipe the toast up to dismiss (it animates out via the
-                // move(edge: .top) transition), in addition to tap and the
+                // Swipe the banner up to dismiss, in addition to tap and the
                 // bounded auto-dismiss below.
                 .gesture(
                     DragGesture(minimumDistance: 8)
@@ -148,6 +154,15 @@ public struct ChatScreen: View {
                     store.dismissError()
                 }
         }
+    }
+
+    private var artifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedArtifact = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -227,9 +242,11 @@ public struct ChatScreen: View {
         AccessibilityNotification.Announcement(prose.text).post()
     }
 
-    /// Speaks the error banner's text when an error surfaces.
+    /// Speaks the legacy error banner's text when an error surfaces while the
+    /// Toasts beta flag is off (the toast layer announces its own toasts).
     private func announceLastError() {
-        guard UIAccessibility.isVoiceOverRunning,
+        guard !toasts.isEnabled,
+              UIAccessibility.isVoiceOverRunning,
               let error = store.lastErrorDescription
         else { return }
         AccessibilityNotification.Announcement(error).post()
@@ -324,7 +341,8 @@ public struct ChatScreen: View {
             },
             showCodeBlockDetail: { messageID, segmentIndex in
                 selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
-            }
+            },
+            notifyCopied: { toasts.present(.copied()) }
         )
     }
 }

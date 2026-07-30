@@ -43,7 +43,7 @@ struct AgentChatSessionRegistryObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -82,7 +82,7 @@ struct AgentChatSessionRegistryObservationTests {
                     environment: ["CMUX_AGENT_LAUNCH_CWD": "/Users/example/project"]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -274,7 +274,7 @@ struct AgentChatSessionRegistryObservationTests {
                 detailReadCount += 1
                 return nil
             },
-            codexRolloutPath: { pid in pid == 202 ? rolloutPath : nil }
+            codexRolloutPaths: { pid in pid == 202 ? [rolloutPath] : [] }
         )
 
         let session = try #require(observed.first)
@@ -317,7 +317,7 @@ struct AgentChatSessionRegistryObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)
@@ -462,7 +462,7 @@ struct AgentChatSessionRegistryObservationTests {
                 detailReadCount += 1
                 return nil
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)

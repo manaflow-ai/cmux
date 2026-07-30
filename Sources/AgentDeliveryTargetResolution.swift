@@ -17,8 +17,9 @@ import Foundation
 ///   tty. A pane's pty device is fixed for the pane's lifetime and the
 ///   process's controlling terminal is a live kernel fact, so a unique match
 ///   is authoritative regardless of where the pane has been moved.
-/// - surface → workspace: `AppDelegate.workspaceContainingPanel`, which finds
-///   the workspace that CURRENTLY owns the panel (issue #5781 pane moves).
+/// - surface → notification owner: `AppDelegate.notificationSurfaceOwner`,
+///   which finds the workspace or Dock that CURRENTLY owns the panel (issue
+///   #5781 pane moves and Dock transfers).
 ///
 /// The CLI reaches this through the `agent.resolve_delivery_target` control
 /// method; in-app notification delivery reaches it through
@@ -29,13 +30,19 @@ struct AgentDeliveryTargetCandidate: Equatable {
     let surfaceId: UUID
 }
 
-/// Combines the two live pid signals. The start-time-keyed process environment
-/// covers nested PTYs whose controlling TTY differs from the cmux pane. When
-/// both signals resolve, disagreement still fails closed.
+/// Resolves live pid evidence under the requested trust policy.
+///
+/// The default combines controlling-TTY and start-time-keyed environment
+/// evidence, preserving the delivery-time behavior for nested PTYs. Hook
+/// persistence requests ``AgentProcessBindingResolution/controllingTTY``:
+/// inherited `CMUX_SURFACE_ID` is the claim being verified there, so it cannot
+/// also corroborate itself.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
-    envTarget: AgentDeliveryTargetCandidate?
+    envTarget: AgentDeliveryTargetCandidate?,
+    resolution: AgentProcessBindingResolution = .corroborated
 ) -> AgentDeliveryTargetCandidate? {
+    if resolution == .controllingTTY { return ttyTarget }
     guard let ttyTarget else { return envTarget }
     if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
@@ -102,14 +109,43 @@ extension Workspace {
 }
 
 @MainActor
+extension DockSplitStore {
+    /// Host-local TTY bindings for terminals currently owned by this Dock.
+    ///
+    /// A surface transfer removes the panel from its Workspace registry, so
+    /// live PID attribution must inspect Dock ownership separately. Prefer the
+    /// terminal's current Ghostty PTY and fall back to the TTY preserved with
+    /// the transfer while the live surface is being reattached.
+    var localAgentDeliveryTTYDevices: [(surfaceId: UUID, ttyDevice: Int64)] {
+        panels.compactMap { panelId, panel in
+            guard let terminal = panel as? TerminalPanel,
+                  detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal != true else {
+                return nil
+            }
+            let liveDevice = terminal.surface.controllingTTYName().flatMap {
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            }
+            let preservedDevice = detachedSurfaceTransfersByPanelId[panelId]?.ttyName.flatMap {
+                CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+            }
+            guard let ttyDevice = liveDevice ?? preservedDevice else { return nil }
+            return (panelId, ttyDevice)
+        }
+    }
+}
+
+@MainActor
 extension AppDelegate {
     /// The live pane that owns the given agent process right now: the
     /// process's controlling tty matched against every surface's pty device
     /// (unique-match only), with the exact live process's start-time-keyed
     /// `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel` as a nested-PTY fallback. Disagreement fails
+    /// `notificationSurfaceOwner` as a nested-PTY fallback. Disagreement fails
     /// closed.
-    func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
+    func liveAgentDeliveryTarget(
+        forAgentPID pid: pid_t,
+        resolution: AgentProcessBindingResolution = .corroborated
+    ) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 
         var ttyTarget: AgentDeliveryTargetCandidate?
@@ -117,15 +153,13 @@ extension AppDelegate {
             // TTY device ids are indexed when each surface reports or moves,
             // so hook delivery only walks in-memory bindings on MainActor. It
             // never stats every live surface while UI work is serialized.
-            var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
-            for manager in agentDeliveryTabManagers() {
-                for workspace in manager.tabs {
-                    for binding in workspace.localAgentDeliveryTTYDevices {
-                        bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
-                    }
-                }
-            }
-            ttyTarget = agentDeliveryTargetMatchingTTYDevice(ttyDevice, surfaceTTYDevices: bindings)
+            ttyTarget = agentDeliveryTargetMatchingTTYDevice(
+                ttyDevice,
+                surfaceTTYDevices: liveAgentDeliveryTTYBindings()
+            )
+        }
+        if resolution == .controllingTTY {
+            return ttyTarget
         }
 
         let processScope: CmuxTopProcessScope?
@@ -138,35 +172,69 @@ extension AppDelegate {
         }
         var envTarget: AgentDeliveryTargetCandidate?
         if let envSurfaceId = processScope?.surfaceID,
-           let owner = workspaceContainingPanel(panelId: envSurfaceId) {
-            envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.workspace.id, surfaceId: envSurfaceId)
+           let owner = notificationSurfaceOwner(
+               surfaceID: envSurfaceId,
+               preferredTabID: processScope?.workspaceID
+           ) {
+            envTarget = AgentDeliveryTargetCandidate(
+                workspaceId: owner.tabID,
+                surfaceId: owner.surfaceID
+            )
         }
 
-        return agentDeliveryTargetCombining(ttyTarget: ttyTarget, envTarget: envTarget)
+        return agentDeliveryTargetCombining(
+            ttyTarget: ttyTarget,
+            envTarget: envTarget,
+            resolution: resolution
+        )
     }
 
-    /// Delivery-time target for a notification addressed to
-    /// (`claimedTabId`, `surfaceId`). A surface-scoped notification follows
-    /// the surface to whichever workspace currently owns it; a workspace-only
-    /// notification requires the claimed workspace to still exist. Returns nil
-    /// when the target is gone (surface closed, workspace closed) — the
-    /// notification is undeliverable, matching the previous drop semantics.
+    /// Current local terminal ownership across both workspace splits and Docks.
+    /// Internal so behavior tests can guard the cross-container ownership
+    /// boundary without needing to manufacture a process on Ghostty's PTY.
+    func liveAgentDeliveryTTYBindings() -> [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] {
+        var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
+        for manager in agentDeliveryTabManagers() {
+            for workspace in manager.tabs {
+                for binding in workspace.localAgentDeliveryTTYDevices {
+                    bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
+                }
+            }
+        }
+        for dock in DockSplitStore.liveStores {
+            for binding in dock.localAgentDeliveryTTYDevices {
+                bindings.append((dock.workspaceId, binding.surfaceId, binding.ttyDevice))
+            }
+        }
+        return bindings
+    }
+
+    /// Delivery-time target for an agent event addressed to
+    /// (`claimedTabId`, `surfaceId`). A surface-scoped event follows the
+    /// surface to whichever workspace or Dock currently owns it. A
+    /// workspace-only event requires the claimed workspace or window-Dock
+    /// owner to still exist. Returns nil when the target is gone (surface,
+    /// workspace, or window closed).
     func agentNotificationDeliveryTarget(
-        claimedTabId: UUID,
+        claimedTabId: UUID?,
         surfaceId: UUID?
     ) -> (tabId: UUID, surfaceId: UUID?)? {
         guard let surfaceId else {
+            guard let claimedTabId else { return nil }
+            if tabManagerForWindowDockOwner(claimedTabId) != nil {
+                return (claimedTabId, nil)
+            }
             let manager = tabManagerFor(tabId: claimedTabId) ?? tabManager
             guard manager?.tabs.contains(where: { $0.id == claimedTabId }) == true else { return nil }
             return (claimedTabId, nil)
         }
-        guard let owner = workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: claimedTabId
+        guard let owner = notificationSurfaceOwner(
+            surfaceID: surfaceId,
+            preferredTabID: claimedTabId
         ) else {
             return nil
         }
-        return (owner.workspace.id, surfaceId)
+        return (owner.tabID, owner.surfaceID)
     }
 
     private func agentDeliveryTabManagers() -> [TabManager] {
@@ -193,6 +261,23 @@ extension TerminalController {
     func v2AgentResolveDeliveryTarget(params: [String: Any]) -> V2CallResult {
         let claimedWorkspaceId = v2UUID(params, "workspace_id")
         let claimedSurfaceId = v2UUID(params, "surface_id")
+        let pidResolution: AgentProcessBindingResolution
+        if let rawPIDResolution = params["pid_resolution"] {
+            guard let rawPIDResolution = rawPIDResolution as? String,
+                  let parsed = AgentProcessBindingResolution(rawValue: rawPIDResolution) else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "agent.deliveryTarget.error.invalidPidResolution",
+                        defaultValue: "pid_resolution must be corroborated or controlling_tty"
+                    ),
+                    data: nil
+                )
+            }
+            pidResolution = parsed
+        } else {
+            pidResolution = .corroborated
+        }
         guard let appDelegate = AppDelegate.shared else {
             return .err(
                 code: "unavailable",
@@ -220,11 +305,15 @@ extension TerminalController {
                     data: nil
                 )
             }
-            if let target = appDelegate.liveAgentDeliveryTarget(forAgentPID: agentPid) {
+            if let target = appDelegate.liveAgentDeliveryTarget(
+                forAgentPID: agentPid,
+                resolution: pidResolution
+            ) {
                 return .ok([
                     "workspace_id": target.workspaceId.uuidString,
                     "surface_id": target.surfaceId.uuidString,
                     "source": "pid",
+                    "pid_resolution": pidResolution.rawValue,
                 ])
             }
             return .err(
@@ -237,13 +326,13 @@ extension TerminalController {
             )
         }
         if let claimedSurfaceId,
-           let owner = appDelegate.workspaceContainingPanel(
-               panelId: claimedSurfaceId,
-               preferredWorkspaceId: claimedWorkspaceId
+           let owner = appDelegate.notificationSurfaceOwner(
+               surfaceID: claimedSurfaceId,
+               preferredTabID: claimedWorkspaceId
            ) {
             return .ok([
-                "workspace_id": owner.workspace.id.uuidString,
-                "surface_id": claimedSurfaceId.uuidString,
+                "workspace_id": owner.tabID.uuidString,
+                "surface_id": owner.surfaceID.uuidString,
                 "source": "surface",
             ])
         }

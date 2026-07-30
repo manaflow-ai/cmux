@@ -122,7 +122,7 @@ struct cmuxApp: App {
             #if DEBUG
             MobileIrohReleaseGateScene(
                 root: mobileRootScene,
-                settingsController: Self.root.iroh
+                iroh: Self.root.iroh
             )
             #else
             mobileRootScene
@@ -149,6 +149,7 @@ struct cmuxApp: App {
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
             personalIrohDiscovery: Self.root.iroh,
+            personalIrohForget: Self.root.iroh,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
         )

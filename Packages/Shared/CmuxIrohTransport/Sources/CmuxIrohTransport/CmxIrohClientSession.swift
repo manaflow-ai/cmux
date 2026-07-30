@@ -20,6 +20,7 @@ public actor CmxIrohClientSession {
     private var controlStream: CmxIrohBidirectionalStream?
     private var serverEventReceiver: CmxIrohClientServerEventReceiver?
     private var controlReceiveBuffer = Data()
+    private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
 
     /// Creates a disconnected session with an explicit two-phase dial plan.
@@ -187,6 +188,24 @@ public actor CmxIrohClientSession {
     public func waitUntilClosed() async {
         guard let connection else { return }
         await connection.waitUntilClosed()
+        terminalCloseAttribution = await connection.closeAttribution()
+    }
+
+    /// Returns the classified terminal cause for the admitted connection.
+    func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        if let terminalCloseAttribution {
+            return terminalCloseAttribution
+        }
+        guard let connection else {
+            return CmxIrohConnectionCloseAttribution(
+                initiator: .unknown,
+                applicationErrorCode: nil,
+                failureKind: .unknown
+            )
+        }
+        let attribution = await connection.closeAttribution()
+        terminalCloseAttribution = attribution
+        return attribution
     }
 
     /// Returns whether the admitted QUIC connection already closed.
@@ -197,6 +216,18 @@ public actor CmxIrohClientSession {
         if closed { return true }
         guard let connection else { return false }
         return await connection.isClosed()
+    }
+
+    /// Returns Iroh's process-local identity for this exact admitted QUIC
+    /// connection. Alternate endpoint implementations may not provide one.
+    func connectionContinuityID() async -> UInt64? {
+        guard !closed,
+              let connection,
+              let continuityConnection = connection as? any CmxIrohConnectionContinuityIdentifying else {
+            return nil
+        }
+        guard !(await connection.isClosed()) else { return nil }
+        return await continuityConnection.connectionContinuityID()
     }
 
     /// Reads package-private path evidence from the exact admitted connection.
@@ -218,6 +249,14 @@ public actor CmxIrohClientSession {
         return await connection.observedSelectedPathChanges()
     }
 
+    /// Observes redacted path lifecycle events on the admitted connection.
+    func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        guard let connection else {
+            return AsyncStream { continuation in continuation.finish() }
+        }
+        return await connection.observedPathEvents()
+    }
+
     /// Closes the control stream and complete QUIC connection.
     public func close() async {
         guard !closed else { return }
@@ -232,6 +271,7 @@ public actor CmxIrohClientSession {
         }
         if let connection {
             await connection.close(errorCode: 0, reason: "client_closed")
+            terminalCloseAttribution = await connection.closeAttribution()
         }
         controlStream = nil
         self.connection = nil

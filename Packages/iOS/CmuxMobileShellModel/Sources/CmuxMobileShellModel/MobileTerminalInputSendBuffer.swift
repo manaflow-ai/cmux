@@ -83,13 +83,45 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         return .startDraining
     }
 
-    /// Removes and returns the next pending chunk, or clears the draining flag
-    /// and returns `nil` when the buffer is empty.
+    /// Removes and returns the next pending chunk, optionally splitting an
+    /// oversized head chunk at a Unicode-scalar boundary.
+    /// - Parameter maximumByteCount: The maximum UTF-8 bytes to return, or `nil` for no cap.
     /// - Returns: The next chunk to deliver, or `nil` when nothing is pending.
-    public mutating func nextBatch() -> Chunk? {
+    public mutating func nextBatch(maximumByteCount: Int? = nil) -> Chunk? {
         guard !pendingChunks.isEmpty else {
             isDraining = false
             return nil
+        }
+        if let maximumByteCount,
+           pendingChunks[0].text.utf8.count > maximumByteCount {
+            precondition(maximumByteCount > 0)
+            let text = pendingChunks[0].text
+            var prefixByteCount = 0
+            var splitIndex = text.unicodeScalars.startIndex
+            while splitIndex < text.unicodeScalars.endIndex {
+                let scalarByteCount = UTF8.width(text.unicodeScalars[splitIndex])
+                guard prefixByteCount + scalarByteCount <= maximumByteCount else {
+                    break
+                }
+                prefixByteCount += scalarByteCount
+                splitIndex = text.unicodeScalars.index(after: splitIndex)
+            }
+            if splitIndex == text.unicodeScalars.startIndex {
+                // A cap narrower than the first scalar (< 4 bytes) cannot be
+                // honored at a scalar boundary; emit that scalar whole so the
+                // drain always makes progress instead of trapping. Production
+                // caps are KiB-scale, so this branch is pathological-only.
+                prefixByteCount = UTF8.width(text.unicodeScalars[splitIndex])
+                splitIndex = text.unicodeScalars.index(after: splitIndex)
+            }
+            let prefix = String(text.unicodeScalars[..<splitIndex])
+            pendingChunks[0].text = String(text.unicodeScalars[splitIndex...])
+            pendingByteCount = max(0, pendingByteCount - prefixByteCount)
+            return Chunk(
+                workspaceID: pendingChunks[0].workspaceID,
+                terminalID: pendingChunks[0].terminalID,
+                text: prefix
+            )
         }
         let chunk = pendingChunks.removeFirst()
         pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)

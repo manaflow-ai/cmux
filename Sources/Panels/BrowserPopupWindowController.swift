@@ -66,7 +66,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.applyBrowserUserAgentPolicy(for: nil)
         BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -446,10 +446,12 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         )
 
         if isScriptedPopup {
-            return controller?.createNestedPopup(
+            let popupWebView = controller?.createNestedPopup(
                 configuration: configuration,
                 windowFeatures: windowFeatures
             )
+            popupWebView?.applyBrowserUserAgentPolicy(for: navigationAction.request.url)
+            return popupWebView
         }
 
         if navigationAction.request.url != nil {
@@ -684,7 +686,17 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
-            controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
+            controller?.presentInsecureHTTPAlert(for: url, in: webView) { policy in
+                if policy == .allow,
+                   self.restartNavigationForUserAgentPolicyIfNeeded(
+                       navigationAction,
+                       in: webView,
+                       decisionHandler: decisionHandler
+                   ) {
+                    return
+                }
+                decisionHandler(policy)
+            }
             return
         }
 
@@ -704,7 +716,36 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         } else {
             clearAttemptedRequest()
         }
+        if restartNavigationForUserAgentPolicyIfNeeded(
+            navigationAction,
+            in: webView,
+            decisionHandler: decisionHandler
+        ) {
+            return
+        }
         decisionHandler(.allow)
+    }
+
+    private func restartNavigationForUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        in webView: WKWebView,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let controller else {
+            _ = webView.browserUserAgentPolicyRestartRequest(
+                for: navigationAction.request,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
+            return false
+        }
+
+        return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            navigationAction,
+            decisionHandler: decisionHandler,
+            startReplacement: { restartRequest in
+                controller.requestNavigation(restartRequest, in: webView)
+            }
+        )
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

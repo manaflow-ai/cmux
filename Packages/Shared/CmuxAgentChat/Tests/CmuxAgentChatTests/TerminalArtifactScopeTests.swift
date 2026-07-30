@@ -11,10 +11,34 @@ struct TerminalArtifactScopeTests {
         #expect(scope.canonicalPath(for: "/safe/file.txt") == "/safe/file.txt")
     }
 
+    @Test("visible files authorize file operations and visible directories authorize listing")
+    func visibleFileAndDirectoryOperationScopes() {
+        let scope = scope(text: "cat /safe/file.txt && ls /safe/project")
+
+        #expect(scope.canonicalPath(for: "/safe/file.txt") == "/safe/file.txt")
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project") == "/safe/project")
+    }
+
     @Test("denies a path not present on screen")
     func deniesOffScreenPath() {
         let scope = scope(text: "cat /safe/file.txt")
         #expect(scope.canonicalPath(for: "/safe/other.txt") == nil)
+    }
+
+    @Test("denies a path hidden inside a DCS payload")
+    func deniesDCSWrappedPath() {
+        let scope = scope(text: "\u{1B}P/safe/project\u{1B}\\")
+
+        #expect(scope.canonicalPath(for: "/safe/project") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project") == nil)
+    }
+
+    @Test("denies a path after BEL inside a DCS payload")
+    func deniesPathAfterBelInsideDCS() {
+        let scope = scope(text: "\u{1B}P before \u{07}/safe/project\u{1B}\\")
+
+        #expect(scope.canonicalPath(for: "/safe/project") == nil)
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project") == nil)
     }
 
     @Test("denies unrelated absolute path when absent")

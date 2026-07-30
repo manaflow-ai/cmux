@@ -351,7 +351,15 @@ extension AppDelegate {
     }
 
     func triggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        unreadJumpWorkspace(forTabId: workspaceId)?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) {
+            return
+        }
+        unreadJumpWorkspace(forTabId: workspaceId)?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 
     func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
