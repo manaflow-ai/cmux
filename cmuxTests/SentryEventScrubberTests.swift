@@ -253,6 +253,15 @@ import Testing
         )
     }
 
+    @Test func embeddedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: [],
+                frameworkNames: ["libXCTestBundleInject.dylib"]
+            )
+        )
+    }
+
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(
