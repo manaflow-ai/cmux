@@ -1497,3 +1497,133 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         XCTAssertNil(result, "Should not inline-complete when display text does not start with typed prefix")
     }
 }
+
+/// Regression coverage for #6250: a replayed Return from focused web content must
+/// not make the unfocused omnibar submit. The handler should act only while the
+/// field is being edited (`editor`, i.e. `currentEditor()`, is non-nil).
+@MainActor
+final class BrowserOmnibarUnfocusedReturnRoutingTests: XCTestCase {
+    private final class HandlerSpy {
+        var submitCount = 0
+        var escapeCount = 0
+        var moveDeltas: [Int] = []
+    }
+
+    private func makeCoordinator(spy: HandlerSpy) -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                fontSize: 12,
+                text: .constant(""),
+                isFocused: .constant(false),
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTap: {},
+                onSubmit: { spy.submitCount += 1 },
+                onEscape: { spy.escapeCount += 1 },
+                onFieldLostFocus: {},
+                onMoveSelection: { spy.moveDeltas.append($0) },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
+
+    private func keyEvent(
+        keyCode: UInt16,
+        characters: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            ),
+            file: file,
+            line: line
+        )
+    }
+
+    func testReturnDoesNotSubmitWhenFieldIsNotBeingEdited() throws {
+        let spy = HandlerSpy()
+        let coordinator = makeCoordinator(spy: spy)
+        let returnEvent = try keyEvent(keyCode: 36, characters: "\r")
+
+        let handled = coordinator.handleKeyEvent(returnEvent, editor: nil)
+
+        XCTAssertFalse(handled, "Return must not be claimed by the omnibar while it is not being edited")
+        XCTAssertEqual(spy.submitCount, 0, "Return must not submit the omnibar buffer, which would navigate/reload the page")
+    }
+
+    func testKeypadEnterDoesNotSubmitWhenFieldIsNotBeingEdited() throws {
+        let spy = HandlerSpy()
+        let coordinator = makeCoordinator(spy: spy)
+        let enterEvent = try keyEvent(keyCode: 76, characters: "\u{3}")
+
+        let handled = coordinator.handleKeyEvent(enterEvent, editor: nil)
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(spy.submitCount, 0)
+    }
+
+    func testReturnSubmitsWhenFieldIsBeingEdited() throws {
+        let spy = HandlerSpy()
+        let coordinator = makeCoordinator(spy: spy)
+        let returnEvent = try keyEvent(keyCode: 36, characters: "\r")
+        let editor = NSTextView()
+
+        let handled = coordinator.handleKeyEvent(returnEvent, editor: editor)
+
+        XCTAssertTrue(handled, "Return should still submit while the omnibar field is being edited")
+        XCTAssertEqual(spy.submitCount, 1)
+    }
+
+    func testEscapeAndArrowsAreInertWhenFieldIsNotBeingEdited() throws {
+        let spy = HandlerSpy()
+        let coordinator = makeCoordinator(spy: spy)
+
+        let escape = try keyEvent(keyCode: 53, characters: "\u{1B}")
+        let up = try keyEvent(keyCode: 126, characters: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+        let down = try keyEvent(keyCode: 125, characters: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+
+        XCTAssertFalse(coordinator.handleKeyEvent(escape, editor: nil))
+        XCTAssertFalse(coordinator.handleKeyEvent(up, editor: nil))
+        XCTAssertFalse(coordinator.handleKeyEvent(down, editor: nil))
+
+        XCTAssertEqual(spy.escapeCount, 0)
+        XCTAssertTrue(spy.moveDeltas.isEmpty, "Arrow navigation must not run while the omnibar is not being edited")
+    }
+
+    /// A window-less field has no field editor (`currentEditor()` is nil), so its
+    /// `performKeyEquivalent`, the path a replayed Return takes, must stay inert.
+    func testFieldPerformKeyEquivalentDoesNotSubmitReturnWhenNotEditing() throws {
+        let spy = HandlerSpy()
+        let coordinator = makeCoordinator(spy: spy)
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.onHandleKeyEvent = { [weak coordinator] event, editor in
+            coordinator?.handleKeyEvent(event, editor: editor) ?? false
+        }
+        XCTAssertNil(field.currentEditor(), "Precondition: a window-less field is not being edited")
+
+        let returnEvent = try keyEvent(keyCode: 36, characters: "\r")
+        let consumed = field.performKeyEquivalent(with: returnEvent)
+
+        XCTAssertFalse(consumed)
+        XCTAssertEqual(spy.submitCount, 0)
+    }
+}
