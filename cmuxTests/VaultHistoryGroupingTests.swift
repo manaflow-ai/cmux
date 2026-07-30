@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -320,5 +321,162 @@ import Testing
             now: Self.now
         )
         #expect(groups.first?.title == "Review Bot")
+    }
+
+    @Test func appKitTimelineProjectionFlattensGroupsIntoStableVirtualRows() throws {
+        let event = event(
+            id: "codex-session",
+            secondsAgo: 5,
+            kind: .sessionActivity,
+            title: "Implement History",
+            agent: "codex"
+        )
+        let group = VaultHistoryGroup(id: "agent:codex", title: "Codex", events: [event])
+
+        let rows = VaultHistoryTimelineList.makeRows(
+            groups: [group],
+            resumeEntriesByEventId: [:],
+            availableClosedItemIds: [],
+            actions: VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
+        )
+
+        #expect(rows.map(\.id) == [.group("agent:codex"), .event("codex-session")])
+        guard case .group(_, _, 1, let groupAgent) = rows[0] else {
+            Issue.record("Expected the first virtual row to be a group header")
+            return
+        }
+        #expect(groupAgent == .codex)
+        guard case .event(_, nil, let rowAgent) = rows[1] else {
+            Issue.record("Expected the second virtual row to be an event")
+            return
+        }
+        #expect(rowAgent == .codex)
+        #expect(rowAgent?.assetName == "AgentIcons/Codex")
+    }
+
+    @Test func appKitTimelineUsesRegisteredAgentIconMetadataFromSessionEntry() throws {
+        let registeredAgent = SessionAgent.registered(RegisteredSessionAgent(
+            id: "reviewer",
+            name: "Review Bot",
+            iconAssetName: "AgentIcons/Pi"
+        ))
+        let entry = SessionEntry(
+            id: "custom-icon",
+            agent: registeredAgent,
+            sessionId: "custom-icon",
+            title: "Review changes",
+            cwd: "/tmp/repo",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Self.now,
+            fileURL: nil,
+            specifics: .registered(CmuxVaultAgentRegistration(
+                id: "reviewer",
+                name: "Review Bot",
+                iconAssetName: "AgentIcons/Pi",
+                detect: CmuxVaultAgentDetectRule(processName: "reviewer"),
+                sessionIdSource: .argvOption("--resume"),
+                resumeCommand: "reviewer --resume {{sessionId}}"
+            ))
+        )
+        let event = try #require(VaultHistorySessionEventProjection().events(from: [entry]).first)
+        let group = VaultHistoryGroup(id: "agent:reviewer", title: "Review Bot", events: [event])
+
+        let rows = VaultHistoryTimelineList.makeRows(
+            groups: [group],
+            resumeEntriesByEventId: [event.id: entry],
+            availableClosedItemIds: [],
+            actions: VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
+        )
+
+        guard case .event(_, nil, let rowAgent) = rows[1] else {
+            Issue.record("Expected a virtualized event row")
+            return
+        }
+        #expect(rowAgent == registeredAgent)
+        #expect(rowAgent?.assetName == "AgentIcons/Pi")
+    }
+}
+
+@Suite(.serialized)
+struct VaultHistoryAppKitViewportTests {
+    @MainActor
+    @Test
+    func timelineRealizesOnlyViewportRowsAtScale() async throws {
+        let controller = VaultHistoryTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        container.frame = window.contentView?.bounds ?? .zero
+
+        let events = (0..<5_000).map { index in
+            VaultHistoryTableRow.event(
+                event: VaultHistoryEvent(
+                    id: "session-\(index)",
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(10_000 - index)),
+                    kind: .sessionActivity,
+                    title: "Synthetic session \(index)",
+                    subject: VaultHistorySubject(
+                        sessionId: "session-\(index)",
+                        agent: "codex",
+                        agentDisplayName: "Codex",
+                        directory: "/tmp/history-scale"
+                    )
+                ),
+                action: nil,
+                agent: .codex
+            )
+        }
+        controller.apply(
+            rows: [.group(id: "agent:codex", title: "Codex", count: events.count, agent: .codex)] + events,
+            actions: VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil),
+            globalFontMagnificationPercent: 100
+        )
+
+        window.contentView?.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let table = container.tableView
+        let visibleRows = table.rows(in: table.visibleRect)
+        let realizedRows = (0..<table.numberOfRows).filter { row in
+            table.view(atColumn: 0, row: row, makeIfNecessary: false) != nil
+        }
+
+        #expect(table.numberOfRows == 5_001)
+        #expect(visibleRows.length > 0)
+        #expect(table.numberOfRows > visibleRows.length)
+        #expect(realizedRows.count <= visibleRows.length + 2)
+    }
+
+    @MainActor
+    @Test
+    func timelineCapsRenderedTranscriptTitlesWithoutChangingStoredEvent() {
+        let original = String(repeating: "session output ", count: 100)
+        let event = VaultHistoryEvent(
+            timestamp: Date(),
+            kind: .sessionActivity,
+            title: original
+        )
+
+        let rendered = VaultHistoryTableEventCellView.displayTitle(for: event)
+
+        #expect(rendered.count == 241)
+        #expect(rendered.hasSuffix("…"))
+        #expect(event.title == original)
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
     }
 }
