@@ -2884,6 +2884,78 @@ struct ComputerUseUXTests {
         #expect(controller.isRunningInBackground(driverSessionID))
     }
 
+    /// Status-item actions run while AppKit is still tracking the menu. The
+    /// selected mode must become authoritative immediately, but the activation
+    /// effect must wait until menu tracking unwinds. If the user switches modes
+    /// before that happens, only the newest choice may take focus.
+    @Test @MainActor
+    func newestMenuFocusChoiceWinsAfterMenuTrackingCloses() async throws {
+        let application = NSRunningApplication.current
+        let bundleIdentifier = try #require(application.bundleIdentifier)
+        let launchDate = try #require(application.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let logicalSessionID = "menu-focus-session"
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: logicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        var focusEffects: [String] = []
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { false },
+            liveDriverSessions: { [driverSessionID: liveSession] },
+            currentLiveDriverSession: { _ in liveSession },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { _, _, _ in
+                focusEffects.append("terminal")
+            },
+            activate: { _ in
+                focusEffects.append("computerUse")
+            }
+        )
+        controller.start()
+        defer { controller.stop() }
+        controller.driverSessionDidStart(driverSessionID)
+
+        #expect(controller.continueInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+        let target = ComputerUseTargetIdentity(
+            processIdentifier: Int(application.processIdentifier),
+            bundleIdentifier: bundleIdentifier,
+            launchDate: launchDate
+        )
+        #expect(controller.viewTarget(
+            target,
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+
+        #expect(focusEffects.isEmpty)
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID
+        ))
+
+        await Task.yield()
+
+        #expect(focusEffects == ["computerUse"])
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func newerComputerUseFocusInvalidatesDelayedTerminalAndCursorEffects() async throws {
         let currentApplication = NSRunningApplication.current
