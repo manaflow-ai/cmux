@@ -1600,6 +1600,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00060000000000000002 /* RendererRealizationPlanner.swift */; };
 		D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */; };
 		D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */; };
+		D36A00080000000000000001 /* RendererRealizationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00080000000000000002 /* RendererRealizationSurface.swift */; };
 		A9126000C5E7F90123456789 /* ReopenLastClosedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */; };
 		804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000004 /* ReorderShortcutActionTests.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
@@ -2189,6 +2190,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */; };
 		85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
+		D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */; };
 		D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */; };
 		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
 		A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D0F0000000000000001 /* TerminalTabIconRegressionTests.swift */; };
@@ -4079,6 +4081,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D36A00060000000000000002 /* RendererRealizationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationPlanner.swift; sourceTree = "<group>"; };
 		D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererRealizationPlannerTests.swift; sourceTree = "<group>"; };
 		D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationReclaimTrigger.swift; sourceTree = "<group>"; };
+		D36A00080000000000000002 /* RendererRealizationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationSurface.swift; sourceTree = "<group>"; };
 		A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReopenLastClosedTests.swift; sourceTree = "<group>"; };
 		804100000000000000000004 /* ReorderShortcutActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReorderShortcutActionTests.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
@@ -4656,6 +4659,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSelectionTranslationAnchorView.swift; sourceTree = "<group>"; };
 		85510004A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalShellResolver+CurrentUser.swift"; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
+		D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/TerminalSurface+RendererRealizationSurface.swift"; sourceTree = "<group>"; };
 		D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceResizePolicyTests.swift; sourceTree = "<group>"; };
 		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
 		A91C0D0F0000000000000001 /* TerminalTabIconRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabIconRegressionTests.swift; sourceTree = "<group>"; };
@@ -5502,6 +5506,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490D00E7490D00E7490D00E /* RendererRealizationMemoryPressureResponder.swift */,
 				D36A00060000000000000002 /* RendererRealizationPlanner.swift */,
 				D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */,
+				D36A00080000000000000002 /* RendererRealizationSurface.swift */,
+				D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */,
 				7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
@@ -8999,6 +9005,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490C00E7490C00E7490C00E /* RendererRealizationMemoryPressureResponder.swift in Sources */,
 				D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */,
 				D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */,
+				D36A00080000000000000001 /* RendererRealizationSurface.swift in Sources */,
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
@@ -9423,6 +9430,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */,
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
+				D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */,
 				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,
 				F83620020000000000000001 /* TerminalTTYSessionIdentity.swift in Sources */,
 				EC010A01 /* TerminalUploadCommand.swift in Sources */,
