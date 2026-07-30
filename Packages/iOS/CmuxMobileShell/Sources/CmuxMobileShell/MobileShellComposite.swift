@@ -1003,6 +1003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationRetryTask: Task<Void, Never>?
     private var secondaryAggregationRetryTaskGeneration = UUID()
     var secondaryAggregationRetryMacIDs: Set<String> = []
+    var secondaryAggregationRetryNeedsFullRefresh = false
     private var secondaryAggregationRetryEvidenceGeneration: UInt64 = 0
     private var secondaryAggregationRetryState = MobileControlPoolRetryState()
     /// One timer owner for the whole online control pool. Each tick reasserts
@@ -4324,13 +4325,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             loadedMacs = targetedMacs
             authorityValidation = .cached
         } else {
-            loadedMacs = (try? await pairedMacStore.loadAll(
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            )) ?? []
+            do {
+                loadedMacs = try await pairedMacStore.loadAll(
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            } catch {
+                guard await isAggregationScopeValid(scope) else { return }
+                pairedMacLoadState = .failed
+                var retryMacIDs = Set(
+                    storedPairedMacsIncludingHidden.map(\.macDeviceID)
+                )
+                retryMacIDs.formUnion(secondaryMacSubscriptions.keys)
+                retryMacIDs.formUnion(
+                    workspacesByMac.keys.filter {
+                        $0 != Self.foregroundAnonymousKey
+                    }
+                )
+                retryMacIDs.formUnion(notificationFeedSnapshotsByMac.keys)
+                scheduleSecondaryAggregationRetry(
+                    macDeviceIDs: retryMacIDs,
+                    needsFullRefresh: true
+                )
+                mobileShellLog.error(
+                    """
+                    secondary paired mac store load failed: \
+                    \(String(describing: error), privacy: .public)
+                    """
+                )
+                return
+            }
             authorityValidation = .store
         }
         guard await isAggregationScopeValid(scope) else { return }
+        if onlyMacDeviceIDs == nil {
+            pairedMacLoadState = .loaded
+        }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         guard await isAggregationScopeValid(scope) else { return }
         if onlyMacDeviceIDs == nil {
@@ -5496,11 +5526,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func scheduleSecondaryAggregationRetry(
-        macDeviceIDs: Set<String>
+        macDeviceIDs: Set<String>,
+        needsFullRefresh: Bool = false
     ) {
         retainSecondaryAggregationRetryEvidence(
             macDeviceIDs.map(cmxCanonicalDeviceID)
         )
+        if !secondaryAggregationRetryMacIDs.isEmpty {
+            secondaryAggregationRetryNeedsFullRefresh =
+                secondaryAggregationRetryNeedsFullRefresh || needsFullRefresh
+        }
         guard presence != nil,
               secondaryAggregationRetryTask == nil,
               !secondaryAggregationRetryMacIDs.isEmpty,
@@ -5529,10 +5564,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.secondaryAggregationRetryTask = nil
             let macDeviceIDs = self.secondaryAggregationRetryMacIDs
             self.secondaryAggregationRetryMacIDs = []
-            for macDeviceID in macDeviceIDs {
-                self.scheduleSecondaryPresenceAggregation(
-                    forMacDeviceID: macDeviceID
-                )
+            let needsFullRefresh =
+                self.secondaryAggregationRetryNeedsFullRefresh
+            self.secondaryAggregationRetryNeedsFullRefresh = false
+            if needsFullRefresh {
+                self.scheduleSecondaryAggregation()
+            } else {
+                for macDeviceID in macDeviceIDs {
+                    self.scheduleSecondaryPresenceAggregation(
+                        forMacDeviceID: macDeviceID
+                    )
+                }
             }
         }
     }
@@ -5543,6 +5585,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationRetryTask?.cancel()
         secondaryAggregationRetryTask = nil
         secondaryAggregationRetryMacIDs = []
+        secondaryAggregationRetryNeedsFullRefresh = false
         secondaryAggregationRetryState.reset()
     }
 

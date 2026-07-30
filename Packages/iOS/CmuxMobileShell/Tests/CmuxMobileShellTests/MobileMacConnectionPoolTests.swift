@@ -566,6 +566,58 @@ import Testing
         #expect(!shell.notificationFeedSuccessfulMacIDs.contains(deletedMacID))
     }
 
+    @Test func failedFullStorePassPreservesSnapshotsAndRetriesFullLoad()
+        async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-1": [],
+            ],
+            blockedTeams: []
+        )
+        await pairedStore.failNextLoadAll()
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: LivenessHostRouter(),
+                    box: TransportBox()
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        let retainedMacID = "mac-retained-after-load-failure"
+        shell.workspacesByMac[retainedMacID] = MacWorkspaceState(
+            macDeviceID: retainedMacID,
+            displayName: "Retained Mac",
+            status: .unavailable
+        )
+        shell.notificationFeedKnownRevisionsByMac[retainedMacID] = 11
+        shell.notificationFeedSnapshotsByMac[retainedMacID] =
+            NotificationFeedMacSnapshot(revision: 11, items: [])
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(shell.pairedMacLoadState == .failed)
+        #expect(shell.workspacesByMac[retainedMacID] != nil)
+        #expect(shell.notificationFeedSnapshotsByMac[retainedMacID] != nil)
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(shell.secondaryAggregationRetryNeedsFullRefresh)
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+
+        clock.advance(by: .seconds(2))
+        #expect(try await pollUntil {
+            shell.pairedMacLoadState == .loaded
+                && shell.workspacesByMac[retainedMacID] == nil
+                && shell.notificationFeedSnapshotsByMac[retainedMacID] == nil
+        })
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {

@@ -16,6 +16,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         teamKey: String,
         records: [MobilePairedMac]
     )?
+    private var loadAllFailuresRemaining = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -147,6 +148,13 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         loadAllCount += 1
+        if loadAllFailuresRemaining > 0 {
+            loadAllFailuresRemaining -= 1
+            throw NSError(
+                domain: "DelayedTeamPairedMacStore.loadAll",
+                code: 1
+            )
+        }
         let key = teamID ?? ""
         markStarted(key)
         if blockedTeams.contains(key) {
@@ -297,6 +305,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func failNextLoadAll(_ count: Int = 1) {
+        loadAllFailuresRemaining += count
     }
 
     func gateUpsert(macDeviceID: String) {
