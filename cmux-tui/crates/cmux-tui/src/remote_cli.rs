@@ -62,6 +62,8 @@ const REMOTE_COMMANDS: &[&str] = &[
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_INVITATION_URI_BYTES: usize = "cmux://enroll/".len() + 16 * 1024;
+const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
+const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
@@ -1948,12 +1950,77 @@ fn wait_for_detached_socket(
         if UnixStream::connect(socket).is_ok() {
             return Ok(());
         }
-        if let Some(status) = child.try_wait()? {
-            return Err(anyhow!("{process_name} exited {status}; inspect {}", log_path.display()));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Err(anyhow!(
+                    "{process_name} exited {status}; inspect {}",
+                    log_path.display()
+                ));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let cleanup = terminate_detached_process(child);
+                return match cleanup {
+                    Ok(()) => Err(error).with_context(|| {
+                        format!("could not inspect {process_name}; inspect {}", log_path.display())
+                    }),
+                    Err(cleanup) => Err(anyhow!(
+                        "could not inspect {process_name}: {error}; process cleanup failed: {cleanup}; inspect {}",
+                        log_path.display()
+                    )),
+                };
+            }
         }
         thread::sleep(Duration::from_millis(50));
     }
-    Err(anyhow!("{process_name} did not create {}", socket.display()))
+    match terminate_detached_process(child) {
+        Ok(()) => Err(anyhow!("{process_name} did not create {}", socket.display())),
+        Err(error) => Err(anyhow!(
+            "{process_name} did not create {}; process cleanup failed: {error}",
+            socket.display()
+        )),
+    }
+}
+
+fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
+    signal_detached_process_group(child, libc::SIGTERM)?;
+    if wait_for_child_exit(child, DETACHED_TERM_GRACE)? {
+        return Ok(());
+    }
+    signal_detached_process_group(child, libc::SIGKILL)?;
+    if wait_for_child_exit(child, DETACHED_KILL_GRACE)? {
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("detached process {} did not exit after SIGKILL", child.id()),
+    ))
+}
+
+fn signal_detached_process_group(child: &Child, signal: libc::c_int) -> io::Result<()> {
+    let process_group = libc::pid_t::try_from(child.id())
+        .map_err(|_| io::Error::other("detached child PID does not fit pid_t"))?;
+    if unsafe { libc::kill(-process_group, signal) } == 0 {
+        return Ok(());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) }
+}
+
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn configure_detached_process(command: &mut Command) {

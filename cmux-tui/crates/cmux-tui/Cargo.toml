@@ -33,6 +33,7 @@ libc.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
 parking_lot.workspace = true
+sha2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true

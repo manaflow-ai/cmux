@@ -40,6 +40,7 @@ use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstra
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use url::Url;
 
@@ -48,7 +49,11 @@ const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
+const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
@@ -64,6 +69,17 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
         .enable_all()
         .build()
         .context("could not start remote Tokio runtime")
+}
+
+fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
+    let (finished_tx, finished_rx) = mpsc::sync_channel(1);
+    let reaper_name = format!("{runtime_name}-startup-reaper");
+    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
+        let _ = finished_tx.send(runtime_thread.join());
+    });
+    if reaper.is_ok() {
+        let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
+    }
 }
 
 #[derive(Clone)]
@@ -428,6 +444,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
             let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
         })
@@ -436,12 +453,12 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-client");
             return Err(anyhow!(error));
         }
         Err(error) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-client");
             return Err(anyhow!(
                 "remote connection did not become ready within {}s: {error}",
                 startup_timeout.as_secs()
@@ -575,13 +592,18 @@ async fn run_client(
         let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
         if *shutdown.borrow() {
             let _ = connection.close().await;
-            return Ok(());
+            return Err(anyhow!("remote client startup was cancelled"));
         }
         let local_socket = options
             .local_socket
             .clone()
             .unwrap_or_else(|| default_client_socket(&options.state_dir, options.session));
-        let socket_preparation = prepare_client_socket(&local_socket).await?;
+        let socket_preparation =
+            prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
+        if *shutdown.borrow() {
+            let _ = connection.close().await;
+            return Err(anyhow!("remote client startup was cancelled"));
+        }
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         let socket = socket_preparation.bind()?;
@@ -1255,7 +1277,15 @@ fn normalize_carrier_endpoint(mut endpoint: Url) -> anyhow::Result<Url> {
     Ok(endpoint)
 }
 
+#[cfg(test)]
 async fn prepare_client_socket(path: &Path) -> anyhow::Result<ClientSocketPreparation> {
+    prepare_client_socket_with_shutdown(path, None).await
+}
+
+async fn prepare_client_socket_with_shutdown(
+    path: &Path,
+    mut shutdown: Option<watch::Receiver<bool>>,
+) -> anyhow::Result<ClientSocketPreparation> {
     if !unix_socket_path_fits(path) {
         return Err(anyhow!(
             "client socket path is too long for this platform: {}",
@@ -1265,9 +1295,7 @@ async fn prepare_client_socket(path: &Path) -> anyhow::Result<ClientSocketPrepar
     let parent = path.parent().ok_or_else(|| anyhow!("client socket path has no parent"))?;
     prepare_client_socket_directory(parent)?;
     let lock_path = client_socket_lock_path(path)?;
-    let path_lock = tokio::task::spawn_blocking(move || acquire_client_socket_lock(&lock_path))
-        .await
-        .context("client socket ownership lock task failed")??;
+    let path_lock = acquire_client_socket_lock(&lock_path, shutdown.as_mut()).await?;
 
     use std::os::unix::fs::FileTypeExt;
 
@@ -1344,7 +1372,10 @@ fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
 }
 
 #[cfg(unix)]
-fn acquire_client_socket_lock(path: &Path) -> anyhow::Result<ClientSocketPathLock> {
+async fn acquire_client_socket_lock(
+    path: &Path,
+    mut shutdown: Option<&mut watch::Receiver<bool>>,
+) -> anyhow::Result<ClientSocketPathLock> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
@@ -1375,13 +1406,27 @@ fn acquire_client_socket_lock(path: &Path) -> anyhow::Result<ClientSocketPathLoc
     }
 
     loop {
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return Ok(ClientSocketPathLock { file });
         }
         let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() != std::io::ErrorKind::WouldBlock {
             return Err(error)
                 .with_context(|| format!("could not lock client socket path {}", path.display()));
+        }
+        match shutdown.as_deref_mut() {
+            Some(shutdown) => {
+                tokio::select! {
+                    _ = tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY) => {}
+                    _ = wait_for_shutdown(shutdown) => {
+                        return Err(anyhow!("remote client startup was cancelled"));
+                    }
+                }
+            }
+            None => tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY).await,
         }
     }
 }
@@ -1459,9 +1504,54 @@ pub fn daemon_paths(
             anyhow!("cannot determine remote state directory; set CMUX_REMOTE_STATE_DIR")
         })?,
     };
-    let session = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.as_bytes());
-    let state = root.join("sessions").join(session);
-    Ok((state.clone(), state.join("link.sock"), state.join("admin.sock")))
+    let encoded_session =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.as_bytes());
+    let session_component = if encoded_session.len() <= MAX_DAEMON_SESSION_COMPONENT_BYTES {
+        encoded_session
+    } else {
+        format!("sha256-{:x}", Sha256::digest(session.as_bytes()))
+    };
+    let state = root.join("sessions").join(session_component);
+    let state_link = state.join("link.sock");
+    let state_admin = state.join("admin.sock");
+    if unix_socket_path_fits(&state_link) && unix_socket_path_fits(&state_admin) {
+        return Ok((state, state_link, state_admin));
+    }
+    let (link, admin) = daemon_runtime_socket_paths(&state)?;
+    Ok((state, link, admin))
+}
+
+#[cfg(unix)]
+fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    let socket_names = |runtime: &Path| {
+        (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
+    };
+    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("cmux-rd"))
+    {
+        let (link, admin) = socket_names(&runtime);
+        if unix_socket_path_fits(&link)
+            && unix_socket_path_fits(&admin)
+            && ensure_secure_directory(&runtime, DirectoryAccess::OwnerOnly).is_ok()
+        {
+            return Ok((link, admin));
+        }
+    }
+
+    let runtime = PathBuf::from(format!("/tmp/cmux-rd-{}", unsafe { libc::geteuid() }));
+    ensure_secure_directory(&runtime, DirectoryAccess::OwnerOnly).with_context(|| {
+        format!("could not create private remote daemon runtime directory {}", runtime.display())
+    })?;
+    let (link, admin) = socket_names(&runtime);
+    if !unix_socket_path_fits(&link) || !unix_socket_path_fits(&admin) {
+        return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
+    }
+    Ok((link, admin))
 }
 
 pub fn start_daemon_runtime(
@@ -1487,7 +1577,7 @@ fn start_daemon_runtime_with_timeout(
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-daemon-worker")?;
-            runtime.block_on(run_daemon(
+            let result = runtime.block_on(run_daemon(
                 mux_socket,
                 options,
                 state_dir,
@@ -1496,7 +1586,9 @@ fn start_daemon_runtime_with_timeout(
                 shutdown_rx,
                 owner_shutdown,
                 ready_tx,
-            ))
+            ));
+            runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
+            result
         })
         .context("could not start remote daemon thread")?;
 
@@ -1504,12 +1596,12 @@ fn start_daemon_runtime_with_timeout(
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-daemon");
             return Err(anyhow!(error));
         }
         Err(error) => {
             let _ = shutdown_tx.send(true);
-            let _ = thread.join();
+            reap_failed_startup(thread, "cmux-remote-daemon");
             return Err(anyhow!("remote daemon did not become ready: {error}"));
         }
     };
@@ -1528,8 +1620,12 @@ async fn run_daemon(
     ready: mpsc::SyncSender<Result<DaemonRuntimeInfo, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
+        let mut startup_shutdown = shutdown.clone();
         let auth =
             AuthDatabase::load_or_create(state_dir.join("auth"), options.session.clone(), true)?;
+        if *startup_shutdown.borrow() {
+            return Err(anyhow!("remote daemon startup was cancelled"));
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
@@ -1569,7 +1665,6 @@ async fn run_daemon(
             });
         }
         let mut relays = Vec::with_capacity(options.relays.len());
-        let mut startup_shutdown = shutdown.clone();
         while !relay_tasks.is_empty() {
             let result = tokio::select! {
                 result = relay_tasks.join_next() => result,
@@ -1587,7 +1682,12 @@ async fn run_daemon(
                     secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
                     ..IrohProviderConfig::default()
                 };
-                Some(IrohListener::bind(daemon.clone(), config).await?)
+                Some(tokio::select! {
+                    result = IrohListener::bind(daemon.clone(), config) => result?,
+                    _ = wait_for_shutdown(&mut startup_shutdown) => {
+                        return Err(anyhow!("remote daemon startup was cancelled"));
+                    }
+                })
             }
             false => None,
         };
@@ -2183,7 +2283,7 @@ mod tests {
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
                 session: "client-startup-lock".into(),
-                state_dir: Some(daemon_root.clone()),
+                state_dir: Some(daemon_root),
                 link_socket: None,
                 admin_socket: None,
                 direct_websocket: None,
