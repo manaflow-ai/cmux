@@ -1822,6 +1822,14 @@ fn load_auth_state(
             .checked_add(1)
             .ok_or_else(|| IdentityError::Invalid("identity revision exhausted".into()))?;
         atomic_json(path, &state)?;
+    } else {
+        let parent = path
+            .parent()
+            .ok_or_else(|| IdentityError::Invalid("state path has no parent".into()))?;
+        // A previous atomic rename may have become visible before its parent
+        // directory sync failed. Reconfirm that directory entry before
+        // trusting version 2 as a durable rollback fence.
+        sync_parent_directory(parent)?;
     }
     Ok(state)
 }
