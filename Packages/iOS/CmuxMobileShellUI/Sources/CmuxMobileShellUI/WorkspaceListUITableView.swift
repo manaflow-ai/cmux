@@ -11,12 +11,12 @@ final class WorkspaceListUITableView: UITableView {
 
     override init(frame: CGRect, style: UITableView.Style) {
         super.init(frame: frame, style: style)
-        configureTopScrollEdgeEffect()
+        configureScrollEdgeEffects()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        configureTopScrollEdgeEffect()
+        configureScrollEdgeEffects()
     }
 
     override func didMoveToWindow() {
@@ -37,6 +37,7 @@ final class WorkspaceListUITableView: UITableView {
         }
         if window != nil {
             scrollEdgeCoordinator.registerIfNeeded(for: self)
+            updateScrollContentInsets()
         }
     }
 
@@ -48,10 +49,41 @@ final class WorkspaceListUITableView: UITableView {
         }
     }
 
-    private func configureTopScrollEdgeEffect() {
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        scrollEdgeCoordinator.registerIfNeeded(for: self)
+        updateScrollContentInsets()
+    }
+
+    private func configureScrollEdgeEffects() {
+        contentInsetAdjustmentBehavior = .never
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft
+            bottomEdgeEffect.style = .soft
         }
+    }
+
+    private func updateScrollContentInsets() {
+        let insets = scrollEdgeCoordinator.contentInsets(for: self)
+        let previousInsets = contentInset
+        guard previousInsets != insets else { return }
+        let previousOffset = contentOffset
+        let previousMaximumOffsetY = max(
+            -previousInsets.top,
+            contentSize.height + previousInsets.bottom - bounds.height
+        )
+        let wasAtBottom = abs(previousOffset.y - previousMaximumOffsetY) <= 1
+        contentInset = insets
+        scrollIndicatorInsets = insets
+        var anchoredOffset = previousOffset
+        anchoredOffset.y -= insets.top - previousInsets.top
+        if wasAtBottom {
+            anchoredOffset.y = max(
+                -insets.top,
+                contentSize.height + insets.bottom - bounds.height
+            )
+        }
+        setContentOffset(anchoredOffset, animated: false)
     }
 }
 #endif

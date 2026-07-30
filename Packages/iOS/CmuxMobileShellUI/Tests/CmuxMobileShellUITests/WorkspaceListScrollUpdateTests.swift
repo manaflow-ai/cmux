@@ -6,12 +6,14 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesNativeSoftTopScrollEdgeEffect() {
+    @Test func workspaceTableUsesNativeSoftScrollEdgeEffectsAndExplicitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
 
         #expect(tableView.topEdgeEffect.style == .soft)
+        #expect(tableView.bottomEdgeEffect.style == .soft)
+        #expect(tableView.contentInsetAdjustmentBehavior == .never)
     }
 
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
