@@ -4112,6 +4112,79 @@ mod unix {
     mod tests {
         use super::*;
 
+        fn spawn_sleeping_host_for_test(name: &str) -> (Arc<HostShared>, PathBuf) {
+            let root = std::env::temp_dir()
+                .join(format!("cmux-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bootstrap_bytes = Vec::new();
+            write_frame(&mut bootstrap_bytes, &bootstrap.into_frame(1)).unwrap();
+            let bootstrapped = crate::terminal_host::bootstrap_stdio_once(
+                &mut bootstrap_bytes.as_slice(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                scrollback: 100,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sh".into(), "-c".into(), "exec /bin/sleep 60".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+            };
+            (spawn_host_runtime(&launch, &bootstrapped).unwrap(), root)
+        }
+
+        fn stop_test_host(host: &Arc<HostShared>, root: &Path) {
+            host.request_termination();
+            assert!(
+                host.wait_for_child_exit(Duration::from_secs(3)),
+                "test terminal host did not stop"
+            );
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn unauthenticated_host_client_handshake_is_time_bounded() {
+            let _guard = HOST_REAP_TEST_LOCK.lock().unwrap();
+            let (host, root) = spawn_sleeping_host_for_test("host-handshake-timeout");
+            let (server, client) = cmux_tui_process::unix::pair_stream().unwrap();
+            let client_host = host.clone();
+            let (done_sender, done_receiver) = sync_channel(1);
+            let worker = thread::spawn(move || {
+                done_sender.send(serve_client(client_host, server)).unwrap();
+            });
+
+            let result =
+                done_receiver.recv_timeout(HOST_HANDSHAKE_TIMEOUT + Duration::from_secs(1));
+            drop(client);
+            if result.is_err() {
+                let _ = done_receiver.recv_timeout(Duration::from_secs(1));
+            }
+            worker.join().unwrap();
+            stop_test_host(&host, &root);
+
+            match result {
+                Ok(Err(_)) => {}
+                Ok(Ok(())) => panic!("an empty client completed a terminal-host handshake"),
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("an unauthenticated client retained a host thread past the deadline")
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("the terminal-host client worker disconnected without a result")
+                }
+            }
+        }
+
         #[cfg(target_os = "macos")]
         #[test]
         fn host_pty_creation_waits_for_process_barrier() {
