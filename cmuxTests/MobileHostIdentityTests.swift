@@ -52,6 +52,10 @@ struct MobileHostIdentityTests {
         ))
         #expect(store.select(internalNamespace))
         #expect(store.selectedNamespace == internalNamespace)
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-dev.cmux.app.internal"
+        )
     }
 
     @Test func taggedMacTargetsOnlyItsMatchingTaggedIOSBuild() throws {

@@ -645,7 +645,14 @@ function makeLiveRepository(): IrohRepositoryShape {
           .for("update")
           .limit(1);
         if (!binding) return false;
-        if (binding.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+        const requestedNamespace = input.clientNamespace ?? "legacy";
+        if (
+          binding.clientNamespace !== requestedNamespace
+          && !(
+            binding.clientNamespace === "legacy"
+            && requestedNamespace !== "legacy"
+          )
+        ) {
           return false;
         }
         if (binding.revokedAt) return true;

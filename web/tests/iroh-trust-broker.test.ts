@@ -369,6 +369,31 @@ describe("Iroh discovery and grants", () => {
     );
   });
 
+  test("a namespaced client can drain its migrated legacy revocation", async () => {
+    const fixture = makeFixture({
+      registrationClientNamespace: "dev.cmux.app.internal",
+    });
+    const legacy = binding({
+      userId: USER_A,
+      platform: "ios",
+      clientNamespace: "legacy",
+    });
+    fixture.repository.bindings.push(legacy);
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: legacy.id },
+      NOW,
+      "dev.cmux.app.internal",
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(legacy.revokedAt).toEqual(NOW);
+  });
+
   test("never exposes another user through shared team context", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
@@ -1007,7 +1032,11 @@ class MemoryRepository implements IrohRepositoryShape {
     const row = this.bindings.find((candidate) =>
       candidate.id === input.bindingId && candidate.userId === input.userId);
     if (!row) return Effect.succeed(false);
-    if (row.clientNamespace !== (input.clientNamespace ?? "legacy")) {
+    const requestedNamespace = input.clientNamespace ?? "legacy";
+    if (
+      row.clientNamespace !== requestedNamespace
+      && !(row.clientNamespace === "legacy" && requestedNamespace !== "legacy")
+    ) {
       return Effect.succeed(false);
     }
     if (row.revokedAt) return Effect.succeed(true);

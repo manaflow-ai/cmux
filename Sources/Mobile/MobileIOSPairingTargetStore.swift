@@ -43,6 +43,13 @@ struct MobileIOSPairingTargetStore {
         return available.first
     }
 
+    var selectedPairingURLScheme: CmxPairingURLScheme? {
+        guard let selectedNamespace else { return nil }
+        return CmxPairingURLScheme(
+            iOSBundleIdentifier: selectedNamespace.bundleIdentifier
+        )
+    }
+
     @discardableResult
     func select(_ namespace: MobileIOSAppNamespace) -> Bool {
         guard availableNamespaces.contains(namespace) else { return false }

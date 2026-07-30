@@ -169,19 +169,48 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   const clientNamespace = headerNamespace ?? bodyBundleId;
   if (!deviceToken) return jsonResponse({ error: "missing_device_token" }, 400);
   if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
-  if (!clientNamespace) {
-    return jsonResponse({ error: "missing_client_namespace" }, 400);
-  }
-  if (
+  if (clientNamespace && (
     !normalizeApnsBundle(clientNamespace) ||
     (headerNamespace !== null &&
       bodyBundleId !== "" &&
       headerNamespace !== bodyBundleId)
-  ) {
+  )) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
   }
 
   const db = cloudDb();
+  if (!clientNamespace) {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`,
+      );
+      const matches = await tx
+        .select({ bundleId: deviceTokens.bundleId })
+        .from(deviceTokens)
+        .where(and(
+          eq(deviceTokens.deviceToken, deviceToken),
+          eq(deviceTokens.userId, user.id),
+        ))
+        .limit(2);
+      if (matches.length > 1) return "ambiguous" as const;
+      const match = matches[0];
+      if (match) {
+        await tx
+          .delete(deviceTokens)
+          .where(and(
+            eq(deviceTokens.deviceToken, deviceToken),
+            eq(deviceTokens.userId, user.id),
+            eq(deviceTokens.bundleId, match.bundleId),
+          ));
+      }
+      return "deleted" as const;
+    });
+    if (result === "ambiguous") {
+      return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
+    }
+    return jsonResponse({ ok: true });
+  }
+
   await db
     .delete(deviceTokens)
     .where(and(

@@ -28,7 +28,8 @@ extension TerminalController {
             }
             pairingURLScheme = parsed
         } else {
-            pairingURLScheme = CmxPairingURLSchemeResolver().resolved
+            pairingURLScheme =
+                MobileIOSPairingTargetStore().selectedPairingURLScheme
         }
         let rawTarget = v2OptionalTrimmedRawString(params, "target")
         let target: MobileAttachTarget?

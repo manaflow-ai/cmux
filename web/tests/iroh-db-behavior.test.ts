@@ -490,6 +490,55 @@ describe("Iroh trust broker database behavior", () => {
     }]);
   });
 
+  dbTest("drains a migrated legacy revocation before namespace adoption", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-revocation";
+    const [legacy] = await requiredSql()<Array<{ id: string }>>`
+      insert into iroh_endpoint_bindings (
+        user_id,
+        device_uuid,
+        app_instance_id,
+        client_namespace,
+        tag,
+        platform,
+        endpoint_id,
+        identity_generation
+      ) values (
+        ${userId},
+        ${randomUUID()},
+        ${randomUUID()},
+        'legacy',
+        'stable',
+        'ios',
+        ${"39".repeat(32)},
+        1
+      )
+      returning id
+    `;
+    if (!legacy) throw new Error("legacy binding insert failed");
+
+    const revoked = await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: legacy.id,
+      clientNamespace: "dev.cmux.app.internal",
+      now: NOW,
+    }));
+
+    expect(revoked).toBe(true);
+    const [stored] = await requiredSql()<Array<{
+      revokedAt: Date | null;
+      revokedReason: string | null;
+    }>>`
+      select
+        revoked_at as "revokedAt",
+        revoked_reason as "revokedReason"
+      from iroh_endpoint_bindings
+      where id = ${legacy.id}
+    `;
+    expect(stored?.revokedAt).toEqual(NOW);
+    expect(stored?.revokedReason).toBe("user_requested");
+  });
+
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
     const repo = requiredRepository();
     const userId = "user-private-registration-hints";
