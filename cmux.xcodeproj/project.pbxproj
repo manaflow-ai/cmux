@@ -1991,6 +1991,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
 		F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */; };
+		8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */; };
 		7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */; };
 		F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */; };
 		F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */; };
@@ -4469,6 +4470,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretResolution.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingIndex.swift; sourceTree = "<group>"; };
+		8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
 		7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+Remote.swift"; sourceTree = "<group>"; };
 		F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift"; sourceTree = "<group>"; };
 		F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift"; sourceTree = "<group>"; };
@@ -6544,6 +6546,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
+				8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */,
 				7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */,
 				7989B1027989B1027989B102 /* SurfaceResumeLaunchFlavor.swift */,
 				7989B1037989B1037989B103 /* SurfaceResumeRemoteContext.swift */,
@@ -9280,6 +9283,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */,
 				883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */,
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
+				8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */,
 				7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */,
 				F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */,
 				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
