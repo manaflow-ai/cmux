@@ -184,6 +184,12 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
     });
+    const maximumDevTag = "a".repeat(64);
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}`)).toEqual({
+      bundleId: `dev.cmux.ios.${maximumDevTag}`,
+      environment: "sandbox",
+    });
+    expect(normalizeApnsBundle(`dev.cmux.ios.${maximumDevTag}a`)).toBeNull();
 
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();

@@ -153,7 +153,27 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  dbTest("selects one exact namespace while preserving legacy account fanout", async () => {
+  test("rejects a missing target namespace before DB access", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    const response = await pushRoute.POST(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ title: "Agent", body: "Done" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "missing_target_namespace",
+    });
+    expect(cloudDb).not.toHaveBeenCalled();
+  });
+
+  dbTest("selects one exact namespace", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`
       insert into device_tokens (
@@ -201,21 +221,5 @@ describe("notifications push route", () => {
       },
     ]);
 
-    const legacyTargets = await pushRoute.selectNotificationPushTargets(
-      realCloudDb(),
-      "user-1",
-    );
-    expect(legacyTargets).toEqual([
-      {
-        deviceToken: "a".repeat(64),
-        bundleId: "dev.cmux.app.internal",
-        environment: "production",
-      },
-      {
-        deviceToken: "b".repeat(64),
-        bundleId: "dev.cmux.app.demo",
-        environment: "production",
-      },
-    ]);
   });
 });

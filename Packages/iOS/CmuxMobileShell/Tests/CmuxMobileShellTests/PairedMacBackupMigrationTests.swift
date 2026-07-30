@@ -359,4 +359,65 @@ struct PairedMacBackupMigrationTests {
                 .map(\.httpMethod) == ["GET", "GET"]
         )
     }
+
+    @Test func legacyAdoptionChunksRequestsAtServerOperationLimit() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let tombstones = (0 ..< 201).map { "forgotten-\($0):nightly" }
+        let empty = try JSONEncoder().encode(
+            TestBackupList(records: [], deletedMacDeviceIDs: [])
+        )
+        let legacy = try JSONEncoder().encode(
+            TestBackupList(
+                records: [],
+                deletedMacDeviceIDs: tombstones
+            )
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: empty,
+            legacyScope: nil,
+            legacyResponse: legacy,
+            primaryResponseAfterUpload: legacy
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [
+            PairedMacBackupMigrationURLProtocol.self
+        ]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        let snapshot = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+
+        #expect(snapshot.deletedMacDeviceIDs == tombstones)
+        #expect(
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+                .map(\.httpMethod)
+                == ["GET", "GET", "POST", "POST", "GET"]
+        )
+        let postBodies = PairedMacBackupMigrationURLProtocol
+            .capturedRequestBodies()
+            .compactMap { $0 }
+        let opCounts = try postBodies.map { body in
+            let object = try #require(
+                JSONSerialization.jsonObject(with: body)
+                    as? [String: Any]
+            )
+            return try #require(object["ops"] as? [[String: Any]]).count
+        }
+        #expect(opCounts == [200, 1])
+    }
 }
