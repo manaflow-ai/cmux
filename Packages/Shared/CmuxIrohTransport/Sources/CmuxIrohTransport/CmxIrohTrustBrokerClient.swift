@@ -70,6 +70,16 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
+    private struct ConnectivitySyncRequest: Encodable {
+        let protocolVersion: Int
+        let knownRevision: UInt64?
+
+        private enum CodingKeys: String, CodingKey {
+            case protocolVersion = "protocol_version"
+            case knownRevision = "known_revision"
+        }
+    }
+
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
     private struct RelayAccessCredential: Decodable, Sendable {
@@ -221,6 +231,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         try await sendWithoutBody(
             path: "api/devices/iroh",
             method: "GET",
+            operation: .discovery
+        )
+    }
+
+    /// Reconciles one completely installed route revision with connectivity v2.
+    public func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        try await send(
+            path: "api/connectivity/v2/sync",
+            method: "POST",
+            body: ConnectivitySyncRequest(
+                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
+                knownRevision: knownRevision
+            ),
             operation: .discovery
         )
     }

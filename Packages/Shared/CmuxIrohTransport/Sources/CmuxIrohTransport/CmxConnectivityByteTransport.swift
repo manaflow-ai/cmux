@@ -1,0 +1,89 @@
+import CMUXMobileCore
+import Foundation
+
+/// Projects a connectivity-v2 peer's control lane through the mobile RPC byte seam.
+actor CmxConnectivityByteTransport:
+    CmxByteTransport,
+    CmxByteTransportClosureObserving,
+    CmxByteTransportContinuityIdentifying,
+    CmxByteTransportSessionPurposeUpdating
+{
+    private var request: CmxByteTransportRequest
+    private let engine: CmxConnectivityEngine
+    private let ownerID = UUID()
+    private var session: (any CmxConnectivitySession)?
+    private var closed = false
+
+    init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
+        self.request = request
+        self.engine = engine
+    }
+
+    func connect() async throws {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
+        if session != nil { return }
+        let connected = try await engine.acquireControl(
+            for: request,
+            ownerID: ownerID
+        )
+        guard !closed else {
+            await engine.releaseControl(for: request, ownerID: ownerID)
+            throw CmxIrohByteTransportError.alreadyClosed
+        }
+        session = connected
+    }
+
+    func receive() async throws -> Data? {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
+        guard let session else { throw CmxIrohByteTransportError.notConnected }
+        do {
+            return try await session.receiveControl(maximumByteCount: 64 * 1_024)
+        } catch {
+            self.session = nil
+            await engine.invalidatePeer(
+                for: request,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
+        guard let session else { throw CmxIrohByteTransportError.notConnected }
+        do {
+            try await session.sendControl(data)
+        } catch {
+            self.session = nil
+            await engine.invalidatePeer(
+                for: request,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            throw error
+        }
+    }
+
+    func close() async {
+        guard !closed else { return }
+        closed = true
+        session = nil
+        await engine.releaseControl(for: request, ownerID: ownerID)
+    }
+
+    func transportContinuityID() async -> UInt64? {
+        await engine.connectionContinuityID(for: request)
+    }
+
+    func transportClosureObservation() -> CmxTransportClosureObservation? {
+        guard session != nil else { return nil }
+        let engine = engine
+        let request = request
+        return CmxTransportClosureObservation {
+            await engine.waitUntilConnectionCloses(for: request)
+        }
+    }
+
+    func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) {
+        request = request.withSessionPurpose(purpose)
+    }
+}

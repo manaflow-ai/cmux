@@ -221,6 +221,11 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public static let maximumBindingCount = 256
 
     public let routeContractVersion: Int
+    /// Monotonic account route revision returned by revision-aware brokers.
+    ///
+    /// This remains optional while installed clients can still reach a
+    /// pre-connectivity-v2 development backend.
+    public let revision: UInt64?
     public let bindings: [CmxIrohBrokerBinding]
     public let relayFleet: [String]
     public let lanRendezvous: CmxIrohLANRendezvous
@@ -228,6 +233,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case routeContractVersion = "route_contract_version"
+        case revision
         case bindings
         case relayFleet = "relay_fleet"
         case lanRendezvous = "lan_rendezvous"
@@ -237,6 +243,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
+        let revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
         let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
         guard bindings.count <= Self.maximumBindingCount,
@@ -251,6 +258,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
             )
         }
         self.routeContractVersion = routeContractVersion
+        self.revision = revision
         self.bindings = bindings
         self.relayFleet = relayFleet
         lanRendezvous = try container.decode(CmxIrohLANRendezvous.self, forKey: .lanRendezvous)
@@ -280,8 +288,21 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
 /// Registration response. Relay bootstrap failure never rolls back the binding.
 public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
+    /// Monotonic account route revision after this registration commit.
+    public let revision: UInt64?
     public let binding: CmxIrohBrokerBinding
     public let relay: CmxIrohRegistrationRelay
+
+    /// Creates a registration response for alternate brokers and tests.
+    public init(
+        revision: UInt64? = nil,
+        binding: CmxIrohBrokerBinding,
+        relay: CmxIrohRegistrationRelay
+    ) {
+        self.revision = revision
+        self.binding = binding
+        self.relay = relay
+    }
 }
 
 /// Result of the registration route's best-effort initial relay mint.
