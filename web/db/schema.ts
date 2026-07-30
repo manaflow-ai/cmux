@@ -340,8 +340,8 @@ export const cloudVmBaseEvents = pgTable(
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".
- * Keyed unique by `deviceToken` so a device re-registering (e.g. after an
- * account switch) updates its `userId` instead of duplicating.
+ * Keyed unique by `(bundleId, deviceToken)` so re-registering one exact app
+ * updates its user without allowing another installed app to overwrite it.
  */
 export const deviceTokens = pgTable(
   "device_tokens",
@@ -362,7 +362,10 @@ export const deviceTokens = pgTable(
   (table) => [
     index("device_tokens_user_idx").on(table.userId),
     index("device_tokens_user_bundle_idx").on(table.userId, table.bundleId),
-    uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
+    uniqueIndex("device_tokens_bundle_token_unique").on(
+      table.bundleId,
+      table.deviceToken,
+    ),
   ],
 );
 

@@ -58,7 +58,9 @@ import Testing
         let url = try #require(encodeLegacy(ticket))
         // The scheme is bundle-specific, so the system camera routes the QR to
         // the matching installed iOS build. The rest of the URL is unchanged.
-        let scheme = try #require(CmxPairingURLScheme.current)
+        let scheme = try #require(
+            CmxPairingURLSchemeResolver().resolved?.rawValue
+        )
         #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
@@ -148,7 +150,9 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(encodeLegacy(ticket))
-        let scheme = try #require(CmxPairingURLScheme.current)
+        let scheme = try #require(
+            CmxPairingURLSchemeResolver().resolved?.rawValue
+        )
         #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])

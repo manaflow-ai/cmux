@@ -134,7 +134,10 @@ public actor PushRegistrationService: PushRegistering {
         guard let request = await makeRequest(
             method: "DELETE",
             path: "/api/device-tokens",
-            body: ["deviceToken": tokenHex],
+            body: [
+                "deviceToken": tokenHex,
+                "bundleId": bundleID,
+            ],
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken
         ) else { return }

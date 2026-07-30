@@ -75,44 +75,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
 
-    /// This iOS device's stable cmux identity for the device registry.
-    ///
-    /// A cmux-GENERATED persisted UUID (NOT `identifierForVendor`, which resets
-    /// when the last cmux app is removed, and NOT a hardware fingerprint).
-    /// Stored in a device-only Keychain item so it survives an app reinstall
-    /// (iOS `UserDefaults` does not): the iroh binding slot is keyed on
-    /// `(user, device, tag)`, so a returning phone must present the same device
-    /// id to overwrite its own binding in place instead of stranding a new one.
-    /// `UserDefaults` mirrors an authoritative Keychain id only for downgrade and
-    /// temporarily locked-Keychain recovery. It is never adopted when Keychain
-    /// confirms the item is absent because app backups can restore UserDefaults
-    /// onto different hardware. Mirrors the Mac side's
-    /// `MobileHostIdentity.deviceID()`.
-    ///
-    /// This is the best-effort read used by non-binding callers (the device
-    /// registry HTTP client, which only reads the team's Macs). It never returns
-    /// `nil`: when the store is unreadable and no mirror exists it yields a
-    /// process-stable ephemeral id. Do NOT use it to register an iroh binding —
-    /// that path must use ``durableDeviceID(defaults:)`` and defer while it is
-    /// `nil`, so a throwaway id never becomes a stranded `(user, device, tag)`
-    /// binding.
-    /// - Parameter defaults: Legacy persistence store (injected for tests).
-    public static func deviceID(
-        appNamespace: MobileIOSAppNamespace,
-        keychainAccessGroup: String?,
-        defaults: UserDefaults = .standard
-    ) -> String {
-        deviceID(
-            store: KeychainDeviceIdentityStore(
-                service: appNamespace.keychainService(
-                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
-                ),
-                accessGroup: keychainAccessGroup
-            ),
-            defaults: defaults
-        )
-    }
-
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
     static func deviceID(
         store: any DeviceIdentityStoring,
@@ -130,32 +92,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             // launch that can read/persist adopts or mints the durable id.
             return ephemeralFallbackID
         }
-    }
-
-    /// This iOS device's *durable* identity for registering an iroh binding, or
-    /// `nil` when no durable id can be produced right now.
-    ///
-    /// Returns `nil` in exactly two cases: the Keychain is unreadable (locked
-    /// before first unlock) with no legacy `UserDefaults` mirror, or a fresh id
-    /// could not be persisted to the Keychain. In both, using the value would
-    /// create a throwaway `(user, device, tag)` binding that changes on the next
-    /// launch and orphans the retained one. Callers must defer/retry activation
-    /// until this returns a value instead of registering with an ephemeral id.
-    /// - Parameter defaults: Legacy persistence store (injected for tests).
-    public static func durableDeviceID(
-        appNamespace: MobileIOSAppNamespace,
-        keychainAccessGroup: String?,
-        defaults: UserDefaults = .standard
-    ) -> String? {
-        durableDeviceID(
-            store: KeychainDeviceIdentityStore(
-                service: appNamespace.keychainService(
-                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
-                ),
-                accessGroup: keychainAccessGroup
-            ),
-            defaults: defaults
-        )
     }
 
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
@@ -550,6 +486,59 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
         return request
+    }
+}
+
+public extension MobileIOSAppNamespace {
+    /// Returns this app bundle's stable device-registry identity.
+    ///
+    /// The exact bundle namespace selects a device-only Keychain service. The
+    /// best-effort registry read may return a process-stable ephemeral value
+    /// when protected storage is unavailable, but that value is never used for
+    /// an Iroh binding.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func deviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        DeviceRegistryService.deviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults
+        )
+    }
+
+    /// Returns this app bundle's durable Iroh device identity.
+    ///
+    /// A `nil` result means protected storage is unavailable or a fresh value
+    /// could not be persisted. Callers must defer broker registration instead
+    /// of substituting an ephemeral identity.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func durableDeviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        DeviceRegistryService.durableDeviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults
+        )
     }
 }
 

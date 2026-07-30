@@ -268,6 +268,10 @@ function makeLiveRepository(): IrohRepositoryShape {
           .where(and(
             eq(irohRegistrationChallenges.userId, input.userId),
             eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
+            eq(
+              irohRegistrationChallenges.clientNamespace,
+              input.clientNamespace ?? "legacy",
+            ),
             eq(irohRegistrationChallenges.tag, input.tag),
           ))
           .orderBy(desc(irohRegistrationChallenges.createdAt))
@@ -336,7 +340,7 @@ function makeLiveRepository(): IrohRepositoryShape {
         // id so existing pair grants keep resolving. There is no generation gate:
         // a reinstall resets identity_generation to 1, and gating on it would
         // reintroduce the wedge that stranded a computer behind its own past self.
-        const [existingSlot] = await tx
+        let [existingSlot] = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
@@ -348,6 +352,49 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .for("update")
           .limit(1);
+
+        // Older rows predate app namespaces. The app's endpoint identity lives
+        // in its exact signed Keychain access group, so a registration that
+        // proves the same endpoint/device/tag tuple can atomically adopt its own
+        // legacy row. A sibling bundle cannot read that endpoint secret and
+        // therefore cannot claim the row.
+        if (
+          !existingSlot
+          && input.payload.clientNamespace !== "legacy"
+        ) {
+          const [legacySlot] = await tx
+            .select()
+            .from(irohEndpointBindings)
+            .where(and(
+              eq(irohEndpointBindings.userId, input.userId),
+              eq(irohEndpointBindings.clientNamespace, "legacy"),
+              eq(irohEndpointBindings.deviceUuid, input.payload.deviceId),
+              eq(irohEndpointBindings.tag, input.payload.tag),
+              eq(irohEndpointBindings.endpointId, input.payload.endpointId),
+              eq(irohEndpointBindings.platform, input.payload.platform),
+              isNull(irohEndpointBindings.revokedAt),
+            ))
+            .for("update")
+            .limit(1);
+          if (legacySlot) {
+            const [adoptedSlot] = await tx
+              .update(irohEndpointBindings)
+              .set({
+                clientNamespace: input.payload.clientNamespace,
+                updatedAt: input.now,
+              })
+              .where(and(
+                eq(irohEndpointBindings.id, legacySlot.id),
+                eq(irohEndpointBindings.clientNamespace, "legacy"),
+                isNull(irohEndpointBindings.revokedAt),
+              ))
+              .returning();
+            if (!adoptedSlot) {
+              throw new Error("legacy binding adoption returned no row");
+            }
+            existingSlot = adoptedSlot;
+          }
+        }
 
         // Reject a stale challenge minted before the slot's current registration.
         // Challenges resolve under the slot advisory lock, so two registrations

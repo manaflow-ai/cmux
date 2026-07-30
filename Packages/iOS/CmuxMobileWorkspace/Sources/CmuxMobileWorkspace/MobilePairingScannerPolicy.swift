@@ -16,6 +16,6 @@ public struct MobilePairingScannerPolicy {
     /// - Parameter code: The raw string payload decoded from a QR code.
     /// - Returns: `true` for any cmux channel's pairing deep link.
     public static func acceptsCode(_ code: String) -> Bool {
-        CmxPairingURLScheme.hasPairingScheme(code)
+        CmxPairingURLScheme(urlString: code) != nil
     }
 }

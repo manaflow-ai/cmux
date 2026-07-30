@@ -61,9 +61,11 @@ public struct CmxPairingQRCode: Sendable {
     /// loopback route is dropped, never written into a scannable code.
     public func encode(
         _ ticket: CmxAttachTicket,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode: CmxPairingRouteDisclosureMode,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
     ) -> String? {
-        guard let scheme = CmxPairingURLScheme.current,
+        guard let scheme = pairingURLScheme?.rawValue,
               routeDisclosureMode == .legacyPrivateNetworkCompatibility,
               let routes = encodableRoutes(of: ticket) else {
             return nil
@@ -167,7 +169,7 @@ public struct CmxPairingQRCode: Sendable {
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
         guard let url = URL(string: rawValue),
-              CmxPairingURLScheme.isPairingScheme(url.scheme),
+              CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return false

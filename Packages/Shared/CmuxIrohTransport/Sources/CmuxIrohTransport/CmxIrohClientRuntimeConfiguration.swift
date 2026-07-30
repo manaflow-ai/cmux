@@ -10,6 +10,8 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
 
     /// The account-and-build-scoped app-instance UUID.
     public let appInstanceID: String
+
+    /// Exact installed-app namespace sent to every broker request.
     public let clientNamespace: String
 
     /// The release channel or tagged-build scope registered with the broker.

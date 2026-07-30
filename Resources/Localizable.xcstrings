@@ -133119,6 +133119,23 @@
         }
       }
     },
+    "mobile.pairing.targetApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open with"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くアプリ"
+          }
+        }
+      }
+    },
     "mobile.pairing.waiting": {
       "extractionState": "manual",
       "localizations": {

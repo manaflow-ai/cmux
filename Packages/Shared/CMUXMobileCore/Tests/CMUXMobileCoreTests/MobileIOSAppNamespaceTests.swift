@@ -31,6 +31,10 @@ import Testing
             namespace.pairingURLScheme
                 == "cmux-ios-\(bundleIdentifier)"
         )
+        #expect(
+            namespace.oauthCallbackURLScheme
+                == "cmux-ios-auth-\(bundleIdentifier)"
+        )
     }
 
     @Test func appTypesAndDevTagsNeverShareServerOrCallbackScopes() throws {
@@ -48,6 +52,10 @@ import Testing
 
         #expect(Set(namespaces.map(\.serverScope)).count == namespaces.count)
         #expect(Set(namespaces.map(\.pairingURLScheme)).count == namespaces.count)
+        #expect(
+            Set(namespaces.map(\.oauthCallbackURLScheme)).count
+                == namespaces.count
+        )
         #expect(
             Set(
                 namespaces.map {

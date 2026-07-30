@@ -8,61 +8,112 @@ import Testing
 @Suite struct CmxPairingURLSchemeTests {
     @Test func everyInstalledBundleEmitsItsOwnScheme() {
         #expect(
-            CmxPairingURLScheme.scheme(
-                forIOSBundleIdentifier: "dev.cmux.app.internal"
-            ) == "cmux-ios-dev.cmux.app.internal"
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.app.internal"
+            )?.rawValue == "cmux-ios-dev.cmux.app.internal"
         )
         #expect(
-            CmxPairingURLScheme.scheme(
-                forIOSBundleIdentifier: "dev.cmux.app.demo"
-            ) == "cmux-ios-dev.cmux.app.demo"
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.app.demo"
+            )?.rawValue == "cmux-ios-dev.cmux.app.demo"
         )
         #expect(
-            CmxPairingURLScheme.scheme(
-                forIOSBundleIdentifier: "dev.cmux.ios.feature-a"
-            ) == "cmux-ios-dev.cmux.ios.feature-a"
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.ios.feature-a"
+            )?.rawValue == "cmux-ios-dev.cmux.ios.feature-a"
         )
     }
 
     @Test func invalidIdentityDoesNotFallBackToAnotherApp() {
-        #expect(CmxPairingURLScheme.scheme(forIOSBundleIdentifier: "") == nil)
-        #expect(CmxPairingURLScheme.scheme(forIOSBundleIdentifier: "invalid bundle") == nil)
+        #expect(CmxPairingURLScheme(iOSBundleIdentifier: "") == nil)
+        #expect(CmxPairingURLScheme(iOSBundleIdentifier: "invalid bundle") == nil)
         #if !os(iOS)
         #expect(
-            CmxPairingURLScheme.resolvedCurrent(
-                environment: ["CMUX_TAG": "invalid tag"]
-            ) == nil
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: "invalid tag"
+            ).resolved == nil
         )
         #endif
     }
 
+    #if !os(iOS)
+    @Test func macCanExplicitlyTargetEveryReleaseLane() {
+        for bundleIdentifier in [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ] {
+            #expect(
+                CmxPairingURLSchemeResolver(
+                    currentIOSBundleIdentifier: nil,
+                    targetIOSBundleIdentifier: bundleIdentifier,
+                    macInstanceTag: nil
+                ).resolved?.rawValue
+                    == "cmux-ios-\(bundleIdentifier)"
+            )
+        }
+    }
+    #endif
+
     @Test func parserAcceptsNamespacedSchemes() {
-        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.internal"))
-        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev.cmux.app.demo"))
-        #expect(CmxPairingURLScheme.isPairingScheme("CMUX-IOS-DEV.CMUX.IOS.FEATURE-A"))
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.internal") != nil)
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.demo") != nil)
+        #expect(CmxPairingURLScheme(rawValue: "CMUX-IOS-DEV.CMUX.IOS.FEATURE-A") != nil)
         // Old QR codes remain scannable inside an already-open app. New builds
         // do not register these shared schemes with iOS.
-        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios"))
-        #expect(CmxPairingURLScheme.isPairingScheme("cmux-ios-dev"))
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios") != nil)
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev") != nil)
     }
 
     @Test func parserRejectsForeignSchemes() {
-        #expect(!CmxPairingURLScheme.isPairingScheme(nil))
-        #expect(!CmxPairingURLScheme.isPairingScheme(""))
-        #expect(!CmxPairingURLScheme.isPairingScheme("https"))
-        #expect(!CmxPairingURLScheme.isPairingScheme("cmux-ios-*"))
+        #expect(CmxPairingURLScheme(rawValue: nil) == nil)
+        #expect(CmxPairingURLScheme(rawValue: "") == nil)
+        #expect(CmxPairingURLScheme(rawValue: "https") == nil)
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-*") == nil)
+    }
+
+    @Test func channelClassificationRecognizesOnlyAuthoritativeLanes() throws {
+        for bundleIdentifier in [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ] {
+            let scheme = try #require(
+                CmxPairingURLScheme(
+                    iOSBundleIdentifier: bundleIdentifier
+                )
+            )
+            #expect(scheme.isRelease)
+            #expect(!scheme.isDevelopment)
+        }
+        let development = try #require(
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.ios.feature-a"
+            )
+        )
+        #expect(development.isDevelopment)
+        #expect(!development.isRelease)
+        #expect(
+            CmxPairingURLScheme(
+                iOSBundleIdentifier: "dev.cmux.app.unrecognized"
+            )?.isRelease == false
+        )
     }
 
     @Test func prefixCheckAcceptsNamespacedSchemesAndRejectsOthers() {
-        #expect(CmxPairingURLScheme.hasPairingScheme(
+        #expect(CmxPairingURLScheme(urlString:
             "cmux-ios-dev.cmux.app.internal://attach?v=2&r=100.64.0.5:58465"
-        ))
-        #expect(CmxPairingURLScheme.hasPairingScheme(
+        ) != nil)
+        #expect(CmxPairingURLScheme(urlString:
             "CMUX-IOS-DEV.CMUX.IOS.FEATURE-A://attach?v=2"
-        ))
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios://attach?v=2"))
-        #expect(CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev://attach?v=2"))
-        #expect(!CmxPairingURLScheme.hasPairingScheme("https://example.com"))
-        #expect(!CmxPairingURLScheme.hasPairingScheme("cmux-ios-dev.cmux.app.internal"))
+        ) != nil)
+        #expect(CmxPairingURLScheme(urlString: "cmux-ios://attach?v=2") != nil)
+        #expect(CmxPairingURLScheme(urlString: "cmux-ios-dev://attach?v=2") != nil)
+        #expect(CmxPairingURLScheme(urlString: "https://example.com") == nil)
+        #expect(CmxPairingURLScheme(urlString: "cmux-ios-dev.cmux.app.internal") == nil)
     }
 }

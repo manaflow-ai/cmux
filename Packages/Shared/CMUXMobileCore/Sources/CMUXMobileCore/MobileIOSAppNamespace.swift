@@ -6,8 +6,10 @@ import Foundation
 /// short development tags are deliberately not accepted here because either
 /// can alias another installed app.
 public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
+    /// Exact bundle identifier that owns this namespace.
     public let bundleIdentifier: String
 
+    /// Creates a namespace from one complete, validated iOS bundle identifier.
     public init?(bundleIdentifier: String?) {
         guard let bundleIdentifier else { return nil }
         let trimmed = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,6 +58,11 @@ public struct MobileIOSAppNamespace: Equatable, Hashable, Sendable {
     /// The only pairing URL scheme this bundle registers with iOS.
     public var pairingURLScheme: String {
         "cmux-ios-\(bundleIdentifier)"
+    }
+
+    /// The private OAuth callback scheme used only by this app's browser flow.
+    public var oauthCallbackURLScheme: String {
+        "cmux-ios-auth-\(bundleIdentifier)"
     }
 
     /// Opaque server partition for data restored to this exact app bundle.

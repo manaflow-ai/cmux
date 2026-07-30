@@ -1,6 +1,23 @@
 public import CMUXMobileCore
 public import Foundation
 
+private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
+    (1 ... 255).contains(value.utf8.count)
+        && value.utf8.allSatisfy {
+            (48 ... 57).contains($0)
+                || (65 ... 90).contains($0)
+                || (97 ... 122).contains($0)
+                || [45, 46, 58, 95].contains($0)
+        }
+}
+
+private func cmxIsSafeBrokerHeaderValue(_ value: String) -> Bool {
+    (1 ... 16 * 1_024).contains(value.utf8.count)
+        && !value.unicodeScalars.contains(
+            where: { $0.value < 0x20 || $0.value == 0x7f }
+        )
+}
+
 /// One access + refresh credential pair captured from a single session snapshot.
 ///
 /// Assembling a request from one snapshot prevents pairing a stale access token
@@ -156,7 +173,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         guard Self.isAllowedBaseURL(baseURL),
-              Self.isSafeClientNamespace(clientNamespace),
+              cmxIsSafeClientNamespace(clientNamespace),
               requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
@@ -409,7 +426,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard let accessToken, let refreshToken else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
-        guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
+        guard cmxIsSafeBrokerHeaderValue(accessToken),
+              cmxIsSafeBrokerHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
         let url = baseURL.appendingPathComponent(path)
@@ -475,21 +493,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         if scheme == "https" { return true }
         return scheme == "http" && ["127.0.0.1", "::1", "localhost"].contains(host)
-    }
-
-    private static func isSafeHeaderValue(_ value: String) -> Bool {
-        (1 ... 16 * 1_024).contains(value.utf8.count)
-            && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
-    }
-
-    private static func isSafeClientNamespace(_ value: String) -> Bool {
-        (1 ... 255).contains(value.utf8.count)
-            && value.utf8.allSatisfy {
-                (48 ... 57).contains($0)
-                    || (65 ... 90).contains($0)
-                    || (97 ... 122).contains($0)
-                    || [45, 46, 58, 95].contains($0)
-            }
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {

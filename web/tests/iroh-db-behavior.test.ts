@@ -422,6 +422,74 @@ describe("Iroh trust broker database behavior", () => {
     expect(pathHints).toEqual([]);
   });
 
+  dbTest("adopts a matching legacy binding into its exact app namespace", async () => {
+    const repo = requiredRepository();
+    const userId = "user-legacy-namespace-adoption";
+    const deviceId = randomUUID();
+    const endpointId = "35".repeat(32);
+
+    const register = async (
+      appInstanceId: string,
+      clientNamespace: string,
+      nonceHash: string,
+    ) => {
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        clientNamespace,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: "36".repeat(32),
+        nonceHash,
+        now: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+      }));
+      return await Effect.runPromise(repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          clientNamespace,
+          tag: "stable",
+          platform: "mac",
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: true,
+          capabilities: [],
+          pathHints: [],
+        },
+        now: NOW,
+      }));
+    };
+
+    const legacy = await register(randomUUID(), "legacy", "37".repeat(32));
+    const adopted = await register(
+      randomUUID(),
+      "mac:stable",
+      "38".repeat(32),
+    );
+
+    expect(adopted.binding.id).toBe(legacy.binding.id);
+    expect(adopted.created).toBe(false);
+    const rows = await requiredSql()<Array<{
+      id: string;
+      clientNamespace: string;
+    }>>`
+      select id, client_namespace as "clientNamespace"
+      from iroh_endpoint_bindings
+      where user_id = ${userId}
+    `;
+    expect(rows).toEqual([{
+      id: legacy.binding.id,
+      clientNamespace: "mac:stable",
+    }]);
+  });
+
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
     const repo = requiredRepository();
     const userId = "user-private-registration-hints";
@@ -971,6 +1039,7 @@ describe("Iroh trust broker database behavior", () => {
         userId,
         deviceUuid: deviceId,
         appInstanceId: input.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         endpointId: endpoint,
         identityGeneration: 1,
@@ -1175,6 +1244,7 @@ describe("Iroh trust broker database behavior", () => {
         route_contract_version: 1,
         deviceId,
         appInstanceId: prepared.appInstanceId,
+        clientNamespace: "legacy",
         tag,
         platform: "ios",
         endpointId: endpoint,

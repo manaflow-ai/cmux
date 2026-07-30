@@ -1,4 +1,6 @@
 export const MAX_DEVICE_TOKENS_PER_USER = 10;
+/** Defense-in-depth ceiling across every bundle namespace owned by one user. */
+export const MAX_DEVICE_TOKENS_PER_ACCOUNT = 100;
 
 export const MAX_PUSH_TITLE_CHARS = 120;
 export const MAX_PUSH_SUBTITLE_CHARS = 120;
@@ -20,7 +22,8 @@ export type ApnsBundlePolicy = {
  * mirror (the default; older Macs never send `kind`). `dismiss` is the cold
  * lane of Mac→iOS dismiss-sync: a banner-less `content-available` push carrying
  * the dismissed ids plus the authoritative badge, fanned out to every
- * registered device (idempotent on devices that got the live event).
+ * registered device in the selected app namespace (idempotent on devices that
+ * got the live event).
  */
 export type PushKind = "notify" | "dismiss";
 

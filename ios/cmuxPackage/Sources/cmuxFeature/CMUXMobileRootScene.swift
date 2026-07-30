@@ -187,8 +187,7 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            deviceID: DeviceRegistryService.deviceID(
-                appNamespace: appNamespace,
+            deviceID: appNamespace.deviceRegistryDeviceID(
                 keychainAccessGroup: auth.keychainAccessGroup
             ),
             tokenSource: DeviceRegistryService.TokenSource(

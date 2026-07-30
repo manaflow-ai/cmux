@@ -17,6 +17,18 @@ import Observation
 @MainActor
 @Observable
 final class MobilePairingModel {
+    /// One exact installed iOS app the Mac can target with its QR scheme.
+    struct IOSAppTarget: Equatable, Hashable, Identifiable, Sendable {
+        let bundleIdentifier: String
+        let displayName: String
+
+        var id: String { bundleIdentifier }
+
+        var pairingURLScheme: CmxPairingURLScheme? {
+            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)
+        }
+    }
+
     /// The pairing window's render state.
     enum State: Equatable {
         /// Resolving auth/listener state before anything is shown.
@@ -102,9 +114,14 @@ final class MobilePairingModel {
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
+    /// Exact iOS apps this Mac build can intentionally address.
+    let availableIOSAppTargets: [IOSAppTarget]
+    /// The exact iOS app addressed by newly minted QR codes.
+    private(set) var selectedIOSAppTarget: IOSAppTarget
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
+    private let iosAppTargetStore: MobileIOSPairingTargetStore
     /// Observes host status while a code is shown. It upgrades an early
     /// compatibility code when Iroh publishes and tracks new connections.
     /// Cancelled on each refresh.
@@ -128,9 +145,41 @@ final class MobilePairingModel {
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
+        let targetStore = MobileIOSPairingTargetStore()
+        iosAppTargetStore = targetStore
+        let targets = targetStore.availableNamespaces.map { namespace in
+            IOSAppTarget(
+                bundleIdentifier: namespace.bundleIdentifier,
+                displayName: Self.targetDisplayName(
+                    bundleIdentifier: namespace.bundleIdentifier
+                )
+            )
+        }
+        availableIOSAppTargets = targets
+        selectedIOSAppTarget = targets.first {
+            $0.bundleIdentifier
+                == targetStore.selectedNamespace?.bundleIdentifier
+        } ?? targets[0]
     }
 
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
+
+    /// Selects one exact iOS app and regenerates the pairing code for it.
+    func selectIOSAppTarget(_ target: IOSAppTarget) async {
+        guard availableIOSAppTargets.contains(target),
+              selectedIOSAppTarget != target,
+              let namespace = MobileIOSAppNamespace(
+                  bundleIdentifier: target.bundleIdentifier
+              ),
+              iosAppTargetStore.select(namespace) else {
+            return
+        }
+        selectedIOSAppTarget = target
+        MacPairedMacBackupPublisher.shared.pairingTargetDidChange(
+            routes: host.statusSnapshot().routes
+        )
+        await refresh()
+    }
 
     /// Re-evaluates sign-in state and, when signed in, brings the listener up
     /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
@@ -182,7 +231,8 @@ final class MobilePairingModel {
                 workspaceID: "",
                 terminalID: nil,
                 ttl: ticketTTL,
-                routeDisclosureMode: routePlan.primaryDisclosureMode
+                routeDisclosureMode: routePlan.primaryDisclosureMode,
+                pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
             )
             guard generation == refreshGeneration else { return }
             guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
@@ -200,7 +250,8 @@ final class MobilePairingModel {
                    workspaceID: "",
                    terminalID: nil,
                    ttl: ticketTTL,
-                   routeDisclosureMode: .legacyPrivateNetworkCompatibility
+                   routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                   pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
                ) {
                 legacyAttachURL = legacyPayload["attach_url"] as? String
             } else {
@@ -229,6 +280,19 @@ final class MobilePairingModel {
                     defaultValue: "Could not generate a pairing code. Try again."
                 )
             )
+        }
+    }
+
+    private static func targetDisplayName(
+        bundleIdentifier: String
+    ) -> String {
+        switch bundleIdentifier {
+        case "com.cmux.app": "cmux"
+        case "dev.cmux.app.beta": "cmux BETA"
+        case "dev.cmux.app.internal": "cmux INTERNAL"
+        case "dev.cmux.app.demo": "cmux DEMO"
+        default:
+            "cmux DEV \(bundleIdentifier.split(separator: ".").last ?? "")"
         }
     }
 

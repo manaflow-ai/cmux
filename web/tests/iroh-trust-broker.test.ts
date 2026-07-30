@@ -306,6 +306,26 @@ describe("Iroh trust broker registration", () => {
     ]);
     expect(repository.bindings.find((row) => row.id === internalBindingId)?.revokedAt).toBeNull();
   });
+
+  test("adopts the matching legacy endpoint into its exact app namespace", async () => {
+    const fixture = makeFixture();
+    const legacy = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", undefined, "legacy"),
+      NOW,
+      "legacy",
+    )) as { binding: { binding_id: string } };
+    const adopted = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration("mac", undefined, "mac:stable"),
+      NOW,
+      "mac:stable",
+    )) as { binding: { binding_id: string } };
+
+    expect(adopted.binding.binding_id).toBe(legacy.binding.binding_id);
+    expect(fixture.repository.bindings).toHaveLength(1);
+    expect(fixture.repository.bindings[0]?.clientNamespace).toBe("mac:stable");
+  });
 });
 
 describe("Iroh discovery and grants", () => {
@@ -852,12 +872,26 @@ class MemoryRepository implements IrohRepositoryShape {
     }).directPorts;
     // The slot is keyed on (user, namespace, device, tag). A reinstall,
     // sign-out/in, or key rotation inside one app reuses that slot.
-    const existing = this.bindings.find((row) =>
+    const exactExisting = this.bindings.find((row) =>
       row.userId === input.userId &&
       row.clientNamespace === input.payload.clientNamespace &&
       row.deviceUuid === input.payload.deviceId &&
       row.tag === input.payload.tag &&
       !row.revokedAt);
+    const legacyExisting = input.payload.clientNamespace === "legacy"
+      ? undefined
+      : this.bindings.find((row) =>
+        row.userId === input.userId &&
+        row.clientNamespace === "legacy" &&
+        row.deviceUuid === input.payload.deviceId &&
+        row.tag === input.payload.tag &&
+        row.endpointId === input.payload.endpointId &&
+        row.platform === input.payload.platform &&
+        !row.revokedAt);
+    if (legacyExisting) {
+      legacyExisting.clientNamespace = input.payload.clientNamespace;
+    }
+    const existing = exactExisting ?? legacyExisting;
     if (existing && challenge.createdAt < existing.registeredAt) {
       return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
     }
@@ -1195,12 +1229,14 @@ function makeFixture(options: {
     async signedRegistration(
       platform: "mac" | "ios" = "mac",
       directPorts: TestDirectPorts | null | undefined = options.registrationDirectPorts,
+      clientNamespace: string =
+        options.registrationClientNamespace ?? "legacy",
     ) {
       const payload: IrohRegistrationPayload & { directPorts?: TestDirectPorts } = {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
-        clientNamespace: options.registrationClientNamespace ?? "legacy",
+        clientNamespace,
         tag: "stable",
         platform,
         displayName: "Test Mac",

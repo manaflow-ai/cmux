@@ -10,13 +10,16 @@ import Testing
 
 @Suite struct MacPairedMacBackupPublisherScopeTests {
     @Test func taggedPublisherTargetsTheMatchingIOSBackupScope() throws {
-        let request = try #require(MacPairedMacBackupPublisher.makeRequest(
+        let targetNamespace = try #require(MobileIOSAppNamespace(
+            bundleIdentifier: "dev.cmux.ios.feature-a"
+        ))
+        let request = MacPairedMacBackupPublisher.makeRequest(
             url: try #require(URL(string: "https://presence.example/v1/sync/paired-macs")),
             accessToken: "token",
             teamID: "team-a",
-            instanceTag: "feature-a",
+            targetNamespace: targetNamespace,
             payload: Data("payload".utf8)
-        ))
+        )
 
         #expect(
             request.value(forHTTPHeaderField: "X-Cmux-Client-Scope")
@@ -25,31 +28,32 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "team-a")
     }
 
-    @Test func stablePublisherTargetsTheAppStoreBackupScope() throws {
-        let request = try #require(MacPairedMacBackupPublisher.makeRequest(
-            url: try #require(URL(string: "https://presence.example/v1/sync/paired-macs")),
-            accessToken: "token",
-            teamID: nil,
-            instanceTag: "default",
-            payload: Data("payload".utf8)
-        ))
+    @Test func releasePublishersTargetEachExactIOSBackupScope() throws {
+        let bundleIdentifiers = [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ]
+        for bundleIdentifier in bundleIdentifiers {
+            let targetNamespace = try #require(MobileIOSAppNamespace(
+                bundleIdentifier: bundleIdentifier
+            ))
+            let request = MacPairedMacBackupPublisher.makeRequest(
+                url: try #require(URL(
+                    string: "https://presence.example/v1/sync/paired-macs"
+                )),
+                accessToken: "token",
+                teamID: nil,
+                targetNamespace: targetNamespace,
+                payload: Data("payload".utf8)
+            )
 
-        #expect(
-            request.value(forHTTPHeaderField: "X-Cmux-Client-Scope")
-                == "ios:v3:Y29tLmNtdXguYXBw"
-        )
-    }
-
-    @Test func publisherRefusesAnInvalidMacTag() throws {
-        let request = MacPairedMacBackupPublisher.makeRequest(
-            url: try #require(URL(string: "https://presence.example/v1/sync/paired-macs")),
-            accessToken: "token",
-            teamID: nil,
-            instanceTag: "invalid tag",
-            payload: Data("payload".utf8)
-        )
-
-        #expect(request == nil)
+            #expect(
+                request.value(forHTTPHeaderField: "X-Cmux-Client-Scope")
+                    == targetNamespace.serverScope
+            )
+        }
     }
 
     @Test func publisherRecordCarriesCompareAndSetInstanceAuthority() throws {

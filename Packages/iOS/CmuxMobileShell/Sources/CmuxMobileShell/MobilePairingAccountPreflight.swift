@@ -62,11 +62,11 @@ struct MobilePairingAccountPreflight: Sendable {
     }
 
     private var macDeclaresRelease: Bool {
-        CmxPairingURLScheme.isReleasePairingScheme(scannedScheme)
+        CmxPairingURLScheme(rawValue: scannedScheme)?.isRelease == true
     }
 
     private var macDeclaresDevelopment: Bool {
-        CmxPairingURLScheme.isDevelopmentPairingScheme(scannedScheme)
+        CmxPairingURLScheme(rawValue: scannedScheme)?.isDevelopment == true
     }
 
     private func normalizedEmail(_ value: String?) -> String? {

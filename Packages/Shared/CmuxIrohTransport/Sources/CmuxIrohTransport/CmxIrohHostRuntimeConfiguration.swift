@@ -7,6 +7,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
 
     public let deviceID: String
     public let appInstanceID: String
+    /// Exact Mac build namespace sent to every broker request.
     public let clientNamespace: String
     public let tag: String
     public let displayName: String?

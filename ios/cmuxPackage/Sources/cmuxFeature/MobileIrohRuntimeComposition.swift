@@ -43,8 +43,7 @@ private actor MobileIrohDurableDeviceIDResolver {
     }
 
     func resolve() -> String? {
-        DeviceRegistryService.durableDeviceID(
-            appNamespace: appNamespace,
+        appNamespace.durableDeviceRegistryDeviceID(
             keychainAccessGroup: keychainAccessGroup,
             defaults: defaults.value
         )
@@ -1800,7 +1799,8 @@ public final class MobileIrohRuntimeComposition:
             service: appNamespace.keychainService(
                 base: "com.cmuxterm.iroh.endpoint-identity.v1"
             ),
-            accessGroup: keychainAccessGroup
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.iroh.endpoint-identity.v1"
         )
         #endif
     }
@@ -1822,7 +1822,8 @@ public final class MobileIrohRuntimeComposition:
             service: appNamespace.keychainService(
                 base: "com.cmuxterm.iroh.\(service).v1"
             ),
-            accessGroup: keychainAccessGroup
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.iroh.\(service).v1"
         )
         #endif
     }

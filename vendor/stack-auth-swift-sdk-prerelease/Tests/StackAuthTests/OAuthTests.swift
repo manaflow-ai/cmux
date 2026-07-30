@@ -4,17 +4,22 @@ import Foundation
 
 @Suite("OAuth Tests")
 struct OAuthTests {
-    @Test("Should support an ephemeral OAuth browser session")
-    func supportsEphemeralOAuthBrowserSession() async {
+    @Test("Should isolate OAuth browser privacy and callback scheme")
+    func supportsIsolatedOAuthBrowserSession() async {
         let app = StackClientApp(
             projectId: testProjectId,
             publishableClientKey: testPublishableClientKey,
             tokenStore: .custom(MemoryTokenStore()),
             noAutomaticPrefetch: true,
-            oauthBrowserSessionPrivacy: .ephemeral
+            oauthBrowserSessionPrivacy: .ephemeral,
+            oauthCallbackScheme: "cmux-ios-auth-dev.cmux.app.demo"
         )
 
         #expect(await app.oauthBrowserSessionPrivacy == .ephemeral)
+        #expect(
+            await app.oauthCallbackScheme
+                == "cmux-ios-auth-dev.cmux.app.demo"
+        )
     }
     
     // Default test URLs (must be absolute URLs)

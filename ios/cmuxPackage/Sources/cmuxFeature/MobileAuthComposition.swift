@@ -96,9 +96,12 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             tokenStore: Self.tokenStore(
                 appNamespace: appNamespace,
-                accessGroup: keychainAccessGroup
+                accessGroup: keychainAccessGroup,
+                legacyProjectID: resolvedConfig.stack.projectId
             ),
-            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
+            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy,
+            oauthCallbackScheme: appNamespace?.oauthCallbackURLScheme
+                ?? "cmux-ios-auth-invalid-bundle"
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
@@ -327,7 +330,8 @@ public struct MobileAuthComposition {
 
     private static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
-        accessGroup: String?
+        accessGroup: String?,
+        legacyProjectID: String
     ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
         .memory
@@ -340,7 +344,8 @@ public struct MobileAuthComposition {
                 service: appNamespace.keychainService(
                     base: "com.cmuxterm.app.auth"
                 ),
-                accessGroup: accessGroup
+                accessGroup: accessGroup,
+                legacyProjectID: legacyProjectID
             )
         )
         #endif
