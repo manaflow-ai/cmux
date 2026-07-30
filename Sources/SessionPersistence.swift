@@ -813,7 +813,8 @@ enum SurfaceResumeCommandCanonicalizer {
                 return true
             } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
                 isAtTokenStart = true
-            } else if scalar == "*" || scalar == "?" || scalar == "[" {
+            } else if scalar == "*" || scalar == "?" || scalar == "[" ||
+                        scalar == "{" || scalar == "}" {
                 return true
             } else if isAtTokenStart && (scalar == "~" || scalar == "=") {
                 return true
@@ -960,6 +961,9 @@ enum SurfaceResumeApprovalStore {
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
+        guard binding.launchFlavor == .local else {
+            return false
+        }
         guard isMainThread else {
             return false
         }
@@ -1014,6 +1018,10 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
+        // Location-scoped signed records are the follow-up if remote approvals are wanted.
+        guard binding.launchFlavor == .local else {
+            return nil
+        }
         guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
             return nil
         }
