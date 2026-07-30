@@ -4799,8 +4799,6 @@
         "label": "オペレーティングシステム",
         "unix": "macOS & Linux",
         "windows": "Windows",
-        "unixNote": "~/.cmux/bin にインストールし、シェルの PATH を更新します。",
-        "windowsNote": "x64 ビルドを %USERPROFILE%\\.cmux\\bin にインストールし、ユーザー PATH を更新します。Windows on Arm では x64 エミュレーションを使います。",
         "viewScript": "インストールスクリプトを見る",
         "copy": "インストールコマンドをコピー",
         "copied": "コピーしました"
@@ -4822,8 +4820,6 @@
         "label": "オペレーティングシステム",
         "unix": "macOS & Linux",
         "windows": "Windows",
-        "unixNote": "~/.cmux/bin にインストールし、シェルの PATH を更新します。",
-        "windowsNote": "x64 ビルドを %USERPROFILE%\\.cmux\\bin にインストールし、ユーザー PATH を更新します。Windows on Arm では x64 エミュレーションを使います。",
         "viewScript": "インストールスクリプトを見る",
         "copy": "インストールコマンドをコピー",
         "copied": "コピーしました"
