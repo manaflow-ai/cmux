@@ -19,8 +19,9 @@ if [ ! -f "$UNIT_SCHEME_FILE" ]; then
   exit 1
 fi
 
-if ! grep -q '<EnvironmentVariable key="CMUX_UI_TEST_PROCESS" value="1" isEnabled="YES"/>' "$UNIT_SCHEME_FILE"; then
-  echo "FAIL: cmux-unit must mark its app host as an XCTest process before Sentry startup" >&2
+launch_action="$(sed -n '/<LaunchAction /,/<\/LaunchAction>/p' "$UNIT_SCHEME_FILE")"
+if ! grep -q '<EnvironmentVariable key="CMUX_UI_TEST_PROCESS" value="1" isEnabled="YES"/>' <<<"$launch_action"; then
+  echo "FAIL: cmux-unit Run action must mark its app host as an XCTest process before Sentry startup" >&2
   exit 1
 fi
 
