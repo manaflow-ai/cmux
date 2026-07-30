@@ -36,9 +36,6 @@
     <BuildableProductRunnable runnableDebuggingMode="0">
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5001050" BuildableName="cmux.app" BlueprintName="cmux" ReferencedContainer="container:cmux.xcodeproj"/>
     </BuildableProductRunnable>
-    <EnvironmentVariables>
-      <EnvironmentVariable key="CMUX_UI_TEST_PROCESS" value="1" isEnabled="YES"/>
-    </EnvironmentVariables>
   </LaunchAction>
   <ProfileAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
     <BuildableProductRunnable runnableDebuggingMode="0">
