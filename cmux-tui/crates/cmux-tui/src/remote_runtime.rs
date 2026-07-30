@@ -2432,6 +2432,75 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_retries_a_predecessors_auth_state_lease() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let (session_state, _, _) =
+            daemon_paths("daemon-handoff-retry", Some(&state_root)).unwrap();
+        let auth_state = session_state.join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        let caller = thread::spawn(move || {
+            let result = start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: "daemon-handoff-retry".into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_secs(3),
+            );
+            let _ = done_tx.send(result.map(DaemonRuntimeHandle::shutdown));
+        });
+
+        let early = done_rx.recv_timeout(Duration::from_millis(200));
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        let finished_while_locked = early.is_ok();
+        let result = match early {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("daemon startup did not finish after its predecessor released state"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("daemon startup caller disconnected")
+            }
+        };
+        caller.join().unwrap();
+
+        assert!(
+            !finished_while_locked,
+            "daemon startup failed instead of waiting for its predecessor's state lease"
+        );
+        result
+            .expect("daemon startup failed after its predecessor released state")
+            .expect("daemon shutdown failed after a successful handoff");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_paths_bound_session_components_and_unix_socket_names() {
         use std::os::unix::ffi::OsStrExt;
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
