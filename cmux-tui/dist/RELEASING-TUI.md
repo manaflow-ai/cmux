@@ -34,6 +34,9 @@ musllinux wheel tags so installers on both runtime families can resolve it.
 The runtime requires Linux 5.1 or newer, a mounted `/proc`, and permission to
 call `pidfd_send_signal`.
 
+macOS packages require macOS 15 or newer. The shared deployment-target file
+sets both wheel compatibility tags and the minimum version in each Mach-O.
+
 ## One-time registry setup
 
 Add npm Trusted Publishers for all five npm package names:
