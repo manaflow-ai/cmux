@@ -2868,6 +2868,44 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_refuses_unfenced_legacy_state_after_runtime_cleanup() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "unfenced-legacy-cleanup";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed legacy authorization state"),
+        );
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon started from authorization state without a lifecycle fence");
+            }
+        };
+        assert!(error.to_string().contains("lifecycle fence"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_startup_requires_exact_modern_predecessor_authorization_finalization() {
         for (case, outcome_lifecycle) in [("missing", None), ("stale", Some("different-lifecycle"))]
         {
