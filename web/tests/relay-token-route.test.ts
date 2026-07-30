@@ -188,6 +188,25 @@ describe("POST /api/relay/token", () => {
     expect(body.relayCredentials).toBeUndefined();
   });
 
+  test("requires binding proof before accepting a namespaced endpoint claim", async () => {
+    let rateLimitChecks = 0;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }, "dev.cmux.app.demo"),
+      deps({
+        checkRateLimit: async () => {
+          rateLimitChecks += 1;
+          return { rateLimited: false };
+        },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "binding_request_proof_required",
+    });
+    expect(rateLimitChecks).toBe(0);
+  });
+
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
     const secondRelay = {
       id: "managed-two",

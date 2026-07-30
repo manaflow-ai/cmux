@@ -553,6 +553,46 @@ describe("Iroh discovery and grants", () => {
     expect(siblingMac.revokedAt).toBeNull();
   });
 
+  test("an official iOS binding can forget Stable and Nightly Macs", async () => {
+    const fixture = makeFixture();
+    const ios = binding({
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "default",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const nightlyMac = binding({
+      userId: USER_A,
+      deviceUuid: randomUUID(),
+      clientNamespace: "mac:nightly",
+      tag: "nightly",
+      platform: "mac",
+    });
+    fixture.repository.bindings.push(ios, nightlyMac);
+    const body = { bindingId: nightlyMac.id, intent: "forget_mac" };
+
+    const result = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      body,
+      NOW,
+      ios.clientNamespace,
+      fixture.bindingProof(
+        ios.id,
+        "DELETE",
+        "api/devices/iroh",
+        body,
+      ),
+    ));
+
+    expect(result).toEqual({
+      revoked: true,
+      lan_rendezvous_rotated: true,
+    });
+    expect(nightlyMac.revokedAt).toEqual(NOW);
+  });
+
   test("never exposes another user through shared team context", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));

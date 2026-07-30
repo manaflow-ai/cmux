@@ -864,6 +864,36 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func officialIOSBuildCanForgetNightlyMac() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make(
+            tag: "default",
+            discoveryCompatibilityPolicy: .official
+        )
+        let nightlyBindingID = "123e4567-e89b-42d3-a456-426614174090"
+        await fixture.broker.setDiscoverySnapshot(try mobileIrohDiscovery(
+            bindings: [
+                mobileIrohBinding(
+                    bindingID: nightlyBindingID,
+                    deviceID: fixture.deviceID,
+                    appInstanceID: "123e4567-e89b-42d3-a456-426614174091",
+                    endpointID: String(repeating: "a", count: 64),
+                    platform: "mac",
+                    pairingEnabled: true,
+                    tag: "nightly"
+                ),
+            ]
+        ))
+
+        try await fixture.composition.forgetComputer(
+            macDeviceID: fixture.deviceID,
+            instanceTag: "nightly",
+            expectedAccountID: fixture.accountID
+        )
+
+        #expect(await fixture.broker.revokedBindingIDs() == [nightlyBindingID])
+    }
+
+    @Test
     func capturedTokenHookRetriesExactPreparationBeforeWipingQuarantine() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
         await fixture.outboxStore.setWriteMode(.fail)
@@ -1085,7 +1115,6 @@ private final class MobileIrohInterfaceProvider:
 @MainActor
 private struct MobileIrohSignOutFixture {
     static let accountID = "account-a"
-    static let tag = "test"
     static let bindingID = "123e4567-e89b-42d3-a456-426614174070"
     static let deviceID = "123e4567-e89b-42d3-a456-426614174071"
     static let firstAppInstanceID = UUID(
@@ -1115,9 +1144,9 @@ private struct MobileIrohSignOutFixture {
     let identity: CmxIrohIdentityMaterial
     let binding: CmxIrohBrokerBindingMetadata
     let pendingRevocation: CmxIrohPendingRevocation
+    let tag: String
 
     var accountID: String { Self.accountID }
-    var tag: String { Self.tag }
     var bindingID: String { Self.bindingID }
 
     /// - Parameter resolvableDeviceID: When `false`, the composition's durable
@@ -1125,7 +1154,11 @@ private struct MobileIrohSignOutFixture {
     ///   store (Keychain locked before first unlock). Activation must then
     ///   defer instead of registering a binding under an ephemeral id, so no
     ///   endpoint is bound.
-    static func make(resolvableDeviceID: Bool = true) async throws -> Self {
+    static func make(
+        resolvableDeviceID: Bool = true,
+        tag: String = "test",
+        discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil
+    ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -1254,6 +1287,7 @@ private struct MobileIrohSignOutFixture {
             },
             deviceID: { resolvableDeviceID ? stableDeviceID : nil },
             tag: tag,
+            discoveryCompatibilityPolicy: discoveryCompatibilityPolicy,
             now: { Date(timeIntervalSince1970: 1_000) },
             debugDefaults: defaults
         )
@@ -1307,7 +1341,8 @@ private struct MobileIrohSignOutFixture {
                 accountID: accountID,
                 tag: tag,
                 bindingID: bindingID
-            )
+            ),
+            tag: tag
         )
     }
 
@@ -1496,6 +1531,7 @@ private final class MobileIrohEndpointFactoryModeRecorder {
 
 private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
     private var bindingIDs: [String] = []
+    private var discoverySnapshot: CmxIrohDiscoveryResponse?
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
@@ -1505,7 +1541,10 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
-        throw MobileIrohSignOutTestError.unavailable
+        guard let discoverySnapshot else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return discoverySnapshot
     }
 
     func issuePairGrant(
@@ -1524,6 +1563,10 @@ private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
 
     func revoke(bindingID: String) {
         bindingIDs.append(bindingID)
+    }
+
+    func setDiscoverySnapshot(_ snapshot: CmxIrohDiscoveryResponse) {
+        discoverySnapshot = snapshot
     }
 
     func revokedBindingIDs() -> [String] { bindingIDs }

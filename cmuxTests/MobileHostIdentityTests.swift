@@ -45,7 +45,7 @@ struct MobileHostIdentityTests {
             "dev.cmux.app.internal",
             "dev.cmux.app.demo",
         ])
-        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(store.selectedNamespace == nil)
 
         let internalNamespace = try #require(MobileIOSAppNamespace(
             bundleIdentifier: "dev.cmux.app.internal"
@@ -56,6 +56,24 @@ struct MobileHostIdentityTests {
             store.selectedPairingURLScheme?.rawValue
                 == "cmux-ios-dev.cmux.app.internal"
         )
+    }
+
+    @Test func nightlyMacOffersOfficialIOSBuildsInsteadOfTaggedDev() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobileIOSPairingTargetStore(
+            defaults: defaults,
+            macInstanceTag: "nightly"
+        )
+
+        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ])
+        #expect(store.selectedNamespace == nil)
     }
 
     @Test func taggedMacTargetsOnlyItsMatchingTaggedIOSBuild() throws {
