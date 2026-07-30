@@ -16,10 +16,11 @@ struct SidebarFooterIconButtonStyle: ButtonStyle {
 
 enum SidebarFooterButtonMetrics {
     static let buttonSize: CGFloat = 22
-    static let profilePictureSize: CGFloat = 14
-    static let profileIconSize: CGFloat = 15
+    static let accountAndHelpVisualSize: CGFloat = 14
+    static let profilePictureSize = accountAndHelpVisualSize
+    static let profileIconSize = accountAndHelpVisualSize
     static let mobileIconSize: CGFloat = 12
-    static let helpIconSize: CGFloat = 13.5
+    static let helpIconSize = accountAndHelpVisualSize
     static let helpIconWeight: Font.Weight = .regular
     static let hoverOpacity = 0.08
 }
@@ -397,7 +398,7 @@ struct SidebarAccountAvatar: View {
         } else {
             CmuxSystemSymbolImage(
                 systemName: signedOutSystemName,
-                pointSize: max(11, size - 2),
+                pointSize: size,
                 weight: .medium
             )
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))

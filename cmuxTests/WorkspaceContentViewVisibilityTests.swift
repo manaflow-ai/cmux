@@ -286,15 +286,22 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         #expect(picture.visual == .profilePicture)
-        #expect(picture.size == 14)
+        #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
         #expect(
             toggledIcon.visual == .profileIcon(
                 systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
             )
         )
-        #expect(toggledIcon.size == 15)
+        #expect(toggledIcon.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
         #expect(signedOutIcon == toggledIcon)
-        #expect(picture.size < toggledIcon.size)
+        #expect(
+            SidebarFooterButtonMetrics.profilePictureSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
+        #expect(
+            SidebarFooterButtonMetrics.profileIconSize
+                == SidebarFooterButtonMetrics.helpIconSize
+        )
     }
 
     @MainActor
