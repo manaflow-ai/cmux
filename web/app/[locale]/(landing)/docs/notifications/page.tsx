@@ -213,7 +213,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
       <DocsHeading level={3} id="create-hook-script">{t("createHookScript")}</DocsHeading>
       <CodeBlock title="~/.claude/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
 # Skip if not in cmux
-[ -S /tmp/cmux.sock ] || exit 0
+[ -S "\${CMUX_SOCKET_PATH:-$HOME/.local/state/cmux/cmux.sock}" ] || exit 0
 
 EVENT=$(cat)
 EVENT_TYPE=$(echo "$EVENT" | jq -r '.hook_event_name // "unknown"')
