@@ -44,17 +44,17 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
         ]
-        lines += noProgressPolicy.configurationLines
-        lines += [
+        lines.append(contentsOf: noProgressPolicy.configurationLines)
+        lines.append(contentsOf: [
             "cmux_ssh_attach_no_progress_retry=0",
             "cmux_ssh_attach_retry=0",
             "cmux_ssh_attach_auth_retry=0",
             "cmux_ssh_attach_auth_retry_limit=\(authPolicy.maximumConsecutiveTransientFailures)",
             "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "cmux_ssh_attach_auth_launching=0",
-        ]
-        lines += backoffBuilder.stateInitializationLines
-        lines += [
+        ])
+        lines.append(contentsOf: backoffBuilder.stateInitializationLines)
+        lines.append(contentsOf: [
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_auth_launching=1",
@@ -80,12 +80,12 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
-        ]
-        lines += backoffBuilder.waitLines
-        lines += [
+        ])
+        lines.append(contentsOf: backoffBuilder.waitLines)
+        lines.append(contentsOf: [
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
             "done",
-        ]
+        ])
         return lines
     }
 }
