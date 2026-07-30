@@ -1759,6 +1759,7 @@ async fn run_daemon(
             DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
         )
         .await?;
+        verify_previous_shutdown_outcome(&state_dir)?;
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
@@ -1878,10 +1879,15 @@ async fn run_daemon(
         // host's filesystem path as the default route for mobile clients.
         push_unique_route(&mut routes, unix_route);
 
-        let admin =
-            serve_admin_with_shutdown(daemon, &admin_socket, routes.clone(), Some(owner_shutdown))
-                .await?;
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
+        let admin = serve_admin_with_shutdown(
+            daemon,
+            &admin_socket,
+            routes.clone(),
+            Some(lifecycle_id.clone()),
+            Some(owner_shutdown),
+        )
+        .await?;
         let info = DaemonRuntimeInfo {
             session: options.session,
             state_dir: state_dir.clone(),
@@ -1966,6 +1972,20 @@ async fn load_daemon_auth_during_handoff(
             }
             Err(error) => return Err(error.into()),
         }
+    }
+}
+
+fn verify_previous_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
+    let Some(outcome) = read_shutdown_outcome(state_dir)
+        .context("could not verify previous remote daemon authorization finalization")?
+    else {
+        return Ok(());
+    };
+    match outcome.status {
+        DaemonShutdownStatus::Succeeded => Ok(()),
+        DaemonShutdownStatus::Failed => Err(anyhow!(
+            "previous remote daemon authorization finalization failed; inspect the authorization state, then acknowledge it with remote-stop --acknowledge-failed-finalization"
+        )),
     }
 }
 
@@ -2091,23 +2111,127 @@ pub fn load_runtime_info(
     .context("remote daemon runtime metadata is invalid")
 }
 
-pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonShutdownOutcome> {
+fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
     let path = state_dir.join("shutdown.json");
+    let encoded = match fs::read(&path) {
+        Ok(encoded) => encoded,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io(error)),
+    };
     let outcome: DaemonShutdownOutcome =
-        serde_json::from_slice(&fs::read(&path).with_context(|| {
-            format!("remote daemon shutdown outcome is unavailable ({})", path.display())
-        })?)
-        .context("remote daemon shutdown outcome is invalid")?;
+        serde_json::from_slice(&encoded).map_err(IdentityError::Json)?;
     if outcome.version != DAEMON_SHUTDOWN_OUTCOME_VERSION {
-        return Err(anyhow!(
+        return Err(IdentityError::Invalid(format!(
             "remote daemon shutdown outcome version {} is unsupported",
             outcome.version
-        ));
+        )));
     }
     if outcome.lifecycle_id.is_empty() {
-        return Err(anyhow!("remote daemon shutdown outcome has an empty lifecycle id"));
+        return Err(IdentityError::Invalid(
+            "remote daemon shutdown outcome has an empty lifecycle id".into(),
+        ));
     }
-    Ok(outcome)
+    Ok(Some(outcome))
+}
+
+pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonShutdownOutcome> {
+    read_shutdown_outcome(state_dir)?
+        .ok_or_else(|| {
+            anyhow!(
+                "remote daemon shutdown outcome is unavailable ({})",
+                state_dir.join("shutdown.json").display()
+            )
+        })
+        .context("remote daemon shutdown outcome is invalid")
+}
+
+#[cfg(unix)]
+pub(crate) async fn acknowledge_failed_shutdown_outcome(
+    state_dir: &Path,
+    daemon_name: &str,
+    link_socket: &Path,
+    admin_socket: &Path,
+) -> anyhow::Result<()> {
+    use std::os::unix::net::UnixStream;
+
+    let auth = AuthDatabase::load_or_create(state_dir.join("auth"), daemon_name, true)
+        .context("could not acquire the remote daemon authorization lease for recovery")?;
+
+    let runtime_path = state_dir.join("runtime.json");
+    match fs::symlink_metadata(&runtime_path) {
+        Ok(_) => {
+            return Err(anyhow!(
+                "refusing to acknowledge failed authorization finalization while runtime metadata is present"
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("could not verify runtime metadata {}", runtime_path.display())
+            });
+        }
+    }
+    for socket in [link_socket, admin_socket] {
+        match UnixStream::connect(socket) {
+            Ok(_) => {
+                return Err(anyhow!(
+                    "refusing to acknowledge failed authorization finalization while daemon socket {} is active",
+                    socket.display()
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("could not verify daemon socket {} is inactive", socket.display())
+                });
+            }
+        }
+    }
+
+    let outcome = read_shutdown_outcome(state_dir)
+        .context("could not verify remote daemon authorization finalization for recovery")?
+        .ok_or_else(|| anyhow!("no failed remote daemon authorization finalization is recorded"))?;
+    if outcome.status != DaemonShutdownStatus::Failed {
+        return Err(anyhow!(
+            "remote daemon authorization finalization succeeded and does not need acknowledgement"
+        ));
+    }
+    let lifecycle_id = outcome.lifecycle_id;
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        remove_failed_shutdown_outcome(&cleanup_state_dir, &lifecycle_id)
+    })
+    .await
+    .context("could not complete remote daemon authorization recovery")
+}
+
+fn remove_failed_shutdown_outcome(
+    state_dir: &Path,
+    expected_lifecycle_id: &str,
+) -> Result<(), IdentityError> {
+    let outcome = read_shutdown_outcome(state_dir)?.ok_or_else(|| {
+        IdentityError::Invalid(
+            "remote daemon authorization finalization outcome disappeared during recovery".into(),
+        )
+    })?;
+    if outcome.lifecycle_id != expected_lifecycle_id
+        || outcome.status != DaemonShutdownStatus::Failed
+    {
+        return Err(IdentityError::Invalid(
+            "remote daemon authorization finalization outcome changed during recovery".into(),
+        ));
+    }
+    match fs::remove_file(state_dir.join("shutdown.json")) {
+        Ok(()) => sync_state_directory(state_dir),
+        Err(error) => Err(IdentityError::Io(error)),
+    }
 }
 
 #[cfg(test)]
@@ -2533,8 +2657,10 @@ mod tests {
     #[test]
     fn daemon_startup_refuses_failed_authorization_finalization() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
-        let state_dir = directory.path().join("state");
-        fs::create_dir(&state_dir).unwrap();
+        let state_root = directory.path().join("state");
+        let session = "failed-predecessor";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
         persist_shutdown_outcome(
             &state_dir,
             &DaemonShutdownOutcome {
@@ -2548,8 +2674,8 @@ mod tests {
         let result = start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
-                session: "failed-predecessor".into(),
-                state_dir: Some(state_dir),
+                session: session.into(),
+                state_dir: Some(state_root),
                 link_socket: None,
                 admin_socket: None,
                 direct_websocket: None,
@@ -2566,6 +2692,42 @@ mod tests {
             Ok(runtime) => {
                 runtime.shutdown().unwrap();
                 panic!("daemon started after failed authorization finalization");
+            }
+        };
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_refuses_malformed_authorization_finalization() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "malformed-predecessor";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(state_dir.join("shutdown.json"), b"{not-json").unwrap();
+
+        let result = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon started after malformed authorization finalization");
             }
         };
         assert!(error.to_string().contains("authorization finalization"), "{error:#}");

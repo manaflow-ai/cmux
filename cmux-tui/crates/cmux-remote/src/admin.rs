@@ -102,6 +102,9 @@ pub enum AdminRequest {
         session_id: String,
     },
     Shutdown,
+    ShutdownLifecycle {
+        lifecycle_id: String,
+    },
 }
 
 const fn default_invitation_ttl() -> u64 {
@@ -171,13 +174,14 @@ pub async fn serve_admin(
     path: impl Into<PathBuf>,
     default_route_hints: Vec<String>,
 ) -> Result<AdminServer, AdminError> {
-    serve_admin_with_shutdown(daemon, path, default_route_hints, None).await
+    serve_admin_with_shutdown(daemon, path, default_route_hints, None, None).await
 }
 
 pub async fn serve_admin_with_shutdown(
     daemon: Arc<RemoteDaemon>,
     path: impl Into<PathBuf>,
     default_route_hints: Vec<String>,
+    lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
 ) -> Result<AdminServer, AdminError> {
     let path = path.into();
@@ -203,12 +207,14 @@ pub async fn serve_admin_with_shutdown(
                     };
                     let daemon = daemon.clone();
                     let default_route_hints = default_route_hints.clone();
+                    let lifecycle_id = lifecycle_id.clone();
                     let owner_shutdown = owner_shutdown.clone();
                     tokio::spawn(async move {
                         let _permit = permit;
                         let _ = serve_connection(
                             daemon,
                             default_route_hints,
+                            lifecycle_id,
                             owner_shutdown,
                             stream,
                         )
@@ -572,6 +578,7 @@ async fn call_admin_over_stream(
 async fn serve_connection(
     daemon: Arc<RemoteDaemon>,
     default_route_hints: Vec<String>,
+    lifecycle_id: Option<String>,
     owner_shutdown: Option<watch::Sender<bool>>,
     stream: UnixStream,
 ) -> Result<(), AdminError> {
@@ -590,7 +597,14 @@ async fn serve_connection(
     } else {
         match serde_json::from_slice::<AdminRequest>(&encoded) {
             Ok(request) => {
-                dispatch(&daemon, &default_route_hints, owner_shutdown.as_ref(), request).await
+                dispatch(
+                    &daemon,
+                    &default_route_hints,
+                    lifecycle_id.as_deref(),
+                    owner_shutdown.as_ref(),
+                    request,
+                )
+                .await
             }
             Err(error) => AdminResponse::failure(format!("invalid admin request: {error}")),
         }
@@ -635,6 +649,7 @@ async fn timeout_admin_io<T>(
 async fn dispatch(
     daemon: &RemoteDaemon,
     default_route_hints: &[String],
+    lifecycle_id: Option<&str>,
     owner_shutdown: Option<&watch::Sender<bool>>,
     request: AdminRequest,
 ) -> AdminResponse {
@@ -685,19 +700,49 @@ async fn dispatch(
                 Err(error) => Err(IdentityError::Invalid(error)),
             }
         }
-        AdminRequest::Shutdown => match owner_shutdown {
-            Some(shutdown) => shutdown
-                .send(true)
-                .map(|()| serde_json::json!({ "shutting_down": true }))
-                .map_err(|_| IdentityError::Invalid("daemon is already shutting down".into())),
-            None => Err(IdentityError::Invalid(
-                "daemon shutdown is unavailable on this admin socket".into(),
-            )),
-        },
+        AdminRequest::Shutdown => request_shutdown(lifecycle_id, None, owner_shutdown),
+        AdminRequest::ShutdownLifecycle { lifecycle_id: requested_lifecycle_id } => {
+            request_shutdown(lifecycle_id, Some(&requested_lifecycle_id), owner_shutdown)
+        }
     };
     match result {
         Ok(value) => AdminResponse::success(value),
         Err(error) => AdminResponse::failure(error.to_string()),
+    }
+}
+
+fn request_shutdown(
+    lifecycle_id: Option<&str>,
+    requested_lifecycle_id: Option<&str>,
+    owner_shutdown: Option<&watch::Sender<bool>>,
+) -> Result<Value, IdentityError> {
+    match (lifecycle_id, requested_lifecycle_id) {
+        (None, None) => {}
+        (Some(expected), Some(requested)) if expected == requested => {}
+        (Some(_), Some(_)) => {
+            return Err(IdentityError::Invalid(
+                "daemon lifecycle changed before shutdown was authorized".into(),
+            ));
+        }
+        (Some(_), None) => {
+            return Err(IdentityError::Invalid(
+                "daemon shutdown requires its lifecycle identity".into(),
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(IdentityError::Invalid(
+                "legacy daemon shutdown does not accept a lifecycle identity".into(),
+            ));
+        }
+    }
+    match owner_shutdown {
+        Some(shutdown) => shutdown
+            .send(true)
+            .map(|()| serde_json::json!({ "shutting_down": true }))
+            .map_err(|_| IdentityError::Invalid("daemon is already shutting down".into())),
+        None => Err(IdentityError::Invalid(
+            "daemon shutdown is unavailable on this admin socket".into(),
+        )),
     }
 }
 
@@ -790,7 +835,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn owner_can_request_runtime_shutdown() {
+    async fn legacy_owner_can_request_runtime_shutdown() {
         let directory = tempdir().unwrap();
         let auth =
             AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
@@ -798,12 +843,59 @@ mod tests {
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let socket = directory.path().join("admin.sock");
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-        let server = serve_admin_with_shutdown(daemon, &socket, Vec::new(), Some(shutdown_tx))
-            .await
-            .unwrap();
+        let server =
+            serve_admin_with_shutdown(daemon, &socket, Vec::new(), None, Some(shutdown_tx))
+                .await
+                .unwrap();
 
         let response = call_admin(&socket, &AdminRequest::Shutdown).await.unwrap();
         assert!(response.ok);
+        shutdown_rx.changed().await.unwrap();
+        assert!(*shutdown_rx.borrow());
+        server.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn lifecycle_shutdown_requires_the_matching_daemon_instance() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path().join("state"), "shutdown-test", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("admin.sock");
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let server = serve_admin_with_shutdown(
+            daemon,
+            &socket,
+            Vec::new(),
+            Some("current-lifecycle".into()),
+            Some(shutdown_tx),
+        )
+        .await
+        .unwrap();
+
+        let mismatch = call_admin(
+            &socket,
+            &AdminRequest::ShutdownLifecycle { lifecycle_id: "stale-lifecycle".into() },
+        )
+        .await
+        .unwrap();
+        assert!(!mismatch.ok);
+        assert!(!*shutdown_rx.borrow());
+        assert!(!shutdown_rx.has_changed().unwrap());
+
+        let legacy = call_admin(&socket, &AdminRequest::Shutdown).await.unwrap();
+        assert!(!legacy.ok);
+        assert!(!*shutdown_rx.borrow());
+        assert!(!shutdown_rx.has_changed().unwrap());
+
+        let matching = call_admin(
+            &socket,
+            &AdminRequest::ShutdownLifecycle { lifecycle_id: "current-lifecycle".into() },
+        )
+        .await
+        .unwrap();
+        assert!(matching.ok);
         shutdown_rx.changed().await.unwrap();
         assert!(*shutdown_rx.borrow());
         server.shutdown().await;

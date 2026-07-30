@@ -41,8 +41,9 @@ use zeroize::Zeroizing;
 
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
-    ResolvedRouteCandidate, SshBootstrapOptions, client_provider_registry, daemon_paths,
-    load_runtime_info, load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
+    client_provider_registry, daemon_paths, load_runtime_info, load_shutdown_outcome,
+    start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -264,7 +265,9 @@ OPTIONS:
         Some("remote-link") => {
             "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
         }
-        Some("remote-stop") => "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH]\n",
+        Some("remote-stop") => {
+            "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization]\n"
+        }
         Some("install-self") => "USAGE: cmux-tui install-self --destination PATH\n",
         _ => {
             r#"USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>
@@ -1759,11 +1762,13 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
 struct RemoteStopArgs {
     session: String,
     state_dir: Option<PathBuf>,
+    acknowledge_failed_finalization: bool,
 }
 
 fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
     let mut session = "main".to_string();
     let mut state_dir = None;
+    let mut acknowledge_failed_finalization = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
     while index < args.len() {
@@ -1778,18 +1783,22 @@ fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
                 require_unique_flag(&mut seen, "--state-dir")?;
                 state_dir = Some(strict_option_value(args, &mut index, "--state-dir")?.into());
             }
+            "--acknowledge-failed-finalization" => {
+                require_unique_flag(&mut seen, "--acknowledge-failed-finalization")?;
+                acknowledge_failed_finalization = true;
+            }
             option if option.starts_with("--") => {
                 return Err(anyhow!("unknown option {option:?} for remote-stop"));
             }
             _ => return Err(anyhow!("remote-stop accepts no positional arguments")),
         }
     }
-    Ok(RemoteStopArgs { session, state_dir })
+    Ok(RemoteStopArgs { session, state_dir, acknowledge_failed_finalization })
 }
 
 fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let parsed = parse_remote_stop_args(args)?;
-    let (_, default_link, default_admin) =
+    let (state_dir, default_link, default_admin) =
         daemon_paths(&parsed.session, parsed.state_dir.as_deref())?;
     let runtime = match load_runtime_info(&parsed.session, parsed.state_dir.as_deref()) {
         Ok(runtime) => runtime,
@@ -1797,6 +1806,15 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
             if UnixStream::connect(&default_link).is_err()
                 && UnixStream::connect(&default_admin).is_err() =>
         {
+            if parsed.acknowledge_failed_finalization {
+                return tokio_runtime()?.block_on(acknowledge_failed_shutdown_outcome(
+                    &state_dir,
+                    &parsed.session,
+                    &default_link,
+                    &default_admin,
+                ));
+            }
+            verify_inactive_shutdown_outcome(&state_dir)?;
             return Ok(());
         }
         Err(error) => {
@@ -1805,6 +1823,11 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
             );
         }
     };
+    if parsed.acknowledge_failed_finalization {
+        return Err(anyhow!(
+            "--acknowledge-failed-finalization is only valid after the daemon has stopped"
+        ));
+    }
     if !runtime.replaceable_sidecar {
         return Err(anyhow!(
             "refusing to upgrade an embedded daemon because stopping it would terminate its workspaces; stop and restart it explicitly"
@@ -1836,8 +1859,37 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     Err(anyhow!("remote daemon did not stop within 20 seconds"))
 }
 
-fn shutdown_request_for_lifecycle(_lifecycle_id: Option<&str>) -> AdminRequest {
-    AdminRequest::Shutdown
+fn shutdown_request_for_lifecycle(lifecycle_id: Option<&str>) -> AdminRequest {
+    match lifecycle_id {
+        Some(lifecycle_id) => {
+            AdminRequest::ShutdownLifecycle { lifecycle_id: lifecycle_id.to_owned() }
+        }
+        None => AdminRequest::Shutdown,
+    }
+}
+
+fn verify_inactive_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
+    let path = state_dir.join("shutdown.json");
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "could not verify previous remote daemon authorization finalization ({})",
+                    path.display()
+                )
+            });
+        }
+    }
+    let outcome = load_shutdown_outcome(state_dir)
+        .context("could not verify previous remote daemon authorization finalization")?;
+    match outcome.status {
+        DaemonShutdownStatus::Succeeded => Ok(()),
+        DaemonShutdownStatus::Failed => Err(anyhow!(
+            "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun remote-stop with --acknowledge-failed-finalization"
+        )),
+    }
 }
 
 fn verify_shutdown_outcome(state_dir: &Path, lifecycle_id: &str) -> anyhow::Result<()> {
@@ -3016,11 +3068,18 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.session, "dev");
         assert_eq!(parsed.state_dir, Some("/tmp/remote-state".into()));
+        assert!(!parsed.acknowledge_failed_finalization);
+        assert!(
+            parse_remote_stop_args(&["--acknowledge-failed-finalization".into()])
+                .unwrap()
+                .acknowledge_failed_finalization
+        );
 
         for args in [
             vec!["--session"],
             vec!["--session", "dev", "--session", "other"],
             vec!["--state-dir"],
+            vec!["--acknowledge-failed-finalization", "--acknowledge-failed-finalization"],
             vec!["--unknown"],
             vec!["unexpected"],
         ] {
@@ -3086,7 +3145,13 @@ mod tests {
         let mut stream = io::BufReader::new(stream);
         let mut request = String::new();
         stream.read_line(&mut request).unwrap();
-        assert_eq!(serde_json::from_str::<AdminRequest>(&request).unwrap(), AdminRequest::Shutdown);
+        let expected_request = match &lifecycle_id {
+            Some(lifecycle_id) => {
+                AdminRequest::ShutdownLifecycle { lifecycle_id: lifecycle_id.clone() }
+            }
+            None => AdminRequest::Shutdown,
+        };
+        assert_eq!(serde_json::from_str::<AdminRequest>(&request).unwrap(), expected_request);
         serde_json::to_writer(
             stream.get_mut(),
             &AdminResponse { ok: true, result: Some(serde_json::json!({})), error: None },
@@ -3321,6 +3386,62 @@ mod tests {
         )
         .expect_err("inactive failed authorization finalization was treated as clean");
         assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_without_runtime_rejects_malformed_authorization_finalization() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "inactive-malformed-finalization";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        fs::write(state_dir.join("shutdown.json"), b"{not-json").unwrap();
+
+        let error = run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .expect_err("inactive malformed authorization finalization was treated as clean");
+        assert!(error.to_string().contains("authorization finalization"), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_explicitly_acknowledges_inactive_failed_authorization_finalization() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-failed-finalization";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        let outcome = state_dir.join("shutdown.json");
+        fs::write(
+            &outcome,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "lifecycle_id": "failed-lifecycle",
+                "status": "failed",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(!outcome.exists());
+        run_remote_stop(
+            &["--session", session, "--state-dir", directory.path().to_string_lossy().as_ref()]
+                .map(str::to_string),
+        )
+        .unwrap();
     }
 
     #[test]
