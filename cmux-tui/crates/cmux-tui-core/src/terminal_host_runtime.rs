@@ -4646,6 +4646,45 @@ mod unix {
         }
 
         #[test]
+        fn private_directory_setup_rejects_symlink_without_changing_target_permissions() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-private-dir-symlink-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            let target = root.join("target");
+            fs::create_dir(&target).unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+            let link = root.join("endpoint");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+
+            let result = prepare_private_dir(&link);
+            let target_mode = fs::metadata(&target).unwrap().mode() & 0o777;
+            let _ = fs::remove_dir_all(&root);
+
+            assert!(result.is_err(), "private directory setup accepted a symlink");
+            assert_eq!(target_mode, 0o755, "private directory setup changed the symlink target");
+        }
+
+        #[test]
+        fn private_directory_setup_tightens_an_owned_directory() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-private-dir-owned-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+
+            prepare_private_dir(&root).unwrap();
+            let mode = fs::metadata(&root).unwrap().mode() & 0o777;
+            let _ = fs::remove_dir_all(&root);
+
+            assert_eq!(mode, 0o700);
+        }
+
+        #[test]
         fn strict_record_loader_rejects_fifo_without_blocking() {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-fifo-{}-{}",
