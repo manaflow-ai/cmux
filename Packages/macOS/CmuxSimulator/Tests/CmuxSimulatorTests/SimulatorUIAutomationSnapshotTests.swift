@@ -238,6 +238,51 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(container.actions.contains(.swipeWithin))
     }
 
+    @Test("Invalid element frames stay invisible and unactionable")
+    func invalidFramesAreNotActionable() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [
+                node(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    children: [
+                        node(
+                            id: "0.0",
+                            role: "Button",
+                            label: "Zero width",
+                            frame: SimulatorRect(x: 20, y: 100, width: 0, height: 44)
+                        ),
+                        node(
+                            id: "0.1",
+                            role: "Button",
+                            label: "Negative width",
+                            frame: SimulatorRect(x: 20, y: 160, width: -10, height: 44)
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+
+        for element in record.snapshot.elements.dropFirst() {
+            #expect(!element.state.isVisible)
+            #expect(element.actions.isEmpty)
+        }
+    }
+
     @Test("Duplicate refs retain the first lookup record without trapping")
     func duplicateRefsRetainFirstRecord() throws {
         let built = try snapshot().uiAutomationRecord(

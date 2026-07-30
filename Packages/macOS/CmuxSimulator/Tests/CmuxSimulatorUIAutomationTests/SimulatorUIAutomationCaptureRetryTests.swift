@@ -97,6 +97,24 @@ struct SimulatorUIAutomationCaptureRetryTests {
     }
 }
 
+@MainActor
+@Suite("Simulator UI automation tick sequence")
+struct SimulatorUIAutomationTickSequenceTests {
+    @Test("A zero-length deadline still yields its immediate sample")
+    func zeroLengthDeadlineIncludesImmediateSample() async throws {
+        let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
+        var iterator = SimulatorUIAutomationTickSequence(
+            scheduler: timing,
+            intervalMilliseconds: 100,
+            deadlineMilliseconds: 1_000
+        ).makeAsyncIterator()
+
+        #expect(try await iterator.next() == 1_000)
+        #expect(try await iterator.next() == nil)
+        #expect(timing.sleepCount == 0)
+    }
+}
+
 private final class AdvancingSimulatorUIAutomationTiming:
     SimulatorUIAutomationScheduling,
     @unchecked Sendable

@@ -151,6 +151,33 @@ struct SimulatorUIAutomationSessionTests {
         #expect(session.heldTouch(elementRef: "e1_2") == nil)
     }
 
+    @Test("Cancellation after queue acquisition cannot run the transaction")
+    func cancelledQueuedTransactionDoesNotRun() async throws {
+        let session = SimulatorUIAutomationSession()
+        try await session.beginTransaction()
+        var queuedStarted = false
+        var operationRan = false
+        let queued = Task { @MainActor in
+            queuedStarted = true
+            return try await session.withTransaction {
+                operationRan = true
+                return true
+            }
+        }
+        while !queuedStarted {
+            await Task.yield()
+        }
+
+        queued.cancel()
+        session.endTransaction()
+
+        await #expect(throws: CancellationError.self) {
+            try await queued.value
+        }
+        #expect(!operationRan)
+        #expect(try await session.withTransaction { true })
+    }
+
     private func snapshot() -> SimulatorAccessibilitySnapshot {
         SimulatorAccessibilitySnapshot(
             roots: [
