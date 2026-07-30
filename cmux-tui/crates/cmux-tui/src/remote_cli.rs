@@ -3557,6 +3557,68 @@ mod tests {
         assert!(outcome.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_acknowledges_unclean_runtime_without_current_failure_outcome() {
+        for case in ["missing", "stale-success", "malformed"] {
+            let directory = tempfile::tempdir().unwrap();
+            let session = format!("acknowledge-unclean-{case}");
+            let lifecycle_id = format!("unclean-runtime-{case}");
+            let (state_dir, link_socket, admin_socket) =
+                daemon_paths(&session, Some(directory.path())).unwrap();
+            fs::create_dir_all(&state_dir).unwrap();
+            let runtime_path = state_dir.join("runtime.json");
+            fs::write(
+                &runtime_path,
+                serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                    session: session.clone(),
+                    state_dir: state_dir.clone(),
+                    link_socket,
+                    admin_socket,
+                    daemon_fingerprint: "unclean-daemon".into(),
+                    routes: Vec::new(),
+                    direct_websocket: None,
+                    iroh_node_id: None,
+                    lifecycle_id: Some(lifecycle_id),
+                    replaceable_sidecar: true,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            let outcome = state_dir.join("shutdown.json");
+            match case {
+                "missing" => {}
+                "stale-success" => fs::write(
+                    &outcome,
+                    serde_json::to_vec(&serde_json::json!({
+                        "version": 1,
+                        "lifecycle_id": "prior-lifecycle",
+                        "status": "succeeded",
+                    }))
+                    .unwrap(),
+                )
+                .unwrap(),
+                "malformed" => fs::write(&outcome, b"{not-json").unwrap(),
+                _ => unreachable!(),
+            }
+
+            run_remote_stop(
+                &[
+                    "--session",
+                    session.as_str(),
+                    "--state-dir",
+                    directory.path().to_string_lossy().as_ref(),
+                    "--acknowledge-failed-finalization",
+                ]
+                .map(str::to_string),
+            )
+            .unwrap_or_else(|error| panic!("{case}: {error:#}"));
+
+            assert!(!runtime_path.exists(), "{case}");
+            assert!(!outcome.exists(), "{case}");
+        }
+    }
+
     #[test]
     fn relay_invitation_access_reads_owner_supplied_ticket_file() {
         use std::os::unix::fs::PermissionsExt as _;
