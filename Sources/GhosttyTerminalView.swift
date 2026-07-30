@@ -323,6 +323,11 @@ extension TerminalSurfaceRegistry {
     func allTerminalSurfaces() -> [TerminalSurface] {
         allSurfaces().compactMap { $0 as? TerminalSurface }
     }
+
+    /// Concrete hot-path snapshot for consumers that apply their own ranking.
+    func allTerminalSurfacesUnordered() -> [TerminalSurface] {
+        allSurfacesUnordered().compactMap { $0 as? TerminalSurface }
+    }
 }
 
 // TerminalSurfaceRuntimeTeardownCoordinator moved to CmuxTerminal
@@ -3158,14 +3163,6 @@ class GhosttyApp {
                 tabId: callbackTabId,
                 surfaceId: callbackSurfaceId,
                 message: action.action.child_exited
-            )
-        }
-
-        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
-            return handleAgentSessionCommandFinishedAction(
-                tabId: callbackTabId,
-                surfaceId: callbackSurfaceId,
-                message: action.action.command_finished
             )
         }
 
@@ -8195,7 +8192,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     private var hasVisibilityRevealRefreshScheduled = false
-    var onExplicitTerminalInput: (() -> Void)?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }

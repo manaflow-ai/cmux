@@ -1134,6 +1134,94 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
+  dbTest("rejects a stale challenge minted in the same millisecond as the applied one", async () => {
+    // 9071 review finding 2: the register gate is strict (`createdAt <
+    // registeredAt`), and challenge createdAt is a millisecond wall clock, so
+    // two serialized mints CAN tie. Without total ordering at mint time, the
+    // older-of-two-equal challenges completes after the newer and passes the
+    // gate, reversing the order the gate exists to enforce. Minting now bumps
+    // a tying createdAt strictly above the slot's latest challenge, so the
+    // delayed twin must be rejected as superseded.
+    const repo = requiredRepository();
+    const userId = "user-slot-equal-millis";
+    const deviceId = randomUUID();
+    const endpoint = "5c".repeat(32);
+    const tag = "stable";
+
+    const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId: input.appInstanceId,
+        tag,
+        endpointId: endpoint,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+    };
+    const register = (
+      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      now: Date,
+    ) => repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: prepared.id,
+      nonceHash: prepared.nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId: prepared.appInstanceId,
+        tag,
+        platform: "ios",
+        endpointId: endpoint,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now,
+    });
+
+    // Establish the slot, then mint two challenges with the SAME wall-clock
+    // input. Serialized issuance must still order them.
+    const initial = await prepare({ appInstanceId: randomUUID(), suffix: "1", now: NOW });
+    expect((await Effect.runPromise(register(initial, new Date(NOW.getTime() + 500)))).created).toBe(true);
+
+    const tieInstant = new Date(NOW.getTime() + 1_000);
+    const olderApp = randomUUID();
+    const newerApp = randomUUID();
+    const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: tieInstant });
+    const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: tieInstant });
+
+    // The NEWER twin lands first and refreshes the slot.
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_000)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+
+    // The OLDER twin, delayed, must be rejected — not clobber the newer state.
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
+    expect(stale._tag).toBe("Failure");
+    const causeError = stale._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "challenge_superseded",
+    });
+
+    const [row] = await requiredSql()<Array<{ appInstanceId: string }>>`
+      select app_instance_id as "appInstanceId"
+      from iroh_endpoint_bindings
+      where user_id = ${userId} and device_uuid = ${deviceId}
+        and tag = ${tag} and revoked_at is null
+    `;
+    expect(row?.appInstanceId).toBe(newerApp);
+  });
+
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
     const repo = requiredRepository();
     const initiatorUser = "user-rekey-grant-initiator";

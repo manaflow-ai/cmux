@@ -189,6 +189,63 @@ extension MobileShellComposite {
     }
 }
 
+/// Index every stored device id to the physical-route alias component it
+/// belongs to. Dial endpoints preserve the presentation alias model, while
+/// the cryptographic Iroh endpoint joins renamed rows that still compete
+/// for one physical control connection.
+@MainActor
+func physicalMacAliasCanonicalIDsByCanonicalID(
+    in macs: [MobilePairedMac],
+    supportedKinds: [CmxAttachTransportKind],
+    preferNonLoopback: Bool
+) -> [String: Set<String>] {
+    var unionFind = PairedMacAliasUnionFind()
+    var canonicalIDs: Set<String> = []
+    var firstCanonicalIDByDialEndpoint: [String: String] = [:]
+    var firstCanonicalIDByIrohEndpoint: [String: String] = [:]
+
+    for mac in macs where !mac.macDeviceID.isEmpty {
+        let canonicalID = cmxCanonicalDeviceID(mac.macDeviceID)
+        canonicalIDs.insert(canonicalID)
+        unionFind.insert(canonicalID)
+
+        if let dialEndpoint = mac.dialEndpointKey(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) {
+            if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
+                unionFind.union(canonicalID, first)
+            } else {
+                firstCanonicalIDByDialEndpoint[dialEndpoint] = canonicalID
+            }
+        }
+        if let irohEndpoint = MobileShellComposite.irohEndpointID(
+            for: mac,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) {
+            if let first = firstCanonicalIDByIrohEndpoint[irohEndpoint] {
+                unionFind.union(canonicalID, first)
+            } else {
+                firstCanonicalIDByIrohEndpoint[irohEndpoint] = canonicalID
+            }
+        }
+    }
+
+    var groupsByRoot: [String: Set<String>] = [:]
+    for canonicalID in canonicalIDs {
+        let root = unionFind.root(of: canonicalID)
+        groupsByRoot[root, default: []].insert(canonicalID)
+    }
+    var aliasesByCanonicalID: [String: Set<String>] = [:]
+    for aliases in groupsByRoot.values {
+        for canonicalID in aliases {
+            aliasesByCanonicalID[canonicalID] = aliases
+        }
+    }
+    return aliasesByCanonicalID
+}
+
 private extension MobilePairedMac {
     @MainActor
     func dialEndpointKey(
