@@ -560,6 +560,7 @@ impl PersistenceCoordinator {
                         .or_default()
                         .push(sender.take().expect("persistence waiter is available"));
                     if !covered_by_newer_work {
+                        state.pending.clear();
                         state.pending.insert(revision, snapshot);
                         wake_worker = true;
                     }

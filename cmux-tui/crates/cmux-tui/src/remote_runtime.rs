@@ -135,10 +135,13 @@ impl Drop for DaemonCleanupPauseHandle {
 }
 
 #[cfg(test)]
-fn pause_after_daemon_auth_shutdown(_state_dir: &Path) {
+fn pause_after_daemon_auth_shutdown(state_dir: &Path) {
     let pause =
         DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
     if let Some(pause) = pause {
+        if pause.expected_state_dir != state_dir {
+            return;
+        }
         let _ = pause.reached.send(());
         let _ = pause.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
     }
