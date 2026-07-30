@@ -278,6 +278,51 @@ final class SidebarWidthPolicyTests: XCTestCase {
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
+    func testActiveUncoloredLeftRailUsesAccentButInactiveAndSolidFillDoNot() {
+        let activeRail = sidebarWorkspaceRowRailNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: true,
+            customColorHex: nil,
+            colorScheme: .dark
+        )
+        assertColor(activeRail, equals: cmuxAccentNSColor(for: .dark))
+
+        let inactiveRail = sidebarWorkspaceRowRailNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: false,
+            customColorHex: nil,
+            colorScheme: .dark
+        )
+        XCTAssertNil(inactiveRail)
+
+        let solidFillRail = sidebarWorkspaceRowRailNSColor(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: true,
+            customColorHex: "#C0392B",
+            colorScheme: .dark
+        )
+        XCTAssertNil(solidFillRail)
+    }
+
+    func testLeftRailPreservesExplicitWorkspaceColor() throws {
+        let customColor = "#C0392B"
+        let rail = sidebarWorkspaceRowRailNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: false,
+            customColorHex: customColor,
+            colorScheme: .light
+        )
+        let expected = try XCTUnwrap(
+            WorkspaceTabColorSettings.displayNSColor(
+                hex: customColor,
+                colorScheme: .light,
+                forceBright: true
+            )
+        )
+
+        assertColor(rail, equals: expected)
+    }
+
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
