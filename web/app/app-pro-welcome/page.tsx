@@ -2,9 +2,8 @@ import { redirect } from "next/navigation";
 
 import enMessages from "../../messages/en.json";
 import {
-  appPricingAppearance,
   appPricingFirstParam,
-  appPricingPageBackground,
+  appPricingTheme,
   appPricingStyle,
 } from "../app-pricing/appearance";
 
@@ -42,20 +41,21 @@ export default async function AppProWelcomePage({
   // route tree.
   if (appPricingFirstParam(params.cmux_app) !== "1") redirect("/dashboard/billing");
 
-  const appearance = appPricingAppearance(params);
-  const pageBackground = appPricingPageBackground(params, appearance);
+  const theme = appPricingTheme(params);
 
   return (
     <>
       <style>{`
         html, body {
-          background: ${pageBackground} !important;
+          background: ${theme.background} !important;
         }
       `}</style>
       <main
         className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
-        data-app-pro-welcome-appearance={appearance}
-        style={appPricingStyle(appearance, pageBackground)}
+        data-cmux-app-theme="true"
+        data-cmux-app-theme-appearance={theme.appearance}
+        data-app-pro-welcome-appearance={theme.appearance}
+        style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-3xl">
           <p className="text-sm font-medium text-muted">{welcome.eyebrow}</p>
@@ -90,6 +90,8 @@ export default async function AppProWelcomePage({
           </div>
 
           <div className="mt-8 border-t border-border pt-6">
+            {/* Keep app-web navigation as a full document load in WKWebView. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
               href="/dashboard"

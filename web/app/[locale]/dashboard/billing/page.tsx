@@ -16,7 +16,6 @@ import {
   visibleProFeatures,
 } from "@/app/components/pricing-shared";
 import {
-  PricingAnnualDetail,
   PricingCheckoutButton,
   PricingIntervalProvider,
   PricingIntervalSelector,
@@ -249,10 +248,6 @@ function FreePlanUpsell({
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
     year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
   };
-  const annualPriceDetail = pricingT("annualPriceDetail", {
-    amount: PRO_PRICING_USD.year.billedAmount,
-    discount: PRO_PRICING_USD.year.discountPercent,
-  });
 
   return (
     <PricingIntervalProvider initialInterval={interval}>
@@ -285,9 +280,11 @@ function FreePlanUpsell({
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
-              period={pricingT("perMonth")}
-              priceDetail={
-                <PricingAnnualDetail>{annualPriceDetail}</PricingAnnualDetail>
+              period={
+                <PricingIntervalValue
+                  monthly={pricingT("perMonth")}
+                  annual={pricingT("perMonthBilledYearly")}
+                />
               }
             >
               <PricingCheckoutButton

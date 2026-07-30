@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -308,6 +309,79 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.host == "localhost")
         #expect(appProWelcomeURL.port == 9210)
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
+    }
+
+    @Test("app web URLs carry the current Ghostty theme palette")
+    func appWebURLsCarryCurrentGhosttyThemePalette() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?interval=year&accent=%23000000"))
+        let theme = AppWebThemeSnapshot(
+            appearance: "dark",
+            background: "#112233",
+            foreground: "#DDEEFF",
+            accent: "#44CC88"
+        )
+
+        let url = ProUpgradePresenter.decoratedAppWebURL(base, theme: theme)
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let values = Dictionary(uniqueKeysWithValues: query.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        #expect(values["interval"] == "year")
+        #expect(values["appearance"] == "dark")
+        #expect(values["background"] == "#112233")
+        #expect(values["foreground"] == "#DDEEFF")
+        #expect(values["accent"] == "#44CC88")
+        #expect(values["cmux_app"] == "1")
+    }
+
+    @Test("app web theme appearance follows the Ghostty background")
+    func appWebThemeAppearanceFollowsGhosttyBackground() throws {
+        let snapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#101010")),
+            foregroundColor: try #require(NSColor(hex: "#F0F0F0")),
+            palette: [12: try #require(NSColor(hex: "#66CCFF"))]
+        )
+
+        #expect(snapshot.appearance == "dark")
+        #expect(snapshot.background == "#101010")
+        #expect(snapshot.foreground == "#F0F0F0")
+        #expect(snapshot.accent == "#66CCFF")
+    }
+
+    @Test("app web theme JavaScript updates every shared theme variable")
+    func appWebThemeJavaScriptUpdatesEverySharedThemeVariable() throws {
+        let theme = AppWebThemeSnapshot(
+            appearance: "light",
+            background: "#FAFAFA",
+            foreground: "#171717",
+            accent: "#0066AA"
+        )
+        let script = try #require(theme.applyingJavaScript())
+
+        #expect(script.contains("[data-cmux-app-theme]"))
+        #expect(script.contains("--ghostty-background"))
+        #expect(script.contains("--ghostty-foreground"))
+        #expect(script.contains("--ghostty-accent"))
+        #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pricing")))
+        #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
+        #expect(!AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/pricing")))
+    }
+
+    @Test("external browser intent applies to checkout and Contact sales links")
+    func externalBrowserIntentAppliesToCheckoutAndContactSalesLinks() throws {
+        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1"))
+        ))
+        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1"))
+        ))
+        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0"))
+        ))
+        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1"))
+        ))
     }
 
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")

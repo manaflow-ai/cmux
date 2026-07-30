@@ -71,7 +71,7 @@ export function PricingIntervalSelector({
   return (
     <div
       ref={captureView}
-      className="mt-6 inline-flex border border-border p-1 text-sm"
+      className="mx-auto mt-6 flex w-fit border border-border p-1 text-sm"
       role="group"
       aria-label={billingPeriodLabel}
     >
@@ -100,7 +100,17 @@ export function PricingIntervalSelector({
         }}
       >
         {annualLabel}
-        <span className="ml-1.5 text-xs opacity-75">{savingsLabel}</span>
+        <span
+          className="ml-1.5 text-xs font-medium"
+          style={{
+            color:
+              interval === "year"
+                ? "var(--pricing-accent-inverse, var(--background))"
+                : "var(--pricing-accent, var(--foreground))",
+          }}
+        >
+          {savingsLabel}
+        </span>
       </IntervalButton>
     </div>
   );
@@ -115,12 +125,6 @@ export function PricingIntervalValue({
 }) {
   const { interval } = usePricingInterval();
   return interval === "year" ? annual : monthly;
-}
-
-export function PricingAnnualDetail({ children }: { children: ReactNode }) {
-  const { interval } = usePricingInterval();
-  if (interval !== "year") return null;
-  return <p className="mt-1 text-xs text-muted">{children}</p>;
 }
 
 export function PricingCheckoutButton({

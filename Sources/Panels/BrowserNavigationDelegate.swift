@@ -2,6 +2,18 @@ import AppKit
 import Foundation
 import WebKit
 
+enum BrowserExternalNavigationIntent {
+    static func shouldOpenInSystemBrowser(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return components.queryItems?.contains(where: {
+            $0.name == "cmux_external_browser" && $0.value != "0"
+        }) == true
+    }
+}
+
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
@@ -314,13 +326,13 @@ import WebKit
 #endif
 
         if let url = navigationAction.request.url,
-           shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
+           shouldOpenInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openCheckoutInSystemBrowser opened=\(opened ? 1 : 0) " +
+                "browser.nav.decidePolicy.action kind=openExternalIntentInSystemBrowser opened=\(opened ? 1 : 0) " +
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
@@ -496,20 +508,10 @@ import WebKit
         )
     }
 
-    private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
+    private func shouldOpenInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard navigationAction.navigationType == .linkActivated else { return false }
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return false
-        }
-        guard url.path == "/api/billing/checkout",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.queryItems?.contains(where: {
-                  $0.name == "cmux_external_browser" && $0.value != "0"
-              }) == true else {
-            return false
-        }
-        return true
+        return BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(url)
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

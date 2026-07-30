@@ -72,7 +72,7 @@ export function PlanCard({
 }: {
   name: string;
   price: ReactNode;
-  period?: string;
+  period?: ReactNode;
   priceDetail?: ReactNode;
   badge?: ReactNode;
   children: ReactNode;

@@ -2,6 +2,13 @@ import type { CSSProperties } from "react";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
+export type AppPricingTheme = {
+  appearance: "light" | "dark";
+  background: string;
+  foreground: string;
+  accent: string;
+};
+
 export function appPricingFirstParam(
   value: string | string[] | undefined,
 ): string | null {
@@ -24,32 +31,50 @@ export function appPricingPageBackground(
   return appearance === "dark" ? "#272822" : "#fafafa";
 }
 
-export function appPricingStyle(
-  appearance: "light" | "dark",
-  pageBackground: string,
-): CSSProperties {
-  if (appearance === "dark") {
-    return {
-      "--foreground": "#ededed",
-      "--muted": "#a3a3a3",
-      "--border": "rgba(255, 255, 255, 0.18)",
-      "--code-bg": "rgba(24, 24, 24, 0.72)",
-      "--background": pageBackground,
-      "--pricing-sticky-bg": pageBackground,
-      "--button-foreground": pageBackground,
-      backgroundColor: pageBackground,
-      colorScheme: "dark",
-    } as CSSProperties;
-  }
+export function appPricingTheme(params: SearchParams): AppPricingTheme {
+  const appearance = appPricingAppearance(params);
+  const background = appPricingPageBackground(params, appearance);
   return {
-    "--foreground": "#171717",
-    "--muted": "#5f6368",
-    "--border": "rgba(0, 0, 0, 0.14)",
-    "--code-bg": "rgba(245, 245, 245, 0.78)",
-    "--background": pageBackground,
-    "--pricing-sticky-bg": pageBackground,
-    "--button-foreground": "#ffffff",
-    backgroundColor: pageBackground,
-    colorScheme: "light",
+    appearance,
+    background,
+    foreground: appPricingColorParam(
+      params.foreground,
+      appearance === "dark" ? "#ededed" : "#171717",
+    ),
+    accent: appPricingColorParam(
+      params.accent,
+      appearance === "dark" ? "#a6e22e" : "#d20f39",
+    ),
+  };
+}
+
+export function appPricingStyle(theme: AppPricingTheme): CSSProperties {
+  return {
+    "--ghostty-background": theme.background,
+    "--ghostty-foreground": theme.foreground,
+    "--ghostty-accent": theme.accent,
+    "--foreground": "var(--ghostty-foreground)",
+    "--muted":
+      "color-mix(in srgb, var(--ghostty-foreground) 62%, var(--ghostty-background))",
+    "--border":
+      "color-mix(in srgb, var(--ghostty-foreground) 18%, transparent)",
+    "--code-bg":
+      "color-mix(in srgb, var(--ghostty-foreground) 8%, var(--ghostty-background))",
+    "--background": "var(--ghostty-background)",
+    "--pricing-sticky-bg": "var(--ghostty-background)",
+    "--pricing-accent": "var(--ghostty-accent)",
+    "--pricing-accent-inverse":
+      "color-mix(in srgb, var(--ghostty-accent) 35%, var(--ghostty-background))",
+    "--button-foreground": "var(--ghostty-background)",
+    backgroundColor: "var(--ghostty-background)",
+    colorScheme: theme.appearance,
   } as CSSProperties;
+}
+
+function appPricingColorParam(
+  value: string | string[] | undefined,
+  fallback: string,
+): string {
+  const color = appPricingFirstParam(value);
+  return color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : fallback;
 }

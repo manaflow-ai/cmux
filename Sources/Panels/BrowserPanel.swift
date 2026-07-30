@@ -3825,6 +3825,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                     self.refreshFavicon(from: webView)
                 }
+                self.applyCurrentAppWebTheme(to: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -5128,6 +5129,7 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
             }
             .store(in: &webViewCancellables)
 
@@ -5140,6 +5142,19 @@ final class BrowserPanel: Panel, ObservableObject {
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
+        applyCurrentAppWebTheme(to: webView)
+    }
+
+    private func applyCurrentAppWebTheme(to webView: WKWebView) {
+        applyAppWebTheme(AppWebThemeSnapshot.current(), to: webView)
+    }
+
+    private func applyAppWebTheme(_ theme: AppWebThemeSnapshot, to webView: WKWebView) {
+        guard AppWebThemeSnapshot.supports(url: webView.url),
+              let script = theme.applyingJavaScript() else {
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// Configures the live webview's background for the current Ghostty theme.

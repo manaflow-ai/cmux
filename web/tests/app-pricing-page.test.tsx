@@ -103,18 +103,29 @@ describe("app pricing page", () => {
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
         appearance: "dark",
+        background: "#112233",
+        foreground: "#ddeeff",
+        accent: "#44cc88",
         interval: "year",
       }),
     });
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("$24");
-    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("per month billed yearly");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
     );
     expect(html).toContain('<button type="button" aria-pressed="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
+    expect(html).toContain('data-cmux-app-theme="true"');
+    expect(html).toContain("--ghostty-background:#112233");
+    expect(html).toContain("--ghostty-foreground:#ddeeff");
+    expect(html).toContain("--ghostty-accent:#44cc88");
+    expect(html).toContain("mx-auto mt-6 flex w-fit");
+    expect(html).toContain("var(--pricing-accent-inverse, var(--background))");
+    expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

@@ -5,11 +5,14 @@ import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { appPricingCheckoutURL, isAppStoreDistributionMode } from "../lib/billing";
+import {
+  appPricingCheckoutURL,
+  isAppStoreDistributionMode,
+  withExternalBrowserIntent,
+} from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
-  appPricingAppearance,
-  appPricingPageBackground,
+  appPricingTheme,
   appPricingStyle,
 } from "./appearance";
 import {
@@ -30,7 +33,6 @@ import {
 } from "../components/pricing-shared";
 import { CheckoutButton } from "../components/checkout-navigation";
 import {
-  PricingAnnualDetail,
   PricingCheckoutButton,
   PricingIntervalProvider,
   PricingIntervalSelector,
@@ -41,7 +43,7 @@ import {
   proBillingInterval,
 } from "../../services/billing/plans";
 
-const ENTERPRISE_CTA_URL = "/enterprise";
+const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -70,8 +72,7 @@ export default async function AppPricingPage({
   };
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
   const banner = appPricingBanner(params);
-  const appearance = appPricingAppearance(params);
-  const pageBackground = appPricingPageBackground(params, appearance);
+  const theme = appPricingTheme(params);
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
     vault: pricing.pro.vaultFeatures,
@@ -80,10 +81,6 @@ export default async function AppPricingPage({
   const compareRows = visibleCompareRows(pricing.compare.rows as CompareRow[]);
   const sizeRows = pricing.sizes.rows as SizeRow[];
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
-  const annualPriceDetail = pricingMessage(pricing.annualPriceDetail, {
-    amount: PRO_PRICING_USD.year.billedAmount,
-    discount: PRO_PRICING_USD.year.discountPercent,
-  });
   const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
     annual: PRO_PRICING_USD.year.billedAmount,
@@ -93,13 +90,15 @@ export default async function AppPricingPage({
     <>
       <style>{`
         html, body {
-          background: ${pageBackground} !important;
+          background: ${theme.background} !important;
         }
       `}</style>
       <main
         className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
-        data-app-pricing-appearance={appearance}
-        style={appPricingStyle(appearance, pageBackground)}
+        data-cmux-app-theme="true"
+        data-cmux-app-theme-appearance={theme.appearance}
+        data-app-pricing-appearance={theme.appearance}
+        style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-6xl">
           {banner ? <BillingBanner banner={banner} /> : null}
@@ -116,7 +115,7 @@ export default async function AppPricingPage({
               surface="app_pricing"
             />
 
-            <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-6 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
               <PlanCard
                 name={pricing.free.name}
                 price={pricing.free.price}
@@ -148,9 +147,11 @@ export default async function AppPricingPage({
                     annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                   />
                 }
-                period={pricing.perMonth}
-                priceDetail={
-                  <PricingAnnualDetail>{annualPriceDetail}</PricingAnnualDetail>
+                period={
+                  <PricingIntervalValue
+                    monthly={pricing.perMonth}
+                    annual={pricing.perMonthBilledYearly}
+                  />
                 }
                 badge={
                   snapshot.isPro ? (
@@ -231,7 +232,7 @@ export default async function AppPricingPage({
                 free: pricing.free.price,
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${pricing.pro.price}${pricing.perMonth}`}
+                    monthly={`${pricing.pro.price} ${pricing.perMonth}`}
                     annual={annualComparePrice}
                   />
                 ),

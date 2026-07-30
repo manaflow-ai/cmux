@@ -40,7 +40,6 @@ import {
 } from "../../components/pricing-shared";
 import { CheckoutButton } from "../../components/checkout-navigation";
 import {
-  PricingAnnualDetail,
   PricingIntervalProvider,
   PricingIntervalSelector,
   PricingIntervalValue,
@@ -105,10 +104,6 @@ export default async function PricingPage({
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
     year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
   };
-  const annualPriceDetail = t("annualPriceDetail", {
-    amount: PRO_PRICING_USD.year.billedAmount,
-    discount: PRO_PRICING_USD.year.discountPercent,
-  });
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
     annual: PRO_PRICING_USD.year.billedAmount,
@@ -156,7 +151,7 @@ export default async function PricingPage({
           />
 
           {/* Tier cards */}
-          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
+          <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
             {/* Free */}
             <PlanCard
               name={t("free.name")}
@@ -179,9 +174,11 @@ export default async function PricingPage({
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
-              period={t("perMonth")}
-              priceDetail={
-                <PricingAnnualDetail>{annualPriceDetail}</PricingAnnualDetail>
+              period={
+                <PricingIntervalValue
+                  monthly={t("perMonth")}
+                  annual={t("perMonthBilledYearly")}
+                />
               }
               badge={
                 snapshot.isPro ? (
@@ -247,7 +244,7 @@ export default async function PricingPage({
                 free: t("free.price"),
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${t("pro.price")}${t("perMonth")}`}
+                    monthly={`${t("pro.price")} ${t("perMonth")}`}
                     annual={annualComparePrice}
                   />
                 ),

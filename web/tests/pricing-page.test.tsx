@@ -111,13 +111,15 @@ describe("localized pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("$24");
-    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("per month billed yearly");
+    expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).toContain("$24/month · $288/year");
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
     expect(html).toContain('<button type="button" aria-pressed="true"');
     expect(html).not.toContain('href="?interval=');
+    expect(html).toContain("mx-auto mt-6 flex w-fit");
   });
 });
 
