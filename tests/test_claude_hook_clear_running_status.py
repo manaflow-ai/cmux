@@ -3824,10 +3824,12 @@ def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
                 "--icon=bolt.fill --color=#4C8DFF "
                 f"--tab={workspace_id}",
                 f"--panel={surface_id}",
+                f"--pid={replacement_pid}",
             ):
                 raise RuntimeError(
-                    "A new prompt could not replace the dead needs-input owner "
-                    f"with Running:\ncommands={prompt_commands!r}"
+                    "A new prompt did not atomically replace the dead needs-input "
+                    "owner with a PID-owned Running status:\n"
+                    f"commands={prompt_commands!r}"
                 )
             if not has_command_with(
                 prompt_commands,
@@ -3884,6 +3886,129 @@ def verify_new_prompt_replaces_dead_needs_input_owner(cli_path: str) -> None:
                 raise RuntimeError(
                     "The replacement turn did not transition from Running to "
                     f"Idle:\ncommands={stop_commands!r}"
+                )
+
+
+def verify_authoritative_terminal_event_upgrades_legacy_active_owner(
+    cli_path: str,
+    hook_event_name: str,
+) -> None:
+    workspace_id = str(uuid.uuid4()).upper()
+    surface_id = str(uuid.uuid4()).upper()
+    session_id = f"legacy-active-{hook_event_name.lower()}-{uuid.uuid4().hex}"
+    with HookSocketServer(
+        workspace_id=workspace_id,
+        surface_id=surface_id,
+    ) as server:
+        state_path = (
+            Path(server.root.name)
+            / f"legacy-active-{hook_event_name.lower()}-state.json"
+        )
+        with live_process_pid() as live_pid:
+            env = hook_environment(
+                server,
+                workspace_id,
+                surface_id,
+                state_path,
+            )
+            env["CMUX_CLAUDE_PID"] = str(live_pid)
+
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": session_id,
+                    "turn_id": "legacy-active-turn",
+                    "cwd": "/tmp",
+                },
+                env,
+            )
+            state = json.loads(state_path.read_text())
+            record = state.get("sessions", {}).get(session_id)
+            if (
+                record is None
+                or record.get("pid") != live_pid
+                or record.get("pidStartSeconds") is None
+                or record.get("pidStartMicroseconds") is None
+            ):
+                raise RuntimeError(
+                    "The active owner did not establish a process generation "
+                    f"before the legacy-store simulation:\nrecord={record!r}"
+                )
+
+            # Older stores can identify the active owner only by numeric PID.
+            # An authoritative hook from that same live process must upgrade the
+            # record instead of leaving Running as an inescapable state.
+            record.pop("pidStartSeconds")
+            record.pop("pidStartMicroseconds")
+            state_path.write_text(json.dumps(state))
+
+            stop_payload: dict[str, object] = {
+                "hook_event_name": hook_event_name,
+                "session_id": session_id,
+                "turn_id": "legacy-active-turn",
+                "cwd": "/tmp",
+                "last_assistant_message": "legacy active turn ended",
+                "background_tasks": [],
+                "session_crons": [],
+            }
+            if hook_event_name == "StopFailure":
+                stop_payload["error"] = "Credit balance is too low"
+
+            terminal_start = len(server.commands)
+            run_claude_hook(
+                cli_path,
+                server.socket_path,
+                "stop",
+                stop_payload,
+                env,
+            )
+            terminal_commands = server.commands[terminal_start:]
+
+            if hook_event_name == "StopFailure":
+                expected_status = (
+                    "set_status claude_code Claude Code error "
+                    "--icon=exclamationmark.triangle.fill --color=#FF453A "
+                    f"--priority=100 --tab={workspace_id}"
+                )
+                expected_lifecycle = "needsInput"
+                expected_runtime_status = "error"
+            else:
+                expected_status = (
+                    "set_status claude_code Idle "
+                    "--icon=pause.circle.fill --color=#8E8E93 "
+                    f"--tab={workspace_id}"
+                )
+                expected_lifecycle = "idle"
+                expected_runtime_status = "idle"
+
+            if not has_command_with(
+                terminal_commands,
+                expected_status,
+                f"--panel={surface_id}",
+                f"--pid={live_pid}",
+            ):
+                raise RuntimeError(
+                    f"An authoritative {hook_event_name} from a legacy PID-only "
+                    "active owner did not publish its terminal status:\n"
+                    f"commands={terminal_commands!r}"
+                )
+
+            upgraded_state = json.loads(state_path.read_text())
+            upgraded_record = upgraded_state.get("sessions", {}).get(session_id)
+            if (
+                upgraded_record is None
+                or upgraded_record.get("pid") != live_pid
+                or upgraded_record.get("pidStartSeconds") is None
+                or upgraded_record.get("pidStartMicroseconds") is None
+                or upgraded_record.get("agentLifecycle") != expected_lifecycle
+                or upgraded_record.get("runtimeStatus") != expected_runtime_status
+            ):
+                raise RuntimeError(
+                    f"An authoritative {hook_event_name} did not upgrade and "
+                    "finish its legacy PID-only active owner:\n"
+                    f"record={upgraded_record!r}\nstate={upgraded_state!r}"
                 )
 
 
@@ -4245,6 +4370,14 @@ def main() -> int:
         )
         verify_retired_clear_source_cannot_reclaim_stopped_successor(cli_path)
         verify_new_prompt_replaces_dead_needs_input_owner(cli_path)
+        verify_authoritative_terminal_event_upgrades_legacy_active_owner(
+            cli_path,
+            "Stop",
+        )
+        verify_authoritative_terminal_event_upgrades_legacy_active_owner(
+            cli_path,
+            "StopFailure",
+        )
         verify_stop_failure_marks_terminal_error(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
