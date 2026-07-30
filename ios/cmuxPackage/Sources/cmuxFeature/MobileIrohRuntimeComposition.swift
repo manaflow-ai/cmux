@@ -2672,7 +2672,13 @@ extension MobileIrohRuntimeComposition {
         // cooperatively; already-applied revokes stand, and a retry
         // re-discovers only what remains.
         let outcome = try await withThrowingTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor [weak self] in
+            // No `@MainActor` annotation on this child: the isolation checker
+            // (Swift 6.x) cannot verify that pattern inside a task group and
+            // fails the build ("pattern that the region-based isolation
+            // checker does not understand"). The plain child hops to the
+            // MainActor implicitly at the `revokeMatchingBindings` call, which
+            // is what the annotation expressed.
+            group.addTask { [weak self] in
                 guard let self else { throw MobileIrohForgetError.notAuthenticated }
                 try await self.revokeMatchingBindings(
                     macDeviceID: macDeviceID,
