@@ -133,8 +133,9 @@ struct AgentResumeReturnShellStartupTests {
         let presentDirectory = root.appendingPathComponent("present", isDirectory: true)
         let missingDirectory = root.appendingPathComponent("missing", isDirectory: true)
         let inaccessibleDirectory = root.appendingPathComponent("inaccessible", isDirectory: true)
+        let nestedInaccessibleDirectory = inaccessibleDirectory.appendingPathComponent("child", isDirectory: true)
         try fileManager.createDirectory(at: presentDirectory, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: inaccessibleDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: nestedInaccessibleDirectory, withIntermediateDirectories: true)
         try fileManager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: inaccessibleDirectory.path)
         defer {
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inaccessibleDirectory.path)
@@ -184,6 +185,17 @@ struct AgentResumeReturnShellStartupTests {
             let inaccessibleResult = try runShellInput(inaccessibleInput, currentDirectory: root)
             #expect(inaccessibleResult.status != 0)
             #expect(!fileManager.fileExists(atPath: inaccessibleOutput.path))
+
+            let nestedInaccessibleOutput = root.appendingPathComponent("nested-inaccessible.txt", isDirectory: false)
+            let nestedInaccessibleInput = try launcherInput(
+                command: "print ran > \(TerminalStartupShellQuoting.singleQuoted(nestedInaccessibleOutput.path))",
+                workingDirectory: nestedInaccessibleDirectory.path,
+                root: root
+            )
+            try expectLauncherInvocation(nestedInaccessibleInput)
+            let nestedInaccessibleResult = try runShellInput(nestedInaccessibleInput, currentDirectory: root)
+            #expect(nestedInaccessibleResult.status != 0)
+            #expect(!fileManager.fileExists(atPath: nestedInaccessibleOutput.path))
         }
     }
 

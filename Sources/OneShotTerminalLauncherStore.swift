@@ -29,7 +29,7 @@ struct OneShotTerminalLauncherStore {
     init(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        currentDate: Date = Date()
+        currentDate: Date = .now
     ) {
         self.fileManager = fileManager
         self.temporaryDirectory = temporaryDirectory
@@ -78,7 +78,22 @@ struct OneShotTerminalLauncherStore {
             ]
             if let workingDirectory = normalized(workingDirectory) {
                 let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-                lines.append("{ cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ]; } || exit $?")
+                lines.append(contentsOf: [
+                    "if ! cd -- \(quotedDirectory) 2>/dev/null; then",
+                    "  _cmux_resume_probe=\(quotedDirectory)",
+                    "  [[ ! -e \"$_cmux_resume_probe\" ]] || exit 1",
+                    "  while true; do",
+                    "    _cmux_resume_parent=\"${_cmux_resume_probe:h}\"",
+                    "    [[ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ]] || exit 1",
+                    "    if [[ -e \"$_cmux_resume_parent\" ]]; then",
+                    "      [[ -d \"$_cmux_resume_parent\" && -x \"$_cmux_resume_parent\" ]] || exit 1",
+                    "      break",
+                    "    fi",
+                    "    _cmux_resume_probe=\"$_cmux_resume_parent\"",
+                    "  done",
+                    "  unset _cmux_resume_probe _cmux_resume_parent",
+                    "fi",
+                ])
             }
             switch execution {
             case .direct:
