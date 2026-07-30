@@ -102,8 +102,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
-    static func deviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String {
-        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+    static func deviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String {
+        switch resolveDurableDeviceID(store: store, defaults: defaults, evidence: evidence) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -131,8 +135,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
-    static func durableDeviceID(store: any DeviceIdentityStoring, defaults: UserDefaults) -> String? {
-        switch resolveDurableDeviceID(store: store, defaults: defaults) {
+    static func durableDeviceID(
+        store: any DeviceIdentityStoring,
+        defaults: UserDefaults,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String? {
+        switch resolveDurableDeviceID(store: store, defaults: defaults, evidence: evidence) {
         case .durable(let id):
             return id
         case .unavailable:
@@ -156,7 +164,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// `(user, device, tag)` slot stable.
     static func resolveDurableDeviceID(
         store: any DeviceIdentityStoring,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
     ) -> DurableDeviceIDResolution {
         switch store.read() {
         case .found(let stored):
@@ -173,6 +182,41 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             }
             return .durable(trimmed)
         case .absent:
+            // No Keychain id yet. Two very different situations land here with a
+            // legacy UserDefaults mirror present: an in-place UPGRADE from a
+            // pre-Keychain build (the mirror IS the id of this phone's active
+            // iroh binding; minting a new one strands that binding behind
+            // `endpoint_already_bound` because the endpoint identity survives
+            // the upgrade), and a backup RESTORE onto different hardware (the
+            // mirror crossed devices; adopting it would make two phones share
+            // one `(user, device, tag)` slot). Disambiguate with ThisDeviceOnly
+            // evidence: the iroh endpoint-identity Keychain item cannot cross
+            // hardware, so its presence proves same-device continuation. See
+            // ``SameDeviceEvidenceProbing`` for the full matrix.
+            if let legacy = trimmedLegacyDeviceID(defaults) {
+                switch evidence.probe() {
+                case .present:
+                    // Continuing install: adopt the binding's existing id into
+                    // the authoritative store. createOrAdopt never overwrites a
+                    // concurrent winner, so racing launches still converge.
+                    guard let winner = store.createOrAdopt(legacy) else {
+                        return .unavailable
+                    }
+                    defaults.set(winner, forKey: deviceIDKey)
+                    return .durable(winner)
+                case .absent:
+                    // Fresh install or cross-device restore: mint (which also
+                    // clears the foreign mirror).
+                    return adoptOrGenerateDeviceID(store: store, defaults: defaults)
+                case .unavailable:
+                    // The evidence probe cannot read the Keychain right now
+                    // (locked before first unlock). Minting here would rotate an
+                    // upgrading device's identity — the exact P1. Fail closed
+                    // like the device-id store's own `.unavailable` path and let
+                    // the caller defer until after first unlock.
+                    return .unavailable
+                }
+            }
             return adoptOrGenerateDeviceID(store: store, defaults: defaults)
         case .unavailable:
             // Fail closed: the store exists but is unreadable right now (a

@@ -14884,6 +14884,12 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.in.recv",
+            "s=\(surfaceId.uuidString.prefix(8).lowercased()) bytes=\(text.utf8.count)"
+        )
+        #endif
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14916,6 +14922,14 @@ class TerminalController {
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
+            #if DEBUG
+            if sendResult == .sent {
+                HostLatencyTrace.stamp(
+                    "host.in.applied",
+                    "s=\(surfaceId.uuidString.prefix(8).lowercased()) seq=\(seq)"
+                )
+            }
+            #endif
         }
         return .ok(payload)
     }

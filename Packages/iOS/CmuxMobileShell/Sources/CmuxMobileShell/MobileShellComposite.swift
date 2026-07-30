@@ -127,6 +127,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reschedule per received event (an actively-streaming connection just keeps
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
+    /// An input ACK only reasserts the event subscription after this long
+    /// without an event, preserving lost-registration recovery without adding a
+    /// control-lane round trip to healthy continuous typing.
+    static let terminalInputAckResubscribeSilenceThreshold: TimeInterval = 2
     /// Short background dwells usually preserve the event stream; beyond this,
     /// the liveness watchdog and normal foreground resync own catch-up.
     static let foregroundResyncShortBackgroundThreshold: TimeInterval = 30
@@ -151,9 +155,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 scheduleWorkspaceChangesSummaryRefresh()
+                #if DEBUG
+                startLatencyProbeIfReady()
+                startLatencyProbeAutoNavigationIfNeeded()
+                #endif
             } else {
                 deactivateAllTerminalLanes()
                 resetWorkspaceChangesState()
+                #if DEBUG
+                cancelLatencyProbe()
+                #endif
             }
             // Intentional teardown (sign-out, hide, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -811,6 +822,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
+    @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
+    @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
+    @ObservationIgnored var terminalInputAckResubscribeRetrySurfaceID: String?
+    /// Injected clock for the bounded ACK freshness-window follow-up.
+    @ObservationIgnored let terminalInputAckResubscribeClock: any Clock<Duration>
     var lastBackgroundedAt: Date?
     var foregroundResumeEpoch: UInt64 = 0
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
@@ -1092,6 +1108,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalInputRPCPipeline: MobileTerminalInputRPCPipeline
     private var rawTerminalInputDrainWaiters: [CheckedContinuation<Void, Never>]
     private var isRawTerminalInputDrainLoopRunning: Bool
+    #if DEBUG
+    var latencyProbeAutoNavigationTask: Task<Void, Never>?
+    var latencyProbeTask: Task<Void, Never>?
+    private var rawTerminalInputLatencyBatchNumber: UInt64
+    #endif
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -1220,6 +1241,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
+        terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
@@ -1231,6 +1253,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.controlPlaneSchedulingClock = controlPlaneSchedulingClock
         self.connectionHandoffDrainTimeoutNanoseconds =
             connectionHandoffDrainTimeoutNanoseconds
+        self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
         self.taskTemplateStore = taskTemplateStore
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
@@ -1292,6 +1315,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
         self.terminalSubscriptionRefreshTask = nil
+        self.terminalInputAckResubscribeRetryTask = nil
+        self.terminalInputAckResubscribeRetryTaskID = nil
+        self.terminalInputAckResubscribeRetrySurfaceID = nil
         self.createWorkspaceTask = nil
         self.createWorkspaceTaskGroupID = nil
         self.createWorkspaceTaskSpec = nil
@@ -1358,6 +1384,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputRPCPipeline = MobileTerminalInputRPCPipeline()
         self.rawTerminalInputDrainWaiters = []
         self.isRawTerminalInputDrainLoopRunning = false
+        #if DEBUG
+        self.latencyProbeAutoNavigationTask = nil
+        self.latencyProbeTask = nil
+        self.rawTerminalInputLatencyBatchNumber = 0
+        #endif
         self.pairingAttemptID = UUID()
     }
 
@@ -1370,6 +1401,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
         renderGridLivenessProbeTask?.cancel()
+        terminalInputAckResubscribeRetryTask?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
@@ -1392,11 +1424,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
+    public static func preview(
+        runtime: (any MobileSyncRuntime)? = nil,
+        terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock()
+    ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
         )
     }
 
@@ -7248,10 +7284,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Matches MobileIrohTerminalLane.maximumInputByteCount and the Mac lane
         // router's maximumInputFrameByteCount.
         while let chunk = rawTerminalInputBuffer.nextBatch(maximumByteCount: 16 * 1_024) {
+            #if DEBUG
+            rawTerminalInputLatencyBatchNumber &+= 1
+            let latencyBatchNumber = rawTerminalInputLatencyBatchNumber
+            MobileLatencyTrace.stamp(
+                "in.send",
+                "n=\(latencyBatchNumber) bytes=\(chunk.text.utf8.count)"
+            )
+            let latencyBatchNumberForSend: UInt64? = latencyBatchNumber
+            #else
+            let latencyBatchNumberForSend: UInt64? = nil
+            #endif
             await sendRemoteTerminalInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
-                terminalID: chunk.terminalID
+                terminalID: chunk.terminalID,
+                latencyBatchNumber: latencyBatchNumberForSend
             )
         }
     }
@@ -8464,6 +8512,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        cancelTerminalInputAckResubscribeRetry()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
     }
@@ -9034,18 +9083,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        _ = await sendRemoteTerminalInput(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
+    /// Sends terminal input and stamps its eventual settlement outcome.
     private func sendRemoteTerminalInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        latencyBatchNumber: UInt64? = nil
     ) async {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
             #endif
+            Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
             return
         }
         let generation = connectionGeneration
@@ -9076,6 +9132,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // belong to the previous connection.
                     guard generation == connectionGeneration,
                           client === remoteClient else {
+                        Self.stampTerminalInputSettlement(
+                            latencyBatchNumber,
+                            succeeded: false
+                        )
                         return
                     }
                     if terminalInputRPCPipeline.hasAmbiguousFailure(
@@ -9101,11 +9161,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             switch laneResult {
             case .sent:
+                Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
                 return
             case .failed:
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
+                Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
                 return
             case .unavailable:
                 break
@@ -9132,9 +9194,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                     },
                     settlementHandler: { [weak self, weak client] result in
-                        guard let self, let client else { return }
                         switch result {
                         case let .success(responseData):
+                            Self.stampTerminalInputSettlement(
+                                latencyBatchNumber,
+                                succeeded: true
+                            )
+                            guard let self, let client else { return }
                             guard self.isCurrentRemoteOperation(
                                 client: client,
                                 generation: generation
@@ -9144,6 +9210,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 surfaceID: terminalID.rawValue
                             )
                         case let .failure(error):
+                            Self.stampTerminalInputSettlement(
+                                latencyBatchNumber,
+                                succeeded: false
+                            )
+                            guard let self, let client else { return }
                             self.handleTerminalInputFailure(
                                 error,
                                 client: client,
@@ -9152,11 +9223,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                 )
+                return
             } catch {
                 // A generation change mid-enqueue (pipeline clear) surfaces as
                 // CancellationError; that is a benign teardown, not an
                 // operational failure, regardless of whether the caller also
                 // rotated connectionGeneration.
+                Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
                 if error is CancellationError { return }
                 handleTerminalInputFailure(
                     error,
@@ -9176,15 +9249,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            guard isCurrentRemoteOperation(client: client, generation: generation) else {
+                Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                return
+            }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
         } catch {
+            Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
             handleTerminalInputFailure(
                 error,
                 client: client,
                 generation: generation
             )
         }
+    }
+
+    @inline(__always)
+    private static func stampTerminalInputSettlement(
+        _ latencyBatchNumber: UInt64?,
+        succeeded: Bool
+    ) {
+        #if DEBUG
+        guard let latencyBatchNumber else { return }
+        MobileLatencyTrace.stamp(
+            "in.settled",
+            "n=\(latencyBatchNumber) ok=\(succeeded ? 1 : 0)"
+        )
+        #endif
     }
 
     private func terminalInputParameters(
@@ -9246,7 +9338,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Deliver a composed block to the Mac surface via `terminal.paste`: a
     /// bracketed paste (so multi-line text is inserted as one literal block)
-    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// followed by an optional submit key. Mirrors
+    /// ``sendRemoteTerminalInput(_:workspaceID:terminalID:latencyBatchNumber:)``
     /// but takes the dedicated paste path instead of the raw `terminal.input`
     /// path, which rewrites newlines to carriage returns.
     ///
@@ -9761,6 +9854,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
+                self.cancelTerminalInputAckResubscribeRetry()
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
@@ -10093,17 +10187,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // host-side condition), so no listener restart is needed.
                     MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
                     mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
-                    for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
-                        self.requestAuthoritativeTerminalResync(
-                            surfaceID: surfaceID,
-                            reason: "liveness_probe_repaired"
-                        )
-                    }
-                    // The same registration carries `workspace.updated` and
-                    // `mobile.sync.delta`, so list changes emitted during the
-                    // gap were missed too; repair through the mode-appropriate
-                    // authoritative path.
-                    self.repairMissedEventWindow()
+                    self.repairLostTerminalEventSubscription(
+                        reason: "liveness_probe_repaired"
+                    )
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -10209,6 +10295,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let remoteSeq = payload.terminalSeq else {
             return
         }
+        #if DEBUG
+        MobileLatencyTrace.stamp(
+            "in.resp",
+            "s=\(surfaceID.prefix(8).lowercased()) ack_seq=\(remoteSeq)"
+        )
+        #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
@@ -10236,7 +10328,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
             MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)")
-            refreshTerminalEventSubscription(reason: "input_seq_wait")
+            let now = runtime?.now() ?? Date()
+            if lastTerminalEventAt.map({
+                now.timeIntervalSince($0) >= Self.terminalInputAckResubscribeSilenceThreshold
+            }) ?? true {
+                cancelTerminalInputAckResubscribeRetry()
+                refreshTerminalEventSubscription(reason: "input_seq_wait")
+            } else if let lastTerminalEventAt {
+                scheduleTerminalInputAckResubscribeRetry(
+                    surfaceID: surfaceID,
+                    pendingSeq: targetSeq,
+                    lastTerminalEventAt: lastTerminalEventAt,
+                    now: now
+                )
+            }
             return
         }
         MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
@@ -10252,6 +10357,100 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             restartEventStream: false,
             surfaceIDs: [surfaceID]
         )
+    }
+
+    /// Coalesces the freshness-guard follow-up into one cancellable delay.
+    private func scheduleTerminalInputAckResubscribeRetry(
+        surfaceID: String,
+        pendingSeq: UInt64,
+        lastTerminalEventAt: Date,
+        now: Date
+    ) {
+        cancelTerminalInputAckResubscribeRetry()
+        guard let listenerID = terminalEventListenerID,
+              terminalEventListenerTask != nil else {
+            return
+        }
+        let elapsed = max(0, now.timeIntervalSince(lastTerminalEventAt))
+        let delay = max(
+            0,
+            Self.terminalInputAckResubscribeSilenceThreshold - elapsed
+        )
+        let taskID = UUID()
+        terminalInputAckResubscribeRetryTaskID = taskID
+        terminalInputAckResubscribeRetrySurfaceID = surfaceID
+        let clock = terminalInputAckResubscribeClock
+        terminalInputAckResubscribeRetryTask = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            guard self.terminalInputAckResubscribeRetryTaskID == taskID else { return }
+            self.terminalInputAckResubscribeRetryTask = nil
+            self.terminalInputAckResubscribeRetryTaskID = nil
+            self.terminalInputAckResubscribeRetrySurfaceID = nil
+            guard self.connectionState == .connected,
+                  let client = self.remoteClient,
+                  self.terminalEventListenerID == listenerID,
+                  self.terminalEventListenerTask != nil,
+                  self.lastTerminalEventAt == lastTerminalEventAt,
+                  self.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == pendingSeq,
+                  (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) < pendingSeq
+            else {
+                return
+            }
+            let ack = await self.requestTerminalEventSubscription(
+                client: client,
+                reason: "input_seq_wait_retry",
+                topics: self.terminalOutputTransport.eventTopics
+            )
+            guard !Task.isCancelled,
+                  self.connectionState == .connected,
+                  self.remoteClient === client,
+                  self.terminalEventListenerID == listenerID,
+                  self.terminalEventListenerTask != nil,
+                  self.lastTerminalEventAt == lastTerminalEventAt,
+                  self.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == pendingSeq,
+                  (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) < pendingSeq,
+                  case .subscribed(let alreadySubscribed) = ack
+            else {
+                return
+            }
+            if alreadySubscribed == false {
+                self.repairLostTerminalEventSubscription(
+                    reason: "input_seq_wait_retry"
+                )
+            } else {
+                self.requestAuthoritativeTerminalResync(
+                    surfaceID: surfaceID,
+                    reason: "input_seq_wait_retry"
+                )
+            }
+        }
+    }
+
+    /// Repairs every collection carried by a host registration that was absent.
+    private func repairLostTerminalEventSubscription(reason: String) {
+        for surfaceID in terminalByteContinuationsBySurfaceID.keys {
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                reason: reason
+            )
+        }
+        // The same registration carries `workspace.updated` and
+        // `mobile.sync.delta`, so list changes emitted during the gap were
+        // missed too; repair through the mode-appropriate authoritative path.
+        repairMissedEventWindow()
+    }
+
+    /// Cancels the one-shot ACK retry, optionally only for its owning surface.
+    func cancelTerminalInputAckResubscribeRetry(surfaceID: String? = nil) {
+        if let surfaceID,
+           terminalInputAckResubscribeRetrySurfaceID != surfaceID {
+            return
+        }
+        terminalInputAckResubscribeRetryTask?.cancel()
+        terminalInputAckResubscribeRetryTask = nil
+        terminalInputAckResubscribeRetryTaskID = nil
+        terminalInputAckResubscribeRetrySurfaceID = nil
     }
 
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
@@ -10271,15 +10470,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
+        startLatencyProbeIfReady()
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
@@ -10329,6 +10531,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
@@ -10673,6 +10876,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                     self.recordTerminalRenderGridDelivery(renderGrid)
+                    self.recordTerminalRenderGridHistoryContinuity(renderGrid)
                     self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     // A delivered grid is progress even if the payload omitted
                     // its sequence; fall back to the frame's own sequence so
@@ -10717,6 +10921,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let accepted = self.deliverTerminalBytes(
                     deliverBytes,
                     surfaceID: surfaceID,
+                    endSequence: replaySeq,
                     bypassReplayBarrier: replayBarrierTokenForRequest != nil
                 )
                 if accepted,
@@ -10818,6 +11023,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let json = event.payloadJSON else {
             return
         }
+        #if DEBUG
+        let latencyReceiveTime = MobileLatencyTrace.captureTime()
+        #endif
         // The frame may arrive nested under `render_grid` or as the bare payload;
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
@@ -10826,6 +11034,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         #if DEBUG
+        if let latencyReceiveTime {
+            let decodeDuration = MobileLatencyTrace.elapsedMicroseconds(since: latencyReceiveTime)
+            MobileLatencyTrace.stamp(
+                "ev.grid",
+                at: latencyReceiveTime,
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) seq=\(renderGrid.stateSeq) " +
+                    "bytes=\(json.count) dec_us=\(decodeDuration)"
+            )
+        }
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
         deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
@@ -10917,7 +11134,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     b: Int(clamping: seq)
                 ))
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
-                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
+                guard deliverTerminalBytes(bytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
                 markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
                 if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
                     cancelTerminalReplayInFlight(surfaceID: surfaceID)
@@ -10934,7 +11151,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let overlap = deliveredSeq - seq
             let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
+            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
         }
@@ -10948,12 +11165,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if seq < floorSeq {
                 let overlap = floorSeq - seq
                 let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
+                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
                 markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
                 return
             }
         }
-        guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
+        guard deliverTerminalBytes(bytes, surfaceID: surfaceID, endSequence: endSeq) else { return }
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
@@ -11067,6 +11284,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func stopTerminalRefreshPolling() {
+        cancelTerminalInputAckResubscribeRetry()
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
@@ -11150,6 +11368,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        #if DEBUG
+        startLatencyProbeAutoNavigationIfNeeded()
+        #endif
         reconcileWorkspaceChangesSummaryStateWithForeground()
         let changesSummaryWorkspaceIDs = changesSummaryRefreshScope.workspaceIDs(
             fullSnapshotWorkspaceIDs: response.workspaces.map(\.id)
