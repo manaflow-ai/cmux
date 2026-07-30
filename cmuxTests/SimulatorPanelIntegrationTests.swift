@@ -1158,9 +1158,8 @@ struct SimulatorPanelIntegrationTests {
         let client = SimulatorSemanticAutomationPaneClient(behavior: .staticTree)
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
-        let executor = SimulatorUIAutomationExecutor(
-            scheduler: InstantSimulatorUIAutomationTiming()
-        )
+        let timing = InstantSimulatorUIAutomationTiming()
+        let executor = SimulatorUIAutomationExecutor(scheduler: timing)
         let first = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
             coordinator: coordinator
@@ -1363,7 +1362,8 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
     private var observedEarlyPostTypeRead = false
     private var mutationHook: (@MainActor @Sendable () -> Void)?
     private var accessibilityReadCount = 0
-    private var currentDisplay = Self.defaultDisplay
+    private var currentDisplay =
+        SimulatorSemanticAutomationPaneClient.defaultDisplay
 
     init(
         behavior: Behavior,
