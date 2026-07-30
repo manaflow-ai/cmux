@@ -572,16 +572,11 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let groupName = app.buttons["Group 2"]
-        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
-
-        let swipeStart = groupName.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)
-        )
-        let swipeEnd = groupName.coordinate(
-            withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)
-        )
-        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(waitForHittable(groupHeader, timeout: 8))
+        groupHeader.swipeLeft()
 
         let delete = app.buttons["Delete"]
         XCTAssertTrue(
