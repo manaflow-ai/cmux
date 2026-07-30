@@ -170,6 +170,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             .appendingPathComponent("cmux-ssh-restored-auth-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let foregroundAuthPayloadLog =
+            root.appendingPathComponent("foreground-auth-payload.json")
         let socketHash = UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased() + "01234567"
@@ -186,17 +188,33 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             options: sshOptions
         ))
         let inFlightPath = lockPath + ".inflight"
+        let resolvedAuthenticationLockPath = try #require(
+            SSHConnectionSharingOptions()
+                .resolvedControlMasterAuthenticationLockPath(
+                    controlPath: controlPath
+                )
+        )
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             try? fileManager.removeItem(at: root)
             unlink(lockPath)
             unlink(inFlightPath)
+            unlink(resolvedAuthenticationLockPath)
         }
 
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "case \" $* \" in *\" ssh-pty-attach \"*) exit 253 ;; *) exit 0 ;; esac",
+            "case \" $* \" in",
+            "  *\" workspace.remote.foreground_auth_ready \"*)",
+            "    for argument in \"$@\"; do cmux_test_last_argument=\"$argument\"; done",
+            "    printf '%s\\n' \"$cmux_test_last_argument\" > \"$CMUX_TEST_AUTH_PAYLOAD_LOG\"",
+            "    /bin/zsh -fc 'zmodload zsh/system || exit 2; : >> \"$CMUX_TEST_RESOLVED_AUTH_LOCK\" || exit 2; if zsystem flock -t 0 -e -f cmux_test_lock_fd \"$CMUX_TEST_RESOLVED_AUTH_LOCK\"; then exit 1; fi; exit 0'",
+            "    exit $?",
+            "    ;;",
+            "  *\" ssh-pty-attach \"*) exit 253 ;;",
+            "  *) exit 0 ;;",
+            "esac",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
@@ -219,6 +237,10 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_CONTROL_PATH"] = controlPath
+        environment["CMUX_TEST_AUTH_PAYLOAD_LOG"] =
+            foregroundAuthPayloadLog.path
+        environment["CMUX_TEST_RESOLVED_AUTH_LOCK"] =
+            resolvedAuthenticationLockPath
 
         let command = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
@@ -237,6 +259,11 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
             !fileManager.fileExists(atPath: inFlightPath),
             "Successful restored authentication must remove its owned in-flight marker before releasing the lock"
         )
+        let payloadData = try Data(contentsOf: foregroundAuthPayloadLog)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: payloadData) as? [String: String]
+        )
+        #expect(payload["control_path"] == controlPath)
     }
 
     @Test func restoredAttachStopsAtForegroundAuthenticationFailureLimit() throws {

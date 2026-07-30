@@ -383,7 +383,7 @@ extension CMUXCLI {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
         if retryPTYAttachStatus {
-            // Advertise per attempt whether another 254|255 retry is queued so
+            // Advertise per attempt whether another 251|254|255 retry is queued so
             // ssh-pty-attach only suppresses its pty_attach_end cleanup while a
             // retry is actually pending; see CMUXCLI.sshPTYAttachWrapperRetryPending
             // and keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines /
@@ -402,7 +402,7 @@ extension CMUXCLI {
         } else {
             scriptLines.append("  command \(sshCommand) <&0 &")
         }
-        let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
+        let retryableStatusPattern = retryPTYAttachStatus ? "251|254|255" : "255"
         scriptLines += [
             "  CMUX_SSH_CHILD_PID=$!",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",

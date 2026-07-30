@@ -1,3 +1,5 @@
+internal import Foundation
+
 /// Builds the shared shell retry state machine for persistent SSH PTY attachment.
 ///
 /// Both app-restored terminals and CLI-created attach commands use this builder
@@ -22,6 +24,16 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         let initialReauthentication = reauthenticates ? 1 : 0
+        let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
+        let reattachingFormat = String(
+            localized: "cli.sshPtyAttach.bridgeClosedReattaching",
+            defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+        ).remoteCommandShellQuoted
+        let retryWithoutReauthenticationStatus =
+            SSHPTYAttachExitCode.retryableWithoutReauthentication.rawValue
+        let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
+        let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
+        let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
         return [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
@@ -31,6 +43,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "case \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
+        ] + noProgressPolicy.configurationLines + [
+            "cmux_ssh_attach_no_progress_retry=0",
             "cmux_ssh_attach_retry=0",
             "cmux_ssh_attach_auth_retry=0",
             "cmux_ssh_attach_auth_retry_limit=\(authPolicy.maximumConsecutiveTransientFailures)",
@@ -49,13 +63,19 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
-            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
             "  cmux_ssh_attach_status=$?",
-            "  case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;; 255) \(reauthenticate) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
+            "  case \"$cmux_ssh_attach_status\" in",
+            "    \(noProgressStatus)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
+            "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_no_progress_retry=0 ;;",
+            "    \(sessionRunningStatus)) cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
+            "    \(transientStatus)) cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
+            "    *) exit \"$cmux_ssh_attach_status\" ;;",
+            "  esac",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
+            "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
         ] + backoffBuilder.waitLines + [
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
             "done",

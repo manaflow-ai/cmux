@@ -34,28 +34,17 @@ struct WorkspaceListSearchHost<Content: View>: View {
     @ViewBuilder
     private var iOSContent: some View {
         if #available(iOS 26.0, *) {
+            // A `.bottomBar` toolbar item cannot host New Task here: the
+            // TabView's search-role tab renders its pill in the same
+            // bottom-trailing slot and the two stack on top of each other.
+            // Mount the shared button in the bottom safe-area bar instead,
+            // above the tab-bar chrome the system owns.
             content(searchText)
-                .toolbar {
+                .safeAreaBar(edge: .bottom, alignment: .trailing, spacing: 0) {
                     if let taskComposerAction {
-                        ToolbarSpacer(.flexible, placement: .bottomBar)
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(action: taskComposerAction) {
-                                Image(systemName: "sparkles")
-                            }
-                            .accessibilityLabel(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityLabel",
-                                    defaultValue: "New Task"
-                                )
-                            )
-                            .accessibilityHint(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityHint",
-                                    defaultValue: "Opens the task composer."
-                                )
-                            )
-                            .accessibilityIdentifier("MobileTaskComposerButton")
-                        }
+                        TaskComposerButton(action: taskComposerAction)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 6)
                     }
                 }
         } else {
@@ -65,6 +54,13 @@ struct WorkspaceListSearchHost<Content: View>: View {
                     placement: .navigationBarDrawer(displayMode: .always)
                 )
                 .searchFocused($searchIsFocused)
+                .overlay(alignment: .bottomTrailing) {
+                    if let taskComposerAction {
+                        TaskComposerButton(action: taskComposerAction)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 6)
+                    }
+                }
         }
     }
     #endif
