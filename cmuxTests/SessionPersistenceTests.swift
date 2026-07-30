@@ -2397,16 +2397,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: root))
         XCTAssertTrue(
             startupInput.utf8.allSatisfy { $0 < 0x80 },
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
         )
 
-        // The printf-escaped non-ASCII cwd plus the `/bin/sh -c` portability wrap
-        // (https://github.com/manaflow-ai/cmux/issues/5639) exceed the inline
-        // startup-input byte budget, so the input is the `/bin/zsh '<script>'`
-        // launcher form; the script body carries the actual resume command.
+        // Local resume always uses the one-shot `/bin/zsh '<script>'` wrapper;
+        // the script body carries the actual resume command.
         let command = try inlineResumeCommandResolvingLauncherScript(from: startupInput)
         XCTAssertTrue(
             command.utf8.allSatisfy { $0 < 0x80 },
@@ -2419,12 +2417,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     /// Resolves resume startup input to the inline command or launcher-script command line.
     private func inlineResumeCommandResolvingLauncherScript(from startupInput: String) throws -> String {
         let trimmed = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("/bin/zsh '") {
-            let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
-            let scriptPath = try XCTUnwrap(
-                singleQuotedValueForTest(quotedPath),
-                "unparseable launcher-script startup input: \(trimmed)"
-            )
+        if let scriptPath = launcherScriptPath(from: startupInput) {
             let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
             return try XCTUnwrap(
                 script.split(separator: "\n").map(String.init).last,
@@ -2434,9 +2427,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         return trimmed
     }
 
-    private func singleQuotedValueForTest(_ value: String) -> String? {
-        guard value.hasPrefix("'"), value.hasSuffix("'"), value.count >= 2 else { return nil }
-        return String(value.dropFirst().dropLast()).replacingOccurrences(of: "'\\''", with: "'")
+    private func launcherScriptPath(from input: String) -> String? {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        guard words.count == 2, words.first == "/bin/zsh" else { return nil }
+        return words.last
     }
 
     func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
@@ -2548,7 +2542,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
-    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() throws {
+    func testRestorableAgentStartupInputUsesLauncherWhenShort() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-short-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -2569,18 +2568,25 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertTrue(startupInput.hasPrefix(" /bin/zsh '"), startupInput)
+        let resumeCommand = try inlineResumeCommandResolvingLauncherScript(from: startupInput)
         XCTAssertTrue(
-            startupInput.contains(
+            resumeCommand.contains(
                 "/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=claude:\(sessionId)' /bin/sh -c"
             ),
-            startupInput
+            resumeCommand
         )
         XCTAssertFalse(try XCTUnwrap(snapshot.resumeCommand).contains("CMUX_AGENT_RESTORE_LAUNCH"))
         XCTAssertFalse(try XCTUnwrap(snapshot.forkStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
     }
 
     func testRestorableAgentRestoreMarkerRequiresSupportedProviderAndUUIDSession() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-marker-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
         let unsupported = SessionRestorableAgentSnapshot(
             kind: .gemini,
             sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
@@ -2610,8 +2616,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(try XCTUnwrap(unsupported.resumeStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
-        XCTAssertFalse(try XCTUnwrap(invalidSession.resumeStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
+        let unsupportedInput = try XCTUnwrap(unsupported.resumeStartupInput(temporaryDirectory: tempDir))
+        let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput(temporaryDirectory: tempDir))
+        XCTAssertFalse(
+            try inlineResumeCommandResolvingLauncherScript(from: unsupportedInput)
+                .contains("CMUX_AGENT_RESTORE_LAUNCH")
+        )
+        XCTAssertFalse(
+            try inlineResumeCommandResolvingLauncherScript(from: invalidSessionInput)
+                .contains("CMUX_AGENT_RESTORE_LAUNCH")
+        )
     }
 
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
@@ -2645,12 +2659,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
         XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertTrue(input.hasPrefix(" /bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try XCTUnwrap(launcherScriptPath(from: input))
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(
             scriptContents.contains(
@@ -4508,12 +4520,10 @@ extension SessionPersistenceTests {
 
         let input = try XCTUnwrap(binding.startupInputWithLauncherScript(temporaryDirectory: tempDir))
         XCTAssertLessThanOrEqual(input.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertTrue(input.hasPrefix(" /bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try XCTUnwrap(launcherScriptPath(from: input))
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(longPath))
         XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
@@ -5653,15 +5663,14 @@ extension SessionPersistenceTests {
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"), startupPayload)
-            // The guard is the fish-safe, brace-free form (https://github.com/manaflow-ai/cmux/issues/6285):
-            // `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <cmd>`.
-            XCTAssertFalse(startupPayload.contains("{ cd -- "), startupPayload)
-            let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
-            let guardSuffix = String(startupPayload[guardStart.lowerBound...])
-            let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)
-            let guardSnippet = String(guardSuffix[..<guardEnd])
-            XCTAssertTrue(guardSnippet.contains(missingCwd.path), guardSnippet)
-            XCTAssertTrue(guardSnippet.contains("2>/dev/null || [ ! -d"), guardSnippet)
+            XCTAssertTrue(
+                startupPayload.contains(
+                    "if ! cd -- \(TerminalStartupShellQuoting.singleQuoted(missingCwd.path)) 2>/dev/null; then"
+                ),
+                startupPayload
+            )
+            XCTAssertTrue(startupPayload.contains("_cmux_resume_probe="), startupPayload)
+            XCTAssertFalse(startupPayload.contains("2>/dev/null || [ ! -d"), startupPayload)
         }
     }
 
@@ -5733,9 +5742,7 @@ extension SessionPersistenceTests {
     @MainActor
     private func restoredStartupPayload(for panel: TerminalPanel) throws -> String {
         if let input = panel.surface.debugInitialInputForTesting() {
-            let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
-            guard let launcherIndex = words.lastIndex(of: "/bin/zsh"),
-                  let scriptPath = words.dropFirst(launcherIndex + 1).first else {
+            guard let scriptPath = launcherScriptPath(from: input) else {
                 return input
             }
             let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
@@ -5743,15 +5750,19 @@ extension SessionPersistenceTests {
         }
 
         let command = try XCTUnwrap(panel.surface.debugInitialCommand())
-        let launcherPrefix = "/bin/zsh '"
-        guard command.hasPrefix(launcherPrefix), command.hasSuffix("'") else {
+        guard let scriptPath = launcherScriptPath(from: command) else {
             return try XCTUnwrap(
                 Optional<String>.none,
                 "Unexpected restored startup command format: \(command)"
             )
         }
-        let scriptPath = String(command.dropFirst(launcherPrefix.count).dropLast())
         return try String(contentsOfFile: scriptPath, encoding: .utf8)
+    }
+
+    private func launcherScriptPath(from input: String) -> String? {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        guard words.count == 2, words.first == "/bin/zsh" else { return nil }
+        return words.last
     }
 
     @MainActor
@@ -5924,9 +5935,16 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
-        XCTAssertEqual(
-            restoredPanel.surface.debugInitialInputForTesting(),
-            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        XCTAssertTrue(input.hasPrefix(" /bin/zsh '"), input)
+        let scriptPath = try XCTUnwrap(launcherScriptPath(from: input))
+        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(
+            scriptContents.contains(
+                "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'"
+            ),
+            scriptContents
         )
     }
 
@@ -5962,12 +5980,10 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
-        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertTrue(input.hasPrefix(" /bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
 
-        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = "/bin/zsh '"
-        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptPath = try XCTUnwrap(launcherScriptPath(from: input))
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
         XCTAssertTrue(scriptContents.contains(longPath))
