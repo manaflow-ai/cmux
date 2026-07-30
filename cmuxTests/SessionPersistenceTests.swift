@@ -5020,6 +5020,31 @@ extension SessionPersistenceTests {
                 "claude --resume x\nevil"
             )
         )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume !!"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "! claude --resume x"
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \"!!\""
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume '!!'"
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
+                "claude --resume \\!x"
+            )
+        )
         XCTAssertTrue(
             SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(
                 "claude --resume 'a;b'"
@@ -5142,6 +5167,34 @@ extension SessionPersistenceTests {
         XCTAssertFalse(record.matches(differentFolderBinding))
         XCTAssertFalse(record.matches(compoundCommandBinding))
         XCTAssertFalse(record.matches(chainedCommandBinding))
+    }
+
+    func testSurfaceResumeApprovalRecordMatchesOnlyLocalBindings() {
+        let record = SurfaceResumeApprovalRecord(
+            id: "local-only",
+            commandPrefix: ["claude", "--resume"],
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"],
+            policy: .auto
+        )
+        let localBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let remoteBinding = SurfaceResumeBindingSnapshot(
+            command: localBinding.command,
+            cwd: localBinding.cwd,
+            environment: localBinding.environment,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: UUID(),
+                surfaceID: UUID(),
+                persistentPTYSessionID: "remote-session"
+            ))
+        )
+
+        XCTAssertTrue(record.matches(localBinding))
+        XCTAssertFalse(record.matches(remoteBinding))
     }
 
     func testSurfaceResumeGeneralizedApprovalRejectsUnsafeExpansionInPrefix() {
@@ -5487,6 +5540,70 @@ extension SessionPersistenceTests {
         )
         XCTAssertEqual(repeatedRecord.id, generalizedRecord.id)
         XCTAssertEqual(records.map(\.id), [generalizedRecord.id])
+    }
+
+    func testSurfaceResumeApprovalGeneralizedManualPolicyRemovesSiblingExactAutoRecordInSameScope() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let siblingBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-b",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let siblingExactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: siblingBinding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let differentCWDBinding = SurfaceResumeBindingSnapshot(
+            command: siblingBinding.command,
+            cwd: "/tmp/other-project",
+            environment: siblingBinding.environment
+        )
+        let differentCWDExactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: differentCWDBinding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let approvingBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: siblingBinding.environment
+        )
+
+        let generalizedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: approvingBinding,
+            policy: .manual,
+            commandPrefix: ["claude", "--resume"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertFalse(records.contains(where: { $0.id == siblingExactRecord.id }))
+        XCTAssertTrue(records.contains(where: { $0.id == differentCWDExactRecord.id }))
+        XCTAssertTrue(records.contains(where: { $0.id == generalizedRecord.id }))
+
+        let effectiveSiblingBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: siblingBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveSiblingBinding.approvalRecordId, generalizedRecord.id)
+        XCTAssertEqual(effectiveSiblingBinding.approvalPolicy, .manual)
+
+        let effectiveDifferentCWDBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: differentCWDBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveDifferentCWDBinding.approvalRecordId, differentCWDExactRecord.id)
+        XCTAssertEqual(effectiveDifferentCWDBinding.approvalPolicy, .auto)
     }
 
     @MainActor
