@@ -5186,6 +5186,37 @@ extension SessionPersistenceTests {
         ))
     }
 
+    func testSurfaceResumeApprovalRejectsUnsafeCommandWithoutWritingRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tool --resume x && echo done",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: storeURL,
+            signingSecret: Data("approval-secret".utf8)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path))
+        XCTAssertTrue(SurfaceResumeApprovalStore.loadRecords(fileURL: storeURL).isEmpty)
+    }
+
+    func testSurfaceResumeApprovalDoesNotPromptForUnsafeCompoundCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tool --resume x && echo done",
+            cwd: "/tmp/project"
+        )
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
     func testSurfaceResumeApprovalExactPolicyPreservesGeneralizedPromptRecord() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
@@ -5280,6 +5311,95 @@ extension SessionPersistenceTests {
             ).count,
             1
         )
+    }
+
+    func testSurfaceResumeApprovalRepeatedExactCLIApprovalReusesRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let originalRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let repeatedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        XCTAssertEqual(repeatedRecord.id, originalRecord.id)
+        XCTAssertEqual(
+            SurfaceResumeApprovalStore.validRecords(
+                fileURL: storeURL,
+                signingSecret: secret
+            ).map(\.id),
+            [originalRecord.id]
+        )
+    }
+
+    func testSurfaceResumeApprovalGeneralizingExactPromptRemovesSubsumedRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume session-a",
+            cwd: "/tmp/project",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let exactRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        let generalizedPrefix = ["claude", "--resume"]
+
+        let generalizedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: generalizedPrefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        var records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(records.map(\.id), [generalizedRecord.id])
+        XCTAssertFalse(records.contains(where: { $0.id == exactRecord.id }))
+        XCTAssertEqual(records.first?.commandPrefix, generalizedPrefix)
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalRecordId, generalizedRecord.id)
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let repeatedRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: generalizedPrefix,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(repeatedRecord.id, generalizedRecord.id)
+        XCTAssertEqual(records.map(\.id), [generalizedRecord.id])
     }
 
     @MainActor
