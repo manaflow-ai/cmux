@@ -2,6 +2,119 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "NSAppleEventsUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to control another application."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムが別のアプリケーションを制御しようとしています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中运行的程序想要控制另一个应用程序。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中執行的程式想要控制另一個應用程式。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 내에서 실행 중인 프로그램이 다른 응용 프로그램을 제어하려고 합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein in cmux ausgeführtes Programm möchte eine andere Anwendung steuern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa en ejecución dentro de cmux desea controlar otra aplicación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme s'exécutant dans cmux souhaite contrôler une autre application."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma in esecuzione in cmux desidera controllare un'altra applicazione."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program, der kører i cmux, vil gerne styre et andet program."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program działający w cmux chciałby sterować inną aplikacją."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа, запущенная в cmux, хотела бы управлять другим приложением."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program koji se izvršava unutar cmux želi upravljati drugom aplikacijom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرغب برنامج يعمل داخل cmux في التحكم بتطبيق آخر."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program som kjører i cmux ønsker å styre et annet program."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa em execução no cmux gostaria de controlar outro aplicativo."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการควบคุมแอปพลิเคชันอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içinde çalışan bir program başka bir uygulamayı kontrol etmek istiyor."
+          }
+        }
+      }
+    },
     "NSBluetoothAlwaysUsageDescription": {
       "extractionState": "manual",
       "localizations": {
