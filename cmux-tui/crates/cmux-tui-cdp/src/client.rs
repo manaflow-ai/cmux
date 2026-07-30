@@ -2731,9 +2731,29 @@ mod tests {
 
     static RESOLVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    struct TestHostResolverCommandGuard(Option<TestHostResolverCommand>);
+
+    impl TestHostResolverCommandGuard {
+        fn install(command: TestHostResolverCommand) -> Self {
+            let previous = TEST_HOST_RESOLVER_COMMAND.lock().unwrap().replace(command);
+            Self(previous)
+        }
+    }
+
+    impl Drop for TestHostResolverCommandGuard {
+        fn drop(&mut self) {
+            *TEST_HOST_RESOLVER_COMMAND.lock().unwrap() = self.0.take();
+        }
+    }
+
     fn warm_resolver() {
-        resolve_socket_addr_until("localhost", 0, Instant::now() + Duration::from_secs(5))
-            .expect("initialize test resolver");
+        let _command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
+        resolve_socket_addr_until(
+            "cmux-warm-resolver.invalid",
+            0,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("initialize test resolver");
     }
 
     fn resolver_fixture_command(host: &str, port: u16) -> Command {
@@ -4214,7 +4234,7 @@ mod tests {
     fn reconnect_uses_the_cached_peer_without_resolving_again() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         warm_resolver();
-        let listener = TcpListener::bind(("localhost", 0)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = thread::spawn(move || {
             listener.set_nonblocking(true).unwrap();
@@ -4236,12 +4256,14 @@ mod tests {
             }
             connections
         });
+        let command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
         let (initial_events, _initial_receiver) = sync_channel(1);
         let client = CdpClient::connect(
-            &format!("ws://localhost:{port}/devtools/browser/fake"),
+            &format!("ws://cmux-cached-peer.invalid:{port}/devtools/browser/fake"),
             initial_events,
         )
         .unwrap();
+        drop(command);
         let close_deadline = Instant::now() + Duration::from_secs(1);
         while !client.inner.reader_stopped.load(Ordering::Acquire) {
             assert!(Instant::now() < close_deadline, "initial CDP reader did not stop");
@@ -4289,13 +4311,20 @@ mod tests {
     fn expired_resolution_does_not_block_the_next_request() {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         warm_resolver();
+        let _command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
         NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
 
-        let first =
-            resolve_socket_addr_until("localhost", 1, Instant::now() + Duration::from_millis(50));
+        let first = resolve_socket_addr_until(
+            "cmux-expired-first.invalid",
+            1,
+            Instant::now() + Duration::from_millis(50),
+        );
         let started = Instant::now();
-        let second =
-            resolve_socket_addr_until("localhost", 2, Instant::now() + Duration::from_millis(100));
+        let second = resolve_socket_addr_until(
+            "cmux-expired-second.invalid",
+            2,
+            Instant::now() + Duration::from_millis(100),
+        );
         let elapsed = started.elapsed();
 
         // Unblock the old single-worker implementation before failing so the
