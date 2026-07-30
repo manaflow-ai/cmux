@@ -244,6 +244,36 @@ import Testing
         )
     }
 
+    @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
+    @Test func embeddedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: [],
+                frameworkNames: ["libXCTestBundleInject.dylib"]
+            )
+        )
+    }
+
+    @Test func loadedXCTestInjectionLibraryIsATestRunMarker() {
+        #expect(
+            MacSentryStartupPolicy.containsXCTestArtifacts(
+                plugInNames: [],
+                frameworkNames: [],
+                loadedImageNames: [
+                    "/tmp/cmux DEV.app/Contents/Frameworks/libXCTestBundleInject.dylib"
+                ]
+            )
+        )
+    }
+
     @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
         #expect(
             MacSentryStartupPolicy(

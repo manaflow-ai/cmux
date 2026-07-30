@@ -376,12 +376,28 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: false
             )
         }
-        selectDeviceForCurrentRequest(id: id)
+        if selectedDeviceID == id, status == .streaming { return }
+        let joinsExistingActivation = selectedDeviceID == id
+            && status == .connecting
+            && activationTask != nil
+#if DEBUG
+        if joinsExistingActivation {
+            activationJoinGenerationForTesting &+= 1
+        }
+#endif
+        if !joinsExistingActivation {
+            selectDeviceForCurrentRequest(id: id)
+        }
         let selectionTask = activationTask
         let generation = selectionGeneration
         if let selectionTask {
             do {
-                try await awaitActivationTask(selectionTask, generation: generation)
+                if joinsExistingActivation {
+                    await waitForPaneOwnedTask(selectionTask)
+                    try Task.checkCancellation()
+                } else {
+                    try await awaitActivationTask(selectionTask, generation: generation)
+                }
             } catch is CancellationError {
                 if selectedDeviceID == id, status == .streaming { return }
                 restoreSelectionAfterCancellation(
@@ -687,6 +703,7 @@ extension SimulatorPaneCoordinator {
         foregroundApplication = nil
         accessibilitySnapshot = nil
         accessibilityRows = []
+        resetUIAutomationSession()
         highlightedAccessibilityNodeID = nil
         accessibilityOverlaySelectedNodeID = nil
         clearWebInspectorState()

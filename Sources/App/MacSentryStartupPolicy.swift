@@ -1,3 +1,6 @@
+import Foundation
+import MachO
+
 struct MacSentryStartupPolicy: Sendable {
     let telemetryEnabled: Bool
     let isRunningUnderXCTest: Bool
@@ -36,6 +39,40 @@ struct MacSentryStartupPolicy: Sendable {
         if environment["XCInjectBundleInto"] != nil { return true }
         if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+        if hasXCTestRuntimeArtifacts() { return true }
         return false
+    }
+
+    static func containsXCTestArtifacts(
+        plugInNames: [String],
+        frameworkNames: [String],
+        loadedImageNames: [String] = []
+    ) -> Bool {
+        return plugInNames.contains { $0.hasSuffix(".xctest") }
+            || frameworkNames.contains("libXCTestBundleInject.dylib")
+            || loadedImageNames.contains {
+                ($0 as NSString).lastPathComponent == "libXCTestBundleInject.dylib"
+            }
+    }
+
+    private static func hasXCTestRuntimeArtifacts() -> Bool {
+        let fileManager = FileManager.default
+        let plugInNames = Bundle.main.builtInPlugInsPath.flatMap {
+            try? fileManager.contentsOfDirectory(atPath: $0)
+        } ?? []
+        let frameworkNames = Bundle.main.privateFrameworksPath.flatMap {
+            try? fileManager.contentsOfDirectory(atPath: $0)
+        } ?? []
+        return containsXCTestArtifacts(
+            plugInNames: plugInNames,
+            frameworkNames: frameworkNames,
+            loadedImageNames: loadedImageNames()
+        )
+    }
+
+    private static func loadedImageNames() -> [String] {
+        (0..<_dyld_image_count()).compactMap { imageIndex in
+            _dyld_get_image_name(imageIndex).map(String.init(cString:))
+        }
     }
 }

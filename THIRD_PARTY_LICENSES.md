@@ -54,6 +54,65 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## XcodeBuildMCP behavioral reference
+
+cmux does not bundle or execute XcodeBuildMCP. The Simulator UI automation
+interface was independently implemented in Swift with reference to
+XcodeBuildMCP's public behavior at commit
+[`c79f4eb9b7b96680d5a774acb0ae525416d254fb`](https://github.com/getsentry/XcodeBuildMCP/commit/c79f4eb9b7b96680d5a774acb0ae525416d254fb).
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2025 Cameron Cooke
+- **Source:** https://github.com/getsentry/XcodeBuildMCP
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## cmux-cua cursor visual reference
+
+The workspace-contained Simulator cursor is a native Swift implementation of
+the Sky-kite path, cmux gradient, tip hotspot, and touch-pulse behavior from
+Austin Wang's cmux-cua cursor work at commit
+[`9a3ede09f680940ee29fb6d5eeb758542d9d1b2e`](https://github.com/manaflow-ai/cmux-cua/commit/9a3ede09f680940ee29fb6d5eeb758542d9d1b2e).
+cmux does not bundle that cursor renderer.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2025 Cua AI, Inc.
+- **Source:** https://github.com/manaflow-ai/cmux-cua
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## Sparkle
 
 - **License:** MIT License

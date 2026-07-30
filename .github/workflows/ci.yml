@@ -1304,6 +1304,7 @@ jobs:
             CmuxGit
             CmuxSettings
             CmuxSettingsUI
+            CmuxSimulator
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

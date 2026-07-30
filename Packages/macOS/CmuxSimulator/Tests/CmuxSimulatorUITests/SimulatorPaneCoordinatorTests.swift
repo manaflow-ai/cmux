@@ -78,6 +78,29 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.frameTransport == nil)
     }
 
+    @Test("Web Inspector failures do not fail a live hidden Simulator pane")
+    func webInspectorFailureIsToolLocal() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { coordinator.status == .streaming }
+        #expect(coordinator.frameTransport == nil)
+        let failure = SimulatorFailure(
+            code: "web_inspector_failed",
+            message: "The Web Inspector socket closed.",
+            isRecoverable: true
+        )
+
+        await client.emit(.message(.failure(failure)))
+        await eventually { coordinator.controlFailure == failure }
+
+        #expect(coordinator.failure == nil)
+        #expect(coordinator.status == .streaming)
+        try await coordinator.waitForSelectedDeviceStreaming()
+    }
+
     @Test("Selection delegates boot and attachment to the client")
     func deviceActivation() async {
         let client = SimulatorPaneClientSpy(devices: [Self.device(id: "pad", family: .iPad, state: .shutdown)])
@@ -200,8 +223,8 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["phone"])
     }
 
-    @Test("Optional capability commands wait for hydration after core streaming")
-    func optionalCapabilityWaitsForHydration() async throws {
+    @Test("Optional capability commands wait only for their own resolution")
+    func optionalCapabilityWaitsForItsResolution() async throws {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
@@ -209,16 +232,22 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { coordinator.status == .streaming }
 
         let waiter = Task { @MainActor in
-            try await coordinator.waitForCapabilityHydration()
+            try await coordinator.waitForCapabilityResolution(.accessibility)
         }
-        await eventually { coordinator.capabilityHydrationWaiters.count == 1 }
+        await eventually {
+            coordinator.capabilityResolutionWaiters[.accessibility]?.count == 1
+        }
         #expect(!coordinator.supports(.accessibility))
 
-        await client.emit(.message(.capabilitiesHydrated([.accessibility, .framebuffer])))
+        await client.emit(.message(.capabilityResolved(
+            .accessibility,
+            available: true
+        )))
         try await waiter.value
 
         #expect(coordinator.supports(.accessibility))
-        #expect(coordinator.capabilityHydrationWaiters.isEmpty)
+        #expect(coordinator.capabilityResolutionWaiters[.accessibility] == nil)
+        #expect(coordinator.capabilityResolutions[.webInspector] == nil)
     }
 
     @Test("Restored panes without a persisted UDID require explicit selection")
@@ -319,6 +348,31 @@ struct SimulatorPaneCoordinatorTests {
         #expect(coordinator.selectedDeviceID == "pad")
         #expect(coordinator.status == .streaming)
         #expect(await client.activations().last?.id == "pad")
+    }
+
+    @Test("Explicit selection joins an in-flight activation for the same device")
+    func explicitSelectionJoinsMatchingActivation() async throws {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = SimulatorPaneClientSpy(
+            devices: [phone],
+            delaysActivation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { await client.hasDelayedActivation() }
+
+        let selection = Task {
+            try await coordinator.selectDeviceAndWait(id: phone.id)
+        }
+        await eventually {
+            coordinator.activationJoinGenerationForTesting == 1
+        }
+        await client.resumeActivation()
+        try await selection.value
+
+        #expect(await client.activations().map(\.id) == [phone.id])
+        #expect(await client.activationCancellationCount() == 0)
+        #expect(coordinator.status == .streaming)
     }
 
     @Test("Explicit startup never activates the persisted or default device first")
