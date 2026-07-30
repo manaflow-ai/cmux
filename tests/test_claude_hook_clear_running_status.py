@@ -3796,6 +3796,44 @@ def verify_stop_failure_marks_terminal_error(cli_path: str) -> None:
                 f"record={record!r}\nstate={state!r}"
             )
 
+        recovery_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "turn_id": "recovery-turn",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        recovery_commands = server.commands[recovery_start:]
+        if not has_command_with(
+            recovery_commands,
+            "set_status claude_code Running "
+            "--icon=bolt.fill --color=#4C8DFF "
+            f"--tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            raise RuntimeError(
+                "The next prompt did not replace Error with Running:\n"
+                f"commands={recovery_commands!r}"
+            )
+
+        recovered_state = json.loads(state_path.read_text())
+        recovered_record = recovered_state.get("sessions", {}).get(session_id)
+        if (
+            recovered_record is None
+            or recovered_record.get("agentLifecycle") != "running"
+            or recovered_record.get("runtimeStatus") != "running"
+            or recovered_record.get("lastNotificationStatus") is not None
+        ):
+            raise RuntimeError(
+                "The next prompt did not clear the persisted error outcome:\n"
+                f"record={recovered_record!r}\nstate={recovered_state!r}"
+            )
+
 
 def main() -> int:
     try:
