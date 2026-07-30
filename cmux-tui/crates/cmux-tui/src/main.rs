@@ -968,6 +968,9 @@ struct ServerShutdownCleanup {
     mux: Arc<Mux>,
     state: std::sync::Mutex<ServerShutdownCleanupState>,
     changed: std::sync::Condvar,
+    #[cfg(test)]
+    shutdown_attempt:
+        std::sync::Mutex<Option<Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync + 'static>>>,
 }
 
 impl ServerShutdownCleanup {
@@ -982,7 +985,28 @@ impl ServerShutdownCleanup {
                 retry_delay: SERVER_SHUTDOWN_RETRY_INITIAL,
             }),
             changed: std::sync::Condvar::new(),
+            #[cfg(test)]
+            shutdown_attempt: std::sync::Mutex::new(None),
         }
+    }
+
+    fn attempt_shutdown(&self) -> anyhow::Result<()> {
+        #[cfg(test)]
+        if let Some(attempt) =
+            self.shutdown_attempt.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        {
+            return attempt();
+        }
+        self.mux.shutdown()
+    }
+
+    #[cfg(test)]
+    fn set_shutdown_attempt_for_test(
+        &self,
+        attempt: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) {
+        *self.shutdown_attempt.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Arc::new(attempt));
     }
 
     fn run_until_complete(&self) {
@@ -1009,7 +1033,7 @@ impl ServerShutdownCleanup {
             drop(state);
 
             let result =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.mux.shutdown()));
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.attempt_shutdown()));
             state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state.running = false;
             match result {
@@ -1609,6 +1633,36 @@ fn usage_exit(msg: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_shutdown_attempt_returns(
+        attempt: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
+    ) {
+        let mux = Mux::new("shutdown-cleanup-test", SurfaceOptions::default());
+        let cleanup = Arc::new(ServerShutdownCleanup::new(mux));
+        cleanup.set_shutdown_attempt_for_test(attempt);
+        let worker_cleanup = cleanup.clone();
+        let (returned, observed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            worker_cleanup.run_until_complete();
+            let _ = returned.send(());
+        });
+
+        let result = observed.recv_timeout(std::time::Duration::from_millis(350));
+        if result.is_ok() {
+            worker.join().unwrap();
+        }
+        assert!(result.is_ok(), "a terminal shutdown result kept the server caller blocked");
+    }
+
+    #[test]
+    fn permanent_shutdown_failure_returns_to_caller() {
+        assert_shutdown_attempt_returns(|| anyhow::bail!("forced permanent shutdown failure"));
+    }
+
+    #[test]
+    fn shutdown_panic_returns_to_caller() {
+        assert_shutdown_attempt_returns(|| panic!("forced shutdown panic"));
+    }
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
