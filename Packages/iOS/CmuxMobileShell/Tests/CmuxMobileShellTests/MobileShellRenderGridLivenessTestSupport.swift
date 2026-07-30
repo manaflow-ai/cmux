@@ -22,9 +22,11 @@ actor LivenessHostRouter {
         var method: String?
         var topics: [String]?
         var workspaceID: String?
+        var streamID: String?
     }
 
     private var recorded: [RecordedRequest] = []
+    private var attachTicketFailuresRemaining = 0
     private var countWaiters: [(
         id: UUID,
         method: String,
@@ -33,11 +35,25 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var delayedHostStatusRequestNumbers: Set<Int> = []
+    private var omittedHostIdentityResponsesRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
+    private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var delayedSubscribeRequestNumbers: Set<Int> = []
+    private var invalidSubscribeRequestNumbers: Set<Int> = []
+    private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
     private var holdSubscribe = false
+    private var unsubscribeRequestCount = 0
+    private var heldUnsubscribeRequestNumbers: Set<Int> = []
+    private var invalidUnsubscribeRequestNumbers: Set<Int> = []
+    private var notificationFeedRevision = 0
+    private var notificationFeedRevisions: [Int] = []
+    private var notificationFeedFailuresRemaining = 0
+    private var notificationFeedRequestCount = 0
+    private var heldNotificationFeedRequestNumbers: Set<Int> = []
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -58,6 +74,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    private var workspaceListTitles: [String] = []
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -87,17 +104,31 @@ actor LivenessHostRouter {
         heldSyncFetchRequestNumbers.insert(number)
     }
 
-    func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
+    func record(
+        method: String?,
+        topics: [String]?,
+        workspaceID: String? = nil,
+        streamID: String? = nil
+    ) {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
-            workspaceID: workspaceID
+            workspaceID: workspaceID,
+            streamID: streamID
         ))
         resumeSatisfiedCountWaiters()
     }
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func heldRequestCount() -> Int {
+        heldContinuations.count
+    }
+
+    func failNextAttachTicketRequests(count: Int = 1) {
+        attachTicketFailuresRemaining += count
     }
 
     func replayResponsesServed() -> Int {
@@ -189,6 +220,10 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.map(\.workspaceID)
     }
 
+    func streamIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.streamID)
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
     }
@@ -197,6 +232,10 @@ actor LivenessHostRouter {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
         macDisplayName = displayName
+    }
+
+    func omitNextHostStatusIdentities(count: Int = 1) {
+        omittedHostIdentityResponsesRemaining += count
     }
 
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
@@ -244,10 +283,36 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers.insert(number)
     }
 
+    /// Delay the Nth status response until released, then return its ordinary
+    /// payload. Unlike ``holdHostStatusRequest``, this models a slow healthy
+    /// dial instead of a half-dead transport.
+    func delayHostStatusRequest(number: Int) {
+        delayedHostStatusRequestNumbers.insert(number)
+    }
+
     /// Hold the Nth workspace-list response so tests can change persisted
     /// per-Mac authority while a secondary snapshot is in flight.
     func holdWorkspaceListRequest(number: Int) {
         heldWorkspaceListRequestNumbers.insert(number)
+    }
+
+    func failWorkspaceListRequest(
+        number: Int,
+        code: String = "workspace_list_failed"
+    ) {
+        workspaceListErrorCodesByRequestNumber[number] = code
+    }
+
+    func scriptWorkspaceListTitles(_ titles: [String]) {
+        workspaceListTitles.append(contentsOf: titles)
+    }
+
+    func scriptNotificationFeedRevisions(_ revisions: [Int]) {
+        notificationFeedRevisions.append(contentsOf: revisions)
+    }
+
+    func holdNotificationFeedListRequest(number: Int) {
+        heldNotificationFeedRequestNumbers.insert(number)
     }
 
     /// Hold the next workspace-list responses relative to requests already seen.
@@ -262,6 +327,37 @@ actor LivenessHostRouter {
     /// modeling a dead push path whose probe never completes.
     func holdSubscribeRequest(number: Int) {
         heldSubscribeRequestNumbers.insert(number)
+    }
+
+    /// Delay a subscribe acknowledgement until released, then return the
+    /// ordinary successful payload.
+    func delaySubscribeRequest(number: Int) {
+        delayedSubscribeRequestNumbers.insert(number)
+    }
+
+    /// Return an acknowledgement without the requested stream id.
+    func invalidateSubscribeRequest(number: Int) {
+        invalidSubscribeRequestNumbers.insert(number)
+    }
+
+    func failSubscribeRequest(
+        number: Int,
+        code: String = "subscribe_failed"
+    ) {
+        subscribeErrorCodesByRequestNumber[number] = code
+    }
+
+    /// Return a malformed acknowledgement for the Nth unsubscribe request.
+    func invalidateUnsubscribeRequest(number: Int) {
+        invalidUnsubscribeRequestNumbers.insert(number)
+    }
+
+    func holdUnsubscribeRequest(number: Int) {
+        heldUnsubscribeRequestNumbers.insert(number)
+    }
+
+    func failNextNotificationFeedLists(count: Int = 1) {
+        notificationFeedFailuresRemaining += count
     }
 
     /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
@@ -296,8 +392,12 @@ actor LivenessHostRouter {
     func releaseAllHeld() {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
+        delayedHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        delayedSubscribeRequestNumbers = []
+        heldUnsubscribeRequestNumbers = []
+        heldNotificationFeedRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldSyncFetchRequestNumbers = []
@@ -307,21 +407,52 @@ actor LivenessHostRouter {
         for continuation in continuations { continuation.resume() }
     }
 
-    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
+    func releaseNextHeld() {
+        guard !heldContinuations.isEmpty else { return }
+        heldContinuations.removeFirst().resume()
+    }
+
+    func response(
+        method: String?,
+        id: String?,
+        streamID: String? = nil,
+        viewportReport: LivenessViewportReport? = nil
+    ) async -> Data? {
         switch method {
         case "mobile.attach_ticket.create":
+            if attachTicketFailuresRemaining > 0 {
+                attachTicketFailuresRemaining -= 1
+                return try? Self.errorFrame(
+                    id: id,
+                    code: "internal",
+                    message: "scripted attach ticket failure"
+                )
+            }
             return try? Self.resultFrame(id: id, result: ["ticket": Self.attachTicketObject()])
         case "workspace.list", "mobile.workspace.list":
             workspaceListRequestCount += 1
+            let workspaceTitle = workspaceListTitles.isEmpty
+                ? "Live Workspace"
+                : workspaceListTitles.removeFirst()
             if heldWorkspaceListRequestNumbers.contains(workspaceListRequestCount) {
                 await park()
             }
             workspaceListResponseHook?()
+            if let errorCode =
+                workspaceListErrorCodesByRequestNumber[
+                    workspaceListRequestCount
+                ] {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: errorCode,
+                    message: "scripted workspace list failure"
+                )
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
                         "id": "live-workspace",
-                        "title": "Live Workspace",
+                        "title": workspaceTitle,
                         "current_directory": "/Users/test/project",
                         "is_selected": true,
                         "terminals": [
@@ -342,13 +473,23 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
+            if delayedHostStatusRequestNumbers.contains(
+                hostStatusRequestCount
+            ) {
+                await park()
+            }
             var result: [String: Any] = [
                 "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
             ]
-            if let macDeviceID { result["mac_device_id"] = macDeviceID }
-            if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
-            if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            let omitsIdentity = omittedHostIdentityResponsesRemaining > 0
+            if omitsIdentity {
+                omittedHostIdentityResponsesRemaining -= 1
+            } else {
+                if let macDeviceID { result["mac_device_id"] = macDeviceID }
+                if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+                if let macDisplayName { result["mac_display_name"] = macDisplayName }
+            }
             return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
@@ -356,10 +497,23 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
+            if delayedSubscribeRequestNumbers.contains(subscribeRequestCount) {
+                await park()
+            }
+            if let errorCode =
+                subscribeErrorCodesByRequestNumber[subscribeRequestCount] {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: errorCode,
+                    message: "scripted subscribe failure"
+                )
+            }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
             return try? Self.resultFrame(id: id, result: [
-                "stream_id": "test-stream",
+                "stream_id": invalidSubscribeRequestNumbers.contains(
+                    subscribeRequestCount
+                ) ? "" : (streamID ?? ""),
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
@@ -410,7 +564,43 @@ actor LivenessHostRouter {
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
         case "mobile.events.unsubscribe":
-            return try? Self.resultFrame(id: id, result: [:])
+            unsubscribeRequestCount += 1
+            if heldUnsubscribeRequestNumbers.contains(
+                unsubscribeRequestCount
+            ) {
+                await park()
+            }
+            guard !invalidUnsubscribeRequestNumbers.contains(unsubscribeRequestCount) else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": streamID ?? "",
+                "removed": true,
+            ])
+        case "notification.feed.list":
+            notificationFeedRequestCount += 1
+            if heldNotificationFeedRequestNumbers.contains(
+                notificationFeedRequestCount
+            ) {
+                await park()
+            }
+            if notificationFeedFailuresRemaining > 0 {
+                notificationFeedFailuresRemaining -= 1
+                return try? Self.errorFrame(
+                    id: id,
+                    message: "scripted notification feed failure"
+                )
+            }
+            if notificationFeedRevisions.isEmpty {
+                notificationFeedRevision += 1
+            } else {
+                notificationFeedRevision =
+                    notificationFeedRevisions.removeFirst()
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "revision": notificationFeedRevision,
+                "notifications": [],
+            ])
         case "mobile.sync.fetch":
             syncFetchRequestCount += 1
             if heldSyncFetchRequestNumbers.contains(syncFetchRequestCount) {
@@ -496,9 +686,13 @@ final class TransportBox: @unchecked Sendable {
 struct LivenessTransportFactory: CmxByteTransportFactory {
     let router: LivenessHostRouter
     let box: TransportBox
+    var closeGate: LivenessTransportCloseGate?
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let transport = LivenessTransport(router: router)
+        let transport = LivenessTransport(
+            router: router,
+            closeGate: closeGate
+        )
         box.set(transport)
         return transport
     }
@@ -506,12 +700,17 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
 
 actor LivenessTransport: CmxByteTransport {
     private let router: LivenessHostRouter
+    private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var isClosed = false
 
-    init(router: LivenessHostRouter) {
+    init(
+        router: LivenessHostRouter,
+        closeGate: LivenessTransportCloseGate? = nil
+    ) {
         self.router = router
+        self.closeGate = closeGate
     }
 
     func connect() async throws {}
@@ -538,6 +737,7 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let streamID = params?["stream_id"] as? String
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -549,13 +749,19 @@ actor LivenessTransport: CmxByteTransport {
             await router.record(
                 method: method,
                 topics: topics,
-                workspaceID: params?["workspace_id"] as? String
+                workspaceID: params?["workspace_id"] as? String,
+                streamID: streamID
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
             Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
+                guard let response = await router.response(
+                    method: method,
+                    id: id,
+                    streamID: streamID,
+                    viewportReport: viewportReport
+                ) else {
                     return
                 }
                 await self?.deliver(response)
@@ -564,12 +770,17 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func close() async {
+        await closeGate?.waitForRelease()
         isClosed = true
         let waiters = receiveWaiters
         receiveWaiters = []
         for waiter in waiters {
             waiter.resume(returning: nil)
         }
+    }
+
+    func isClosedForTesting() -> Bool {
+        isClosed
     }
 
     /// Deliver a frame to the client's read loop. Also used by tests to push

@@ -3,6 +3,9 @@ import Foundation
 struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
+    // Superseded records stay durable for retry without remaining visible to
+    // store consumers as simultaneously live session claimants.
+    var pendingSupersededSessionCleanup: [String: ClaudeHookSessionRecord] = [:]
     var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
     // The pane-scoped active boundary. The workspace slot only remembers ONE
     // active session, so once another pane promotes (e.g. a forked conversation
@@ -15,6 +18,7 @@ struct ClaudeHookSessionStoreFile: Codable {
     enum CodingKeys: String, CodingKey {
         case version
         case sessions
+        case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
@@ -26,6 +30,10 @@ struct ClaudeHookSessionStoreFile: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
         sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
+        pendingSupersededSessionCleanup = try container.decodeIfPresent(
+            [String: ClaudeHookSessionRecord].self,
+            forKey: .pendingSupersededSessionCleanup
+        ) ?? [:]
         activeSessionsByWorkspace = try container.decodeIfPresent(
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsByWorkspace
@@ -38,5 +46,23 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: TimeInterval].self,
             forKey: .agentHookFailureReportTimestamps
         ) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(sessions, forKey: .sessions)
+        if !pendingSupersededSessionCleanup.isEmpty {
+            try container.encode(pendingSupersededSessionCleanup, forKey: .pendingSupersededSessionCleanup)
+        }
+        if !activeSessionsByWorkspace.isEmpty {
+            try container.encode(activeSessionsByWorkspace, forKey: .activeSessionsByWorkspace)
+        }
+        if !activeSessionsBySurface.isEmpty {
+            try container.encode(activeSessionsBySurface, forKey: .activeSessionsBySurface)
+        }
+        if !agentHookFailureReportTimestamps.isEmpty {
+            try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
+        }
     }
 }
