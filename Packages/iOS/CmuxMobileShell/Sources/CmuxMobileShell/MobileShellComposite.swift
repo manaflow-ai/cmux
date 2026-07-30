@@ -334,7 +334,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var result = workspacesByMac.reduce(into: [String: MobileMacConnectionStatus]()) { statuses, entry in
             if !entry.key.isEmpty { statuses[entry.key] = entry.value.status }
         }
+        let foregroundTag = activeMacInstanceTag
         for (representativeID, aliases) in pairedMacAliasIDsByRepresentativeID {
+            // Never let a device-level alias overwrite an exact pairing entry,
+            // and roll the foreground's device-keyed status only onto ITS OWN
+            // pairing representative — not a sibling build's.
+            if result[representativeID] != nil { continue }
+            let representativeTag = MobilePairedMac.pairingIdentity(
+                from: representativeID
+            ).instanceTag
+            if representativeTag != nil,
+               !MobileMacInstanceTagAuthority.sameStoredAuthority(representativeTag, foregroundTag) {
+                continue
+            }
             let aliasStatuses = aliases.compactMap { result[$0] }
             if aliasStatuses.contains(.connected) {
                 result[representativeID] = .connected
@@ -1017,9 +1029,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Resolve a Mac-local workspace id to the current UI row id.
     func rowWorkspaceID(
         forRemoteWorkspaceID remoteID: MobileWorkspacePreview.ID,
-        macDeviceID: String?
+        macDeviceID: String?,
+        instanceTag: String? = nil
     ) -> MobileWorkspacePreview.ID? {
-        workspaces.first { workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID) }?.id
+        workspaces.first {
+            workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID)
+                && (instanceTag == nil || instanceTag!.isEmpty
+                    || $0.macInstanceTag == instanceTag)
+        }?.id
     }
 
     private func workspaceMatchesRemoteID(

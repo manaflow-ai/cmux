@@ -112,8 +112,23 @@ extension CMUXMobileShellStore {
     /// The workspace owned by `macDeviceID` whose terminal list contains
     /// `terminalID`, if any.
     func workspaceID(forTerminalID terminalID: String, macDeviceID: String?) -> MobileWorkspacePreview.ID? {
+        workspaceID(forTerminalID: terminalID, macDeviceID: macDeviceID, instanceTag: nil)
+    }
+
+    /// Tag-aware variant: a non-nil `instanceTag` matches only rows proven to
+    /// belong to that build, so sibling builds' colliding Mac-local terminal
+    /// ids can never resolve to the wrong workspace.
+    func workspaceID(
+        forTerminalID terminalID: String,
+        macDeviceID: String?,
+        instanceTag: String?
+    ) -> MobileWorkspacePreview.ID? {
         for workspace in workspaces {
             if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
+                continue
+            }
+            if let instanceTag, !instanceTag.isEmpty,
+               workspace.macInstanceTag != instanceTag {
                 continue
             }
             if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {

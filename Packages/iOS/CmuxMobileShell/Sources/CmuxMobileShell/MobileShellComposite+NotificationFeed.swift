@@ -251,15 +251,19 @@ extension MobileShellComposite {
                 instanceTag: item.macInstanceTag
             ) else { return }
         }
-        let capturedWorkspaceID = workspaceID(
-            matchingRemoteWorkspaceID: item.remoteWorkspaceID,
-            macDeviceID: item.macDeviceID
+        // Sibling builds share the device id and can reuse Mac-local
+        // workspace/surface ids: match by the item's exact pairing.
+        let capturedWorkspaceID = rowWorkspaceID(
+            forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID),
+            macDeviceID: item.macDeviceID,
+            instanceTag: item.macInstanceTag
         )
         let targetWorkspaceID: MobileWorkspacePreview.ID?
         if item.retargetsToLiveSurfaceOwner, let surfaceID = item.remoteSurfaceID {
             targetWorkspaceID = workspaceID(
-                containingSurfaceID: surfaceID,
-                macDeviceID: item.macDeviceID
+                forTerminalID: surfaceID,
+                macDeviceID: item.macDeviceID,
+                instanceTag: item.macInstanceTag
             )
         } else {
             targetWorkspaceID = capturedWorkspaceID
