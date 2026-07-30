@@ -288,6 +288,10 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(picture.visual == .profilePicture)
         #expect(picture.size == SidebarFooterButtonMetrics.accountAndHelpVisualSize)
         #expect(
+            SidebarAccountButtonPresentation.defaultProfileIconSystemName
+                == "person.crop.circle.fill"
+        )
+        #expect(
             toggledIcon.visual == .profileIcon(
                 systemName: SidebarAccountButtonPresentation.defaultProfileIconSystemName
             )
@@ -302,6 +306,9 @@ final class WorkspaceContentViewVisibilityTests {
             SidebarFooterButtonMetrics.profileIconSize
                 == SidebarFooterButtonMetrics.helpIconSize
         )
+#if DEBUG
+        #expect(SidebarFooterProfileIconDebugSettings.defaultIcon == .filledCropCircle)
+#endif
     }
 
     @MainActor
