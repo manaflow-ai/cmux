@@ -2222,6 +2222,12 @@ struct ComputerUseUXTests {
         #expect(skill.contains(
             "Every successful action already returns a fresh app state and screenshot."
         ))
+        #expect(skill.contains(
+            "Never loop, batch, or issue multiple element-index actions"
+        ))
+        #expect(skill.contains(
+            "Calculator's **All Clear** removes display nodes"
+        ))
         #expect(!skill.contains("Re-read the returned app state after each action"))
     }
 

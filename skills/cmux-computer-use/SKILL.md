@@ -127,6 +127,12 @@ Use it like the built-in Computer Use connector:
    Use that returned state to verify the requested outcome and choose the next
    action directly. Call `get_app_state` again only when an action reports that
    its state refresh failed or when you intentionally switch to another app.
+5. Numeric `element_index` values belong only to the state that displayed
+   them. Never loop, batch, or issue multiple element-index actions without
+   examining each returned state; any action can renumber later controls
+   (Calculator's **All Clear** removes display nodes, for example). Issue one
+   element-index action, inspect its returned tree, then choose the next
+   current index.
 
 Do not expect native cmux extensions such as `get_window_state`, tokens,
 `perform_actions`, cursor controls, diagnostics, recordings, or browser/CDP in
