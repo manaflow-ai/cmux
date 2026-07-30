@@ -20,10 +20,20 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    func inlineStartupInput(repairPortableAgentExecutable: Bool) -> String? {
-        let trimmed = resolvedStartupCommand(
+    func inlineStartupInput(
+        repairPortableAgentExecutable: Bool,
+        includeWorkingDirectoryPrefix: Bool = true
+    ) -> String? {
+        let resolvedCommand = resolvedStartupCommand(
             repairPortableAgentExecutable: repairPortableAgentExecutable
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let command = includeWorkingDirectoryPrefix
+            ? resolvedCommand
+            : TerminalStartupWorkingDirectoryPrefix.removingRequiredChangeDirectoryPrefix(
+                from: resolvedCommand,
+                workingDirectory: cwd
+            )
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
@@ -40,26 +50,28 @@ extension SurfaceResumeBindingSnapshot {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
+        restoringWorkingDirectory: String? = nil,
         repairPortableAgentExecutable: Bool
     ) -> String? {
-        guard let inlineInput = inlineStartupInput(
-            repairPortableAgentExecutable: repairPortableAgentExecutable
-        ) else { return nil }
-        let requiresLauncherScript = isAgentHookBinding && allowLauncherScript
-        guard requiresLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
+        if !allowLauncherScript {
+            return inlineStartupInput(
+                repairPortableAgentExecutable: repairPortableAgentExecutable
+            )
         }
-        guard allowLauncherScript else { return inlineInput }
-        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-            inlineInput: inlineInput,
-            binding: self,
+        guard let inlineInput = inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable,
+            includeWorkingDirectoryPrefix: false
+        ) else { return nil }
+        guard let scriptInput = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        ).writeInvocationInput(
+            command: inlineInput,
+            workingDirectory: restoringWorkingDirectory ?? cwd
         ) else {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 
