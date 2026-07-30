@@ -1347,17 +1347,27 @@ extension Workspace {
             } else {
                 nil
             }
-            let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? = if effectiveResumeBindingForStartup?.launchFlavor == .local,
-                                                                          !restoresRemoteWorkspaceTerminalSnapshot {
-                effectiveResumeBindingForStartup.flatMap {
+            let canAttemptLocalBindingResume =
+                effectiveResumeBindingForStartup?.launchFlavor == .local &&
+                !restoresRemoteWorkspaceTerminalSnapshot
+            let candidateSavedWorkingDirectory = (canAttemptLocalBindingResume ? resumeBinding?.cwd : nil)
+                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
+                ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
+                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
+            let candidateWorkingDirectory = candidateSavedWorkingDirectory
+                ?? currentDirectory
+            let candidateBindingWorkingDirectory = effectiveResumeBindingForStartup?.cwd
+                ?? candidateWorkingDirectory
+            let unresolvedBindingLaunch: SurfaceResumeStartupLaunch? =
+                if canAttemptLocalBindingResume, let effectiveResumeBindingForStartup {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
-                        forApprovedBinding: $0,
-                        allowLauncherScript: true
+                        forApprovedBinding: effectiveResumeBindingForStartup,
+                        allowLauncherScript: true,
+                        restoringWorkingDirectory: candidateBindingWorkingDirectory
                     )
+                } else {
+                    nil
                 }
-            } else {
-                nil
-            }
             let effectiveResumeBinding = unresolvedBindingLaunch != nil || restoredPersistentSSHResumeCommand != nil
                 ? resumeBinding
                 : nil
@@ -1382,14 +1392,12 @@ extension Workspace {
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
-            let restoredBindingLaunch = effectiveResumeBindingForStartup?.isAgentHookBinding == true
-                ? unresolvedBindingLaunch?.restoringWorkingDirectory(resumeSessionWorkingDirectory)
-                : unresolvedBindingLaunch
+            let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
-                SessionRestoredTerminalCommandStore.writeLauncherScript(
+                OneShotTerminalLauncherStore().writeStartupCommand(
                     command: $0,
                     workingDirectory: workingDirectory
                 )
@@ -1431,11 +1439,9 @@ extension Workspace {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupInput(requireLauncherScript: true)
-                            .map {
-                                SurfaceResumeStartupLaunch.input($0)
-                                    .restoringWorkingDirectory(resumeSessionWorkingDirectory)
-                            }
+                        restorableAgent?.resumeStartupInput(
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        ).map(SurfaceResumeStartupLaunch.input)
                     }
                 } else {
                     nil
@@ -1483,7 +1489,7 @@ extension Workspace {
             }
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
-                ?? restoredTmuxStartupScript?.path
+                ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ?? restoredAgentResumeLaunch?.initialInput)
                 : nil

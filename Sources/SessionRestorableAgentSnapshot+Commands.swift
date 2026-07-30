@@ -43,11 +43,16 @@ extension SessionRestorableAgentSnapshot {
     }
 
     var resumeCommand: String? {
+        resumeCommand(includeWorkingDirectoryPrefix: true)
+    }
+
+    func resumeCommand(includeWorkingDirectoryPrefix: Bool) -> String? {
         if kind.restoreMode == .relaunchCommand {
             return AgentRelaunchCommandBuilder().shellCommand(
                 kind: kind,
                 launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
             )
         }
         return AgentResumeCommandBuilder.resumeShellCommand(
@@ -56,6 +61,7 @@ extension SessionRestorableAgentSnapshot {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             registrationOverride: registration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: permissionMode
         )
     }

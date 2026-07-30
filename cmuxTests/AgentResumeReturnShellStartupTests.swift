@@ -9,8 +9,8 @@ import Testing
 
 @Suite("Agent resume return shell startup")
 struct AgentResumeReturnShellStartupTests {
-    @Test("local resume input is one history-hidden launcher path")
-    func localResumeInputUsesOneLauncherPath() throws {
+    @Test("local resume input is one history-hidden wrapper invocation")
+    func localResumeInputUsesOneWrapperInvocation() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-9200-input-\(UUID().uuidString)", isDirectory: true)
@@ -43,7 +43,7 @@ struct AgentResumeReturnShellStartupTests {
                 fileManager: fileManager,
                 temporaryDirectory: root
             ))
-            try expectSingleLauncherPath(input)
+            try expectLauncherInvocation(input)
         }
 
         for extraArgument in ["short", String(repeating: "nested-path-", count: 120)] {
@@ -69,8 +69,59 @@ struct AgentResumeReturnShellStartupTests {
                 fileManager: fileManager,
                 temporaryDirectory: root
             ))
-            try expectSingleLauncherPath(input)
+            try expectLauncherInvocation(input)
         }
+    }
+
+    @Test("one-shot launcher is private, self-deleting, and TTL-pruned")
+    func oneShotLauncherStoragePolicy() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-9200-store-\(UUID().uuidString)", isDirectory: true)
+        let launcherDirectory = root.appendingPathComponent("cmux-r", isDirectory: true)
+        let staleLauncher = launcherDirectory.appendingPathComponent("stale.zsh", isDirectory: false)
+        let currentLauncher = launcherDirectory.appendingPathComponent("current.zsh", isDirectory: false)
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        try fileManager.createDirectory(at: launcherDirectory, withIntermediateDirectories: true)
+        try "#!/bin/zsh\n:\n".write(to: staleLauncher, atomically: true, encoding: .utf8)
+        try "#!/bin/zsh\n:\n".write(to: currentLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(25 * 60 * 60))],
+            ofItemAtPath: staleLauncher.path
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(23 * 60 * 60))],
+            ofItemAtPath: currentLauncher.path
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let launcher = try #require(OneShotTerminalLauncherStore(
+            fileManager: fileManager,
+            temporaryDirectory: root,
+            currentDate: now
+        ).writeLauncherScript(
+            command: ":",
+            workingDirectory: nil
+        ))
+
+        #expect(!fileManager.fileExists(atPath: staleLauncher.path))
+        #expect(fileManager.fileExists(atPath: currentLauncher.path))
+        let directoryMode = try #require(
+            fileManager.attributesOfItem(atPath: launcherDirectory.path)[.posixPermissions] as? NSNumber
+        ).intValue & 0o777
+        let launcherMode = try #require(
+            fileManager.attributesOfItem(atPath: launcher.path)[.posixPermissions] as? NSNumber
+        ).intValue & 0o777
+        #expect(directoryMode == 0o700)
+        #expect(launcherMode == 0o600)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [launcher.path]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: launcher.path))
     }
 
     @Test("launcher cwd guard preserves present, missing, and inaccessible outcomes")
@@ -95,7 +146,7 @@ struct AgentResumeReturnShellStartupTests {
             workingDirectory: presentDirectory.path,
             root: root
         )
-        try expectSingleLauncherPath(presentInput)
+        try expectLauncherInvocation(presentInput)
         let presentResult = try runShellInput(presentInput, currentDirectory: root)
         #expect(presentResult.status == 0, Comment(rawValue: presentResult.stderr))
         #expect(
@@ -109,7 +160,7 @@ struct AgentResumeReturnShellStartupTests {
             workingDirectory: missingDirectory.path,
             root: root
         )
-        try expectSingleLauncherPath(missingInput)
+        try expectLauncherInvocation(missingInput)
         let missingResult = try runShellInput(missingInput, currentDirectory: root)
         #expect(missingResult.status == 0, Comment(rawValue: missingResult.stderr))
         #expect(
@@ -123,7 +174,7 @@ struct AgentResumeReturnShellStartupTests {
             workingDirectory: inaccessibleDirectory.path,
             root: root
         )
-        try expectSingleLauncherPath(inaccessibleInput)
+        try expectLauncherInvocation(inaccessibleInput)
         let inaccessibleResult = try runShellInput(inaccessibleInput, currentDirectory: root)
         #expect(inaccessibleResult.status != 0)
         #expect(!fileManager.fileExists(atPath: inaccessibleOutput.path))
@@ -143,7 +194,7 @@ struct AgentResumeReturnShellStartupTests {
         let quotedOutput = TerminalStartupShellQuoting.singleQuoted(output.path)
         let encoded = try JSONSerialization.data(withJSONObject: [
             "kind": "codex",
-            "command": "{ cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ]; } && pwd > \(quotedOutput)",
+            "command": "cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ] && pwd > \(quotedOutput)",
             "cwd": workingDirectory.path,
             "source": "agent-hook",
             "autoResume": true,
@@ -154,7 +205,7 @@ struct AgentResumeReturnShellStartupTests {
             temporaryDirectory: root
         ))
 
-        try expectSingleLauncherPath(input)
+        try expectLauncherInvocation(input)
         let result = try runShellInput(input, currentDirectory: root)
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(
@@ -217,7 +268,7 @@ struct AgentResumeReturnShellStartupTests {
         process.arguments = ["-li"]
         process.currentDirectoryURL = workingDirectory
         let startupInput = launch.initialInput
-        try expectSingleLauncherPath(startupInput)
+        try expectLauncherInvocation(startupInput)
         process.environment = [
             "HOME": home.path,
             "LOGNAME": NSUserName(),
@@ -291,15 +342,16 @@ struct AgentResumeReturnShellStartupTests {
         ))
     }
 
-    private func expectSingleLauncherPath(
+    private func expectLauncherInvocation(
         _ input: String,
         sourceLocation: SourceLocation = #_sourceLocation
     ) throws {
         #expect(input.first == " ", "Injected resume input must opt into HIST_IGNORE_SPACE", sourceLocation: sourceLocation)
         let commandLine = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(commandLine).map(\.value)
-        #expect(words.count == 1, "Expected one launcher path, saw: \(input)", sourceLocation: sourceLocation)
-        let path = try #require(words.first, sourceLocation: sourceLocation)
+        #expect(words.count == 2, "Expected one interpreter + launcher invocation, saw: \(input)", sourceLocation: sourceLocation)
+        #expect(words.first == "/bin/zsh", "Expected the established zsh wrapper, saw: \(input)", sourceLocation: sourceLocation)
+        let path = try #require(words.dropFirst().first, sourceLocation: sourceLocation)
         #expect(path.hasPrefix("/"), "Expected an absolute launcher path, saw: \(input)", sourceLocation: sourceLocation)
         for shellOperator in ["cd ", "&&", "||", "{", "}", ";"] {
             #expect(
