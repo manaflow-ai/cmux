@@ -129,4 +129,26 @@ import Testing
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
         #expect(coordinator.authSessionGeneration != pinned)
     }
+
+    /// A COMPLETED sign-in is a session replacement even for the same account:
+    /// the credential exchange minted a fresh token session, so every
+    /// operation pinned to the previous generation (the forget flow's frozen
+    /// credential pair, the activation runtime's pinned source) must fail
+    /// closed rather than keep acting with the replaced session's authority.
+    /// Only same-account REVALIDATION (no new exchange) preserves the
+    /// generation.
+    @Test func sameAccountSignInAdvancesTheSessionGeneration() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access", refresh: "refresh", user: user)
+        let coordinator = makeCoordinator(client: client)
+        coordinator.start()
+        _ = try await coordinator.authenticatedSessionSnapshot()
+        let pinned = coordinator.authSessionGeneration
+
+        // A fresh credential exchange for the SAME account, while still
+        // signed in (e.g. the user re-enters their password).
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.authSessionGeneration != pinned)
+    }
 }
