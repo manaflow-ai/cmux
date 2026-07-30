@@ -2172,7 +2172,9 @@ pub(crate) fn persist_daemon_lifecycle_fence(state_dir: &Path) -> Result<(), Ide
     use std::io::Write as _;
 
     if read_daemon_lifecycle_fence(state_dir)? {
-        return Ok(());
+        // A prior attempt may have renamed the fence before its directory sync
+        // failed, so visibility alone does not confirm durability.
+        return sync_state_directory(state_dir);
     }
     let path = state_dir.join("lifecycle-fence.json");
     let temporary = state_dir.join(format!(
@@ -2367,15 +2369,19 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     link_socket: &Path,
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
-    use std::os::unix::net::UnixStream;
-
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
     let initial_runtime = read_optional_file(&runtime_path)
         .context("could not snapshot remote daemon runtime metadata for recovery")?;
     let initial_outcome = read_optional_file(&outcome_path)
         .context("could not snapshot remote daemon authorization finalization for recovery")?;
-    validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
+    let runtime = validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        "failed authorization finalization",
+    )?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for recovery")?;
@@ -2390,37 +2396,12 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         ));
     }
     let runtime = validate_failed_shutdown_recovery_evidence(&runtime_snapshot, &outcome_snapshot)?;
-
-    let mut sockets = Vec::new();
-    if let Some(runtime) = &runtime {
-        sockets.push(runtime.link_socket.as_path());
-        sockets.push(runtime.admin_socket.as_path());
-    }
-    for socket in [link_socket, admin_socket] {
-        if !sockets.contains(&socket) {
-            sockets.push(socket);
-        }
-    }
-    for socket in sockets {
-        match UnixStream::connect(socket) {
-            Ok(_) => {
-                return Err(anyhow!(
-                    "refusing to acknowledge failed authorization finalization while daemon socket {} is active",
-                    socket.display()
-                ));
-            }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-                ) => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("could not verify daemon socket {} is inactive", socket.display())
-                });
-            }
-        }
-    }
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        "failed authorization finalization",
+    )?;
 
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
@@ -2475,8 +2456,6 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     link_socket: &Path,
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
-    use std::os::unix::net::UnixStream;
-
     let auth_state_dir = state_dir.join("auth");
     if !auth_state_dir
         .try_exists()
@@ -2494,6 +2473,12 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     let initial_outcome = read_optional_file(&outcome_path)
         .context("could not snapshot legacy remote daemon shutdown metadata")?;
     let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        "legacy authorization finalization",
+    )?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for legacy recovery")?;
@@ -2504,9 +2489,36 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
         return Err(anyhow!("remote daemon lifecycle evidence changed before legacy recovery"));
     }
+    let runtime = validate_legacy_shutdown_evidence(&runtime_snapshot, &outcome_snapshot)?;
+    verify_recovery_sockets_inactive(
+        runtime.as_ref(),
+        link_socket,
+        admin_socket,
+        "legacy authorization finalization",
+    )?;
 
-    let mut sockets = Vec::new();
-    if let Some(runtime) = &runtime {
+    let cleanup_state_dir = state_dir.to_path_buf();
+    auth.shutdown_with_cleanup(move |finalization| {
+        if finalization.is_err() {
+            return Ok(());
+        }
+        finish_legacy_shutdown_recovery(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
+    })
+    .await
+    .context("could not complete legacy remote daemon authorization recovery")
+}
+
+#[cfg(unix)]
+fn verify_recovery_sockets_inactive(
+    runtime: Option<&DaemonRuntimeInfo>,
+    link_socket: &Path,
+    admin_socket: &Path,
+    finalization: &str,
+) -> anyhow::Result<()> {
+    use std::os::unix::net::UnixStream;
+
+    let mut sockets = Vec::with_capacity(4);
+    if let Some(runtime) = runtime {
         sockets.push(runtime.link_socket.as_path());
         sockets.push(runtime.admin_socket.as_path());
     }
@@ -2519,7 +2531,7 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
         match UnixStream::connect(socket) {
             Ok(_) => {
                 return Err(anyhow!(
-                    "refusing to acknowledge legacy authorization finalization while daemon socket {} is active",
+                    "refusing to acknowledge {finalization} while daemon socket {} is active",
                     socket.display()
                 ));
             }
@@ -2535,16 +2547,7 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
             }
         }
     }
-
-    let cleanup_state_dir = state_dir.to_path_buf();
-    auth.shutdown_with_cleanup(move |finalization| {
-        if finalization.is_err() {
-            return Ok(());
-        }
-        finish_legacy_shutdown_recovery(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
-    })
-    .await
-    .context("could not complete legacy remote daemon authorization recovery")
+    Ok(())
 }
 
 fn validate_legacy_shutdown_evidence(
