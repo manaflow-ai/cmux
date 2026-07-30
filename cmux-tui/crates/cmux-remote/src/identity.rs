@@ -1944,6 +1944,70 @@ mod tests {
         }
     }
 
+    #[test]
+    fn auth_database_exclusively_owns_its_state_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();
+
+        let second = AuthDatabase::load_or_create(temp.path(), "second", false);
+        assert!(
+            matches!(
+                second,
+                Err(IdentityError::Io(error))
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+            ),
+            "a second live database opened the same authorization state"
+        );
+
+        drop(first);
+        AuthDatabase::load_or_create(temp.path(), "successor", false)
+            .expect("the state lease remained held after its database was dropped");
+    }
+
+    #[tokio::test]
+    async fn auth_state_lease_outlives_a_database_with_an_in_flight_write() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "first", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        let mutation = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("persistence writer did not start");
+        mutation.abort();
+        assert!(mutation.await.unwrap_err().is_cancelled());
+        drop(database);
+
+        let successor = AuthDatabase::load_or_create(temp.path(), "successor", false);
+        assert!(
+            matches!(
+                successor,
+                Err(IdentityError::Io(error))
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+            ),
+            "the database released its state lease while a detached write was still running"
+        );
+
+        drop(blocked);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match AuthDatabase::load_or_create(temp.path(), "successor", false) {
+                    Ok(successor) => return successor,
+                    Err(IdentityError::Io(error))
+                        if error.kind() == std::io::ErrorKind::WouldBlock =>
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("successor failed after persistence completed: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("the state lease remained held after persistence completed");
+    }
+
     #[cfg(unix)]
     #[test]
     fn identity_creation_waits_for_the_path_lock() {
