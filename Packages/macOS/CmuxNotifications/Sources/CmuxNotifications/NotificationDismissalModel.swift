@@ -55,8 +55,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let panelId = host?.focusedPanelId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: panelId, context: context)
+        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
+        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(

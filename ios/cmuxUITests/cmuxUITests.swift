@@ -493,6 +493,49 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
     }
 
+    /// Regression: on iOS 26 the workspace list's New Task control rendered in
+    /// the same bottom-trailing slot as the system search tab pill, so the two
+    /// stacked and New Task was occluded. The shared list host must lay the
+    /// button out clear of the search pill and keep both tappable.
+    @MainActor
+    func testWorkspaceListNewTaskButtonClearsSearchPill() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search pill requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let composer = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        guard let composerFrame = waitForUsableFrame(of: composer, timeout: 3) else {
+            XCTFail("New Task button had no usable frame")
+            return
+        }
+        let searchPill = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchPill.waitForExistence(timeout: 3))
+        guard let searchPillFrame = waitForUsableFrame(of: searchPill, timeout: 3) else {
+            XCTFail("Search pill had no usable frame")
+            return
+        }
+        XCTAssertFalse(
+            composerFrame.intersects(searchPillFrame),
+            "New Task \(composerFrame) must not overlap the search pill \(searchPillFrame)"
+        )
+        XCTAssertTrue(
+            waitForHittable(composer, timeout: 3),
+            "New Task must be tappable next to the search pill"
+        )
+        XCTAssertTrue(
+            waitForHittable(searchPill, timeout: 3),
+            "The search pill must stay tappable next to New Task"
+        )
+    }
+
     @MainActor
     func testWorkspaceSearchClearUpdatesResults() throws {
         guard #available(iOS 26.0, *) else {

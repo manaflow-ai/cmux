@@ -20,27 +20,51 @@ struct ReconnectRefreshSnapshot: Sendable {
         let deviceID: String
         let instanceTag: String?
 
-        init(deviceID: String, instanceTag: String?) {
+        init(
+            deviceID: String,
+            instanceTag: String?,
+            macInstanceTagAuthority: MobileMacInstanceTagAuthority
+        ) {
             self.deviceID = deviceID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+            self.instanceTag = macInstanceTagAuthority.normalize(instanceTag)
         }
     }
 
     private let pairedMacsByAuthority: [Authority: [MobilePairedMac]]
     private let registryRoutes: DeviceRegistryRouteIndex?
+    private let macInstanceTagAuthority: MobileMacInstanceTagAuthority
 
-    init(pairedMacs: [MobilePairedMac], registryDevices: [RegistryDevice]?) {
+    init(
+        pairedMacs: [MobilePairedMac],
+        registryDevices: [RegistryDevice]?,
+        macInstanceTagAuthority: MobileMacInstanceTagAuthority =
+            MobileMacInstanceTagAuthority()
+    ) {
+        self.macInstanceTagAuthority = macInstanceTagAuthority
         pairedMacsByAuthority = Dictionary(grouping: pairedMacs) {
-            Authority(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+            Authority(
+                deviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         }
-        registryRoutes = registryDevices.map(DeviceRegistryRouteIndex.init(devices:))
+        registryRoutes = registryDevices.map {
+            DeviceRegistryRouteIndex(
+                devices: $0,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
+        }
     }
 
     func currentMac(for captured: MobilePairedMac) -> MobilePairedMac? {
         let matches = pairedMacsByAuthority[
-            Authority(deviceID: captured.macDeviceID, instanceTag: captured.instanceTag)
+            Authority(
+                deviceID: captured.macDeviceID,
+                instanceTag: captured.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         ] ?? []
         return matches.count == 1 ? matches[0] : nil
     }
@@ -308,7 +332,8 @@ extension MobileShellComposite {
         }
         return ReconnectRefreshSnapshot(
             pairedMacs: pairedMacs,
-            registryDevices: registryDevices
+            registryDevices: registryDevices,
+            macInstanceTagAuthority: macInstanceTagAuthority
         )
     }
 
@@ -329,7 +354,8 @@ extension MobileShellComposite {
               await isScopeCurrent(scope),
               let currentMac = ReconnectRefreshSnapshot(
                   pairedMacs: pairedMacs,
-                  registryDevices: nil
+                  registryDevices: nil,
+                  macInstanceTagAuthority: macInstanceTagAuthority
               ).currentMac(for: captured),
               await !isHiddenMacDeviceID(
                   captured.macDeviceID,
