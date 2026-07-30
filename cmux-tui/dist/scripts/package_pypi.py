@@ -133,7 +133,7 @@ def _launcher_command(argv0: str) -> str:
         else:
             if any(
                 candidate.startswith("archive-v")
-                and candidate.removeprefix("archive-v").isdigit()
+                and candidate[len("archive-v") :].isdigit()
                 for candidate in relative.parts
             ):
                 return "uvx cmux==" + PACKAGE_VERSION
@@ -142,7 +142,7 @@ def _launcher_command(argv0: str) -> str:
             continue
         if any(
             candidate.startswith("archive-v")
-            and candidate.removeprefix("archive-v").isdigit()
+            and candidate[len("archive-v") :].isdigit()
             for candidate in parts[index + 1 :]
         ):
             return "uvx cmux==" + PACKAGE_VERSION
