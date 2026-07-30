@@ -2,44 +2,10 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { menuActionForKey } from "../keymap";
 import type { OptionValue, Provider, SessionOption } from "../session";
-import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
+import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
 import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, prettyValue, visibleChoices } from "./options";
-
-function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
-  return (
-    <Popover.Root onOpenChange={(open) => { if (!open) onCommit(cwd); }}>
-      <HintTooltip label="Change working directory">
-        <Popover.Trigger className="row-control cwd-trigger">
-          <FolderIcon />
-          <span className="cwd-label">{basename(cwd)}</span>
-        </Popover.Trigger>
-      </HintTooltip>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="start">
-          <Popover.Popup className="popover" data-agent-popup="true">
-            <div className="popover-label">Working directory</div>
-            <input
-              className="cwd-edit"
-              spellCheck={false}
-              value={cwd}
-              autoFocus
-              onChange={(e) => onChange(e.target.value)}
-              onBlur={(e) => onCommit(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onCommit((e.target as HTMLInputElement).value);
-                  (e.target as HTMLInputElement).blur();
-                }
-              }}
-            />
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
 
 function InlineSelect({
   option,
@@ -146,17 +112,6 @@ function StaticProvider({ provider, running = false }: { provider: Provider; run
       <span className={"row-control static-provider" + (running ? " provider-running" : "")}>
         <ProviderIcon provider={provider} />
         <span className="row-value">{provider.label}</span>
-      </span>
-    </HintTooltip>
-  );
-}
-
-function StaticCwd({ cwd }: { cwd: string }) {
-  return (
-    <HintTooltip label="Working directory">
-      <span className="row-control cwd-trigger">
-        <FolderIcon />
-        <span className="cwd-label">{basename(cwd)}</span>
       </span>
     </HintTooltip>
   );
@@ -491,9 +446,6 @@ export function StatusRow({
   providers,
   allProviderOptions,
   onProviderModelChange,
-  cwd,
-  onCwdChange,
-  onCwdCommit,
   options,
   onChange,
   openOptionId,
@@ -505,9 +457,6 @@ export function StatusRow({
   providers?: Provider[];
   allProviderOptions?: Record<string, SessionOption[]>;
   onProviderModelChange?: (provider: string, model: string) => void;
-  cwd: string;
-  onCwdChange?: (v: string) => void;
-  onCwdCommit?: (v: string) => void;
   options: SessionOption[];
   onChange: (id: string, value: OptionValue) => void;
   openOptionId: string | null;
@@ -582,7 +531,6 @@ export function StatusRow({
           </button>
         </HintTooltip>
       ) : null}
-      {onCwdChange && onCwdCommit ? <CwdPopover cwd={cwd} onChange={onCwdChange} onCommit={onCwdCommit} /> : <StaticCwd cwd={cwd} />}
       {approval ? (
         <HintTooltip label={optionTooltip(approval)}>
           <button

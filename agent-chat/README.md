@@ -51,7 +51,7 @@ bun test/e2e.ts               # or: bun test/e2e.ts codex pi
 The frontend is a small React app built with Bun and styled to match the
 terminal. Dropdowns and controls use `@base-ui-components/react` (Base UI),
 the same component library the cmux web app uses: `Select` for the provider
-picker and `Popover` for the working-directory editor and overflow menus.
+picker and `Popover` for overflow menus.
 Base UI ships unstyled, so every part is themed with the resolved Ghostty
 colors. The server bundles `src/main.tsx` with `Bun.build` on startup and
 serves it as `/app.js`; the HTML shell injects the theme CSS variables and

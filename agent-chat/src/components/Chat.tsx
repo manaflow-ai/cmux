@@ -158,7 +158,6 @@ export function Chat() {
             providers={providers}
             allProviderOptions={allProviderOptions}
             onProviderModelChange={switchHarnessModel}
-            cwd={session?.cwd ?? ""}
             options={options}
             onChange={setOption}
             openOptionId={openOptionId}
