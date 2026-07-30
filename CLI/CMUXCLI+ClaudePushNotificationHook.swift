@@ -59,7 +59,7 @@ extension CMUXCLI {
             return
         }
         guard let sessionId = parsedInput.sessionId,
-              let acceptedRecord = try? sessionStore.upsert(
+              let acceptedUpsert = try? sessionStore.upsert(
                   sessionId: sessionId,
                   workspaceId: workspaceId,
                   surfaceId: surfaceId,
@@ -75,6 +75,7 @@ extension CMUXCLI {
             printClaudeHookAck()
             return
         }
+        let acceptedRecord = acceptedUpsert.session
         sendFeedTelemetry(workspaceId, surfaceId, acceptedRecord.agentLifecycle)
         let title = String(
             localized: "cli.claude-hook.notification.title",

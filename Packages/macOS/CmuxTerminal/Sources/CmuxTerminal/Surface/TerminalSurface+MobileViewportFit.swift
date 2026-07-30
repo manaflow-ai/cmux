@@ -440,14 +440,16 @@ extension TerminalSurface {
                 fittedRuntimePointSize: points
             )
         } else {
-            mobileViewportFontFitState?.fittedRuntimePointSize = points
+            mobileViewportFontFitState?
+                .updateViewportFit(to: points)
         }
         return true
     }
 
     @MainActor
-    private func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
-        let action = String(format: "set_font_size:%.3f", points)
+    func performMobileViewportFontPointSizeAction(_ points: Float) -> Bool {
+        let action =
+            ghosttySetFontSizeBindingAction(points)
         return performInternalBindingAction(action)
     }
 

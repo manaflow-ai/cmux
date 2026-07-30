@@ -496,7 +496,8 @@ extension MobileShellComposite {
             return .rejected(hostDisplayName: hostDisplayName)
         }
         switch connectionError {
-        case .connectionClosed, .transportWriteTimedOut:
+        case .connectionClosed, .transportWriteTimedOut,
+             .routeCleanupBlocked:
             return .notConnected(hostDisplayName: hostDisplayName)
         case .requestTimedOut:
             return .requestTimedOut(hostDisplayName: hostDisplayName)
