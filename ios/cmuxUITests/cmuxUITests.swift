@@ -405,6 +405,73 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// The deterministic fixture uses the production table and row delegates.
+    /// Keep its native pan, context-menu, and swipe paths active so dogfood
+    /// exercises the same interactions as a connected workspace list.
+    @MainActor
+    func testWorkspaceListNativeScrollingAndRowInteractionsRemainAvailable() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The workspace toolbar layout regression requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        for _ in 0..<20 where !firstRow.isHittable {
+            table.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstRow.isHittable)
+
+        guard let visibleFirstRow = waitForVisibleElement(
+            identifier: "MobileWorkspaceRow-workspace-seed-0",
+            in: app,
+            timeout: 3
+        ) else {
+            XCTFail("The first workspace row did not become visibly interactive.")
+            return
+        }
+        visibleFirstRow.press(forDuration: 1)
+        let pinAction = app.descendants(matching: .any)[
+            "MobileWorkspacePinButton-workspace-seed-0"
+        ]
+        XCTAssertTrue(
+            pinAction.waitForExistence(timeout: 3),
+            "The production workspace context menu must remain attached to table rows."
+        )
+        let contextAttachment = XCTAttachment(screenshot: app.screenshot())
+        contextAttachment.name = "workspace-list-native-context-menu"
+        contextAttachment.lifetime = .keepAlways
+        add(contextAttachment)
+        pinAction.tap()
+
+        let secondRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-1"
+        ]
+        XCTAssertTrue(secondRow.waitForExistence(timeout: 3))
+        secondRow.swipeLeft()
+        XCTAssertTrue(
+            app.buttons["Delete"].waitForExistence(timeout: 3),
+            "The production trailing swipe action must remain attached to table rows."
+        )
+        let swipeAttachment = XCTAttachment(screenshot: app.screenshot())
+        swipeAttachment.name = "workspace-list-native-trailing-swipe"
+        swipeAttachment.lifetime = .keepAlways
+        add(swipeAttachment)
+    }
+
     @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
