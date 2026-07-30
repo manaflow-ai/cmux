@@ -4,6 +4,7 @@ import test from "node:test";
 import type {
   Agent,
   AgentReportOptions,
+  AgentSnapshot,
   Browser,
   BrowserAttachFrame,
   BrowserMouseOptions,
@@ -19,11 +20,14 @@ import type {
   CreationResolution,
   DecimalString,
   MutationResult,
+  NotificationSnapshot,
   Pane,
   PairingRequest,
   PingResult,
   ProcessInfoResult,
   ReloadConfigResult,
+  ResourceEntityByKind,
+  ResourceIdByKind,
   Screen,
   Session,
   ShutdownResult,
@@ -204,6 +208,23 @@ function compileNarrowCreatedPath(path: CreatedPath): void {
   }
 }
 
+function compileAuxiliaryResourceMapping(
+  agent: AgentSnapshot,
+  notification: NotificationSnapshot,
+): void {
+  const notificationValue: ResourceEntityByKind["notification"] = notification;
+  const notificationId: ResourceIdByKind["notification"] = notification.id;
+  void notificationValue;
+  void notificationId;
+
+  // @ts-expect-error A notification discriminant cannot select an agent result.
+  const wrongValue: ResourceEntityByKind["notification"] = agent;
+  // @ts-expect-error A notification discriminant cannot select an agent ID.
+  const wrongId: ResourceIdByKind["notification"] = agent.id;
+  void wrongValue;
+  void wrongId;
+}
+
 function compileBrowserPointerInput(
   browser: Browser,
   pointerFrameSeq: DecimalString,
@@ -235,6 +256,7 @@ function compileBrowserPointerInput(
 
 test("published resource API exposes catalog-specific result types", () => {
   void compileNarrowCreatedPath;
+  void compileAuxiliaryResourceMapping;
   void compileBrowserPointerInput;
   assert.equal(true, true);
 });

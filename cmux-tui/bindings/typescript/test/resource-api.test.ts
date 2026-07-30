@@ -11,9 +11,13 @@ import {
   MutationTransportUncertainError,
   agentId,
   browserId,
+  notificationId,
+  pairingRequestId,
   paneId,
+  projectionId,
   RendererGrant,
   ResourceError,
+  sidebarViewId,
   StreamError,
   decimalString,
   exact,
@@ -40,6 +44,10 @@ const PANE = paneId(`pane_${HEX_A}`);
 const TAB = tabId(`tab_${HEX_B}`);
 const BROWSER = browserId(`browser_${HEX_A}`);
 const AGENT = agentId(`agent_${HEX_B}`);
+const NOTIFICATION = notificationId(`notification_${HEX_A}`);
+const PAIRING_REQUEST = pairingRequestId(`pairing_${HEX_B}`);
+const PROJECTION = projectionId(`projection_${HEX_C}`);
+const SIDEBAR_VIEW = sidebarViewId(`sidebar_view_${HEX_A}`);
 
 type Envelope = Record<string, unknown>;
 
@@ -634,6 +642,192 @@ test("request and stream receive bounds are operation-scoped", async () => {
   );
 
   await stream.cancel();
+  client.close();
+});
+
+test("auxiliary resource discriminants select their decoder and preserve extra fields", async () => {
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    current.ok(request, {});
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+  const stream = await client.session(SESSION).events();
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "1",
+    item: {
+      kind: "delta",
+      cursor: { generation: "generation-a", revision: "2" },
+      previous_revision: "1",
+      revision: "2",
+      changes: [
+        {
+          kind: "upsert",
+          sequence: 0,
+          resource: "notification",
+          id: NOTIFICATION,
+          value: {
+            id: NOTIFICATION,
+            session_id: SESSION,
+            title: "build complete",
+            body: "all checks passed",
+            level: "info",
+            terminal_id: TERMINAL,
+            created_at_ms: "1000",
+            unread: true,
+            extra: { delivery: "native" },
+          },
+        },
+        {
+          kind: "upsert",
+          sequence: 1,
+          resource: "agent",
+          id: AGENT,
+          value: {
+            id: AGENT,
+            session_id: SESSION,
+            terminal_id: TERMINAL,
+            state: "working",
+            source: "socket",
+            updated_at_ms: "1001",
+            source_session: "codex-1",
+            extra: { model: "gpt" },
+          },
+        },
+        {
+          kind: "upsert",
+          sequence: 2,
+          resource: "pairing_request",
+          id: PAIRING_REQUEST,
+          value: {
+            id: PAIRING_REQUEST,
+            session_id: SESSION,
+            peer: "laptop",
+            code: "123456",
+            expires_in_seconds: "30",
+            status: "pending",
+            extra: { transport: "websocket" },
+          },
+        },
+        {
+          kind: "upsert",
+          sequence: 3,
+          resource: "frontend_projection",
+          id: PROJECTION,
+          value: {
+            id: PROJECTION,
+            session_id: SESSION,
+            projection: { kind: "tree", tabs: 2 },
+            extra: { source: "sidebar" },
+          },
+        },
+        {
+          kind: "upsert",
+          sequence: 4,
+          resource: "sidebar_view",
+          id: SIDEBAR_VIEW,
+          value: {
+            id: SIDEBAR_VIEW,
+            session_id: SESSION,
+            cols: 42,
+            rows: 18,
+            running: true,
+            extra: { renderer: "ratatui" },
+          },
+        },
+      ],
+    },
+  });
+
+  const item = await stream.next();
+  const event = item.value?.value;
+  if (event?.kind !== "delta") assert.fail("expected a session delta");
+  const resources: string[] = [];
+  for (const change of event.changes) {
+    if ("raw" in change) assert.fail("expected a known resource change");
+    if (change.kind !== "upsert") assert.fail("expected an upsert");
+    resources.push(change.resource);
+    switch (change.resource) {
+      case "notification":
+        assert.equal(change.value.id, NOTIFICATION);
+        assert.equal(change.value.title, "build complete");
+        assert.deepEqual(change.value.extra, { delivery: "native" });
+        break;
+      case "agent":
+        assert.equal(change.value.id, AGENT);
+        assert.equal(change.value.state, "working");
+        assert.deepEqual(change.value.extra, { model: "gpt" });
+        break;
+      case "pairing_request":
+        assert.equal(change.value.id, PAIRING_REQUEST);
+        assert.equal(change.value.code.reveal(), "123456");
+        assert.deepEqual(change.value.extra, { transport: "websocket" });
+        break;
+      case "frontend_projection":
+        assert.equal(change.value.id, PROJECTION);
+        assert.deepEqual(change.value.projection, { kind: "tree", tabs: 2 });
+        assert.deepEqual(change.value.extra, { source: "sidebar" });
+        break;
+      case "sidebar_view":
+        assert.equal(change.value.id, SIDEBAR_VIEW);
+        assert.equal(change.value.cols, 42);
+        assert.deepEqual(change.value.extra, { renderer: "ratatui" });
+        break;
+      default:
+        assert.fail(`unexpected resource ${change.resource}`);
+    }
+  }
+  assert.deepEqual(resources, [
+    "notification",
+    "agent",
+    "pairing_request",
+    "frontend_projection",
+    "sidebar_view",
+  ]);
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "2",
+    item: {
+      kind: "delta",
+      cursor: { generation: "generation-a", revision: "3" },
+      previous_revision: "2",
+      revision: "3",
+      changes: [{
+        kind: "upsert",
+        sequence: 5,
+        resource: "notification",
+        id: NOTIFICATION,
+        value: {
+          id: NOTIFICATION,
+          session_id: SESSION,
+          title: "future",
+          body: "field",
+          level: "info",
+          created_at_ms: "1002",
+          unread: false,
+          undeclared_future_field: true,
+        },
+      }],
+    },
+  });
+  await assert.rejects(
+    () => stream.next(),
+    /resource snapshot contains unknown field "undeclared_future_field"/,
+  );
   client.close();
 });
 

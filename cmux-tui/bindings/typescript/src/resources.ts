@@ -788,107 +788,106 @@ function layoutDocument(value: unknown): LayoutDocument {
   });
 }
 
-function auxiliarySnapshot<Id extends string, Value extends Snapshot<Id>>(
+function pairingRequestSnapshot(value: unknown): PairingRequestSnapshot {
+  const payload = unwrap(value, ["pairing_request"]);
+  return Object.freeze({
+    ...snapshotFields(
+      payload,
+      pairingRequestId,
+      ["session_id", "peer", "code", "expires_in_seconds", "status"],
+    ),
+    sessionId: requiredId(payload, ["session_id"], sessionId),
+    peer: requiredString(payload, "peer"),
+    code: new PairingCode(requiredString(payload, "code")),
+    expiresInSeconds: requiredDecimal(payload, "expires_in_seconds"),
+    status: requiredEnum(
+      payload,
+      "status",
+      ["pending", "accepted", "rejected"] as const,
+    ),
+  });
+}
+
+function frontendProjectionSnapshot(
   value: unknown,
-  name: string,
-  factory: IdFactory<Id>,
-  _parent?: {
-    key: string;
-    property: string;
-    factory: IdFactory<string>;
-  },
-): Value {
-  const payload = unwrap(value, [name]);
-  switch (name) {
-    case "pairing_request":
-      return Object.freeze({
-        ...snapshotFields(
-          payload,
-          factory,
-          ["session_id", "peer", "code", "expires_in_seconds", "status"],
-        ),
-        sessionId: requiredId(payload, ["session_id"], sessionId),
-        peer: requiredString(payload, "peer"),
-        code: new PairingCode(requiredString(payload, "code")),
-        expiresInSeconds: requiredDecimal(payload, "expires_in_seconds"),
-        status: requiredEnum(
-          payload,
-          "status",
-          ["pending", "accepted", "rejected"] as const,
-        ),
-      }) as unknown as Value;
-    case "frontend_projection": {
-      const base = snapshotFields(
-        payload,
-        factory,
-        ["session_id", "projection"],
-      );
-      if (!Object.hasOwn(payload, "projection")) {
-        throw new CmuxProtocolError("frontend projection omitted projection");
-      }
-      return Object.freeze({
-        ...base,
-        sessionId: requiredId(payload, ["session_id"], sessionId),
-        projection: jsonValue(payload.projection, "frontend projection"),
-      }) as unknown as Value;
-    }
-    case "notification":
-      return Object.freeze({
-        ...snapshotFields(payload, factory, [
-          "session_id", "title", "body", "level", "terminal_id", "created_at_ms",
-          "unread",
-        ]),
-        sessionId: requiredId(payload, ["session_id"], sessionId),
-        title: requiredString(payload, "title"),
-        body: requiredString(payload, "body"),
-        level: requiredEnum(
-          payload,
-          "level",
-          ["info", "warning", "error"] as const,
-        ),
-        ...optionalProperty(
-          "terminalId",
-          optionalId(payload, ["terminal_id"], terminalId),
-        ),
-        createdAtMs: requiredDecimal(payload, "created_at_ms"),
-        unread: requiredBoolean(payload, "unread"),
-      }) as unknown as Value;
-    case "agent":
-      return Object.freeze({
-        ...snapshotFields(payload, factory, [
-          "session_id", "terminal_id", "state", "source", "updated_at_ms",
-          "source_session",
-        ]),
-        sessionId: requiredId(payload, ["session_id"], sessionId),
-        terminalId: requiredId(payload, ["terminal_id"], terminalId),
-        state: requiredEnum(
-          payload,
-          "state",
-          ["working", "blocked", "idle", "done", "unknown"] as const,
-        ),
-        source: requiredEnum(
-          payload,
-          "source",
-          ["hook", "socket", "detected"] as const,
-        ),
-        updatedAtMs: requiredDecimal(payload, "updated_at_ms"),
-        sourceSession: requiredNullableString(payload, "source_session"),
-      }) as unknown as Value;
-    case "sidebar_view":
-      return Object.freeze({
-        ...snapshotFields(
-          payload,
-          factory,
-          ["session_id", "cols", "rows", "running"],
-        ),
-        sessionId: requiredId(payload, ["session_id"], sessionId),
-        cols: requiredPositiveUint16(payload, "cols"),
-        rows: requiredPositiveUint16(payload, "rows"),
-        running: requiredBoolean(payload, "running"),
-      }) as unknown as Value;
-    default:
-      throw new CmuxProtocolError(`unknown snapshot type ${JSON.stringify(name)}`);
+): FrontendProjectionSnapshot {
+  const payload = unwrap(value, ["frontend_projection"]);
+  const base = snapshotFields(
+    payload,
+    projectionId,
+    ["session_id", "projection"],
+  );
+  if (!Object.hasOwn(payload, "projection")) {
+    throw new CmuxProtocolError("frontend projection omitted projection");
   }
+  return Object.freeze({
+    ...base,
+    sessionId: requiredId(payload, ["session_id"], sessionId),
+    projection: jsonValue(payload.projection, "frontend projection"),
+  });
+}
+
+function notificationSnapshot(value: unknown): NotificationSnapshot {
+  const payload = unwrap(value, ["notification"]);
+  return Object.freeze({
+    ...snapshotFields(payload, notificationId, [
+      "session_id", "title", "body", "level", "terminal_id", "created_at_ms",
+      "unread",
+    ]),
+    sessionId: requiredId(payload, ["session_id"], sessionId),
+    title: requiredString(payload, "title"),
+    body: requiredString(payload, "body"),
+    level: requiredEnum(
+      payload,
+      "level",
+      ["info", "warning", "error"] as const,
+    ),
+    ...optionalProperty(
+      "terminalId",
+      optionalId(payload, ["terminal_id"], terminalId),
+    ),
+    createdAtMs: requiredDecimal(payload, "created_at_ms"),
+    unread: requiredBoolean(payload, "unread"),
+  });
+}
+
+function agentSnapshot(value: unknown): AgentSnapshot {
+  const payload = unwrap(value, ["agent"]);
+  return Object.freeze({
+    ...snapshotFields(payload, agentId, [
+      "session_id", "terminal_id", "state", "source", "updated_at_ms",
+      "source_session",
+    ]),
+    sessionId: requiredId(payload, ["session_id"], sessionId),
+    terminalId: requiredId(payload, ["terminal_id"], terminalId),
+    state: requiredEnum(
+      payload,
+      "state",
+      ["working", "blocked", "idle", "done", "unknown"] as const,
+    ),
+    source: requiredEnum(
+      payload,
+      "source",
+      ["hook", "socket", "detected"] as const,
+    ),
+    updatedAtMs: requiredDecimal(payload, "updated_at_ms"),
+    sourceSession: requiredNullableString(payload, "source_session"),
+  });
+}
+
+function sidebarViewSnapshot(value: unknown): SidebarViewSnapshot {
+  const payload = unwrap(value, ["sidebar_view"]);
+  return Object.freeze({
+    ...snapshotFields(
+      payload,
+      sidebarViewId,
+      ["session_id", "cols", "rows", "running"],
+    ),
+    sessionId: requiredId(payload, ["session_id"], sessionId),
+    cols: requiredPositiveUint16(payload, "cols"),
+    rows: requiredPositiveUint16(payload, "rows"),
+    running: requiredBoolean(payload, "running"),
+  });
 }
 
 function optionalProperty<Key extends string, Value>(
@@ -1086,38 +1085,22 @@ function resourceSnapshot(value: unknown): ResourceSnapshot {
     notifications: snapshotList(
       payload,
       "notifications",
-      (item) => auxiliarySnapshot<NotificationId, NotificationSnapshot>(
-        item,
-        "notification",
-        notificationId,
-      ),
+      notificationSnapshot,
     ),
     agents: snapshotList(
       payload,
       "agents",
-      (item) => auxiliarySnapshot<AgentId, AgentSnapshot>(
-        item,
-        "agent",
-        agentId,
-      ),
+      agentSnapshot,
     ),
     frontendProjections: snapshotList(
       payload,
       "frontend_projections",
-      (item) => auxiliarySnapshot<ProjectionId, FrontendProjectionSnapshot>(
-        item,
-        "frontend_projection",
-        projectionId,
-      ),
+      frontendProjectionSnapshot,
     ),
     sidebarViews: snapshotList(
       payload,
       "sidebar_views",
-      (item) => auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        item,
-        "sidebar_view",
-        sidebarViewId,
-      ),
+      sidebarViewSnapshot,
     ),
     cursor: cursor(payload.cursor),
     extra: Object.freeze({ ...extra }),
@@ -1155,36 +1138,11 @@ function resourceEntitySnapshot(
     case "terminal": return terminalSnapshot(value);
     case "browser": return browserSnapshot(value);
     case "client": return connectedClientSnapshot(value);
-    case "notification":
-      return auxiliarySnapshot<NotificationId, NotificationSnapshot>(
-        value,
-        "notification",
-        notificationId,
-      );
-    case "agent":
-      return auxiliarySnapshot<AgentId, AgentSnapshot>(
-        value,
-        "agent",
-        agentId,
-      );
-    case "pairing_request":
-      return auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
-        value,
-        "pairing_request",
-        pairingRequestId,
-      );
-    case "frontend_projection":
-      return auxiliarySnapshot<ProjectionId, FrontendProjectionSnapshot>(
-        value,
-        "frontend_projection",
-        projectionId,
-      );
-    case "sidebar_view":
-      return auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        value,
-        "sidebar_view",
-        sidebarViewId,
-      );
+    case "notification": return notificationSnapshot(value);
+    case "agent": return agentSnapshot(value);
+    case "pairing_request": return pairingRequestSnapshot(value);
+    case "frontend_projection": return frontendProjectionSnapshot(value);
+    case "sidebar_view": return sidebarViewSnapshot(value);
   }
 }
 
@@ -1588,11 +1546,7 @@ function sidebarAttachItem(value: unknown): SidebarAttachItem {
     );
     return Object.freeze({
       kind,
-      sidebarView: auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        payload.sidebar_view,
-        "sidebar_view",
-        sidebarViewId,
-      ),
+      sidebarView: sidebarViewSnapshot(payload.sidebar_view),
       render: renderSnapshot(payload.render),
     }) satisfies SidebarAttachSnapshot;
   }
@@ -2040,12 +1994,7 @@ function pairingResolutionResult(value: unknown): PairingResolutionResult {
   const payload = record(value, "pairing resolution result");
   strictObject(payload, ["pairing_request"], "pairing resolution result");
   return Object.freeze({
-    pairingRequest:
-      auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
-        payload.pairing_request,
-        "pairing_request",
-        pairingRequestId,
-      ),
+    pairingRequest: pairingRequestSnapshot(payload.pairing_request),
   });
 }
 
@@ -2804,12 +2753,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       await this.client[readOperation](operations.pairingRequestList, scope, options),
       "pairing_requests",
     ).map((value) => {
-      const snapshot = auxiliarySnapshot<PairingRequestId, PairingRequestSnapshot>(
-        value,
-        "pairing_request",
-        pairingRequestId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      );
+      const snapshot = pairingRequestSnapshot(value);
       return new PairingRequest(this.client, selectId(snapshot.id), scope, snapshot);
     });
   }
@@ -2819,15 +2763,12 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
     options: RequestOptions = {},
   ): Promise<FrontendProjection> {
     const scope = this.nestedScope();
-    const snapshot = auxiliarySnapshot<ProjectionId, FrontendProjectionSnapshot>(
+    const snapshot = frontendProjectionSnapshot(
       await this.client[readOperation](
         operations.frontendProjectionGet,
         { ...scope, frontend_projection: encodeSelector(selector) },
         options,
       ),
-      "frontend_projection",
-      projectionId,
-      { key: "session", property: "sessionId", factory: sessionId },
     );
     return new FrontendProjection(this.client, selectId(snapshot.id), scope, snapshot);
   }
@@ -2844,12 +2785,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       ),
       "notifications",
     ).map((value) => {
-      const snapshot = auxiliarySnapshot<NotificationId, NotificationSnapshot>(
-        value,
-        "notification",
-        notificationId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      );
+      const snapshot = notificationSnapshot(value);
       return new Notification(this.client, selectId(snapshot.id), scope, snapshot);
     });
   }
@@ -2863,12 +2799,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       operations.notificationCreate,
       { ...scope, ...optionFields(create) },
       options,
-      (value) => auxiliarySnapshot<NotificationId, NotificationSnapshot>(
-        value,
-        "notification",
-        notificationId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      notificationSnapshot,
       (snapshot) => new Notification(this.client, selectId(snapshot.id), scope, snapshot),
     );
   }
@@ -2888,12 +2819,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       ),
       "agents",
     ).map((value) => {
-      const snapshot = auxiliarySnapshot<AgentId, AgentSnapshot>(
-        value,
-        "agent",
-        agentId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      );
+      const snapshot = agentSnapshot(value);
       return new Agent(this.client, selectId(snapshot.id), scope, snapshot);
     });
   }
@@ -2907,12 +2833,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       operations.agentReport,
       { ...scope, ...optionFields(report) },
       options,
-      (value) => auxiliarySnapshot<AgentId, AgentSnapshot>(
-        value,
-        "agent",
-        agentId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      agentSnapshot,
       (snapshot) => new Agent(this.client, selectId(snapshot.id), scope, snapshot),
     );
   }
@@ -3870,12 +3791,7 @@ export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionS
       operations.frontendProjectionPut,
       { ...this.params(), projection },
       options,
-      (result) => auxiliarySnapshot<ProjectionId, FrontendProjectionSnapshot>(
-        result,
-        "frontend_projection",
-        projectionId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      frontendProjectionSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
@@ -3894,12 +3810,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
   refresh(options: RequestOptions = {}): Promise<SidebarViewSnapshot> {
     return this.refreshWith(
       operations.sidebarViewGet,
-      (value) => auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        value,
-        "sidebar_view",
-        sidebarViewId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      sidebarViewSnapshot,
       options,
     );
   }
@@ -3912,12 +3823,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
       operations.sidebarViewEnsure,
       { ...this.scope, ...optionFields(ensure) },
       options,
-      (value) => auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        value,
-        "sidebar_view",
-        sidebarViewId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      sidebarViewSnapshot,
       (snapshot) => new SidebarView(
         this.client,
         selectId(snapshot.id),
@@ -3967,12 +3873,7 @@ export class SidebarView extends Handle<SidebarViewId, SidebarViewSnapshot> {
       operation,
       { ...this.params(), ...params },
       options,
-      (value) => auxiliarySnapshot<SidebarViewId, SidebarViewSnapshot>(
-        value,
-        "sidebar_view",
-        sidebarViewId,
-        { key: "session", property: "sessionId", factory: sessionId },
-      ),
+      sidebarViewSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),
     );
   }
