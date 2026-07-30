@@ -2883,6 +2883,17 @@ impl PublishedSocket {
         }
     }
 
+    fn cleanup_while_publication_locked(self) {
+        #[cfg(unix)]
+        {
+            let _ = self.cleanup_unix_locked();
+        }
+        #[cfg(not(unix))]
+        {
+            cleanup_without_stable_identity(&self.path);
+        }
+    }
+
     #[cfg(unix)]
     fn matches(&self, path: &Path) -> std::io::Result<bool> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -2895,6 +2906,15 @@ impl PublishedSocket {
 
     #[cfg(unix)]
     fn cleanup_unix(&self) -> std::io::Result<()> {
+        let _publication_lock = SocketPublicationLock::acquire(
+            &self.path,
+            Instant::now() + LOCAL_SOCKET_CONNECT_TIMEOUT + LOCAL_SOCKET_CONNECT_TIMEOUT,
+        )?;
+        self.cleanup_unix_locked()
+    }
+
+    #[cfg(unix)]
+    fn cleanup_unix_locked(&self) -> std::io::Result<()> {
         match self.matches(&self.path) {
             Ok(true) => {}
             Ok(false) => return Ok(()),
@@ -2939,9 +2959,9 @@ impl PublishedSocket {
                 removed
             }
             Ok(false) | Err(_) => {
-                // A replacement won the race between the public identity
-                // check and rename. Restore it without overwriting any newer
-                // publication that may already occupy the public path.
+                // An uncoordinated replacement won the race between the
+                // public identity check and rename. Restore it without
+                // overwriting any newer publication at the public path.
                 std::fs::hard_link(&quarantined, &self.path)?;
                 std::fs::remove_file(&quarantined)?;
                 std::fs::remove_dir(&quarantine_dir)
@@ -2998,7 +3018,7 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
         }
     };
     if let Err(error) = platform::restrict_file(&path) {
-        published.cleanup();
+        published.cleanup_while_publication_locked();
         return Err(error.into());
     }
     let active_connections = Arc::new(AtomicU64::new(0));
@@ -3013,7 +3033,7 @@ pub fn serve_owned(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Publi
             });
         }
     }) {
-        published.cleanup();
+        published.cleanup_while_publication_locked();
         return Err(error.into());
     }
     Ok(published)
