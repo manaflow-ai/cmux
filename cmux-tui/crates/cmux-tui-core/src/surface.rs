@@ -693,6 +693,7 @@ impl LocalProcess {
         }
     }
 
+    #[cfg(any(not(unix), test))]
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
         match self {
             Self::Owned(process) => process.terminate_and_wait(deadline),
@@ -804,6 +805,7 @@ enum SurfaceShutdownOwnerKind {
 }
 
 impl SurfaceShutdownOwner {
+    #[cfg(any(not(unix), test))]
     pub(crate) fn terminate_until(&self, deadline: Instant) -> bool {
         match &self.kind {
             SurfaceShutdownOwnerKind::Local(process) => process.terminate_and_wait(deadline),
@@ -1323,6 +1325,7 @@ impl LocalPtyProcess {
         true
     }
 
+    #[cfg(any(not(unix), test))]
     fn terminate_and_wait(&self, deadline: Instant) -> bool {
         #[cfg(unix)]
         let snapshot = None;
@@ -1934,14 +1937,7 @@ impl Surface {
             frame_requests,
         }));
 
-        #[cfg(unix)]
-        process.spawn_reaper(child)?;
-        #[cfg(not(unix))]
-        process.spawn_reaper(child, reaper)?;
-        if let Err(error) = spawn_frame_producer(&surface, frame_rx) {
-            let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(2));
-            return Err(error);
-        }
+        spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         let reader = spawn_local_pty_reader(id, {
@@ -2035,11 +2031,12 @@ impl Surface {
                 }
             }
         });
-        if let Err(error) = reader {
-            let _ = surface.terminate_for_server_shutdown(Instant::now() + Duration::from_secs(2));
-            return Err(error.into());
-        }
+        reader?;
 
+        #[cfg(unix)]
+        process.spawn_reaper(child)?;
+        #[cfg(not(unix))]
+        process.spawn_reaper(child, reaper)?;
         Ok(surface)
     }
 
@@ -3689,6 +3686,7 @@ impl Surface {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn terminate_for_server_shutdown(&self, deadline: Instant) -> bool {
         self.shutdown_owner().is_none_or(|owner| owner.terminate_until(deadline))
     }
