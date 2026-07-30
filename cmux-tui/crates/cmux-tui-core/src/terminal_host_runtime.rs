@@ -2976,10 +2976,10 @@ mod unix {
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
             self.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
             if already_started {
                 return;
             }
+            crate::process_session::wake_child_reaper();
             let worker = self.clone();
             if thread::Builder::new()
                 .name("terminal-host-terminate".into())
@@ -2993,15 +2993,19 @@ mod unix {
         }
 
         fn finish_group_escalation(&self) {
-            self.group_escalation_complete.store(true, Ordering::Release);
+            let changed = !self.group_escalation_complete.swap(true, Ordering::AcqRel);
             self.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if changed {
+                crate::process_session::wake_child_reaper();
+            }
         }
 
         fn abandon_group_escalation(&self) {
-            self.termination_started.store(false, Ordering::Release);
+            let changed = self.termination_started.swap(false, Ordering::AcqRel);
             self.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if changed {
+                crate::process_session::wake_child_reaper();
+            }
         }
 
         fn publish_exit_if_drained(&self) {
@@ -3019,16 +3023,19 @@ mod unix {
         }
 
         fn terminate_and_wait(&self) {
-            let (child_reaped, wait_ownership_lost) = {
+            let (termination_changed, child_reaped, wait_ownership_lost) = {
                 let _signal = self.child_signal_lock.lock().unwrap();
-                self.termination_started.store(true, Ordering::Release);
+                let termination_changed = !self.termination_started.swap(true, Ordering::AcqRel);
                 (
+                    termination_changed,
                     self.child_reaped.load(Ordering::Acquire),
                     self.child_wait_ownership_lost.load(Ordering::Acquire),
                 )
             };
             self.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if termination_changed {
+                crate::process_session::wake_child_reaper();
+            }
             if wait_ownership_lost {
                 self.abandon_group_escalation();
                 return;
@@ -3571,9 +3578,11 @@ mod unix {
             // The reader publishes every final PTY byte before declaring the
             // stream drained. Exit is emitted only after this flag and the
             // child wait rendezvous, so clients can safely stop at Exit.
-            reader_host.pty_drained.store(true, Ordering::Release);
+            let drain_changed = !reader_host.pty_drained.swap(true, Ordering::AcqRel);
             reader_host.child_exit.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if drain_changed {
+                crate::process_session::wake_child_reaper();
+            }
             reader_host.publish_exit_if_drained();
         })?;
         let observe_host = shared.clone();

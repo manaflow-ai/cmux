@@ -1134,9 +1134,11 @@ impl LocalPtyProcess {
     fn mark_pty_drained(&self) {
         #[cfg(unix)]
         {
-            self.pty_drained.store(true, Ordering::Release);
+            let changed = !self.pty_drained.swap(true, Ordering::AcqRel);
             self.exited.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if changed {
+                crate::process_session::wake_child_reaper();
+            }
         }
     }
 
@@ -1178,9 +1180,11 @@ impl LocalPtyProcess {
 
     #[cfg(unix)]
     fn abandon_termination(&self) {
-        self.termination_started.store(false, Ordering::Release);
+        let changed = self.termination_started.swap(false, Ordering::AcqRel);
         self.exited.1.notify_all();
-        crate::process_session::wake_child_reaper();
+        if changed {
+            crate::process_session::wake_child_reaper();
+        }
     }
 
     #[cfg(unix)]
@@ -1330,16 +1334,19 @@ impl LocalPtyProcess {
     ) -> bool {
         #[cfg(unix)]
         {
-            let (child_reaped, wait_ownership_lost) = {
+            let (termination_changed, child_reaped, wait_ownership_lost) = {
                 let _signal = self.child_signal_lock.lock().unwrap();
-                self.termination_started.store(true, Ordering::Release);
+                let termination_changed = !self.termination_started.swap(true, Ordering::AcqRel);
                 (
+                    termination_changed,
                     self.child_reaped.load(Ordering::Acquire),
                     self.child_wait_ownership_lost.load(Ordering::Acquire),
                 )
             };
             self.exited.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if termination_changed {
+                crate::process_session::wake_child_reaper();
+            }
             if wait_ownership_lost {
                 self.abandon_termination();
                 return self.wait_for_exit_until(deadline);
@@ -1377,9 +1384,11 @@ impl LocalPtyProcess {
                 self.abandon_termination();
                 return false;
             }
-            self.group_escalation_complete.store(true, Ordering::Release);
+            let escalation_changed = !self.group_escalation_complete.swap(true, Ordering::AcqRel);
             self.exited.1.notify_all();
-            crate::process_session::wake_child_reaper();
+            if escalation_changed {
+                crate::process_session::wake_child_reaper();
+            }
         }
         #[cfg(not(unix))]
         {

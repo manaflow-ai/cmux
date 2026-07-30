@@ -298,6 +298,11 @@ fn require_waitable_child_disposition() -> io::Result<()> {
     Ok(())
 }
 
+/// Wake every reserved child after a cleanup-relevant state transition.
+///
+/// This deliberately preempts degraded retry delays once. Callers must emit
+/// it only when the state actually changed; a failed attempt keeps its normal
+/// degraded backoff.
 pub(crate) fn wake_child_reaper() {
     let Some(slot) = NATURAL_REAPER.get() else { return };
     let slot = slot.lock().unwrap();
@@ -607,7 +612,7 @@ fn accept_natural_reaper_command(
         NaturalReaperCommand::Wake => {
             wake_pending.store(false, Ordering::Release);
             let now = Instant::now();
-            for request in pending.iter_mut().filter(|request| !request.degraded) {
+            for request in pending {
                 request.next_attempt = now;
             }
         }
