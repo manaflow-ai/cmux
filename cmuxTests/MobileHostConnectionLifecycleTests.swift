@@ -360,6 +360,7 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(Set(capabilities).isSuperset(of: [
             "workspace.task_create.v1",
+            MobileHostService.terminalInputOrderedCapability,
             "terminal.render_grid.v1",
             "notification.feed.v1",
         ]))

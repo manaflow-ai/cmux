@@ -12,11 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `cd1f8e012`, the reviewed head of
-https://github.com/manaflow-ai/ghostty/pull/170, merged to fork main as
-`4d6f0014f`. It combines the renderer-memory line ending at `78621f8ce`, the
-bounded app-mailbox fix at `2258bea96`, and generation-tagged renderer retry
-timers. The renderer line was reviewed in
+The submodule pinned by this branch is `36a46414a`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
+reclamation and retry-deadline line through `4d6f0014f` with the resolved
+font-binding action callbacks originally ending at `80d7fb35a`.
+https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
+commits on current fork main and clarified the callback's non-reentrant
+contract. PR 172 then recorded the original font branch as ancestry without
+changing the integrated tree, so the final pin descends from both former
+gitlinks (`cd1f8e012` and `80d7fb35a`).
+
+The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
 https://github.com/manaflow-ai/ghostty/pull/153,
 https://github.com/manaflow-ai/ghostty/pull/165, and
@@ -30,6 +36,8 @@ turns. Retry timers validate lifecycle generations immediately before xev
 reset, so a stale cross-thread handoff cannot replace a fresh 250 ms deadline.
 The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
+The final font integration landed in merge commits `23003282d` and
+`36a46414a`.
 
 ### Hidden macOS renderer reclamation
 
@@ -159,14 +167,38 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
     single-owner tab observation, conservative tab selection, and off-main
     teardown without synchronous main-queue waits.
 
-The pinned `cd1f8e012` universal ReleaseFast GhosttyKit archive was built with
-Zig 0.16.0 on macOS 26.3 and Xcode 26.5. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
-used the renderer-thread retry suite, the xcframework archive validator,
-`lipo -archs`, and `nm -g` for `_ghostty_surface_rebuild_renderer` in every
-slice. The published asset was downloaded again and matched SHA-256
-`578864e66ed7483d8c28fd2418d6b9961467d4a4bba4d166884eb3557187d601`.
+### Resolved font-binding action callbacks
+
+- Commits:
+  - Original branch:
+    - `e6aa4fddb` (test: cover native font action callbacks)
+    - `80d7fb35a` (feat: emit resolved font binding actions)
+  - Reapplied on current fork main:
+    - `9242f2cec` (test: cover native font action callbacks)
+    - `bc1d15f1b` (feat: emit resolved font binding actions)
+    - `2803ccfe1` (docs: clarify font action callback reentrancy)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds a one-shot per-surface C callback for successfully performed increase,
+    decrease, reset, and absolute font-size binding actions.
+  - Reports the resolved action plus previous and current point sizes and
+    adjusted-state flags after Ghostty applies the native mutation.
+  - Keeps callback ownership on the exact embedded surface, with synchronous
+    GUI-thread delivery and userdata valid through surface teardown.
+  - Conflict note: future font-action routing must emit only after a successful
+    native mutation, preserve chained and custom binding semantics, keep
+    callback userdata alive until `ghostty_surface_free` returns, and never
+    destroy or otherwise reenter the surface from the synchronous callback.
+
+The pinned `36a46414a` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-36a46414a7c5dc122ffbf2992fec6d4a73cf7c65-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again and matched SHA-256
+`8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
 
 ### `os/open` stderr drain spin and zombie leak
 

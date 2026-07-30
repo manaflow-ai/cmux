@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -64,6 +65,31 @@ func (b *notifyingBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
+}
+
+func waitForRPCResponseID(t *testing.T, output *notifyingBuffer, id float64, timeout time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		for _, line := range strings.Split(output.String(), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			var frame map[string]any
+			if err := json.Unmarshal([]byte(line), &frame); err != nil {
+				continue
+			}
+			if frame["id"] == id {
+				return frame
+			}
+		}
+		select {
+		case <-output.notify:
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for RPC response id %.0f; output=%q", id, output.String())
+		}
+	}
 }
 
 func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
@@ -1148,6 +1174,656 @@ func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
 	}
 }
 
+func TestRPCDispatcherPTYAttachCapacityReturnsUnavailable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	output := newNotifyingBuffer()
+	server := &rpcServer{
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(output)},
+	}
+	dispatcher := newRPCRequestDispatcher(ctx, cancel, nil, server)
+	for i := 0; i < maxConcurrentPTYAttachRPCsPerConnection; i++ {
+		dispatcher.ptyAttachSlots <- struct{}{}
+	}
+
+	if err := dispatcher.dispatch(rpcRequest{ID: 1, Method: "pty.attach"}); err != nil {
+		t.Fatalf("dispatch over-capacity pty.attach: %v", err)
+	}
+	response := waitForRPCResponseID(t, output, 1, time.Second)
+	errorObject, _ := response["error"].(map[string]any)
+	if got := errorObject["code"]; got != "unavailable" {
+		t.Fatalf("over-capacity pty.attach error code = %v, want unavailable; response=%v", got, response)
+	}
+}
+
+func TestStdioRPCStalledPTYAttachDoesNotBlockHealthyAttach(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "transport-healthy"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"seed",
+		80,
+		24,
+		"sleep 30",
+		"seed-token",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("seed healthy PTY session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() {
+		_ = stdinWriter.Close()
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "transport-stalled",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled PTY attach never reached PTY allocation")
+	}
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              healthySessionID,
+			"attachment_id":           "healthy",
+			"client_attachment_token": "healthy-token",
+			"cols":                    80,
+			"rows":                    24,
+			"require_existing":        true,
+		},
+	})
+	response := waitForRPCResponseID(t, output, 2, time.Second)
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("healthy attach behind stalled attach failed: %v", response)
+	}
+	if strings.Contains(output.String(), `"id":1`) {
+		t.Fatalf("stalled attach unexpectedly completed before release: %q", output.String())
+	}
+}
+
+func TestStdioRPCPTYAttachCancelStopsInFlightStartWithoutClosingConnection(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "cancel-keeps-transport-healthy"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"seed",
+		80,
+		24,
+		"sleep 30",
+		"seed-token",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("seed healthy PTY session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	var releaseStartOnce sync.Once
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() {
+		releaseStartOnce.Do(func() { close(releaseStart) })
+		_ = stdinWriter.Close()
+	})
+
+	writer := bufio.NewWriter(stdinWriter)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     1,
+		HasID:  true,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "cancel-stalled-start",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY attach never reached its stalled allocation")
+	}
+
+	writePersistentTestFrame(t, writer, rpcRequest{
+		Method: "pty.attach.cancel",
+		Params: map[string]any{
+			"request_id":              1,
+			"session_id":              "cancel-stalled-start",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+		},
+	})
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     2,
+		HasID:  true,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              healthySessionID,
+			"attachment_id":           "healthy",
+			"client_attachment_token": "healthy-token",
+			"cols":                    80,
+			"rows":                    24,
+			"require_existing":        true,
+		},
+	})
+	healthyResponse := waitForRPCResponseID(t, output, 2, time.Second)
+	if ok, _ := healthyResponse["ok"].(bool); !ok {
+		t.Fatalf("healthy attach behind canceled start failed: %v", healthyResponse)
+	}
+	if strings.Contains(output.String(), `unknown method "pty.attach.cancel"`) {
+		t.Fatalf("PTY attach cancellation was treated as an ordinary RPC: %q", output.String())
+	}
+
+	releaseStartOnce.Do(func() { close(releaseStart) })
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		hub.mu.Lock()
+		_, starting := hub.startingSessions[persistentPTYSessionKey("cancel-stalled-start")]
+		_, published := hub.sessions[persistentPTYSessionKey("cancel-stalled-start")]
+		hub.mu.Unlock()
+		if !starting {
+			if published {
+				t.Fatal("canceled PTY start was published after allocation returned")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled PTY start did not finish after allocation returned")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     3,
+		HasID:  true,
+		Method: "ping",
+	})
+	ping := waitForRPCResponseID(t, output, 3, time.Second)
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("RPC transport stopped after canceling one PTY attach: %v", ping)
+	}
+	select {
+	case err := <-serverDone:
+		t.Fatalf("RPC server exited after PTY attach cancellation: %v", err)
+	default:
+	}
+}
+
+func TestStdioRPCLatePTYAttachCancelDropsPublishedAttachment(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	go func() {
+		_ = runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() { _ = stdinWriter.Close() })
+
+	writer := bufio.NewWriter(stdinWriter)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     41,
+		HasID:  true,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "late-cancel-session",
+			"attachment_id":           "surface",
+			"client_attachment_token": "timed-out-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	response := waitForRPCResponseID(t, output, 41, 5*time.Second)
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("initial PTY attach failed: %v", response)
+	}
+	waitForHubSessionSize(t, hub, "late-cancel-session", 1, 80, 24, time.Second)
+
+	writePersistentTestFrame(t, writer, rpcRequest{
+		Method: "pty.attach.cancel",
+		Params: map[string]any{
+			"request_id":              41,
+			"session_id":              "late-cancel-session",
+			"attachment_id":           "surface",
+			"client_attachment_token": "timed-out-token",
+		},
+	})
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     42,
+		HasID:  true,
+		Method: "ping",
+	})
+	ping := waitForRPCResponseID(t, output, 42, time.Second)
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping after late PTY attach cancellation failed: %v", ping)
+	}
+	waitForHubSessionSize(t, hub, "late-cancel-session", 0, 80, 24, time.Second)
+
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     43,
+		HasID:  true,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "late-cancel-session",
+			"attachment_id":           "surface",
+			"client_attachment_token": "replacement-token",
+			"cols":                    100,
+			"rows":                    30,
+			"require_existing":        true,
+		},
+	})
+	replacement := waitForRPCResponseID(t, output, 43, time.Second)
+	if ok, _ := replacement["ok"].(bool); !ok {
+		t.Fatalf("replacement attach after late cancellation failed: %v", replacement)
+	}
+	waitForHubSessionSize(t, hub, "late-cancel-session", 1, 100, 30, time.Second)
+}
+
+func TestStdioRPCCloseOvertakesStalledPTYStart(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() {
+		_ = stdinWriter.Close()
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "close-stalled-start",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     2,
+		Method: "pty.close",
+		Params: map[string]any{
+			"session_id": "close-stalled-start",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY attach never reached its stalled allocation")
+	}
+	closeResponse := waitForRPCResponseID(t, output, 2, time.Second)
+	if ok, _ := closeResponse["ok"].(bool); !ok {
+		t.Fatalf("close pending PTY start failed: %v", closeResponse)
+	}
+
+	close(releaseStart)
+	attachResponse := waitForRPCResponseID(t, output, 1, 5*time.Second)
+	if ok, _ := attachResponse["ok"].(bool); ok {
+		t.Fatalf("closed pending PTY start unexpectedly attached: %v", attachResponse)
+	}
+	hub.mu.Lock()
+	_, published := hub.sessions[persistentPTYSessionKey("close-stalled-start")]
+	hub.mu.Unlock()
+	if published {
+		t.Fatal("closed pending PTY start was published")
+	}
+}
+
+func TestStdioRPCShortCommandStartsExactlyOnce(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() { _ = stdinWriter.Close() })
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "short-command",
+			"attachment_id":           "short",
+			"client_attachment_token": "short-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "printf 'MARKER\\n'; exit 0",
+		},
+	})
+	response := waitForRPCResponseID(t, output, 1, 5*time.Second)
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("short command attach failed: %v", response)
+	}
+	dataEvent := waitForRPCEvent(t, output, 0, func(event map[string]any) bool {
+		if event["event"] != "pty.data" {
+			return false
+		}
+		encoded, _ := event["data_base64"].(string)
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		return err == nil && bytes.Contains(decoded, []byte("MARKER"))
+	})
+	if dataEvent["session_id"] != "short-command" {
+		t.Fatalf("short command data event = %v", dataEvent)
+	}
+	exitEvent := waitForRPCEvent(t, output, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.exit"
+	})
+	if exitEvent["session_id"] != "short-command" {
+		t.Fatalf("short command exit event = %v", exitEvent)
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("short command PTY start count = %d, want exactly 1", got)
+	}
+	exitCount := 0
+	for _, line := range rpcEventLines(output) {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err == nil &&
+			event["event"] == "pty.exit" &&
+			event["session_id"] == "short-command" {
+			exitCount++
+		}
+	}
+	if exitCount != 1 {
+		t.Fatalf("short command exit event count = %d, want exactly 1; output=%q", exitCount, output.String())
+	}
+}
+
+func TestStdioRPCDisconnectCancelsSameSessionAttachWaiter(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	stdinReader, stdinWriter := io.Pipe()
+	output := newNotifyingBuffer()
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, output, hub, false)
+	}()
+	t.Cleanup(func() {
+		_ = stdinWriter.Close()
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	writer := bufio.NewWriter(stdinWriter)
+	attachRequest := func(id int, attachmentID string) {
+		writePersistentTestFrame(t, writer, rpcRequest{
+			ID:     id,
+			Method: "pty.attach",
+			Params: map[string]any{
+				"session_id":              "disconnect-stalled",
+				"attachment_id":           attachmentID,
+				"client_attachment_token": attachmentID + "-token",
+				"cols":                    80,
+				"rows":                    24,
+				"command":                 "sleep 30",
+			},
+		})
+	}
+	attachRequest(1, "owner")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("owner attach never reached PTY allocation")
+	}
+	attachRequest(2, "waiter")
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     3,
+		Method: "ping",
+	})
+	ping := waitForRPCResponseID(t, output, 3, time.Second)
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping behind same-session waiter failed: %v", ping)
+	}
+
+	if err := stdinWriter.Close(); err != nil {
+		t.Fatalf("close RPC input: %v", err)
+	}
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			t.Fatalf("stdio RPC server returned error after EOF: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stdio RPC server did not return after EOF")
+	}
+
+	close(releaseStart)
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		hub.mu.Lock()
+		_, starting := hub.startingSessions[persistentPTYSessionKey("disconnect-stalled")]
+		_, published := hub.sessions[persistentPTYSessionKey("disconnect-stalled")]
+		hub.mu.Unlock()
+		if !starting {
+			if published {
+				t.Fatal("PTY session was published after its RPC connection closed")
+			}
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("stalled PTY start did not finish after release")
+		}
+	}
+}
+
+func TestStdioRPCAsyncAttachWriteFailureInterruptsReadLoop(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	stdinReader, stdinWriter := io.Pipe()
+	t.Cleanup(func() { _ = stdinWriter.Close() })
+	writeErr := errors.New("async attach response write failed")
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- runRPCServer(stdinReader, authErrorWriter{err: writeErr}, hub, false)
+	}()
+
+	writePersistentTestFrame(t, bufio.NewWriter(stdinWriter), rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{},
+	})
+	select {
+	case err := <-serverDone:
+		if !errors.Is(err, writeErr) {
+			t.Fatalf("stdio RPC server error = %v, want async write error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("async attach write failure did not interrupt the stdio read loop")
+	}
+}
+
+func TestPTYAttachmentPumpCancellationDropsHubAttachment(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	attachment, attachmentCtx, sessionDone, err := hub.attachRPC(
+		ctx,
+		"pump-canceled-session",
+		"pump-canceled-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("attach PTY: %v", err)
+	}
+	server := &rpcServer{
+		ptyHub:      hub,
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(io.Discard)},
+	}
+	if !server.trackPTYAttachment(attachment) {
+		t.Fatal("track PTY attachment")
+	}
+	pumpDone := make(chan struct{})
+	go func() {
+		server.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
+		close(pumpDone)
+	}()
+
+	cancel()
+	select {
+	case <-pumpDone:
+	case <-time.After(time.Second):
+		t.Fatal("PTY attachment pump did not stop after context cancellation")
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("pump-canceled-session")]
+	attachmentCount := 0
+	hasIdleTimer := false
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+	}
+	hub.mu.Unlock()
+	if attachmentCount != 0 {
+		t.Fatalf("hub attachments after pump cancellation = %d, want 0", attachmentCount)
+	}
+	if !hasIdleTimer {
+		t.Fatal("pump cancellation did not schedule the empty session for idle reaping")
+	}
+}
+
+func TestPTYAttachmentPumpReleasesLifetimeContextAfterSessionExit(t *testing.T) {
+	attachmentCtx, cancelAttachment := context.WithCancel(context.Background())
+	defer cancelAttachment()
+	attachment := &wsPTYAttachment{
+		sessionKey:  persistentPTYSessionKey("completed-session"),
+		id:          "completed-attachment",
+		clientToken: "completed-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      cancelAttachment,
+		persistent:  true,
+	}
+	sessionDone := make(chan struct{})
+	close(sessionDone)
+	server := &rpcServer{
+		frameWriter: &stdioFrameWriter{writer: bufio.NewWriter(io.Discard)},
+	}
+
+	server.ptyAttachmentPump(attachmentCtx, attachment, sessionDone)
+
+	if !errors.Is(attachmentCtx.Err(), context.Canceled) {
+		t.Fatalf("attachment context error after session exit = %v, want context.Canceled", attachmentCtx.Err())
+	}
+}
+
 func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
 	client, server := net.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
@@ -1220,6 +1896,11 @@ func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	})
 	if ok, _ := attach2["ok"].(bool); !ok {
 		t.Fatalf("second pty.attach failed: %v", attach2)
+	}
+	attach2Result, _ := attach2["result"].(map[string]any)
+	replayBytes, _ := attach2Result["replay_bytes"].(float64)
+	if replayBytes <= 0 {
+		t.Fatalf("second pty.attach replay_bytes = %v, want positive scrollback size", attach2Result["replay_bytes"])
 	}
 	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
 		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a2"
@@ -2118,7 +2799,7 @@ func TestPTYRPCTokenRejectsStaleAttachmentControl(t *testing.T) {
 	}
 }
 
-func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
+func TestPTYRPCRequiresAttachmentIdentity(t *testing.T) {
 	eventOutput := newNotifyingBuffer()
 	server := &rpcServer{
 		nextStreamID:  1,
@@ -2136,17 +2817,29 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 	}
 	defer server.closeAll()
 
-	expectMissingToken := func(method string, resp rpcResponse) {
+	expectInvalidParams := func(method string, resp rpcResponse, expectedMessage string) {
 		t.Helper()
 		if resp.OK || resp.Error == nil || resp.Error.Code != "invalid_params" {
 			t.Fatalf("%s response = %+v, want invalid_params", method, resp)
 		}
-		if !strings.Contains(resp.Error.Message, method+" requires client_attachment_token") {
-			t.Fatalf("%s message = %q, want client_attachment_token requirement", method, resp.Error.Message)
+		if !strings.Contains(resp.Error.Message, expectedMessage) {
+			t.Fatalf("%s message = %q, want %q", method, resp.Error.Message, expectedMessage)
 		}
 	}
 
-	expectMissingToken("pty.attach", server.handleRequest(rpcRequest{
+	expectInvalidParams("pty.attach", server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "id-required",
+			"client_attachment_token": "id-required-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	}), "pty.attach requires attachment_id")
+
+	expectInvalidParams("pty.attach", server.handleRequest(rpcRequest{
 		ID:     1,
 		Method: "pty.attach",
 		Params: map[string]any{
@@ -2156,7 +2849,7 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"rows":          24,
 			"command":       "sleep 60",
 		},
-	}))
+	}), "pty.attach requires client_attachment_token")
 
 	attach := server.handleRequest(rpcRequest{
 		ID:     2,
@@ -2180,7 +2873,7 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			event["attachment_token"] == "fresh-token"
 	})
 
-	expectMissingToken("pty.write", server.handleRequest(rpcRequest{
+	expectInvalidParams("pty.write", server.handleRequest(rpcRequest{
 		ID:     3,
 		Method: "pty.write",
 		Params: map[string]any{
@@ -2188,8 +2881,8 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"attachment_id": "same",
 			"data_base64":   base64.StdEncoding.EncodeToString([]byte("missing token")),
 		},
-	}))
-	expectMissingToken("pty.resize", server.handleRequest(rpcRequest{
+	}), "pty.write requires client_attachment_token")
+	expectInvalidParams("pty.resize", server.handleRequest(rpcRequest{
 		ID:     4,
 		Method: "pty.resize",
 		Params: map[string]any{
@@ -2199,15 +2892,15 @@ func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
 			"cols":                    100,
 			"rows":                    30,
 		},
-	}))
-	expectMissingToken("pty.detach", server.handleRequest(rpcRequest{
+	}), "pty.resize requires client_attachment_token")
+	expectInvalidParams("pty.detach", server.handleRequest(rpcRequest{
 		ID:     5,
 		Method: "pty.detach",
 		Params: map[string]any{
 			"session_id":    "token-required",
 			"attachment_id": "same",
 		},
-	}))
+	}), "pty.detach requires client_attachment_token")
 
 	detach := server.handleRequest(rpcRequest{
 		ID:     6,

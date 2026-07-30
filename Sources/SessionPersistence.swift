@@ -1286,6 +1286,10 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     /// Explicit, unscaled surface font override. Nil follows the current config.
     var fontSize: Float?
+    /// In-flight workspace font requests already represented by `fontSize`.
+    /// Close-history restores preserve these tokens to avoid replaying a
+    /// projected request while its coordinator still owns the request.
+    var fontSizeChangeTokens: [UUID]?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
@@ -1301,6 +1305,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     init(
         workingDirectory: String? = nil,
         fontSize: Float? = nil,
+        fontSizeChangeTokens: [UUID]? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
@@ -1313,6 +1318,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
+        self.fontSizeChangeTokens = fontSizeChangeTokens
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
