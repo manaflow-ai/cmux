@@ -582,6 +582,8 @@ if (firstPhasePids.length !== 3) {
 }
 currentSessionId = "priority-feed-pressure";
 await handlers.get("session_start")({}, parentCtx);
+const prioritySessionStartPid = await stoppedHookPID(4);
+const priorityStartOffset = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG).length;
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("tool_execution_start")({
     type: "tool_execution_start",
@@ -591,8 +593,7 @@ for (let index = 0; index < 40; index += 1) {
   }, parentCtx);
 }
 await handlers.get("before_agent_start")({ prompt: "priority prompt survives feed pressure" }, parentCtx);
-const priorityStartOffset = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG).length;
-await releaseHook(4);
+process.kill(prioritySessionStartPid, "SIGCONT");
 await waitForCompletedHooks(4);
 const priorityPromptPid = await stoppedHookPID(5);
 const priorityStarts = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG)
