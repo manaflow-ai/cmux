@@ -88,8 +88,7 @@ struct BrowserStreamDialogCard: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled(true)
             .textContentType(.username)
-            .padding(12)
-            .mobileGlassField(cornerRadius: 14)
+            .browserDialogFieldWell()
 
             SecureField(
                 dialog.textField?.placeholder
@@ -100,18 +99,15 @@ struct BrowserStreamDialogCard: View {
                 text: $password
             )
             .textContentType(.password)
-            .padding(12)
-            .mobileGlassField(cornerRadius: 14)
+            .browserDialogFieldWell()
         } else if let field = dialog.textField {
             if field.secure {
                 SecureField(field.placeholder ?? inputPlaceholder, text: $text)
                     .textContentType(.password)
-                    .padding(12)
-                    .mobileGlassField(cornerRadius: 14)
+                    .browserDialogFieldWell()
             } else {
                 TextField(field.placeholder ?? inputPlaceholder, text: $text)
-                    .padding(12)
-                    .mobileGlassField(cornerRadius: 14)
+                    .browserDialogFieldWell()
             }
         }
     }
@@ -196,6 +192,21 @@ struct BrowserStreamDialogCard: View {
             buttonID: button.id,
             text: responseText
         ))
+    }
+}
+
+extension View {
+    /// Renders a dialog text field as a visibly inset input well.
+    ///
+    /// The dialog card is itself glass, so a glass field background disappears
+    /// into it and the field reads as a label; a filled well with a hairline
+    /// border keeps the editable area obvious (same fill language as the
+    /// bottom bar's address field).
+    fileprivate func browserDialogFieldWell() -> some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return padding(12)
+            .background(.quaternary.opacity(0.55), in: shape)
+            .overlay(shape.strokeBorder(.separator.opacity(0.6), lineWidth: 1))
     }
 }
 #endif
