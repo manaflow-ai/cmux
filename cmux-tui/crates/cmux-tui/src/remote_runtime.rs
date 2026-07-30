@@ -59,6 +59,68 @@ const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 
+#[cfg(test)]
+struct DaemonCleanupPause {
+    reached: mpsc::SyncSender<()>,
+    resume: std::sync::Mutex<mpsc::Receiver<()>>,
+}
+
+#[cfg(test)]
+static DAEMON_CLEANUP_PAUSE: std::sync::Mutex<Option<Arc<DaemonCleanupPause>>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+struct DaemonCleanupPauseHandle {
+    reached: mpsc::Receiver<()>,
+    resume: Option<mpsc::SyncSender<()>>,
+}
+
+#[cfg(test)]
+impl DaemonCleanupPauseHandle {
+    fn install() -> Self {
+        let (reached_tx, reached) = mpsc::sync_channel(1);
+        let (resume, resume_rx) = mpsc::sync_channel(1);
+        let mut installed =
+            DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(installed.is_none(), "a daemon cleanup pause is already installed");
+        *installed = Some(Arc::new(DaemonCleanupPause {
+            reached: reached_tx,
+            resume: std::sync::Mutex::new(resume_rx),
+        }));
+        Self { reached, resume: Some(resume) }
+    }
+
+    fn wait_until_reached(&self) {
+        self.reached
+            .recv_timeout(Duration::from_secs(3))
+            .expect("daemon shutdown did not reach the lifecycle cleanup pause");
+    }
+
+    fn resume(&mut self) {
+        if let Some(resume) = self.resume.take() {
+            let _ = resume.send(());
+        }
+        DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    }
+}
+
+#[cfg(test)]
+impl Drop for DaemonCleanupPauseHandle {
+    fn drop(&mut self) {
+        self.resume();
+    }
+}
+
+#[cfg(test)]
+fn pause_after_daemon_auth_shutdown() {
+    let pause =
+        DAEMON_CLEANUP_PAUSE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    if let Some(pause) = pause {
+        let _ = pause.reached.send(());
+        let _ = pause.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
+    }
+}
+
 fn remote_runtime_worker_count() -> usize {
     thread::available_parallelism()
         .map(std::num::NonZeroUsize::get)
@@ -1783,6 +1845,8 @@ async fn run_daemon(
         }
         unix.shutdown().await;
         auth.shutdown().await?;
+        #[cfg(test)]
+        pause_after_daemon_auth_shutdown();
         let _ = fs::remove_file(state_dir.join("runtime.json"));
         Ok::<_, anyhow::Error>(())
     }
@@ -2278,6 +2342,44 @@ mod tests {
         assert!(!info.link_socket.exists());
         assert!(!info.admin_socket.exists());
         assert!(!metadata.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exiting_daemon_never_removes_successor_runtime_metadata() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let mut pause = DaemonCleanupPauseHandle::install();
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "successor-metadata".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        let info = runtime.info().clone();
+        let shutdown = thread::spawn(move || runtime.shutdown());
+        pause.wait_until_reached();
+
+        let successor =
+            AuthDatabase::load_or_create(info.state_dir.join("auth"), "successor", true)
+                .expect("predecessor retained its authorization state lease after shutdown");
+        let metadata = info.state_dir.join("runtime.json");
+        fs::write(&metadata, b"successor-runtime").unwrap();
+        pause.resume();
+        shutdown.join().unwrap().unwrap();
+
+        assert_eq!(fs::read(&metadata).unwrap(), b"successor-runtime");
+        drop(successor);
     }
 
     #[cfg(unix)]

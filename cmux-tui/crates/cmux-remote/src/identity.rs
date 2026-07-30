@@ -2284,6 +2284,48 @@ mod tests {
         drop(successor);
     }
 
+    #[tokio::test]
+    async fn cancelled_auth_shutdown_preserves_its_persistence_failure_for_later_callers() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let blocked = PersistenceReleaseGuard::new(database.persistence.hooks.clone());
+        database.test_fail_next_persistence_writes(1);
+        let mutation = tokio::spawn({
+            let database = database.clone();
+            async move { database.create_invitation(Duration::from_secs(60), Vec::new()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), database.test_wait_for_persistence_writes(1))
+            .await
+            .expect("persistence write did not start");
+        mutation.abort();
+        assert!(mutation.await.unwrap_err().is_cancelled());
+
+        let shutdown = tokio::spawn({
+            let database = database.clone();
+            async move { database.shutdown().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if database.state.lock().await.closing {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("authorization mutation admission did not close");
+        shutdown.abort();
+        assert!(shutdown.await.unwrap_err().is_cancelled());
+
+        drop(blocked);
+        for _ in 0..2 {
+            let error = database.shutdown().await.unwrap_err();
+            assert!(
+                matches!(error, IdentityError::Persistence(message) if message.contains("injected"))
+            );
+        }
+    }
+
     #[test]
     fn auth_persistence_child_process() {
         let Some(state_dir) = std::env::var_os("CMUX_TEST_AUTH_PERSISTENCE_STATE") else {
