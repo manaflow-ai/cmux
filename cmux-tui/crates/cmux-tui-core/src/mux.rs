@@ -14107,8 +14107,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let uid = std::fs::metadata(&root).unwrap().uid();
-        let options = SurfaceOptions::default();
-        let mux = Mux::new_for_test("adoption-startup-budget", options.clone());
+        let mux = Mux::new_for_test("adoption-startup-budget", SurfaceOptions::default());
         let workspace =
             mux.create_empty_workspace(Some("startup-budget".into()), None, None).unwrap();
         {
