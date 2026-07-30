@@ -339,6 +339,35 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
         pumpHeightOverrides.removeAll(keepingCapacity: true)
+
+        var previousIds: [SidebarWorkspaceRenderItemID] = []
+        var nextIds: [SidebarWorkspaceRenderItemID] = []
+        var isSmallPureReorder = false
+        if hasStructuralChanges {
+            previousIds = previousRows.map(\.id)
+            nextIds = nextRows.map(\.id)
+            // Positional mismatches bound the number of moveRow calls a drag
+            // needs (a single dragged row misaligns one contiguous span).
+            // Multiset equality (not Set) so duplicate ids — corrupt state —
+            // never masquerade as a pure reorder; and past the threshold the
+            // move planner's rescans would go quadratic, so bulk permutations
+            // take the reload path (they gain nothing from animation).
+            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
+                if pair.0 != pair.1 { count += 1 }
+            }
+            isSmallPureReorder = previousIds.count == nextIds.count
+                && mismatches <= Self.maxAnimatedReorderMoves
+                && Self.multisetEqual(previousIds, nextIds)
+        }
+        let requiresAtomicReorderReload =
+            hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
+        let viewportAnchor = requiresAtomicReorderReload
+            ? SidebarWorkspaceTableViewportAnchor.capture(
+                table: containerView.tableView,
+                previousRows: previousRows,
+                nextRows: nextRows
+            )
+            : nil
         rows = nextRows
 
 #if DEBUG
@@ -350,24 +379,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
 #endif
         if hasStructuralChanges {
-            let previousIds = previousRows.map(\.id)
-            let nextIds = nextRows.map(\.id)
-            // Positional mismatches bound the number of moveRow calls a drag
-            // needs (a single dragged row misaligns one contiguous span).
-            // Multiset equality (not Set) so duplicate ids — corrupt state —
-            // never masquerade as a pure reorder; and past the threshold the
-            // move planner's rescans would go quadratic, so bulk permutations
-            // take the reload path (they gain nothing from animation).
-            let mismatches = zip(previousIds, nextIds).reduce(into: 0) { count, pair in
-                if pair.0 != pair.1 { count += 1 }
-            }
-            if previousIds.count == nextIds.count,
-               mismatches <= Self.maxAnimatedReorderMoves,
-               Self.multisetEqual(previousIds, nextIds) {
-                // Pure reorder (drag-drop): move rows in place. reloadData
-                // tears down every visible cell and snaps the scroll
-                // position — the "click to reorder is jank" report — while
-                // moves keep cells alive and settle smoothly.
+            if heightChanges.isEmpty, isSmallPureReorder {
+                // Stable-geometry reorder (drag-drop): move rows in place.
+                // reloadData tears down every visible cell and snaps the
+                // scroll position, while moves keep cells alive and settle
+                // smoothly. A reorder that also changes height must reload:
+                // AppKit can otherwise reuse a moved cell at its old frame
+                // before the separate height notification takes effect,
+                // clipping checklist or notification content.
                 let table = containerView.tableView
                 table.beginUpdates()
                 var current = previousIds
@@ -386,11 +405,21 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                         IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
                     )
                 }
-                if !heightChanges.isEmpty {
-                    noteHeightOfRowsWithoutAnimation(table, heightChanges)
-                }
             } else {
-                containerView.tableView.reloadData()
+                let table = containerView.tableView
+                // The atomic height-changing reorder path replaces visible
+                // cells. Capture active rename/checklist drafts before AppKit
+                // calls prepareForReuse, then commit them through the existing
+                // post-update scheduler once the reload has settled.
+                let postUpdateActions = requiresAtomicReorderReload
+                    ? detachLoadedCells()
+                    : []
+                table.reloadData()
+                // A height-changing reorder needs the atomic reload above to
+                // avoid stale moved-row frames. Preserve a stable visible row's
+                // pixel offset so that correctness does not jump the viewport.
+                viewportAnchor?.restore(table: table, rows: nextRows)
+                mutationScheduler.stagePostUpdateActions(postUpdateActions)
             }
         } else {
             reconfigureVisibleRows(contentChanges)
