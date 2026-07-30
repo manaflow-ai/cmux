@@ -2000,6 +2000,12 @@ class TerminalController {
             InternalFlagsPresenter.present()
             return "OK"
 
+#if DEBUG
+        case "__sidebar_footer_icon_balance":
+            SidebarFooterIconBalanceDebugPresenter.present()
+            return "OK"
+#endif
+
         case "list_windows":
             return listWindows()
 

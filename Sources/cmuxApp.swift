@@ -634,7 +634,7 @@ struct cmuxApp: App {
                             defaultValue: "Footer Icon Balance Lab…"
                         )
                     ) {
-                        SidebarFooterIconBalanceDebugWindowController.shared.show()
+                        SidebarFooterIconBalanceDebugPresenter.present()
                     }
                     Button(
                         String(
@@ -1408,7 +1408,7 @@ struct cmuxApp: App {
         AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
         TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
-        SidebarFooterIconBalanceDebugWindowController.shared.show()
+        SidebarFooterIconBalanceDebugPresenter.present()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
@@ -1654,7 +1654,7 @@ private struct DebugWindowControlsView: View {
                                 defaultValue: "Footer Icon Balance Lab…"
                             )
                         ) {
-                            SidebarFooterIconBalanceDebugWindowController.shared.show()
+                            SidebarFooterIconBalanceDebugPresenter.present()
                         }
                         Button("Background Debug…") {
                             BackgroundDebugWindowController.shared.show()
@@ -1717,7 +1717,7 @@ private struct DebugWindowControlsView: View {
                             AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                             TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
-                            SidebarFooterIconBalanceDebugWindowController.shared.show()
+                            SidebarFooterIconBalanceDebugPresenter.present()
                             BackgroundDebugWindowController.shared.show()
                             BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
@@ -2436,6 +2436,13 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
 }
 
 #if DEBUG
+enum SidebarFooterIconBalanceDebugPresenter {
+    @MainActor
+    static func present() {
+        SidebarFooterIconBalanceDebugWindowController.shared.show()
+    }
+}
+
 private final class SidebarFooterIconBalanceDebugWindowController: ReleasingWindowController {
     static let shared = SidebarFooterIconBalanceDebugWindowController()
 
