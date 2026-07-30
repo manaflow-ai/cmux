@@ -1544,6 +1544,24 @@ struct ComputerUseUXTests {
         )
         #expect(codexCursorRequest?["name"] == nil)
 
+        let proxyCursorSessionID =
+            "\(driverSessionID)-mcp-42-1000"
+        let proxyCursorRequest =
+            ComputerUseRuntimeService.setDriverCursorVisibleRequest(
+                false,
+                driverSessionID: proxyCursorSessionID,
+                profile: .codexCompatibility
+            )
+        #expect(
+            (proxyCursorRequest?["args"] as? [String: Any])?["session"]
+                as? String == proxyCursorSessionID,
+            "Turn completion must be able to hide the exact proxy-generation cursor that owns the visible overlay"
+        )
+        #expect(
+            (proxyCursorRequest?["args"] as? [String: Any])?["enabled"]
+                as? Bool == false
+        )
+
         #expect(ComputerUseSessionScope.isManagedProxySessionID(
             driverSessionID,
             for: driverSessionID
