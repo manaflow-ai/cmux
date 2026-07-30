@@ -1,15 +1,13 @@
+import Foundation
 import Testing
 @testable import CmuxFoundation
 
 @Suite(.serialized)
 struct MainActorCoalescingDeadlineTimerTests {
-    @MainActor
-    private final class ActionOwner {}
-
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func cancellationDisarmsTimerAndAllowsSuccessor() async throws {
-        let owner = ActionOwner()
+        let owner = NSObject()
         let actions = AsyncStream<Void>.makeStream()
         defer { actions.continuation.finish() }
         var actionIterator = actions.stream.makeAsyncIterator()
@@ -30,7 +28,7 @@ struct MainActorCoalescingDeadlineTimerTests {
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func deadOwnerSuppressesActionAtDeadline() async {
-        var owner: ActionOwner? = ActionOwner()
+        var owner: NSObject? = NSObject()
         weak var weakOwner = owner
         var actionCount = 0
         let timer = MainActorCoalescingDeadlineTimer(owner: owner!) { _ in

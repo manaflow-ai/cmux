@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Reject stored DispatchWorkItem declarations in shipped Swift sources outside audited uses."""
+"""Reject stored DispatchWorkItem declarations in cmux-owned Swift sources.
+
+The parent-repository gate covers Sources, CLI, ios, and package Sources.
+Gitlink dependencies such as Ghostty and Bonsplit remain dependency-owned and
+must be audited when their pinned revisions change.
+"""
 
 from __future__ import annotations
 
@@ -534,6 +539,8 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 def declarations() -> list[Declaration]:
     found: list[Declaration] = []
+    # Deliberately exclude gitlink dependencies: their source blobs are absent
+    # from the parent-only checkout used by this guard.
     source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT]
     source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
     paths = {
@@ -558,7 +565,7 @@ def main() -> int:
         return 0
 
     print(
-        "Stored `var DispatchWorkItem` declarations in shipped Swift sources can rebuild "
+        "Stored `var DispatchWorkItem` declarations in cmux-owned Swift sources can rebuild "
         "recursive release chains. Use a scheduler that cannot retain prior queued work.",
         file=sys.stderr,
     )
