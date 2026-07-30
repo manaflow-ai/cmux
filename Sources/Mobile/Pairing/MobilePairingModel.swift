@@ -17,18 +17,6 @@ import Observation
 @MainActor
 @Observable
 final class MobilePairingModel {
-    /// One exact installed iOS app the Mac can target with its QR scheme.
-    struct IOSAppTarget: Equatable, Hashable, Identifiable, Sendable {
-        let bundleIdentifier: String
-        let displayName: String
-
-        var id: String { bundleIdentifier }
-
-        var pairingURLScheme: CmxPairingURLScheme? {
-            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)
-        }
-    }
-
     /// The pairing window's render state.
     enum State: Equatable {
         /// Resolving auth/listener state before anything is shown.
@@ -115,9 +103,9 @@ final class MobilePairingModel {
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
     /// Exact iOS apps this Mac build can intentionally address.
-    let availableIOSAppTargets: [IOSAppTarget]
+    let availableIOSAppTargets: [MobileIOSAppTarget]
     /// The exact iOS app addressed by newly minted QR codes.
-    private(set) var selectedIOSAppTarget: IOSAppTarget
+    private(set) var selectedIOSAppTarget: MobileIOSAppTarget
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
@@ -148,7 +136,7 @@ final class MobilePairingModel {
         let targetStore = MobileIOSPairingTargetStore()
         iosAppTargetStore = targetStore
         let targets = targetStore.availableNamespaces.map { namespace in
-            IOSAppTarget(
+            MobileIOSAppTarget(
                 bundleIdentifier: namespace.bundleIdentifier,
                 displayName: Self.targetDisplayName(
                     bundleIdentifier: namespace.bundleIdentifier
@@ -165,7 +153,7 @@ final class MobilePairingModel {
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
 
     /// Selects one exact iOS app and regenerates the pairing code for it.
-    func selectIOSAppTarget(_ target: IOSAppTarget) async {
+    func selectIOSAppTarget(_ target: MobileIOSAppTarget) async {
         guard availableIOSAppTargets.contains(target),
               selectedIOSAppTarget != target,
               let namespace = MobileIOSAppNamespace(

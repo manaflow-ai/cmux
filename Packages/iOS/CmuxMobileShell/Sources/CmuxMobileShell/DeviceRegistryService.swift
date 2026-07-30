@@ -489,6 +489,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 }
 
+/// Provides Keychain-scoped device identities for one exact iOS app namespace.
 public extension MobileIOSAppNamespace {
     /// Returns this app bundle's stable device-registry identity.
     ///
