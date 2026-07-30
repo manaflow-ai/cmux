@@ -592,10 +592,12 @@ import Testing
         ], foregroundMacDeviceID: "mac-a")
 
         let resolvedWorkspaceID = try #require(store.workspaceID(
-            matchingRemoteWorkspaceID: "shared"
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-b"
         ))
         let resolvedSurfaceOwnerID = try #require(store.workspaceID(
-            containingSurfaceID: "terminal-shared"
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-b"
         ))
 
         let workspace = try #require(store.workspaces.first { $0.id == resolvedWorkspaceID })
