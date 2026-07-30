@@ -338,9 +338,10 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
-    /// Regression: the iOS 26 workspace table must keep its boundary rows
-    /// outside both toolbar hit regions. Otherwise vertical safe-area underlap
-    /// hides the first row at rest and the last row at the bottom.
+    /// Regression: the iOS 26 workspace table itself must stay between the
+    /// navigation and tab bars. Registering it as their scroll-edge source
+    /// does not make either bar reserve row space, so extending the table
+    /// through the safe area hides boundary rows in the live shell.
     @MainActor
     func testWorkspaceListBoundaryRowsClearToolbars() throws {
         guard #available(iOS 26.0, *) else {
@@ -366,15 +367,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
-        XCTAssertLessThan(
+        XCTAssertGreaterThanOrEqual(
             table.frame.minY,
-            settingsButton.frame.maxY,
-            "The workspace table must underlap the top toolbar so its native scroll-edge effect can render."
+            settingsButton.frame.maxY - 1,
+            "The workspace table must begin below the top toolbar."
         )
-        XCTAssertGreaterThan(
+        XCTAssertLessThanOrEqual(
             table.frame.maxY,
-            workspacesTab.frame.minY,
-            "The workspace table must underlap the bottom toolbar so its native scroll-edge effect can render."
+            workspacesTab.frame.minY + 1,
+            "The workspace table must end above the bottom toolbar."
         )
         XCTAssertTrue(
             firstRow.isHittable,
