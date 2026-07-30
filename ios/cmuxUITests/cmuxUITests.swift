@@ -493,12 +493,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
     }
 
-    /// Regression: the workspace list's New Task control first overlapped the
-    /// system search tab pill, then moved into a separate bar stacked above it.
-    /// Both controls belong in one horizontal bottom-control row with matching
-    /// circular geometry.
+    /// Regression: the workspace list's New Task control must occupy the
+    /// trailing column directly above the system search tab pill. Keeping the
+    /// controls vertically aligned preserves the system tab bar's grouping.
     @MainActor
-    func testWorkspaceListNewTaskButtonSharesSearchControlRow() throws {
+    func testWorkspaceListNewTaskButtonStacksAboveSearchControl() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search pill requires iOS 26.")
         }
@@ -526,16 +525,21 @@ final class cmuxUITests: XCTestCase {
             composerFrame.intersects(searchPillFrame),
             "New Task \(composerFrame) must not overlap the search pill \(searchPillFrame)"
         )
-        XCTAssertLessThan(
-            composerFrame.maxX,
-            searchPillFrame.minX,
-            "New Task \(composerFrame) must sit before Search \(searchPillFrame) in the bottom control row"
+        XCTAssertLessThanOrEqual(
+            composerFrame.maxY,
+            searchPillFrame.minY,
+            "New Task \(composerFrame) must sit above Search \(searchPillFrame)"
         )
         XCTAssertEqual(
-            composerFrame.midY,
-            searchPillFrame.midY,
+            composerFrame.midX,
+            searchPillFrame.midX,
             accuracy: 2,
-            "New Task \(composerFrame) and Search \(searchPillFrame) must share one horizontal control row"
+            "New Task \(composerFrame) and Search \(searchPillFrame) must share one trailing column"
+        )
+        XCTAssertLessThanOrEqual(
+            searchPillFrame.minY - composerFrame.maxY,
+            24,
+            "New Task \(composerFrame) must remain visually attached to Search \(searchPillFrame)"
         )
         XCTAssertEqual(
             composerFrame.width,
@@ -551,11 +555,11 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertTrue(
             waitForHittable(composer, timeout: 3),
-            "New Task must be tappable beside the search pill"
+            "New Task must be tappable above the search pill"
         )
         XCTAssertTrue(
             waitForHittable(searchPill, timeout: 3),
-            "The search pill must stay tappable beside New Task"
+            "The search pill must stay tappable below New Task"
         )
     }
 
