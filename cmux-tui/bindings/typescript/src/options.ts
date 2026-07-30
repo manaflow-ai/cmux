@@ -55,7 +55,7 @@ export interface RunOptions {
 
 export interface RequestOptions {
   readonly signal?: AbortSignal;
-  /** Overrides the client request deadline for this call. Zero disables it. */
+  /** Overrides this call's client deadline. Zero disables only the local deadline. */
   readonly timeoutMs?: number;
 }
 
@@ -71,7 +71,7 @@ export interface TerminalHistoryOptions {
 
 export interface TerminalWaitOptions {
   readonly pattern: string;
-  /** Server-side pattern wait bound, separate from the request deadline. */
+  /** Server-side bound, clamped to the request or 10-second safety bound. */
   readonly timeoutMs?: DecimalString;
   /** @deprecated Pass the signal in the second `wait` argument. */
   readonly signal?: AbortSignal;

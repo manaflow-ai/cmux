@@ -645,6 +645,130 @@ test("request and stream receive bounds are operation-scoped", async () => {
   client.close();
 });
 
+test("terminal waits propagate finite server bounds no longer than request deadlines", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "terminal.wait") {
+      current.ok(request, { matched: false, text: "" });
+      return;
+    }
+    if (request.operation === "terminal.wait_exit") {
+      current.ok(request, {
+        state: "pending",
+        terminal_id: TERMINAL,
+        lifecycle: "running",
+        revision: "1",
+      });
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const client = new Client({ transport, timeoutMs: 41 });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+
+  await terminal.wait({ pattern: "ready" });
+  await terminal.wait(
+    { pattern: "ready", timeoutMs: decimalString("99") },
+    { timeoutMs: 23 },
+  );
+  await terminal.wait(
+    { pattern: "ready", timeoutMs: decimalString("7") },
+    { timeoutMs: 23 },
+  );
+  await terminal.waitExit(decimalString("99"), { timeoutMs: 17 });
+  await terminal.waitExit();
+  await terminal.wait({ pattern: "ready" }, { timeoutMs: 0x7fff_ffff });
+
+  assert.deepEqual(
+    transport.requests.map((request) => ({
+      operation: request.operation,
+      timeoutMs: (request.params as Envelope).timeout_ms,
+    })),
+    [
+      { operation: "terminal.wait", timeoutMs: "41" },
+      { operation: "terminal.wait", timeoutMs: "23" },
+      { operation: "terminal.wait", timeoutMs: "7" },
+      { operation: "terminal.wait_exit", timeoutMs: "17" },
+      { operation: "terminal.wait_exit", timeoutMs: "41" },
+      { operation: "terminal.wait", timeoutMs: "2147483547" },
+    ],
+  );
+  client.close();
+
+  const unboundedTransport = new FakeTransport((request, current) => {
+    current.ok(request, { matched: false, text: "" });
+  });
+  const locallyUnbounded = new Client({
+    transport: unboundedTransport,
+    timeoutMs: 0,
+  });
+  await locallyUnbounded.session(SESSION).terminal(TERMINAL).wait({ pattern: "ready" });
+  assert.equal(
+    (unboundedTransport.requests[0]?.params as Envelope).timeout_ms,
+    "10000",
+  );
+  locallyUnbounded.close();
+});
+
+test("aborted terminal waits retain bounded capacity until response or server deadline", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (transport.requests.length === 10) {
+      current.ok(request, { matched: false, text: "" });
+    }
+  });
+  const client = new Client({ transport, timeoutMs: 200 });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+  const controllers = Array.from({ length: 8 }, () => new AbortController());
+  const waits = controllers.map((controller) =>
+    terminal.wait(
+      { pattern: "never" },
+      { signal: controller.signal },
+    )
+  );
+  controllers.forEach((controller) => controller.abort());
+  await Promise.all(waits.map((wait) => assert.rejects(() => wait, CmuxAbortError)));
+
+  await assert.rejects(
+    () => terminal.wait({ pattern: "blocked" }),
+    (error: unknown) => {
+      assert.ok(error instanceof CmuxProtocolError);
+      assert.match(error.message, /terminal wait capacity is 8/);
+      return true;
+    },
+  );
+  assert.equal(transport.requests.length, 8);
+  assert.deepEqual(
+    transport.requests.map((request) => (request.params as Envelope).timeout_ms),
+    Array(8).fill("200"),
+  );
+
+  transport.ok(transport.requests[0]!, { matched: false, text: "" });
+  const replacementController = new AbortController();
+  const replacement = terminal.wait(
+    { pattern: "replacement" },
+    { signal: replacementController.signal },
+  );
+  replacementController.abort();
+  await assert.rejects(() => replacement, CmuxAbortError);
+  assert.equal(transport.requests.length, 9);
+  await assert.rejects(
+    () => terminal.wait({ pattern: "still-blocked" }),
+    /terminal wait capacity is 8/,
+  );
+  assert.equal(transport.requests.length, 9);
+
+  await new Promise((resolve) => setTimeout(resolve, 225));
+  await assert.rejects(
+    () => terminal.wait({ pattern: "grace-protected" }),
+    /terminal wait capacity is 8/,
+  );
+  assert.equal(transport.requests.length, 9);
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal((await terminal.wait({ pattern: "reusable" })).matched, false);
+  assert.equal(transport.requests.length, 10);
+  client.close();
+});
+
 test("auxiliary resource discriminants select their decoder and preserve extra fields", async () => {
   let openedStream = "";
   const transport = new FakeTransport((request, current) => {

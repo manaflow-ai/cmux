@@ -23,6 +23,14 @@ import { operations } from "./internal/operations.js";
 
 const PROTOCOL = "cmux.protocol/1";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_TIMEOUT_MS = 0x7fff_ffff;
+const TERMINAL_WAIT_CAPACITY = 8;
+// The server checks canceled/disconnected wait workers in 100 ms slices. Keep
+// the local slot through one final slice unless its response proves it exited.
+const TERMINAL_WAIT_RELEASE_GRACE_MS = 100;
+const MAX_TERMINAL_WAIT_TIMEOUT_MS =
+  MAX_TIMEOUT_MS - TERMINAL_WAIT_RELEASE_GRACE_MS;
 export const MAX_STREAM_MESSAGES = 256;
 export const MAX_STREAM_BYTES = 16 * 1024 * 1024;
 
@@ -31,6 +39,11 @@ interface Pending {
   reject(error: unknown): void;
   timer?: ReturnType<typeof setTimeout>;
   removeAbort?: () => void;
+}
+
+interface TerminalWaitLease {
+  readonly expiresAt: number;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 interface StreamState<Value> {
@@ -77,6 +90,7 @@ export class ResourceProtocol {
   private readonly localExecutor: ResourceProtocolOptions["localExecutor"];
   private readonly randomHex128: () => string;
   private readonly pending = new Map<string, Pending>();
+  private readonly terminalWaitLeases = new Map<string, TerminalWaitLease>();
   private readonly streams = new Map<StreamId, StreamState<unknown>>();
   private readonly unsubscribers: Unsubscribe[];
   private nextRequest = 0;
@@ -85,7 +99,7 @@ export class ResourceProtocol {
 
   constructor(options: ResourceProtocolOptions) {
     this.transport = options.transport;
-    this.timeoutMs = options.timeoutMs ?? 10_000;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.localExecutor = options.localExecutor;
     const randomHex128 = options.randomHex128 ?? secureRandomHex128;
     this.randomHex128 = () => {
@@ -276,19 +290,30 @@ export class ResourceProtocol {
     if (
       !Number.isFinite(effectiveTimeout)
       || effectiveTimeout < 0
-      || effectiveTimeout > 0x7fff_ffff
+      || effectiveTimeout > MAX_TIMEOUT_MS
     ) {
       return Promise.reject(
         new TypeError("timeoutMs must be between 0 and 2147483647"),
       );
     }
     const requestId = `ts-${++this.nextRequest}`;
+    const terminalWaitTimeout = terminalWaitServerTimeout(
+      operation,
+      params,
+      effectiveTimeout,
+    );
+    const requestParams = terminalWaitTimeout === undefined
+      ? params
+      : {
+        ...params,
+        timeout_ms: terminalWaitTimeout.toString(),
+      };
     const envelope = {
       protocol: PROTOCOL,
       type: "request",
       id: requestId,
       operation,
-      params,
+      params: requestParams,
       ...(idempotencyKey !== undefined
         ? { idempotency_key: idempotencyKey }
         : {}),
@@ -308,30 +333,53 @@ export class ResourceProtocol {
         ),
       );
     }
+    if (
+      terminalWaitTimeout !== undefined
+      && !this.reserveTerminalWait(requestId, Number(terminalWaitTimeout))
+    ) {
+      return Promise.reject(
+        new CmuxProtocolError(
+          `terminal wait capacity is ${TERMINAL_WAIT_CAPACITY}; retry after an active wait reaches its server deadline`,
+        ),
+      );
+    }
     return new Promise<unknown>((resolve, reject) => {
       const pending: Pending = { resolve, reject };
       if (effectiveTimeout > 0) {
         pending.timer = setTimeout(() => {
+          if (this.pending.get(requestId) !== pending) return;
           this.pending.delete(requestId);
-          pending.removeAbort?.();
+          this.finishPending(pending);
           reject(new CmuxTimeoutError(`${operation} timed out`));
         }, effectiveTimeout);
       }
+      let sent = false;
       if (signal) {
         const abort = () => {
+          if (this.pending.get(requestId) !== pending) return;
           this.pending.delete(requestId);
-          if (pending.timer) clearTimeout(pending.timer);
+          this.finishPending(pending);
+          if (!sent) this.releaseTerminalWait(requestId);
           reject(abortError());
         };
         signal.addEventListener("abort", abort, { once: true });
         pending.removeAbort = () => signal.removeEventListener("abort", abort);
       }
       this.pending.set(requestId, pending);
+      if (signal?.aborted) {
+        this.pending.delete(requestId);
+        this.finishPending(pending);
+        this.releaseTerminalWait(requestId);
+        reject(abortError());
+        return;
+      }
       try {
+        sent = true;
         this.transport.send(json);
       } catch (error) {
         this.pending.delete(requestId);
         this.finishPending(pending);
+        this.releaseTerminalWait(requestId);
         reject(error);
       }
     });
@@ -354,6 +402,7 @@ export class ResourceProtocol {
         this.fail(new CmuxProtocolError("response id must be a string"));
         return;
       }
+      this.releaseTerminalWait(value.id);
       const pending = this.pending.get(value.id);
       if (!pending) return;
       this.pending.delete(value.id);
@@ -504,6 +553,28 @@ export class ResourceProtocol {
     pending.removeAbort?.();
   }
 
+  private reserveTerminalWait(requestId: string, timeoutMs: number): boolean {
+    const now = Date.now();
+    for (const [id, lease] of this.terminalWaitLeases) {
+      if (lease.expiresAt <= now) this.releaseTerminalWait(id);
+    }
+    if (this.terminalWaitLeases.size >= TERMINAL_WAIT_CAPACITY) return false;
+    const leaseMs = timeoutMs + TERMINAL_WAIT_RELEASE_GRACE_MS;
+    const timer = setTimeout(() => this.releaseTerminalWait(requestId), leaseMs);
+    this.terminalWaitLeases.set(requestId, {
+      expiresAt: now + leaseMs,
+      timer,
+    });
+    return true;
+  }
+
+  private releaseTerminalWait(requestId: string): void {
+    const lease = this.terminalWaitLeases.get(requestId);
+    if (!lease) return;
+    this.terminalWaitLeases.delete(requestId);
+    clearTimeout(lease.timer);
+  }
+
   private fail(error: Error): void {
     if (this.closed) return;
     this.closed = true;
@@ -513,12 +584,35 @@ export class ResourceProtocol {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
+    this.terminalWaitLeases.clear();
     for (const state of this.streams.values()) {
       this.finishStream(state, { streamId: state.id, reason: "error", error });
     }
     this.streams.clear();
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
   }
+}
+
+function terminalWaitServerTimeout(
+  operation: string,
+  params: Readonly<Record<string, unknown>>,
+  requestTimeoutMs: number,
+): bigint | undefined {
+  if (operation !== "terminal.wait" && operation !== "terminal.wait_exit") {
+    return undefined;
+  }
+  const requestBound = BigInt(Math.min(
+    Math.floor(requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS),
+    MAX_TERMINAL_WAIT_TIMEOUT_MS,
+  ));
+  const supplied = params.timeout_ms;
+  if (supplied === undefined) return requestBound;
+  if (typeof supplied !== "string" || !/^(0|[1-9][0-9]{0,19})$/.test(supplied)) {
+    return undefined;
+  }
+  const suppliedBound = BigInt(supplied);
+  return suppliedBound < requestBound ? suppliedBound : requestBound;
 }
 
 export class ResourceStream<Value>
