@@ -186,6 +186,7 @@ extension AgentNotificationRegressionTests {
         )
         bus.drainForTesting()
         #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.statusEntries["omp"] == nil)
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == nil)
 
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(dockOwnerId),
@@ -198,6 +199,12 @@ extension AgentNotificationRegressionTests {
             format: .plain,
             panelID: fixture.panelId,
             pid: nil
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId
         )
         bus.drainForTesting()
 
