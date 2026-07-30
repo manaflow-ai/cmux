@@ -1358,15 +1358,13 @@ public final class MobileIrohRuntimeComposition:
 
     private func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
-        let appInstanceID = try await appInstances.appInstanceID(
-            accountID: accountID,
-            tag: tag
-        )
-        let identity = try await identities.identity(
-            accountID: accountID,
-            appInstanceID: appInstanceID
-        )
-        let endpointID = try Self.peerIdentity(for: identity)
+        // Resolve the durable device id BEFORE any iroh identity exists. The
+        // device-id resolver's continuity probe treats a device-local iroh
+        // identity as proof the install continues on this hardware; creating
+        // the identity first (below) would hand a phone restored from a
+        // pre-witness backup its own moments-old identity as "evidence" and
+        // adopt the migrated mirror id — two phones sharing one
+        // (user, device, tag) slot.
         guard let durableDeviceID = await deviceID() else {
             // The durable identity store is unavailable (Keychain locked before
             // first unlock, or a persistent write failure). Registering a
@@ -1377,6 +1375,15 @@ public final class MobileIrohRuntimeComposition:
             throw CmxIrohClientRuntimeError.inactive
         }
         let deviceID = cmxCanonicalDeviceID(durableDeviceID)
+        let appInstanceID = try await appInstances.appInstanceID(
+            accountID: accountID,
+            tag: tag
+        )
+        let identity = try await identities.identity(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        )
+        let endpointID = try Self.peerIdentity(for: identity)
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
