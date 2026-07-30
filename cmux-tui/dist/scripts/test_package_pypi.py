@@ -65,7 +65,7 @@ class LauncherCommandTests(unittest.TestCase):
 
 
 class DarwinCompatibilityTests(unittest.TestCase):
-    def test_wheels_require_the_first_safe_macos_wheel_floor(self) -> None:
+    def test_wheels_preserve_the_supported_macos_floor(self) -> None:
         tags = {
             target.rust_target: target.platform_tags
             for target in TARGETS
@@ -75,14 +75,14 @@ class DarwinCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             tags,
             {
-                "aarch64-apple-darwin": ("macosx_15_0_arm64",),
-                "x86_64-apple-darwin": ("macosx_15_0_x86_64",),
+                "aarch64-apple-darwin": ("macosx_14_0_arm64",),
+                "x86_64-apple-darwin": ("macosx_14_0_x86_64",),
             },
         )
 
     def test_release_build_and_wheels_share_one_macos_minimum(self) -> None:
         compatibility_file = Path(__file__).resolve().parents[1] / "macos-deployment-target.txt"
-        self.assertEqual(compatibility_file.read_text().strip(), "15.0")
+        self.assertEqual(compatibility_file.read_text().strip(), "14.0")
 
         workflow = (
             Path(__file__).resolve().parents[3]
