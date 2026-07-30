@@ -101,6 +101,42 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             ],
         )
 
+    def test_backtick_identifiers_do_not_create_keyword_scopes(self) -> None:
+        declarations = self.scan(
+            """
+            final class Owner {
+                func schedule(`class`: Int) {
+                    var local: DispatchWorkItem?
+                }
+            }
+            """
+        )
+
+        self.assertEqual(
+            [(item.name, item.context) for item in declarations],
+            [("local", "local:Owner.schedule")],
+        )
+
+    def test_ignores_computed_properties_but_keeps_stored_observers(self) -> None:
+        declarations = self.scan(
+            """
+            final class Owner {
+                var shorthand: DispatchWorkItem? { nil }
+                var accessor: DispatchWorkItem? {
+                    get { nil }
+                }
+                var observed: DispatchWorkItem? = nil {
+                    didSet {}
+                }
+            }
+            """
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text) for item in declarations],
+            [("observed", "DispatchWorkItem?")],
+        )
+
     def test_comparison_initializer_does_not_consume_following_declaration(self) -> None:
         declarations = self.scan(
             """

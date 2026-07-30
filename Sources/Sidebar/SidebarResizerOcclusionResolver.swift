@@ -21,7 +21,7 @@ final class SidebarResizerCursorReleaseScheduler {
         delay: Duration,
         release: @escaping @MainActor (Bool) -> Void
     ) {
-        scheduler.schedule(after: delay) {
+        scheduler.schedule(after: delay, zeroDelayPolicy: .yieldOnce) {
             release(force)
         }
     }

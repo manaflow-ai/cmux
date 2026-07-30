@@ -8,6 +8,11 @@ import Foundation
 /// cannot create a recursive release chain through prior queued work.
 @MainActor
 final class MainActorDeferredActionScheduler {
+    enum ZeroDelayPolicy {
+        case enqueue
+        case yieldOnce
+    }
+
     private let clock: any Clock<Duration>
     private var pendingTask: Task<Void, Never>?
     private var generation: UInt64 = 0
@@ -28,6 +33,7 @@ final class MainActorDeferredActionScheduler {
 
     func schedule(
         after delay: Duration = .zero,
+        zeroDelayPolicy: ZeroDelayPolicy = .enqueue,
         _ action: @escaping @MainActor () -> Void
     ) {
         cancel()
@@ -40,10 +46,11 @@ final class MainActorDeferredActionScheduler {
                 } catch {
                     return
                 }
-            } else {
-                guard !Task.isCancelled else { return }
+            } else if zeroDelayPolicy == .yieldOnce {
+                await Task.yield()
             }
 
+            guard !Task.isCancelled else { return }
             guard let self, generation == scheduledGeneration else { return }
             pendingTask = nil
             action()

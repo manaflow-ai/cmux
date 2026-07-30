@@ -62,6 +62,37 @@ struct DeferredActionReplacementStackTests {
         }
     }
 
+    @MainActor
+    private final class TimerActionOwner {
+        var fireCount = 0
+    }
+
+    @MainActor
+    private func legacyWorkItemReleaseSnapshot(
+        count: Int,
+        recorder: ReleaseStackRecorder
+    ) -> (count: Int, offMain: Int, addressSpan: UInt) {
+        let deinitializations = AsyncStream<Int>.makeStream()
+        defer { deinitializations.continuation.finish() }
+        var head: DispatchWorkItem?
+
+        for identifier in 0..<count {
+            let previous = head
+            let probe = ClosureLifetimeProbe(
+                identifier: identifier,
+                recorder: recorder,
+                deinitialized: deinitializations.continuation
+            )
+            head = DispatchWorkItem { [previous, probe] in
+                _ = previous
+                _ = probe
+            }
+        }
+
+        head = nil
+        return recorder.snapshot
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func schedulerTracksCancellationAndReschedulingFromAction() async {
@@ -112,7 +143,48 @@ struct DeferredActionReplacementStackTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func sidebarSchedulerReplacementBurstKeepsReleaseStackBounded() async throws {
+    func coalescingDeadlineTimerReusesOneHandleAcrossBurst() async {
+        let owner = TimerActionOwner()
+        let fires = AsyncStream<Void>.makeStream()
+        defer { fires.continuation.finish() }
+        var fireIterator = fires.stream.makeAsyncIterator()
+        let timer = MainActorCoalescingDeadlineTimer(owner: owner) { owner in
+            owner.fireCount += 1
+            fires.continuation.yield()
+        }
+
+        for _ in 0..<5_000 {
+            timer.schedule(after: .milliseconds(20))
+        }
+
+        #expect(timer.isScheduled)
+        _ = await fireIterator.next()
+        #expect(owner.fireCount == 1)
+        #expect(!timer.isScheduled)
+    }
+
+    @Test
+    @MainActor
+    func legacyWorkItemHarnessShowsProportionalRecursiveReleaseDepth() {
+        let shortChain = legacyWorkItemReleaseSnapshot(
+            count: 16,
+            recorder: ReleaseStackRecorder()
+        )
+        let longChain = legacyWorkItemReleaseSnapshot(
+            count: 128,
+            recorder: ReleaseStackRecorder()
+        )
+
+        #expect(shortChain.count == 16)
+        #expect(longChain.count == 128)
+        #expect(shortChain.offMain == 0)
+        #expect(longChain.offMain == 0)
+        #expect(longChain.addressSpan > shortChain.addressSpan * 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func sharedSchedulerReplacementBurstKeepsReleaseStackBounded() async throws {
         let replacementCount = 5_000
         let recorder = ReleaseStackRecorder()
         let deinitializations = AsyncStream<Int>.makeStream()
@@ -121,7 +193,7 @@ struct DeferredActionReplacementStackTests {
         let releases = AsyncStream<Int>.makeStream()
         defer { releases.continuation.finish() }
         var releaseIterator = releases.stream.makeAsyncIterator()
-        let scheduler = SidebarResizerCursorReleaseScheduler()
+        let scheduler = MainActorDeferredActionScheduler()
 
         for identifier in 0..<replacementCount {
             let probe = ClosureLifetimeProbe(
@@ -129,7 +201,7 @@ struct DeferredActionReplacementStackTests {
                 recorder: recorder,
                 deinitialized: deinitializations.continuation
             )
-            scheduler.schedule(force: false, delay: .zero) { [probe, scheduler] _ in
+            scheduler.schedule { [probe, scheduler] in
                 // Mirror a SwiftUI value snapshot that transitively retains the
                 // scheduler while its deferred closure is queued.
                 _ = scheduler

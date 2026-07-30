@@ -24,6 +24,13 @@ STATEMENT_STARTERS = {
     "struct",
     "var",
 }
+KEYWORDS = TYPE_DECLARATIONS | CALLABLE_DECLARATIONS | STATEMENT_STARTERS | {
+    "didSet",
+    "get",
+    "set",
+    "willSet",
+}
+IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
 
 
 @dataclass(frozen=True)
@@ -234,13 +241,15 @@ def tokenize_swift(source: str) -> list[Token]:
             value = source[start:index]
             if index < len(source) and source[index] == "`":
                 advance()
-            tokens.append(Token(value, token_line, token_column, "identifier"))
+            tokens.append(Token(value, token_line, token_column, "escaped_identifier"))
             continue
         if character == "_" or character.isalpha():
             start = index
             while index < len(source) and (source[index] == "_" or source[index].isalnum()):
                 advance()
-            tokens.append(Token(source[start:index], token_line, token_column, "identifier"))
+            value = source[start:index]
+            kind = "keyword" if value in KEYWORDS else "identifier"
+            tokens.append(Token(value, token_line, token_column, kind))
             continue
         if source.startswith("->", index):
             tokens.append(Token("->", token_line, token_column))
@@ -268,7 +277,7 @@ def _scope_for_open_brace(tokens: list[Token], brace_index: int) -> Scope:
     header = [token for token in tokens[start + 1 : brace_index] if token.kind != "newline"]
     candidate: tuple[int, str] | None = None
     for index, token in enumerate(header):
-        if token.value in TYPE_DECLARATIONS | CALLABLE_DECLARATIONS:
+        if token.kind == "keyword" and token.value in TYPE_DECLARATIONS | CALLABLE_DECLARATIONS:
             candidate = (index, token.value)
     if candidate is None:
         return Scope("block", "")
@@ -277,7 +286,7 @@ def _scope_for_open_brace(tokens: list[Token], brace_index: int) -> Scope:
     if kind in {"init", "deinit", "subscript"}:
         return Scope("callable", kind)
     name_index = index + 1
-    while name_index < len(header) and header[name_index].kind != "identifier":
+    while name_index < len(header) and header[name_index].kind not in IDENTIFIER_KINDS:
         name_index += 1
     if name_index == len(header):
         return Scope("block", "")
@@ -327,6 +336,7 @@ def _declaration_end(tokens: list[Token], start: int) -> int:
             continue
         if (
             previous_was_newline
+            and token.kind == "keyword"
             and value in STATEMENT_STARTERS
             and paren_depth == bracket_depth == 0
         ):
@@ -405,6 +415,43 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     return None
 
 
+def _is_computed_property(
+    tokens: list[Token],
+    declaration_start: int,
+    declaration_end: int,
+    scopes: list[Scope],
+) -> bool:
+    if _declaration_context(scopes).startswith("local:"):
+        return False
+    if declaration_end >= len(tokens) or tokens[declaration_end].value != "{":
+        return False
+
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    for token in tokens[declaration_start:declaration_end]:
+        value = token.value
+        if value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            return False
+        if value == "(":
+            paren_depth += 1
+        elif value == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif value == "[":
+            bracket_depth += 1
+        elif value == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif value == "<":
+            angle_depth += 1
+        elif value == ">" and angle_depth:
+            angle_depth -= 1
+
+    accessor_index = _significant(tokens, declaration_end + 1)
+    if accessor_index is None:
+        return True
+    return tokens[accessor_index].value not in {"didSet", "willSet"}
+
+
 def compare_allowances(
     found: list[Declaration],
     allowances: tuple[Allowance, ...] = ALLOWANCES,
@@ -433,13 +480,15 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
             if scopes:
                 scopes.pop()
             continue
-        if token.value != "var":
+        if token.kind != "keyword" or token.value != "var":
             continue
 
         name_index = _significant(tokens, index + 1)
-        if name_index is None or tokens[name_index].kind != "identifier":
+        if name_index is None or tokens[name_index].kind not in IDENTIFIER_KINDS:
             continue
         end = _declaration_end(tokens, name_index + 1)
+        if _is_computed_property(tokens, index, end, scopes):
+            continue
         declaration_tokens = tokens[index:end]
         type_text = _dispatch_type_text(declaration_tokens)
         if type_text is None:
@@ -475,7 +524,7 @@ def main() -> int:
         return 0
 
     print(
-        "Stored DispatchWorkItem declarations can rebuild recursive release chains. "
+        "Stored `var DispatchWorkItem` declarations in Sources/ can rebuild recursive release chains. "
         "Use MainActorDeferredActionScheduler for replace-on-reschedule work.",
         file=sys.stderr,
     )

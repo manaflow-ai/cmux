@@ -749,24 +749,24 @@ class GhosttyApp {
     private let scrollLagMinimumAverageMs: Double = 12
     private let scrollLagReportCooldownSeconds: TimeInterval = 300
     private var lastScrollLagReportUptime: TimeInterval?
-    @MainActor private lazy var scrollEndScheduler = MainActorDeferredActionScheduler()
+    @MainActor private lazy var scrollEndTimer = MainActorCoalescingDeadlineTimer(owner: self) { owner in
+        owner.endScrollSession()
+    }
 
     @MainActor
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        scrollEndScheduler.cancel()
-
         if momentumEnded {
             // Trackpad momentum ended - scrolling is done
+            scrollEndTimer.cancel()
             endScrollSession()
         } else if hasMomentum {
             // Trackpad scrolling with momentum - wait for momentum to end
+            scrollEndTimer.cancel()
             isScrolling = true
         } else {
             // Mouse wheel or non-momentum scroll - use timeout
             isScrolling = true
-            scrollEndScheduler.schedule(after: .milliseconds(150)) { [weak self] in
-                self?.endScrollSession()
-            }
+            scrollEndTimer.schedule(after: .milliseconds(150))
         }
     }
 
