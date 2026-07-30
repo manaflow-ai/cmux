@@ -399,14 +399,16 @@ jobs:
           cmake --build "$RUNNER_TEMP/cmux-cpp-frontend" --parallel
           ctest --test-dir "$RUNNER_TEMP/cmux-cpp-frontend" --output-on-failure
 
-      - name: Test Zig provider controller
+      - name: Test Zig session supervisor
         if: matrix.language == 'zig'
-        working-directory: cmux-tui/bindings/examples/zig-provider-controller
+        working-directory: cmux-tui/bindings/examples/zig-session-supervisor
         run: |
           test "$(zig version)" = "0.15.2"
           zig fmt --check build.zig src tests
-          zig build test
-          zig build
+          zig build test -Doptimize=Debug
+          zig build test -Doptimize=ReleaseSafe
+          zig build -Doptimize=Debug
+          zig build -Doptimize=ReleaseSafe
 
   conformance:
     name: seven-language live conformance
