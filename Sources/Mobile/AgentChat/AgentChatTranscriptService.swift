@@ -10,6 +10,7 @@ import Foundation
 final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
+    nonisolated private static let proseStreamingSnapshotMaxRows = 240
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
@@ -69,19 +70,32 @@ final class AgentChatTranscriptService {
         }
         self.proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
-            snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
+            snapshot: { surfaceID in await Self.screenRows(surfaceID: surfaceID) },
             hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
         )
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
-    /// streamer scrapes. Mirrors the render-grid observer's surface lookup.
+    /// streamer scrapes. This intentionally reads the plain viewport text
+    /// instead of the mobile render-grid JSON path: live prose streaming only
+    /// needs text rows, and grid decoding is owned by the terminal renderer.
     @MainActor
-    private static func screenRows(surfaceID: UUID) -> [String]? {
+    private static func screenRows(surfaceID: UUID) async -> [String]? {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
             return nil
         }
-        return surface.mobileRenderGridFrame(stateSeq: 0, full: true, includeTheme: false)?.rows
+        guard let text = surface.visibleText() else {
+            return nil
+        }
+        return proseStreamingRows(from: text)
+    }
+
+    nonisolated private static func proseStreamingRows(from text: String) -> [String] {
+        let rows = text.components(separatedBy: .newlines)
+        guard rows.count > proseStreamingSnapshotMaxRows else {
+            return rows
+        }
+        return Array(rows.suffix(proseStreamingSnapshotMaxRows))
     }
 
     /// A `(session, surface)` resume re-bind cmux authored during session
@@ -148,7 +162,7 @@ final class AgentChatTranscriptService {
         let buffered = Self.pendingResumeIntents
         Self.pendingResumeIntents.removeAll()
         for intent in buffered {
-            registry.noteResumeInitiated(
+            noteResumeInitiated(
                 sessionID: intent.sessionID,
                 source: intent.source,
                 surfaceID: intent.surfaceID,
@@ -282,6 +296,7 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
+        proseStreamer.turnEnded(sessionID: sessionID)
         registry.noteResumeInitiated(
             sessionID: sessionID,
             source: source,

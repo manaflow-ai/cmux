@@ -25,6 +25,21 @@ final class AgentChatProseStreamerTests: XCTestCase {
         }
     }
 
+    private actor SnapshotGate {
+        private var continuation: CheckedContinuation<[String]?, Never>?
+
+        func waitForRows() async -> [String]? {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func resume(rows: [String]?) {
+            continuation?.resume(returning: rows)
+            continuation = nil
+        }
+    }
+
     func testStreamsWhenLegacyUserDefaultsFlagIsFalse() async throws {
         let legacyDefaultsKey = "CMUXAgentChatProseStreaming"
         let previousLegacyValue = UserDefaults.standard.object(forKey: legacyDefaultsKey)
@@ -52,9 +67,11 @@ final class AgentChatProseStreamerTests: XCTestCase {
         let emittedFrame = expectation(description: "streaming prose frame emitted")
         let sleepGate = SleepGate()
         var emittedFrames: [ChatSessionEventFrame] = []
+        var didFulfillEmittedFrame = false
         let streamer = AgentChatProseStreamer(
             emit: { frame in
-                if emittedFrames.isEmpty {
+                if !didFulfillEmittedFrame {
+                    didFulfillEmittedFrame = true
                     emittedFrame.fulfill()
                 }
                 emittedFrames.append(frame)
@@ -101,11 +118,15 @@ final class AgentChatProseStreamerTests: XCTestCase {
         let clearedFrame = expectation(description: "stale streaming prose frame cleared")
         let sleepGate = SleepGate()
         var emittedFrames: [ChatSessionEventFrame] = []
+        var didFulfillEmittedFrame = false
+        var didFulfillClearedFrame = false
         let streamer = AgentChatProseStreamer(
             emit: { frame in
-                if emittedFrames.isEmpty {
+                if !didFulfillEmittedFrame {
+                    didFulfillEmittedFrame = true
                     emittedFrame.fulfill()
-                } else if case .streamingProse(nil) = frame.event {
+                } else if !didFulfillClearedFrame, case .streamingProse(nil) = frame.event {
+                    didFulfillClearedFrame = true
                     clearedFrame.fulfill()
                 }
                 emittedFrames.append(frame)
@@ -124,8 +145,6 @@ final class AgentChatProseStreamerTests: XCTestCase {
 
         streamer.turnStarted(sessionID: sessionID, surfaceID: reboundSurfaceID, agentKind: .codex)
         await fulfillment(of: [clearedFrame], timeout: 1.0)
-        streamer.turnEnded(sessionID: sessionID)
-        await sleepGate.resume()
 
         XCTAssertEqual(emittedFrames.count, 2)
         guard case .streamingProse(let initial?) = emittedFrames.first?.event,
@@ -136,5 +155,49 @@ final class AgentChatProseStreamerTests: XCTestCase {
         guard case .streamingProse(nil) = emittedFrames.last?.event else {
             return XCTFail("Expected rebound surface to clear the old preview")
         }
+        streamer.turnEnded(sessionID: sessionID)
+        await sleepGate.resume()
+    }
+
+    func testStaleSnapshotResultDoesNotEmitAfterSurfaceRebind() async throws {
+        let originalSurfaceID = UUID()
+        let reboundSurfaceID = UUID()
+        let sessionID = "session-rebound-before-snapshot-finishes"
+        let originalRows = [
+            "> Explain the stalled tab.",
+            "This old answer must not stream after rebind.",
+            "Working (5m 29s Esc to interrupt)",
+        ]
+
+        let snapshotStarted = expectation(description: "original surface snapshot started")
+        let stalePreviewEmitted = expectation(description: "stale preview not emitted")
+        stalePreviewEmitted.isInverted = true
+        let snapshotGate = SnapshotGate()
+        let sleepGate = SleepGate()
+        let streamer = AgentChatProseStreamer(
+            emit: { _ in
+                stalePreviewEmitted.fulfill()
+            },
+            snapshot: { requestedSurfaceID in
+                guard requestedSurfaceID == originalSurfaceID else {
+                    return nil
+                }
+                snapshotStarted.fulfill()
+                return await snapshotGate.waitForRows()
+            },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) },
+            pollInterval: .seconds(60),
+            sleep: { _ in await sleepGate.wait() }
+        )
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: originalSurfaceID, agentKind: .codex)
+        await fulfillment(of: [snapshotStarted], timeout: 1.0)
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: reboundSurfaceID, agentKind: .codex)
+        await snapshotGate.resume(rows: originalRows)
+        await fulfillment(of: [stalePreviewEmitted], timeout: 0.2)
+        streamer.turnEnded(sessionID: sessionID)
+        await sleepGate.resume()
     }
 }

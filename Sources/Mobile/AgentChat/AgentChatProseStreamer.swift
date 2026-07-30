@@ -15,10 +15,19 @@ import Foundation
 /// It stays off the keystroke hot path: a surface is only snapshotted while a
 /// chat client is subscribed and a turn is actively streaming for that session.
 /// Idle sessions are never polled.
+private actor AgentChatProseExtractionWorker {
+    private let extractor = AgentChatProseScreenExtractor()
+
+    func extract(lines: [String], agentKind: ChatAgentKind) -> String? {
+        extractor.extract(lines: lines, agentKind: agentKind)
+    }
+}
+
 @MainActor
 final class AgentChatProseStreamer {
     /// Per-session live-turn bookkeeping.
     private struct ActiveTurn {
+        let generation: Int
         let surfaceID: UUID
         let agentKind: ChatAgentKind
         /// Set once the authoritative prose for this turn has landed; the loop
@@ -28,12 +37,12 @@ final class AgentChatProseStreamer {
         var lastEmitted: String?
     }
 
-    private let extractor = AgentChatProseScreenExtractor()
+    private let extractionWorker = AgentChatProseExtractionWorker()
     private var turns: [String: ActiveTurn] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
 
     private let emit: @MainActor (ChatSessionEventFrame) -> Void
-    private let snapshot: @MainActor (UUID) -> [String]?
+    private let snapshot: @MainActor (UUID) async -> [String]?
     private let hasSubscribers: @MainActor () -> Bool
     private let now: @MainActor () -> Date
     private let pollInterval: Duration
@@ -51,7 +60,7 @@ final class AgentChatProseStreamer {
     ///   - sleep: Cancellable sleep seam for the poll loop.
     init(
         emit: @escaping @MainActor (ChatSessionEventFrame) -> Void,
-        snapshot: @escaping @MainActor (UUID) -> [String]?,
+        snapshot: @escaping @MainActor (UUID) async -> [String]?,
         hasSubscribers: @escaping @MainActor () -> Bool,
         now: @escaping @MainActor () -> Date = { Date() },
         pollInterval: Duration = .milliseconds(150),
@@ -72,7 +81,12 @@ final class AgentChatProseStreamer {
     ///   - surfaceID: The hosting terminal surface to snapshot.
     ///   - agentKind: Selects the prose extractor's chrome markers.
     func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) {
-        turns[sessionID] = ActiveTurn(surfaceID: surfaceID, agentKind: agentKind)
+        let previous = turns[sessionID]
+        let generation = (previous?.generation ?? -1) + 1
+        turns[sessionID] = ActiveTurn(generation: generation, surfaceID: surfaceID, agentKind: agentKind)
+        if previous?.lastEmitted != nil {
+            clearPreview(sessionID: sessionID)
+        }
         guard tasks[sessionID] == nil else { return }
         tasks[sessionID] = Task { [weak self] in
             await self?.runLoop(sessionID: sessionID)
@@ -107,17 +121,23 @@ final class AgentChatProseStreamer {
 
     private func runLoop(sessionID: String) async {
         while !Task.isCancelled {
-            emitPreviewIfChanged(sessionID: sessionID)
+            await emitPreviewIfChanged(sessionID: sessionID)
             await sleep(pollInterval)
         }
     }
 
-    private func emitPreviewIfChanged(sessionID: String) {
+    private func emitPreviewIfChanged(sessionID: String) async {
         guard let turn = turns[sessionID], !turn.settled else { return }
         guard hasSubscribers() else { return }
-        guard let lines = snapshot(turn.surfaceID) else { return }
-        guard let prose = extractor.extract(lines: lines, agentKind: turn.agentKind) else { return }
-        guard prose != turn.lastEmitted else { return }
+        guard let lines = await snapshot(turn.surfaceID) else { return }
+        guard !Task.isCancelled else { return }
+        guard let prose = await extractionWorker.extract(lines: lines, agentKind: turn.agentKind) else { return }
+        guard !Task.isCancelled else { return }
+        guard let current = turns[sessionID],
+              current.generation == turn.generation,
+              !current.settled,
+              hasSubscribers() else { return }
+        guard prose != current.lastEmitted else { return }
         turns[sessionID]?.lastEmitted = prose
         emit(ChatSessionEventFrame(sessionID: sessionID, event: .streamingProse(previewMessage(sessionID: sessionID, text: prose))))
     }
