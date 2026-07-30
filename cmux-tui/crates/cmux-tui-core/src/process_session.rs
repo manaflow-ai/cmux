@@ -1727,14 +1727,14 @@ mod tests {
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    #[test]
-    fn state_change_wake_preempts_degraded_retry_before_shutdown_deadline() {
-        let now = Instant::now();
-        let shutdown_deadline = now + Duration::from_secs(5);
+    fn degraded_reap_request_for_test(
+        session: libc::pid_t,
+        next_attempt: Instant,
+        degraded: Arc<AtomicUsize>,
+    ) -> NaturalReapRequest {
         let (sender, _receiver) = mpsc::channel();
-        let degraded = Arc::new(AtomicUsize::new(1));
-        let mut pending = vec![NaturalReapRequest {
-            session: 41,
+        NaturalReapRequest {
+            session,
             cleanup_timeout: Duration::ZERO,
             observe_child: Box::new(|| Ok(false)),
             child_observed: false,
@@ -1746,14 +1746,36 @@ mod tests {
                 active: Arc::new(AtomicUsize::new(1)),
                 degraded: degraded.clone(),
             },
-            next_attempt: now + Duration::from_secs(30),
+            next_attempt,
             retry_delay: NATURAL_REAP_RETRY_MAX,
             attempts: NATURAL_REAP_MAX_ATTEMPTS,
             degraded: true,
-        }];
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn accept_session_state_change_for_test(
+        _session: libc::pid_t,
+        pending: &mut Vec<NaturalReapRequest>,
+        wake_pending: &AtomicBool,
+    ) {
+        accept_natural_reaper_command(NaturalReaperCommand::Wake, pending, wake_pending);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn state_change_wake_preempts_degraded_retry_before_shutdown_deadline() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let degraded = Arc::new(AtomicUsize::new(1));
+        let mut pending = vec![degraded_reap_request_for_test(
+            41,
+            now + Duration::from_secs(30),
+            degraded.clone(),
+        )];
         let wake_pending = AtomicBool::new(true);
 
-        accept_natural_reaper_command(NaturalReaperCommand::Wake, &mut pending, &wake_pending);
+        accept_session_state_change_for_test(41, &mut pending, &wake_pending);
 
         assert!(
             pending[0].next_attempt <= shutdown_deadline,
@@ -1768,6 +1790,27 @@ mod tests {
             pending[0].next_attempt.saturating_duration_since(rescheduled_at)
                 >= NATURAL_REAP_DEGRADED_RETRY.saturating_sub(Duration::from_millis(10)),
             "an unsuccessful state-change retry disabled degraded backoff"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn state_change_wake_preserves_unrelated_degraded_backoff() {
+        let now = Instant::now();
+        let shutdown_deadline = now + Duration::from_secs(5);
+        let degraded = Arc::new(AtomicUsize::new(2));
+        let mut pending = vec![
+            degraded_reap_request_for_test(41, now + Duration::from_secs(30), degraded.clone()),
+            degraded_reap_request_for_test(73, now + Duration::from_secs(30), degraded.clone()),
+        ];
+        let wake_pending = AtomicBool::new(true);
+
+        accept_session_state_change_for_test(41, &mut pending, &wake_pending);
+
+        assert!(pending[0].next_attempt <= shutdown_deadline);
+        assert!(
+            pending[1].next_attempt > shutdown_deadline,
+            "one session state change defeated another degraded session's backoff"
         );
     }
 
