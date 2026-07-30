@@ -577,7 +577,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // remap is authoritative and anchor math never sees reflow as append drift.
             let capturedViewportAnchor =
                 await surfaceView.captureVerifiedReplayViewportAnchor()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
             if frame.anchor == .screen, frame.activeScreen == .primary {
                 if let capturedViewportAnchor {
