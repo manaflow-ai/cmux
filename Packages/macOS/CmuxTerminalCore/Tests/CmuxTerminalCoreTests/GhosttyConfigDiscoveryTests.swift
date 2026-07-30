@@ -56,6 +56,80 @@ private struct NoFontProbe: GhosttyFontProbing {
     }
 }
 
+@Suite struct GhosttyConfigDiscoverySymbolTests {
+    private let discovery = GhosttyConfigDiscovery(fileReader: FakeFileReader(), fontProbe: NoFontProbe())
+
+    @Test func symbolFontMappingsCoverAllSymbolRanges() {
+        let mappings = discovery.symbolFontMappings()
+        let ranges = Set(mappings.map(\.0))
+        #expect(ranges == Set(GhosttyConfigDiscovery.symbolRanges))
+        #expect(mappings.allSatisfy { $0.1 == GhosttyConfigDiscovery.symbolFallbackFont })
+    }
+
+    @Test func autoInjectedSymbolFontMappingsSkipsWhenCodepointMapPresent() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-codepoint-map = U+4E00-U+9FFF=Foo",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
+    }
+
+    @Test func autoInjectedSymbolFontMappingsSkipsWhenExplicitFallbackChainPresent() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrains Mono\nfont-family = Apple Symbols",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(configPaths: [path]) == nil)
+    }
+
+    @Test func autoInjectedSymbolFontMappingsFiltersRangesCoveredByConfiguredFont() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        let mappings = discovery.autoInjectedSymbolFontMappings(
+            configPaths: [path],
+            rangeCoverageProbe: { fontFamily, range in
+                #expect(fontFamily == "JetBrainsMono Nerd Font")
+                return range == "U+25A0-U+25FF"
+            }
+        )
+        #expect(mappings != nil)
+        #expect(Set(mappings!.map(\.0)) == ["U+2B00-U+2BFF"])
+    }
+
+    @Test func autoInjectedSymbolFontMappingsNilWhenAllRangesCovered() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.autoInjectedSymbolFontMappings(
+            configPaths: [path],
+            rangeCoverageProbe: { _, _ in true }
+        ) == nil)
+    }
+
+    @Test func shouldInjectSymbolFontFallbackMatchesMappingPresence() {
+        let path = "/cfg/config"
+        let reader = FakeFileReader(contentsByPath: [
+            path: "font-family = JetBrainsMono Nerd Font",
+        ])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+        #expect(discovery.shouldInjectSymbolFontFallback(
+            configPaths: [path],
+            rangeCoverageProbe: { _, _ in false }
+        ))
+        #expect(!discovery.shouldInjectSymbolFontFallback(
+            configPaths: [path],
+            rangeCoverageProbe: { _, _ in true }
+        ))
+    }
+}
+
 @Suite struct GhosttyConfigDiscoveryFontSummaryTests {
     @Test func detectsCodepointMapDirective() {
         let path = "/cfg/config"
