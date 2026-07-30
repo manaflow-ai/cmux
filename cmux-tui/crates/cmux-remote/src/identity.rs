@@ -446,7 +446,7 @@ impl PersistenceFailure {
 
 struct PersistenceCoordinator {
     path: PathBuf,
-    _state_lease: OwnerFileLock,
+    state_lease: Arc<OwnerFileLock>,
     state: StdMutex<PersistenceCoordinatorState>,
     #[cfg(test)]
     hooks: Arc<PersistenceTestHooks>,
@@ -466,7 +466,7 @@ impl PersistenceCoordinator {
     fn new(path: PathBuf, durable_revision: u64, state_lease: OwnerFileLock) -> Self {
         Self {
             path,
-            _state_lease: state_lease,
+            state_lease: Arc::new(state_lease),
             state: StdMutex::new(PersistenceCoordinatorState {
                 durable_revision,
                 highest_seen_revision: durable_revision,
@@ -564,9 +564,11 @@ impl PersistenceCoordinator {
             };
 
             let path = self.path.clone();
+            let state_lease = Arc::clone(&self.state_lease);
             #[cfg(test)]
             let hooks = self.hooks.clone();
             let result = tokio::task::spawn_blocking(move || -> Result<(), PersistenceFailure> {
+                let _state_lease = state_lease;
                 #[cfg(test)]
                 hooks.before_write(revision).map_err(PersistenceFailure::Uncommitted)?;
                 #[cfg(test)]
