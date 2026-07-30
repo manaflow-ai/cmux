@@ -13,6 +13,7 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
+    var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -20,6 +21,7 @@ struct ClaudeHookSessionStoreFile: Codable {
         case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
         case activeSessionsBySurface
+        case agentHookFailureReportTimestamps
     }
 
     init() {}
@@ -40,6 +42,10 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsBySurface
         ) ?? [:]
+        agentHookFailureReportTimestamps = try container.decodeIfPresent(
+            [String: TimeInterval].self,
+            forKey: .agentHookFailureReportTimestamps
+        ) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
@@ -54,6 +60,9 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !activeSessionsBySurface.isEmpty {
             try container.encode(activeSessionsBySurface, forKey: .activeSessionsBySurface)
+        }
+        if !agentHookFailureReportTimestamps.isEmpty {
+            try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
         }
     }
 }
