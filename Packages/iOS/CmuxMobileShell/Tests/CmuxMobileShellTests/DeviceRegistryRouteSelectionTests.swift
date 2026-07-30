@@ -288,6 +288,33 @@ import Testing
         #expect(store.read() == .found(first))
     }
 
+    @Test func preWitnessMirrorIsNotAdoptedWithoutDeviceContinuityEvidence() {
+        // Restored-backup proxy for the PRE-WITNESS population: the mirror
+        // migrated over in a backup taken by a build that never recorded a
+        // device witness, the ThisDeviceOnly Keychain item did not, and no
+        // non-migrating artifact proves this is the same physical device.
+        // Witness absence is not identity evidence — every backup taken before
+        // the witness shipped looks exactly like this, so adopting here gives
+        // TWO phones the old device id and one (user, device, tag) binding
+        // slot to fight over. Without continuity evidence, mint fresh.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let migratedMirror = "legacy-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(migratedMirror, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = InMemoryDeviceIdentityStore()
+
+        let resolved = DeviceRegistryService.deviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: "witness-new-phone"
+        )
+
+        #expect(resolved != migratedMirror)
+        #expect(UUID(uuidString: resolved) != nil)
+        #expect(store.read() == .found(resolved))
+    }
+
     @Test func whitespaceOnlyPersistedIdentityIsReplacedNotAdopted() {
         // A corrupt persisted item holding only whitespace must be treated like
         // any other corrupt value: replaced by a freshly minted id. Classifying

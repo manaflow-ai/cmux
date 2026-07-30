@@ -88,6 +88,91 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(!deletesSent)
     }
 
+    /// A PARKED tombstone is a forget the user was told succeeded. When a later
+    /// restore of a CONCRETE team returns the forgotten pairing, that snapshot
+    /// is the destination echo the parked intent was waiting for: the pairing's
+    /// backup provably lives in that team. The restore must not resurrect the
+    /// row locally, and the parked tombstone must resolve to the verified team
+    /// and flush, deleting the backup — otherwise every future restore brings
+    /// the supposedly forgotten computer back.
+    @Test func concreteTeamRestoreResolvesAndFlushesParkedTombstone() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A team-less local row seeded RAW (no upload echo ever recorded), whose
+        // backup actually lives in team-shown's per-team DO.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let backup = FakeBackup(records: [
+            PairedMacBackupRecord(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try Self.route("100.82.214.112")],
+                createdAt: 1_000,
+                lastSeenAt: 9_000_000_000_000,
+                isActive: false
+            ),
+        ])
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // The forget parks the tombstone: no verified destination exists yet.
+        let ok = await composite.forgetHiddenComputer(hidden)
+        #expect(ok)
+
+        // A later restore of the CONCRETE selected team returns the pairing and
+        // echoes the verified team.
+        await store.refreshFromBackup(stackUserID: "user-1")
+
+        // The forgotten row was NOT resurrected locally...
+        let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
+        // ...and the parked tombstone resolved to the echoed team and flushed:
+        // the delete went out, addressed to team-shown.
+        let batches = await backup.uploadBatches()
+        let teams = await backup.uploadTeams()
+        let deleteBatchIndex = batches.firstIndex { batch in
+            batch.contains {
+                switch $0 {
+                case .delete(let macDeviceID): return macDeviceID == "mac-a"
+                case .deleteInstance(let macDeviceID, _): return macDeviceID == "mac-a"
+                default: return false
+                }
+            }
+        }
+        #expect(deleteBatchIndex != nil)
+        if let deleteBatchIndex {
+            #expect(teams.indices.contains(deleteBatchIndex))
+            #expect(teams[deleteBatchIndex] == "team-shown")
+        }
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
