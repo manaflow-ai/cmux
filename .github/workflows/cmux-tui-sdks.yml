@@ -492,9 +492,11 @@ jobs:
           CC: clang
           CXX: clang++
           CMUX_ZIG: zig
+          NODE_OPTIONS: --experimental-websocket
           RUSTUP_TOOLCHAIN: 1.95.0
         run: |
           test "$(zig version)" = "0.15.2"
+          test "$(node -p 'typeof WebSocket')" = "function"
           python3 cmux-tui/bindings/conformance/runner.py \
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
