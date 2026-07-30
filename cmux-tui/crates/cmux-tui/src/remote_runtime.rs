@@ -23,7 +23,9 @@ use cmux_remote::connection::{
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
-use cmux_remote::identity::{AuthDatabase, credential_free_route_hint, default_state_dir};
+use cmux_remote::identity::{
+    AuthDatabase, IdentityError, credential_free_route_hint, default_state_dir,
+};
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
     ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
@@ -51,6 +53,8 @@ const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
+const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
@@ -1621,8 +1625,13 @@ async fn run_daemon(
 ) -> anyhow::Result<()> {
     let setup = async {
         let mut startup_shutdown = shutdown.clone();
-        let auth =
-            AuthDatabase::load_or_create(state_dir.join("auth"), options.session.clone(), true)?;
+        let auth = load_daemon_auth_during_handoff(
+            &state_dir.join("auth"),
+            &options.session,
+            &mut startup_shutdown,
+            DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
+        )
+        .await?;
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
@@ -1782,6 +1791,40 @@ async fn run_daemon(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+async fn load_daemon_auth_during_handoff(
+    state_dir: &Path,
+    daemon_name: &str,
+    shutdown: &mut watch::Receiver<bool>,
+    retry_timeout: Duration,
+) -> anyhow::Result<Arc<AuthDatabase>> {
+    let deadline = tokio::time::Instant::now() + retry_timeout;
+    loop {
+        match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
+            Ok(auth) => return Ok(auth),
+            Err(IdentityError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if *shutdown.borrow() {
+                    return Err(anyhow!("remote daemon startup was cancelled"));
+                }
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(anyhow::Error::new(IdentityError::Io(error)).context(
+                        "remote daemon authorization state is still owned by another process",
+                    ));
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(
+                        DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
+                    ) => {}
+                    _ = wait_for_shutdown(shutdown) => {
+                        return Err(anyhow!("remote daemon startup was cancelled"));
+                    }
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 fn push_unique_route(routes: &mut Vec<String>, route: String) {
@@ -2497,6 +2540,90 @@ mod tests {
         result
             .expect("daemon startup failed after its predecessor released state")
             .expect("daemon shutdown failed after a successful handoff");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_auth_handoff_retry_stops_at_its_deadline() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let auth_state = directory.path().join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (_shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let started = tokio::time::Instant::now();
+
+        let error = load_daemon_auth_during_handoff(
+            &auth_state,
+            "bounded-handoff",
+            &mut shutdown_rx,
+            Duration::from_millis(50),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(error.contains("still owned"), "{error}");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "authorization state handoff retry exceeded its deadline"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_auth_handoff_retry_observes_startup_cancellation() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let auth_state = directory.path().join("auth");
+        fs::create_dir_all(&auth_state).unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(auth_state.join("devices.json.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let retry = tokio::spawn(async move {
+            load_daemon_auth_during_handoff(
+                &auth_state,
+                "cancelled-handoff",
+                &mut shutdown_rx,
+                Duration::from_secs(5),
+            )
+            .await
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!retry.is_finished(), "authorization state handoff did not retry");
+
+        shutdown_tx.send_replace(true);
+        let error = tokio::time::timeout(Duration::from_secs(1), retry)
+            .await
+            .expect("authorization state handoff ignored startup cancellation")
+            .unwrap()
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(error.contains("cancelled"), "{error}");
     }
 
     #[cfg(unix)]
