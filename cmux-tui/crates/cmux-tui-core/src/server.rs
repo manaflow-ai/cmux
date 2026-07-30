@@ -1268,6 +1268,88 @@ const CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 const CONNECTION_SURFACE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const SERVER_SURFACE_WORKER_CAPACITY: usize = 16;
 const SERVER_SURFACE_RETAINED_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
+const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
+const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
+const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
+const RESOURCE_WAIT_POLL: Duration = Duration::from_millis(100);
+
+#[derive(Default)]
+struct ResourceWorkerAdmissionState {
+    active: usize,
+    active_by_client: HashMap<u64, usize>,
+}
+
+struct ResourceWorkerAdmission {
+    per_client_capacity: usize,
+    server_capacity: usize,
+    state: Mutex<ResourceWorkerAdmissionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceWorkerAdmissionError {
+    ClientCapacity,
+    ServerCapacity,
+}
+
+#[derive(Clone)]
+struct ResourceWorkerPermit {
+    _lease: Arc<ResourceWorkerPermitLease>,
+}
+
+struct ResourceWorkerPermitLease {
+    admission: Arc<ResourceWorkerAdmission>,
+    client: u64,
+}
+
+impl Drop for ResourceWorkerPermitLease {
+    fn drop(&mut self) {
+        let mut state = self.admission.state.lock().unwrap();
+        state.active = state.active.saturating_sub(1);
+        let remove_client = state.active_by_client.get_mut(&self.client).is_some_and(|active| {
+            *active = active.saturating_sub(1);
+            *active == 0
+        });
+        if remove_client {
+            state.active_by_client.remove(&self.client);
+        }
+    }
+}
+
+impl ResourceWorkerAdmission {
+    fn new(per_client_capacity: usize, server_capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            per_client_capacity,
+            server_capacity,
+            state: Mutex::new(ResourceWorkerAdmissionState::default()),
+        })
+    }
+
+    fn try_reserve(
+        self: &Arc<Self>,
+        client: u64,
+    ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
+        let mut state = self.state.lock().unwrap();
+        if state.active_by_client.get(&client).copied().unwrap_or_default()
+            >= self.per_client_capacity
+        {
+            return Err(ResourceWorkerAdmissionError::ClientCapacity);
+        }
+        if state.active >= self.server_capacity {
+            return Err(ResourceWorkerAdmissionError::ServerCapacity);
+        }
+        state.active += 1;
+        *state.active_by_client.entry(client).or_default() += 1;
+        Ok(ResourceWorkerPermit {
+            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
+        })
+    }
+
+    #[cfg(test)]
+    fn active(&self) -> usize {
+        self.state.lock().unwrap().active
+    }
+}
 
 #[derive(Default)]
 struct ServerSurfaceOperationState {
@@ -2243,12 +2325,57 @@ struct DetachedSurface {
 struct ResourceClientStream {
     outbound: OutboundStream,
     canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
 }
 
 impl Drop for ResourceClientStream {
     fn drop(&mut self) {
         self.canceled.store(true, Ordering::Release);
         self.outbound.close();
+    }
+}
+
+struct ResourceClientWait {
+    canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
+}
+
+impl Drop for ResourceClientWait {
+    fn drop(&mut self) {
+        self.canceled.store(true, Ordering::Release);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceStreamInstallError {
+    UnknownClient,
+    Duplicate,
+    ClientCapacity,
+    ServerCapacity,
+}
+
+impl From<ResourceWorkerAdmissionError> for ResourceStreamInstallError {
+    fn from(error: ResourceWorkerAdmissionError) -> Self {
+        match error {
+            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
+            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceWaitInstallError {
+    UnknownClient,
+    ClientCapacity,
+    ServerCapacity,
+}
+
+impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
+    fn from(error: ResourceWorkerAdmissionError) -> Self {
+        match error {
+            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
+            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
+        }
     }
 }
 
@@ -2261,6 +2388,7 @@ struct ClientRecord {
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     resource_streams: HashMap<String, ResourceClientStream>,
+    resource_waits: HashMap<u64, ResourceClientWait>,
     announced_attached: bool,
     writer: MessageWriter,
 }
@@ -2283,12 +2411,27 @@ struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     next_id: AtomicU64,
+    next_resource_wait_id: AtomicU64,
+    resource_stream_admission: Arc<ResourceWorkerAdmission>,
+    resource_wait_admission: Arc<ResourceWorkerAdmission>,
     state: Mutex<ClientRegistryState>,
 }
 
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
-        Self { next_id: AtomicU64::new(1), state: Mutex::new(ClientRegistryState::default()) }
+        Self {
+            next_id: AtomicU64::new(1),
+            next_resource_wait_id: AtomicU64::new(1),
+            resource_stream_admission: ResourceWorkerAdmission::new(
+                RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+                RESOURCE_STREAMS_SERVER_CAPACITY,
+            ),
+            resource_wait_admission: ResourceWorkerAdmission::new(
+                RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+                RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            state: Mutex::new(ClientRegistryState::default()),
+        }
     }
 
     fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
@@ -2304,6 +2447,7 @@ impl ClientRegistry {
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
                 resource_streams: HashMap::new(),
+                resource_waits: HashMap::new(),
                 announced_attached: false,
                 writer,
             },
@@ -2325,22 +2469,24 @@ impl ClientRegistry {
         client: u64,
         stream_id: &StreamPublicId,
         outbound: OutboundStream,
-    ) -> anyhow::Result<Arc<AtomicBool>> {
+    ) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceStreamInstallError> {
         let mut state = self.state.lock().unwrap();
-        let record = state
-            .clients
-            .get_mut(&client)
-            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        anyhow::ensure!(
-            !record.resource_streams.contains_key(stream_id.as_str()),
-            "resource stream {stream_id} is already open on this connection"
-        );
+        let record =
+            state.clients.get_mut(&client).ok_or(ResourceStreamInstallError::UnknownClient)?;
+        if record.resource_streams.contains_key(stream_id.as_str()) {
+            return Err(ResourceStreamInstallError::Duplicate);
+        }
+        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
-            ResourceClientStream { outbound, canceled: canceled.clone() },
+            ResourceClientStream {
+                outbound,
+                canceled: canceled.clone(),
+                _worker_permit: worker_permit.clone(),
+            },
         );
-        Ok(canceled)
+        Ok((canceled, worker_permit))
     }
 
     fn take_resource_stream(
@@ -2366,6 +2512,32 @@ impl ClientRegistry {
             .is_some_and(|stream| stream.outbound.id == outbound_id)
         {
             record.resource_streams.remove(stream_id.as_str());
+        }
+    }
+
+    fn install_resource_wait(
+        &self,
+        client: u64,
+    ) -> Result<(u64, Arc<AtomicBool>, ResourceWorkerPermit), ResourceWaitInstallError> {
+        let mut state = self.state.lock().unwrap();
+        let record =
+            state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
+        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let wait_id = self.next_resource_wait_id.fetch_add(1, Ordering::Relaxed);
+        let canceled = Arc::new(AtomicBool::new(false));
+        record.resource_waits.insert(
+            wait_id,
+            ResourceClientWait {
+                canceled: canceled.clone(),
+                _worker_permit: worker_permit.clone(),
+            },
+        );
+        Ok((wait_id, canceled, worker_permit))
+    }
+
+    fn finish_resource_wait(&self, client: u64, wait_id: u64) {
+        if let Some(record) = self.state.lock().unwrap().clients.get_mut(&client) {
+            record.resource_waits.remove(&wait_id);
         }
     }
 
@@ -3236,6 +3408,7 @@ struct SessionEventStreamStart {
     stream_id: StreamPublicId,
     outbound: OutboundStream,
     canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
     initial_items: Vec<(Value, Value)>,
     next_sequence: u64,
     last_revision: u64,
@@ -3379,7 +3552,7 @@ fn handle_resource_connection_message(
             send_resource_response(writer, id, operation, result)
         }
         ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
-            start_resource_wait(mux.clone(), writer.clone(), request, id)
+            start_resource_wait(mux.clone(), client, writer.clone(), request, id)
         }
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
@@ -3402,8 +3575,202 @@ fn handle_resource_connection_message(
     }
 }
 
+struct ResourceWaitWorkerGuard {
+    mux: Arc<Mux>,
+    client: u64,
+    wait_id: u64,
+}
+
+impl Drop for ResourceWaitWorkerGuard {
+    fn drop(&mut self) {
+        self.mux.control_clients.finish_resource_wait(self.client, self.wait_id);
+    }
+}
+
+fn resource_wait_runtime_error(error: impl std::fmt::Display) -> ResourceError {
+    ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
+}
+
+fn resource_wait_timeout(
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Option<Duration> {
+    request.fields.get("timeout_ms").map(|value| {
+        Duration::from_millis(
+            serde_json::from_value::<WireDecimal>(value.clone())
+                .expect("catalog validates terminal wait timeout")
+                .get(),
+        )
+    })
+}
+
+fn resource_wait_stopped(canceled: &AtomicBool, writer: &MessageWriter) -> bool {
+    canceled.load(Ordering::Acquire) || !writer.is_open()
+}
+
+fn run_terminal_resource_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &AtomicBool,
+) -> Result<Option<Value>, ResourceError> {
+    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
+    let regex = Regex::new(pattern).map_err(|_| {
+        ResourceError::validation_invalid(
+            None,
+            "terminal wait pattern is not a valid regular expression",
+        )
+    })?;
+    let timeout = resource_wait_timeout(request);
+    let deadline = timeout
+        .map(|timeout| {
+            Instant::now().checked_add(timeout).ok_or_else(|| {
+                ResourceError::validation_invalid(
+                    Some("timeout_ms"),
+                    "terminal wait timeout exceeds the platform deadline range",
+                )
+            })
+        })
+        .transpose()?;
+    let check = || -> Result<String, ResourceError> {
+        surface
+            .try_with_terminal(|terminal| terminal.viewport_text())
+            .map_err(resource_wait_runtime_error)?
+            .map_err(resource_wait_runtime_error)
+    };
+    let mut text = check()?;
+    if regex.is_match(&text) {
+        return Ok(Some(json!({"matched":true,"text":text})));
+    }
+    if timeout == Some(Duration::ZERO) {
+        return Ok(Some(json!({"matched":false,"text":text})));
+    }
+
+    let attach = surface.attach_stream().map_err(resource_wait_runtime_error)?;
+    text = check()?;
+    if regex.is_match(&text) {
+        return Ok(Some(json!({"matched":true,"text":text})));
+    }
+
+    loop {
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        let wait = match deadline {
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Ok(Some(json!({"matched":false,"text":text})));
+                };
+                remaining.min(RESOURCE_WAIT_POLL)
+            }
+            None => RESOURCE_WAIT_POLL,
+        };
+        let received = attach.stream.recv_timeout(wait);
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        match received {
+            Ok(_) => {
+                text = check()?;
+                if regex.is_match(&text) {
+                    return Ok(Some(json!({"matched":true,"text":text})));
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    return Ok(Some(json!({"matched":false,"text":text})));
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                text = check()?;
+                return Ok(Some(json!({"matched":regex.is_match(&text),"text":text})));
+            }
+        }
+    }
+}
+
+fn run_terminal_resource_wait_exit(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &AtomicBool,
+) -> Result<Option<Value>, ResourceError> {
+    let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
+    let terminal_id =
+        path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    let timeout = resource_wait_timeout(request);
+    let deadline = timeout
+        .map(|timeout| {
+            Instant::now().checked_add(timeout).ok_or_else(|| {
+                resource_wait_runtime_error("terminal exit timeout exceeds deadline range")
+            })
+        })
+        .transpose()?;
+    loop {
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
+        if state["state"] == "exited" {
+            return Ok(Some(state));
+        }
+        if timeout == Some(Duration::ZERO) {
+            return Ok(Some(state));
+        }
+        let epoch = mux.resource_event_epoch();
+        let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
+        if state["state"] == "exited" {
+            return Ok(Some(state));
+        }
+        let wait = match deadline {
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Ok(Some(state));
+                };
+                remaining.min(RESOURCE_WAIT_POLL)
+            }
+            None => RESOURCE_WAIT_POLL,
+        };
+        mux.wait_for_resource_event(epoch, wait);
+        if resource_wait_stopped(canceled, writer) {
+            return Ok(None);
+        }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return mux
+                .terminal_exit_state(&terminal_id)
+                .map(Some)
+                .map_err(resource_wait_runtime_error);
+        }
+    }
+}
+
+fn run_resource_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: crate::resource_router::ParsedResourceRequest,
+    canceled: &AtomicBool,
+) -> Option<Result<Value, ResourceError>> {
+    if canceled.load(Ordering::Acquire) || !writer.is_open() {
+        return None;
+    }
+    let result = match request.envelope.operation {
+        ResourceOperation::TerminalWait => {
+            run_terminal_resource_wait(mux, writer, &request, canceled)
+        }
+        ResourceOperation::TerminalWaitExit => {
+            run_terminal_resource_wait_exit(mux, writer, &request, canceled)
+        }
+        _ => unreachable!("only terminal waits use the detached request path"),
+    };
+    match result {
+        Ok(result) => result.map(Ok),
+        Err(error) => Some(Err(error)),
+    }
+}
+
 fn start_resource_wait(
     mux: Arc<Mux>,
+    client: u64,
     writer: MessageWriter,
     request: crate::resource_router::ParsedResourceRequest,
     id: crate::resource::RequestId,
@@ -3414,23 +3781,46 @@ fn start_resource_wait(
         ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
         _ => unreachable!("only terminal waits use the detached request path"),
     };
+    let (wait_id, canceled, worker_permit) = match mux.control_clients.install_resource_wait(client)
+    {
+        Ok(installed) => installed,
+        Err(error) => {
+            return send_resource_response(
+                &writer,
+                id,
+                operation,
+                Err(resource_wait_install_error(name, error)),
+            );
+        }
+    };
     let worker_writer = writer.clone();
+    let worker_mux = mux.clone();
+    let worker_canceled = canceled;
     let worker_id = id.clone();
-    match std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
-        let response = match crate::resource_router::handle_parsed_resource_request(&mux, request) {
-            Ok(response) => response,
-            Err(error) => serde_json::to_value(ResourceResponseEnvelope::failure(worker_id, error))
-                .expect("resource wait failure envelope serializes"),
-        };
-        let _ = worker_writer.send_control(&response);
-    }) {
+    let spawn =
+        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
+            let _registration =
+                ResourceWaitWorkerGuard { mux: worker_mux.clone(), client, wait_id };
+            let _worker_permit = worker_permit;
+            if let Some(result) =
+                run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
+                && !worker_canceled.load(Ordering::Acquire)
+                && worker_writer.is_open()
+            {
+                let _ = send_resource_response(&worker_writer, worker_id, operation, result);
+            }
+        });
+    match spawn {
         Ok(_) => true,
-        Err(error) => send_resource_response(
-            &writer,
-            id,
-            operation,
-            Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
-        ),
+        Err(error) => {
+            mux.control_clients.finish_resource_wait(client, wait_id);
+            send_resource_response(
+                &writer,
+                id,
+                operation,
+                Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
+            )
+        }
     }
 }
 
@@ -3991,6 +4381,7 @@ struct ResourceSurfaceAttachStart {
     stream_id: StreamPublicId,
     outbound: OutboundStream,
     canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
     surface: SurfaceId,
     lifecycle: AttachLifecycle,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
@@ -4014,6 +4405,7 @@ struct SidebarResourceAttachStart {
     stream_id: StreamPublicId,
     outbound: OutboundStream,
     canceled: Arc<AtomicBool>,
+    _worker_permit: ResourceWorkerPermit,
     attachment: SidebarRenderAttachment,
 }
 
@@ -4033,31 +4425,105 @@ fn resource_transport_error(reason: impl Into<String>) -> ResourceError {
     ResourceError::transport_closed(reason)
 }
 
+fn resource_stream_install_error(
+    operation: &'static str,
+    stream_id: &StreamPublicId,
+    error: ResourceStreamInstallError,
+) -> ResourceError {
+    let (reason, reason_code, scope, limit) = match error {
+        ResourceStreamInstallError::UnknownClient => {
+            ("control connection is no longer registered", "connection_closed", "client", 0)
+        }
+        ResourceStreamInstallError::Duplicate => (
+            "resource stream id is already open on this connection",
+            "stream_id_in_use",
+            "client",
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceStreamInstallError::ClientCapacity => (
+            "resource stream capacity exceeded for this connection",
+            "resource_stream_capacity",
+            "client",
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceStreamInstallError::ServerCapacity => (
+            "resource stream capacity exceeded for this server",
+            "resource_stream_capacity",
+            "server",
+            RESOURCE_STREAMS_SERVER_CAPACITY,
+        ),
+    };
+    ResourceError::operation_failed(
+        operation,
+        reason,
+        json!({
+            "reason_code":reason_code,
+            "scope":scope,
+            "limit":limit,
+            "stream_id":stream_id,
+        }),
+    )
+}
+
+fn resource_wait_install_error(
+    operation: &'static str,
+    error: ResourceWaitInstallError,
+) -> ResourceError {
+    let (reason, reason_code, scope, limit) = match error {
+        ResourceWaitInstallError::UnknownClient => {
+            ("control connection is no longer registered", "connection_closed", "client", 0)
+        }
+        ResourceWaitInstallError::ClientCapacity => (
+            "terminal wait capacity exceeded for this connection",
+            "terminal_wait_capacity",
+            "client",
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        ),
+        ResourceWaitInstallError::ServerCapacity => (
+            "terminal wait capacity exceeded for this server",
+            "terminal_wait_capacity",
+            "server",
+            RESOURCE_WAITS_SERVER_CAPACITY,
+        ),
+    };
+    ResourceError::operation_failed(
+        operation,
+        reason,
+        json!({"reason_code":reason_code,"scope":scope,"limit":limit}),
+    )
+}
+
+fn register_resource_outbound(
+    mux: &Mux,
+    client: u64,
+    stream_id: &StreamPublicId,
+    outbound: &OutboundStream,
+    operation: &'static str,
+) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceError> {
+    match mux.control_clients.install_resource_stream(client, stream_id, outbound.clone()) {
+        Ok(installed) => Ok(installed),
+        Err(error) => {
+            outbound.close();
+            Err(resource_stream_install_error(operation, stream_id, error))
+        }
+    }
+}
+
 fn install_resource_outbound(
     mux: &Mux,
     client: u64,
     writer: &MessageWriter,
     stream_id: &StreamPublicId,
     operation: &'static str,
-) -> Result<(OutboundStream, Arc<AtomicBool>), ResourceError> {
+) -> Result<(OutboundStream, Arc<AtomicBool>, ResourceWorkerPermit), ResourceError> {
     let overflow =
         resource_stream_end(stream_id, "gap", None, Some("open a fresh attachment stream"), None);
     let outbound = writer
         .start_stream(&overflow)
         .map_err(|error| resource_transport_error(error.to_string()))?;
-    let canceled =
-        match mux.control_clients.install_resource_stream(client, stream_id, outbound.clone()) {
-            Ok(canceled) => canceled,
-            Err(error) => {
-                outbound.close();
-                return Err(ResourceError::operation_failed(
-                    operation,
-                    error.to_string(),
-                    json!({}),
-                ));
-            }
-        };
-    Ok((outbound, canceled))
+    let (canceled, worker_permit) =
+        register_resource_outbound(mux, client, stream_id, &outbound, operation)?;
+    Ok((outbound, canceled, worker_permit))
 }
 
 fn prepare_resource_surface_attach(
@@ -4069,7 +4535,7 @@ fn prepare_resource_surface_attach(
     surface: SurfaceId,
     initial_size: Option<(u16, u16)>,
 ) -> Result<(ResourceSurfaceAttachStart, MarkedClientAttach), ResourceError> {
-    let (outbound, canceled) =
+    let (outbound, canceled, worker_permit) =
         install_resource_outbound(mux, client, writer, &stream_id, operation)?;
     let lifecycle = AttachLifecycle::default();
     let marked = match mark_client_attached(mux, client, surface, outbound.clone(), initial_size) {
@@ -4084,6 +4550,7 @@ fn prepare_resource_surface_attach(
             stream_id,
             outbound,
             canceled,
+            _worker_permit: worker_permit,
             surface,
             lifecycle,
             size_rollback: marked.size_rollback,
@@ -4605,11 +5072,17 @@ fn prepare_sidebar_resource_attach(
     );
     let attachment = attach_sidebar_render(sidebar_id, sidebar, &surface)?;
     let stream_id = resource_stream_id(request)?;
-    let (outbound, canceled) =
+    let (outbound, canceled, worker_permit) =
         install_resource_outbound(mux, client, writer, &stream_id, "sidebar_view.attach")?;
     Ok((
         json!({"stream_id":stream_id}),
-        SidebarResourceAttachStart { stream_id, outbound, canceled, attachment },
+        SidebarResourceAttachStart {
+            stream_id,
+            outbound,
+            canceled,
+            _worker_permit: worker_permit,
+            attachment,
+        },
     ))
 }
 
@@ -4869,22 +5342,15 @@ fn prepare_session_event_stream(
     let outbound = writer
         .start_stream(&overflow)
         .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
-    let canceled = mux
-        .control_clients
-        .install_resource_stream(client, &stream_id, outbound.clone())
-        .map_err(|error| {
-            ResourceError::operation_failed(
-                "session.events",
-                error.to_string(),
-                json!({"stream_id":stream_id}),
-            )
-        })?;
+    let (canceled, worker_permit) =
+        register_resource_outbound(mux, client, &stream_id, &outbound, "session.events")?;
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionEventStreamStart {
             stream_id,
             outbound,
             canceled,
+            _worker_permit: worker_permit,
             initial_items,
             next_sequence: 0,
             last_revision,
@@ -8324,6 +8790,11 @@ mod tests {
         serde_json::to_string(&request).unwrap()
     }
 
+    fn test_stream_id(index: u64) -> StreamPublicId {
+        StreamPublicId::parse(format!("stream_{index:032x}"))
+            .expect("test stream id uses the public wire format")
+    }
+
     #[test]
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
@@ -8456,6 +8927,405 @@ mod tests {
         );
 
         disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-unbounded-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-unbounded-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+
+        for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+            let wait = resource_request(
+                &format!("unbounded-wait-{index}"),
+                "terminal.wait",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                    "pattern":format!("cmux-pattern-that-never-matches-{index}"),
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+        let admission_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active()
+            != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+        {
+            assert!(Instant::now() < admission_deadline, "wait workers did not start");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+
+        let rejected = resource_request(
+            "unbounded-wait-rejected",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-pattern-that-never-matches-rejected",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &rejected, &writer, &scheduler));
+        let rejection = pop_json(&outbound);
+        assert_eq!(rejection["id"], "unbounded-wait-rejected");
+        assert_eq!(rejection["error"]["code"], "operation.failed");
+        assert_eq!(rejection["error"]["details"]["extra"]["reason_code"], "terminal_wait_capacity");
+        assert_eq!(rejection["error"]["details"]["extra"]["scope"], "client");
+
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "disconnected unbounded waits retained worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn writer_close_cancels_unbounded_wait_before_client_registry_cleanup() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-writer-close-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-writer-close-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let wait = resource_request(
+            "writer-close-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-pattern-that-never-matches-writer-close",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 1);
+
+        writer.close();
+        assert!(
+            mux.control_clients.contains(client),
+            "test must isolate writer failure from registry disconnect"
+        );
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "closed writer retained terminal wait worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(mux.control_clients.contains(client));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn zero_timeout_terminal_waits_complete_once_and_release_worker_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-zero-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-zero-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
+        let wait = resource_request(
+            "zero-timeout-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-pattern-that-never-matches-zero-timeout",
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "zero-timeout-wait");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["matched"], false);
+
+        let wait_exit = resource_request(
+            "zero-timeout-wait-exit",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"0",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait_exit, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "zero-timeout-wait-exit");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["state"], "pending");
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "zero-timeout wait retained capacity");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn resource_stream_capacity_is_stable_and_reused_after_worker_exit() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let mut installed = Vec::new();
+        for index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+            let stream_id = test_stream_id(index as u64 + 1);
+            let stream = writer.start_stream(&json!({})).unwrap();
+            let (canceled, worker_permit) = mux
+                .control_clients
+                .install_resource_stream(client, &stream_id, stream)
+                .expect("stream below the per-client capacity");
+            installed.push((stream_id, canceled, worker_permit));
+        }
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY
+        );
+
+        let overflow_id = test_stream_id(10_000);
+        let denied_outbound = writer.start_stream(&json!({})).unwrap();
+        let denied = register_resource_outbound(
+            &mux,
+            client,
+            &overflow_id,
+            &denied_outbound,
+            "session.events",
+        );
+        let Err(denied) = denied else { panic!("stream above capacity was admitted") };
+        assert_eq!(denied.code, "operation.failed");
+        assert!(!denied_outbound.is_open(), "denied stream retained an open outbound handle");
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
+            "denied stream consumed admission capacity"
+        );
+        let open_overflow = |request_id: &str| {
+            resource_request(
+                request_id,
+                "session.events",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":overflow_id,
+                }),
+                None,
+            )
+        };
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-first"),
+            &writer,
+            &scheduler,
+        ));
+        let first_rejection = pop_json(&outbound);
+        assert_eq!(first_rejection["error"]["code"], "operation.failed");
+        assert_eq!(
+            first_rejection["error"]["details"]["extra"]["reason_code"],
+            "resource_stream_capacity"
+        );
+        assert_eq!(first_rejection["error"]["details"]["extra"]["scope"], "client");
+        assert_eq!(
+            first_rejection["error"]["details"]["extra"]["limit"],
+            RESOURCE_STREAMS_PER_CLIENT_CAPACITY
+        );
+
+        let (first_id, first_canceled, first_worker_permit) = installed.remove(0);
+        drop(
+            mux.control_clients
+                .take_resource_stream(client, &first_id)
+                .expect("installed stream remains registered"),
+        );
+        assert!(first_canceled.load(Ordering::Acquire));
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-worker-still-live"),
+            &writer,
+            &scheduler,
+        ));
+        assert_eq!(pop_json(&outbound)["error"]["code"], "operation.failed");
+
+        drop(first_worker_permit);
+        assert!(handle_connection_message(
+            &mux,
+            client,
+            &open_overflow("stream-overflow-reused"),
+            &writer,
+            &scheduler,
+        ));
+        assert_eq!(pop_json(&outbound)["id"], "stream-overflow-reused");
+        assert_eq!(pop_json(&outbound)["type"], "stream_item");
+        let cancel = resource_request(
+            "stream-overflow-cancel",
+            "stream.cancel",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream":overflow_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["reason"], "canceled");
+        assert_eq!(pop_json(&outbound)["id"], "stream-overflow-cancel");
+
+        for (stream_id, _, worker_permit) in installed {
+            drop(mux.control_clients.take_resource_stream(client, &stream_id));
+            drop(worker_permit);
+        }
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_stream_admission.active() != 0 {
+            assert!(
+                Instant::now() < cleanup_deadline,
+                "ended streams retained server worker capacity"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn resource_stream_server_capacity_survives_disconnect_until_workers_exit() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let mut clients = Vec::new();
+        let mut worker_permits = Vec::new();
+        for client_index in
+            0..(RESOURCE_STREAMS_SERVER_CAPACITY / RESOURCE_STREAMS_PER_CLIENT_CAPACITY)
+        {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut client_permits = Vec::new();
+            for stream_index in 0..RESOURCE_STREAMS_PER_CLIENT_CAPACITY {
+                let id = test_stream_id(
+                    (client_index * RESOURCE_STREAMS_PER_CLIENT_CAPACITY + stream_index + 1) as u64,
+                );
+                let stream = writer.start_stream(&json!({})).unwrap();
+                let (_, permit) = mux
+                    .control_clients
+                    .install_resource_stream(client, &id, stream)
+                    .expect("stream below the server capacity");
+                client_permits.push(permit);
+            }
+            clients.push(client);
+            worker_permits.push(client_permits);
+        }
+        assert_eq!(
+            mux.control_clients.resource_stream_admission.active(),
+            RESOURCE_STREAMS_SERVER_CAPACITY
+        );
+
+        let (extra_writer, extra_outbound) = captured_writer();
+        let extra = mux.control_clients.register(ClientTransport::Unix, extra_writer.clone());
+        let extra_id = test_stream_id(20_000);
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let open = resource_request(
+            "server-stream-overflow",
+            "session.events",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":extra_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, extra, &open, &extra_writer, &scheduler,));
+        let rejection = pop_json(&extra_outbound);
+        assert_eq!(rejection["error"]["code"], "operation.failed");
+        assert_eq!(
+            rejection["error"]["details"]["extra"]["reason_code"],
+            "resource_stream_capacity"
+        );
+        assert_eq!(rejection["error"]["details"]["extra"]["scope"], "server");
+        assert_eq!(
+            rejection["error"]["details"]["extra"]["limit"],
+            RESOURCE_STREAMS_SERVER_CAPACITY
+        );
+
+        assert!(disconnect_client(&mux, clients[0], false));
+        let still_rejected = mux.control_clients.install_resource_stream(
+            extra,
+            &extra_id,
+            extra_writer.start_stream(&json!({})).unwrap(),
+        );
+        assert!(matches!(still_rejected, Err(ResourceStreamInstallError::ServerCapacity)));
+        drop(worker_permits.remove(0));
+        let (_, extra_permit) = mux
+            .control_clients
+            .install_resource_stream(
+                extra,
+                &extra_id,
+                extra_writer.start_stream(&json!({})).unwrap(),
+            )
+            .expect("disconnect cleanup is reusable after its workers exit");
+
+        for client in clients.into_iter().skip(1) {
+            assert!(disconnect_client(&mux, client, false));
+        }
+        drop(worker_permits);
+        drop(mux.control_clients.take_resource_stream(extra, &extra_id));
+        drop(extra_permit);
+        assert!(disconnect_client(&mux, extra, false));
+        assert_eq!(mux.control_clients.resource_stream_admission.active(), 0);
     }
 
     #[test]
