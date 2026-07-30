@@ -257,9 +257,37 @@ pub async fn call_admin_with_peer_exit(
 
 /// Kernel-backed exit observation for one exact Unix peer process.
 pub struct UnixPeerProcessExit {
-    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    #[cfg(target_os = "linux")]
+    linux: LinuxPeerProcessExit,
+    #[cfg(target_vendor = "apple")]
     descriptor: OwnedFd,
     exited: bool,
+}
+
+#[cfg(target_os = "linux")]
+enum LinuxPeerProcessExit {
+    PidFd(OwnedFd),
+    Procfs(LinuxProcProcessExit),
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxProcProcessExit {
+    directory: OwnedFd,
+    start_time: u64,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LinuxProcStat {
+    state: u8,
+    start_time: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxProcStat {
+    fn has_exited(self) -> bool {
+        matches!(self.state, b'Z' | b'X' | b'x')
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -272,8 +300,16 @@ std::thread_local! {
 impl UnixPeerProcessExit {
     #[cfg(target_os = "linux")]
     fn observe(pid: libc::pid_t) -> io::Result<Self> {
-        let descriptor = Self::open_pidfd(pid)?;
-        Ok(Self { descriptor, exited: false })
+        match Self::open_pidfd(pid) {
+            Ok(descriptor) => {
+                Ok(Self { linux: LinuxPeerProcessExit::PidFd(descriptor), exited: false })
+            }
+            Err(error) if pidfd_can_fall_back(&error) => {
+                let (observer, exited) = LinuxProcProcessExit::observe(pid)?;
+                Ok(Self { linux: LinuxPeerProcessExit::Procfs(observer), exited })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -342,26 +378,9 @@ impl UnixPeerProcessExit {
 
     #[cfg(target_os = "linux")]
     fn poll_exit(&self) -> io::Result<bool> {
-        let mut descriptor =
-            libc::pollfd { fd: self.descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-        loop {
-            let ready = unsafe { libc::poll(&raw mut descriptor, 1, 0) };
-            if ready > 0 {
-                if descriptor.revents & libc::POLLNVAL != 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "admin peer process descriptor became invalid",
-                    ));
-                }
-                return Ok(descriptor.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0);
-            }
-            if ready == 0 {
-                return Ok(false);
-            }
-            let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::Interrupted {
-                return Err(error);
-            }
+        match &self.linux {
+            LinuxPeerProcessExit::PidFd(descriptor) => poll_pidfd(descriptor),
+            LinuxPeerProcessExit::Procfs(observer) => observer.has_exited(),
         }
     }
 
@@ -397,6 +416,118 @@ impl UnixPeerProcessExit {
     fn poll_exit(&self) -> io::Result<bool> {
         Ok(false)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn pidfd_can_fall_back(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ENOSYS | libc::EPERM | libc::EACCES))
+}
+
+#[cfg(target_os = "linux")]
+fn poll_pidfd(descriptor: &OwnedFd) -> io::Result<bool> {
+    let mut descriptor =
+        libc::pollfd { fd: descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    loop {
+        let ready = unsafe { libc::poll(&raw mut descriptor, 1, 0) };
+        if ready > 0 {
+            if descriptor.revents & libc::POLLNVAL != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "admin peer process descriptor became invalid",
+                ));
+            }
+            return Ok(descriptor.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0);
+        }
+        if ready == 0 {
+            return Ok(false);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxProcProcessExit {
+    fn observe(pid: libc::pid_t) -> io::Result<(Self, bool)> {
+        let path = std::ffi::CString::new(format!("/proc/{pid}"))
+            .expect("a decimal process id cannot contain NUL");
+        let directory = unsafe {
+            libc::open(
+                path.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if directory < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: open returned a new owned descriptor.
+        let directory = unsafe { OwnedFd::from_raw_fd(directory) };
+        let stat = read_linux_proc_stat(&directory)?;
+        Ok((Self { directory, start_time: stat.start_time }, stat.has_exited()))
+    }
+
+    fn has_exited(&self) -> io::Result<bool> {
+        match read_linux_proc_stat(&self.directory) {
+            Ok(stat) => Ok(stat.has_exited() || stat.start_time != self.start_time),
+            Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => {
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_proc_stat(directory: &OwnedFd) -> io::Result<LinuxProcStat> {
+    use std::io::Read as _;
+
+    const MAX_PROC_STAT_BYTES: u64 = 16 * 1024;
+    let descriptor = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            c"stat".as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: openat returned a new owned descriptor.
+    let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+    let mut contents = Vec::new();
+    std::fs::File::from(descriptor).take(MAX_PROC_STAT_BYTES + 1).read_to_end(&mut contents)?;
+    if contents.len() as u64 > MAX_PROC_STAT_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "admin peer process stat exceeded the size limit",
+        ));
+    }
+    parse_linux_proc_stat(&contents)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_proc_stat(contents: &[u8]) -> io::Result<LinuxProcStat> {
+    let comm_end = contents
+        .windows(2)
+        .rposition(|window| window == b") ")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed process stat"))?;
+    let mut fields =
+        contents[comm_end + 2..].split(u8::is_ascii_whitespace).filter(|field| !field.is_empty());
+    let state = fields
+        .next()
+        .filter(|field| field.len() == 1)
+        .map(|field| field[0])
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing process state"))?;
+    // starttime is field 22. `fields` now starts at field 4 because state,
+    // field 3, was consumed above.
+    let start_time = fields
+        .nth(18)
+        .and_then(|field| std::str::from_utf8(field).ok())
+        .and_then(|field| field.parse().ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing process start time"))?;
+    Ok(LinuxProcStat { state, start_time })
 }
 
 #[cfg(test)]
@@ -872,12 +1003,26 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn peer_exit_observer_falls_back_when_pidfd_is_unavailable() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("could not start fallback process fixture");
         FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(true));
-        let observer = UnixPeerProcessExit::observe(std::process::id() as libc::pid_t);
+        let observer = UnixPeerProcessExit::observe(child.id() as libc::pid_t);
         FORCE_PIDFD_UNAVAILABLE.with(|forced| forced.set(false));
 
         let mut observer =
             observer.expect("pidfd unavailability disabled remote daemon process fencing");
         assert!(!observer.has_exited().unwrap());
+        child.kill().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !observer.has_exited().unwrap() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "procfs fallback did not observe process exit"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        child.wait().unwrap();
     }
 }
