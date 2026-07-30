@@ -244,6 +244,10 @@ export const env = createEnv({
     // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
     // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
     CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Account-scoped route invalidations. The payload is revision-only; apps
+    // reconcile through /api/connectivity/v2/sync. Optional so previews and
+    // local tests can run without a presence worker.
+    CMUX_PRESENCE_BASE_URL: z.string().url().optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -326,6 +330,7 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
     CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
     CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
+    CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
     ),

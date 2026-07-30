@@ -19,6 +19,7 @@ import {
 const MAX_BODY_BYTES = 64 * 1_024;
 const FIREWALL_TIMEOUT_MS = 2_500;
 const FIREWALL_MAX_IN_FLIGHT = 64;
+const INVALIDATION_TIMEOUT_MS = 750;
 
 export class IrohFirewallAdmission {
   private readonly active = new Map<string, Promise<IrohFirewallCheckResult>>();
@@ -68,6 +69,10 @@ type RouteDependencies = {
     readonly timeoutMs?: number;
     readonly admission?: IrohFirewallAdmission;
   };
+  readonly publishConnectivityInvalidation?: (
+    request: Request,
+    revision: number,
+  ) => Promise<void>;
 };
 
 export async function handleIrohRoute(
@@ -171,6 +176,18 @@ export async function handleIrohRoute(
           return yield* invoke(broker, operation, user.id, bodyResult.value);
         }).pipe(Effect.provide(dependencies.runtime ?? IrohTrustBrokerRuntime)),
       );
+    const revision = mutationRevision(operation, value);
+    if (revision !== null) {
+      try {
+        await (dependencies.publishConnectivityInvalidation
+          ?? publishConnectivityInvalidation)(request, revision);
+      } catch {
+        // The mutation is already committed. Push only accelerates the next v2
+        // reconciliation, so a worker outage must not turn success into an
+        // ambiguous client retry of a committed mutation.
+        console.warn("connectivity invalidation publish failed", { operation });
+      }
+    }
     return irohJsonResponse(value, successStatus(operation), {
       "cache-control": "no-store",
     });
@@ -181,6 +198,48 @@ export async function handleIrohRoute(
     // and coarse failure class are enough for operational correlation.
     console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
     return jsonResponse({ error: "iroh_internal_error" }, 500);
+  }
+}
+
+function mutationRevision(
+  operation: IrohRouteOperation,
+  value: unknown,
+): number | null {
+  if (operation !== "register" && operation !== "revoke") return null;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const revision = (value as Record<string, unknown>).revision;
+  return Number.isSafeInteger(revision) && (revision as number) >= 0
+    ? revision as number
+    : null;
+}
+
+async function publishConnectivityInvalidation(
+  request: Request,
+  revision: number,
+): Promise<void> {
+  const baseURL = env.CMUX_PRESENCE_BASE_URL;
+  if (!baseURL) return;
+  const authorization = request.headers.get("authorization")?.trim();
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error("connectivity_invalidation_timeout")),
+    INVALIDATION_TIMEOUT_MS,
+  );
+  try {
+    const url = new URL("/v1/connectivity/invalidate", baseURL);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        authorization,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ revision }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("connectivity_invalidation_rejected");
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

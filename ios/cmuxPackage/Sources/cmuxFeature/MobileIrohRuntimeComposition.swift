@@ -169,8 +169,8 @@ public final class MobileIrohRuntimeComposition:
 
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
-    public lazy var transportFactory = CmxIrohByteTransportFactory(
-        deferredProvider: self
+    public lazy var transportFactory = CmxConnectivityDeferredTransportFactory(
+        provider: self
     )
 
     /// Broker-verified personal-account Mac routes and live discovery candidates.
@@ -216,6 +216,9 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    private var connectivityInvalidationSubscriber:
+        CmxConnectivityInvalidationSubscriber?
+    private var connectivityInvalidationAccountID: String?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness = MobileIrohConnectionReadinessSignal()
@@ -495,8 +498,24 @@ public final class MobileIrohRuntimeComposition:
     /// Starts auth observation after the coordinator's launch restore completes.
     ///
     /// - Parameter auth: The process-owned authentication coordinator.
-    public func configure(auth: AuthCoordinator) {
+    public func configure(
+        auth: AuthCoordinator,
+        connectivityInvalidationBaseURL: URL? = nil
+    ) {
         self.auth = auth
+        if let connectivityInvalidationBaseURL {
+            connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
+                serviceBaseURL: connectivityInvalidationBaseURL,
+                accessToken: { [weak auth] in
+                    try? await auth?.accessToken()
+                },
+                handler: { [weak self] invalidation in
+                    await self?.receiveConnectivityInvalidation(invalidation)
+                }
+            )
+        } else {
+            connectivityInvalidationSubscriber = nil
+        }
         authObservationTask?.cancel()
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
@@ -508,6 +527,29 @@ public final class MobileIrohRuntimeComposition:
                 guard !Task.isCancelled else { return }
                 await self.applyAuthState(state)
             }
+        }
+    }
+
+    private func setConnectivityInvalidationAccount(_ accountID: String?) async {
+        guard connectivityInvalidationAccountID != accountID else { return }
+        connectivityInvalidationAccountID = accountID
+        await connectivityInvalidationSubscriber?.stop()
+        if accountID != nil {
+            await connectivityInvalidationSubscriber?.start()
+        }
+    }
+
+    private func receiveConnectivityInvalidation(
+        _ invalidation: CmxConnectivityInvalidation
+    ) async {
+        guard connectivityInvalidationAccountID != nil,
+              connectivityInvalidationAccountID == observedAccountID,
+              let runtime else { return }
+        let outcome = await runtime.reconcileConnectivityRevision(
+            invalidation.revision
+        )
+        if let event = Self.discoveryRefreshFailureEvent(for: outcome) {
+            diagnosticLog?.record(event)
         }
     }
 
@@ -996,6 +1038,7 @@ public final class MobileIrohRuntimeComposition:
     }
 
     private func applyAuthState(_ state: MobileIrohAuthState) async {
+        await setConnectivityInvalidationAccount(state.accountID)
         guard await prepareForAuthReconcile(accountID: state.accountID) else {
             return
         }

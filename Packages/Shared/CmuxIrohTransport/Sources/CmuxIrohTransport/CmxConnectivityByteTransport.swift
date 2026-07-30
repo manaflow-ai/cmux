@@ -76,15 +76,13 @@ actor CmxConnectivityByteTransport:
     }
 
     func transportContinuityID() async -> UInt64? {
-        await engine.connectionContinuityID(for: request)
+        await session?.connectionContinuityID()
     }
 
     func transportClosureObservation() -> CmxTransportClosureObservation? {
-        guard session != nil else { return nil }
-        let engine = engine
-        let request = request
+        guard let session else { return nil }
         return CmxTransportClosureObservation {
-            await engine.waitUntilConnectionCloses(for: request)
+            await session.waitUntilClosed()
         }
     }
 

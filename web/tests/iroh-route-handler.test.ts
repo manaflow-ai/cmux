@@ -25,6 +25,92 @@ const USER: AuthedUser = {
 };
 
 describe("Iroh route boundary", () => {
+  test("publishes committed registration and revocation revisions", async () => {
+    const published: Array<{ authorization: string | null; revision: number }> = [];
+    const publishConnectivityInvalidation = async (request: Request, revision: number) => {
+      published.push({
+        authorization: request.headers.get("authorization"),
+        revision,
+      });
+    };
+    const register = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 7 }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+    const revoke = await handleIrohRoute(
+      authedPost("/api/devices/iroh", {}),
+      "revoke",
+      {
+        verify: async () => USER,
+        broker: broker({ revoke: () => Effect.succeed({ revoked: true, revision: 8 }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+
+    expect(register.status).toBe(201);
+    expect(revoke.status).toBe(200);
+    expect(published).toEqual([
+      { authorization: "Bearer test-access", revision: 7 },
+      { authorization: "Bearer test-access", revision: 8 },
+    ]);
+  });
+
+  test("keeps a committed mutation successful when invalidation delivery fails", async () => {
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 9 }) }),
+        publishConnectivityInvalidation: async () => {
+          throw new Error("presence unavailable");
+        },
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ revision: 9 });
+  });
+
+  test("never publishes reads or failed mutations", async () => {
+    let published = 0;
+    const publishConnectivityInvalidation = async () => {
+      published += 1;
+    };
+    const discover = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({ discover: () => Effect.succeed({ revision: 10, bindings: [] }) }),
+        publishConnectivityInvalidation,
+      },
+    );
+    const failed = await handleIrohRoute(
+      authedPost("/api/devices/iroh", {}),
+      "revoke",
+      {
+        verify: async () => USER,
+        broker: broker({
+          revoke: () => Effect.fail(new IrohDatabaseError({
+            operation: "revoke",
+            cause: { category: "connection" },
+          })),
+        }),
+        publishConnectivityInvalidation,
+      },
+    );
+
+    expect(discover.status).toBe(200);
+    expect(failed.status).toBe(503);
+    expect(published).toBe(0);
+  });
+
   test("requires authentication before returning the public verification-key set", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh"), "discover", {

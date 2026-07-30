@@ -42,6 +42,11 @@ public actor CmxIrohClientRuntime {
         let cachedLANRendezvous: CmxIrohLANRendezvous?
     }
 
+    private struct ConnectivityReconciliationOperation {
+        let id: UUID
+        let task: Task<CmxIrohLiveDiscoveryRefreshOutcome, Never>
+    }
+
     enum LifecyclePhase: Equatable, Sendable {
         case inactive
         case starting
@@ -91,6 +96,8 @@ public actor CmxIrohClientRuntime {
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
     var registrationRefreshTaskID: UUID?
+    private var connectivityReconciliationOperation: ConnectivityReconciliationOperation?
+    private var pendingConnectivityRevision: UInt64?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
@@ -227,6 +234,149 @@ public actor CmxIrohClientRuntime {
     public func refreshLiveDiscoveryOutcome() async -> CmxIrohLiveDiscoveryRefreshOutcome {
         do {
             return try await refreshLiveDiscoveryOutcomeThrowing()
+        } catch {
+            return .failed(DiagnosticFailureKind.classify(error))
+        }
+    }
+
+    /// Reconciles a pushed account route revision without re-registering the
+    /// local endpoint.
+    ///
+    /// The push frame is only a hint. This method fetches the complete
+    /// connectivity-v2 snapshot, validates that the active local binding is
+    /// still present, atomically replaces admission policy, persists the same
+    /// snapshot used by dials, and only then retires sessions from the prior
+    /// revision. Concurrent invalidations share one operation.
+    public func reconcileConnectivityRevision(
+        _ hintedRevision: UInt64
+    ) async -> CmxIrohLiveDiscoveryRefreshOutcome {
+        guard lifecyclePhase == .active else {
+            return .failed(.endpointUnavailable)
+        }
+        pendingConnectivityRevision = max(
+            pendingConnectivityRevision ?? hintedRevision,
+            hintedRevision
+        )
+
+        while lifecyclePhase == .active {
+            let installed = await connectivityEngine.snapshot().routeRevision
+            if let installed,
+               installed >= hintedRevision,
+               pendingConnectivityRevision.map({ $0 <= installed }) ?? true {
+                return .refreshed
+            }
+
+            let operation: ConnectivityReconciliationOperation
+            if let connectivityReconciliationOperation {
+                operation = connectivityReconciliationOperation
+            } else {
+                let targetRevision = max(
+                    pendingConnectivityRevision ?? hintedRevision,
+                    hintedRevision
+                )
+                pendingConnectivityRevision = nil
+                let id = UUID()
+                let task = Task<CmxIrohLiveDiscoveryRefreshOutcome, Never> { [weak self] in
+                    guard let self else {
+                        return .failed(.endpointUnavailable)
+                    }
+                    return await self.performConnectivityReconciliation(
+                        hintedRevision: targetRevision
+                    )
+                }
+                operation = ConnectivityReconciliationOperation(id: id, task: task)
+                connectivityReconciliationOperation = operation
+            }
+            let outcome = await operation.task.value
+            if connectivityReconciliationOperation?.id == operation.id {
+                connectivityReconciliationOperation = nil
+            }
+            guard outcome == .refreshed else {
+                return outcome
+            }
+        }
+        return .failed(.endpointUnavailable)
+    }
+
+    private func performConnectivityReconciliation(
+        hintedRevision: UInt64
+    ) async -> CmxIrohLiveDiscoveryRefreshOutcome {
+        let revision = lifecycleRevision
+        do {
+            if let refresh = registrationRefreshTask {
+                _ = try await refresh.value
+                try requireCurrent(revision)
+                if let installed = await connectivityEngine.snapshot().routeRevision,
+                   installed >= hintedRevision {
+                    return .refreshed
+                }
+            }
+            guard let localBinding else {
+                return .failed(.endpointUnavailable)
+            }
+            let expectation = try CmxIrohLocalBindingExpectation(
+                deviceID: configuration.deviceID,
+                appInstanceID: configuration.appInstanceID,
+                tag: configuration.tag,
+                platform: .ios,
+                endpointID: localBinding.endpointID,
+                identityGeneration: configuration.identity.generation,
+                pairingEnabled: false,
+                capabilities: configuration.capabilities
+            )
+            let discovery = try await discoverAuthoritatively()
+            try requireCurrent(revision)
+            guard let discoveredRevision = discovery.revision,
+                  discoveredRevision >= hintedRevision else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            guard discovery.routeContractVersion
+                    == CmxIrohRegistrationPayload.currentRouteContractVersion else {
+                throw CmxIrohClientRuntimeError.routeContractMismatch
+            }
+            try validateRelayFleet(discovery.relayFleet)
+            let matches = discovery.bindings.filter(expectation.matches)
+            guard matches.count == 1, let discoveredBinding = matches.first else {
+                throw CmxIrohClientRuntimeError.localBindingMissingFromDiscovery
+            }
+            let offlineExpectation: CmxIrohClientOfflinePolicyExpectation? =
+                try offlinePolicyCache.flatMap { _ in
+                    guard !managedRelayURLs.isEmpty else { return nil }
+                    return try CmxIrohClientOfflinePolicyExpectation(
+                        accountID: configuration.accountID,
+                        localBindingExpectation: expectation,
+                        managedRelayURLs: managedRelayURLs
+                    )
+                }
+            try await install(
+                policy: ResolvedPolicy(
+                    registration: nil,
+                    discovery: discovery,
+                    binding: discoveredBinding,
+                    expectation: expectation,
+                    offlineExpectation: offlineExpectation,
+                    cachedTargetBindings: [],
+                    cachedLANRendezvous: nil
+                ),
+                revision: revision,
+                startRelays: false
+            )
+            try requireCurrent(revision)
+            let published = await handleBinding(
+                CmxIrohRegistrationResponse(
+                    revision: discoveredRevision,
+                    binding: discoveredBinding,
+                    relay: .notRequested
+                ),
+                discovery
+            )
+            try requireCurrent(revision)
+            guard published else {
+                return .failed(.superseded)
+            }
+            await connectivityEngine.didInstallRouteRevision(discoveredRevision)
+            liveDiscoveryGeneration &+= 1
+            return .refreshed
         } catch {
             return .failed(DiagnosticFailureKind.classify(error))
         }
@@ -491,6 +641,9 @@ public actor CmxIrohClientRuntime {
         }
         lifecyclePhase = .stopping
         lifecycleRevision &+= 1
+        connectivityReconciliationOperation?.task.cancel()
+        connectivityReconciliationOperation = nil
+        pendingConnectivityRevision = nil
         let revision = lifecycleRevision
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .stopping,

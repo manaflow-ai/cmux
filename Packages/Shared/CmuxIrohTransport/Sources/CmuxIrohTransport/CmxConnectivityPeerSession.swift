@@ -606,7 +606,8 @@ actor CmxConnectivityPeerSession {
             connectionGeneration: connectionGeneration,
             stateRevision: stateRevision,
             failure: failure,
-            controlLaneOwned: controlOwner != nil
+            controlLaneOwned: controlOwner != nil,
+            controlPurpose: controlOwner?.purpose
         )
     }
 

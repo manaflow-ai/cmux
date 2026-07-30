@@ -234,8 +234,9 @@ public actor CmxConnectivityEngine {
     }
 
     /// Records the last route revision installed atomically by the composition root.
-    public func didInstallRouteRevision(_ revision: UInt64) {
+    public func didInstallRouteRevision(_ revision: UInt64) async {
         guard routeRevision != revision else { return }
+        await invalidateAllPeers(failure: .superseded)
         routeRevision = revision
         publishSnapshot()
     }
@@ -312,25 +313,33 @@ public actor CmxConnectivityEngine {
     public func selectedTransportPath(
         relayPolicy: CmxIrohEffectiveRelayPolicy?
     ) async -> CmxIrohSelectedTransportPath {
-        let orderedPeers = peers.keys.sorted {
-            if $0.deviceID == $1.deviceID {
-                return $0.identity.endpointID < $1.identity.endpointID
+        let orderedPeers = peers.keys.sorted { lhs, rhs in
+            let left = peerSnapshots[lhs]
+            let right = peerSnapshots[rhs]
+            let leftRank = Self.pathSelectionRank(left)
+            let rightRank = Self.pathSelectionRank(right)
+            if leftRank != rightRank {
+                return leftRank < rightRank
             }
-            return $0.deviceID < $1.deviceID
+            if left?.connectionGeneration != right?.connectionGeneration {
+                return (left?.connectionGeneration ?? 0)
+                    > (right?.connectionGeneration ?? 0)
+            }
+            if lhs.deviceID == rhs.deviceID {
+                return lhs.identity.endpointID < rhs.identity.endpointID
+            }
+            return lhs.deviceID < rhs.deviceID
         }
-        var observed = CmxIrohObservedConnectionPath.unavailable
         for peerID in orderedPeers {
             guard let peer = peers[peerID] else { continue }
             let candidate = await peer.observedSelectedPath()
             if candidate != .unavailable {
-                observed = candidate
-                if peerSnapshots[peerID]?.controlLaneOwned == true {
-                    break
-                }
+                return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
+                    .classify(candidate)
             }
         }
         return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
-            .classify(observed)
+            .classify(.unavailable)
     }
 
     /// Emits when peer lifecycle or Iroh path selection can change path classification.
@@ -462,26 +471,6 @@ public actor CmxConnectivityEngine {
             return
         }
         await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
-    }
-
-    func connectionContinuityID(
-        for request: CmxByteTransportRequest
-    ) async -> UInt64? {
-        guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
-            return nil
-        }
-        return await peer.connectionContinuityID()
-    }
-
-    func waitUntilConnectionCloses(
-        for request: CmxByteTransportRequest
-    ) async {
-        guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
-            return
-        }
-        await peer.waitUntilCurrentConnectionCloses()
     }
 
     private func activePeer(
@@ -730,6 +719,15 @@ public actor CmxConnectivityEngine {
 
     private func removeNetworkObserver(_ id: UUID) {
         networkObservers[id] = nil
+    }
+
+    private static func pathSelectionRank(
+        _ snapshot: CmxConnectivityPeerSnapshot?
+    ) -> Int {
+        if snapshot?.controlPurpose == .foregroundControl { return 0 }
+        if snapshot?.controlLaneOwned == true { return 1 }
+        if snapshot?.phase == .connected { return 2 }
+        return 3
     }
 }
 

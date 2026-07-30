@@ -23,9 +23,9 @@
    Found: Mac and iOS releases can be upgraded at different times.
    Decision: Preserve the accepted wire version during migration. Keep legacy Tailscale ingress as a bounded adapter until the supported-version floor permits removal.
 
-4. Expected: Connectivity v2 needed a new push service before route reconciliation could work.
-   Found: The existing presence Durable Object already provides account-scoped WebSocket and server-sent-event publication plus directed device nudges.
-   Decision: Reuse presence as the best-effort invalidation adapter. Keep the database-backed connectivity authority as the source of truth.
+4. Expected: The existing device-directed presence nudge could publish route changes.
+   Found: It was team-scoped, wired only on Mac, and no backend mutation published into it. Personal Iroh authority can span devices with different selected teams.
+   Decision: Replace it with a separate Durable Object named from the verified Stack user. Both Mac and iPhone use one shared revision-only subscriber. The database-backed connectivity authority remains the source of truth.
 
 5. Expected: The revision migration could be exercised against the local PostgreSQL stack immediately.
    Found: The shared Docker daemon has several pre-existing, day-old Compose calls stuck while starting services. The focused database test could not reach PostgreSQL.
@@ -51,6 +51,18 @@
     Found: That would remove path events, close attribution, session-purpose changes, and stable connection correlation from release diagnostics.
     Decision: The peer actor records the same lifecycle and path evidence under one diagnostic session identifier, and the engine-backed control transport forwards precise read, write, and owner-release reasons.
 
+11. Expected: A pushed route revision should reuse the scheduled registration refresh.
+    Found: That would perform a server mutation merely because another device changed, and could re-enter newest-wins binding replacement.
+    Decision: Mac and iPhone now perform a read-only v2 sync, validate their local binding, install the full policy snapshot, persist it, then retire sessions from the older revision.
+
+12. Expected: The old direct byte transport and session pool might remain as compatibility adapters.
+    Found: Production no longer referenced either owner after the connectivity engine migration.
+    Decision: Delete the direct transport, pool, pooled adapter, and their factory modes. The app-root facade only defers to the active engine and owns no endpoint, dial, session, or retry state.
+
+13. Expected: Sharing an in-flight revision fetch was sufficient coalescing.
+    Found: A newer invalidation could join an older fetch and return after only the older revision was installed.
+    Decision: The iOS runtime retains the greatest pending revision and performs a follow-up authoritative fetch before any joined caller for that revision returns.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -63,6 +75,10 @@
 - Done: Routed the iOS client runtime and Mac host runtime through the shared engine for endpoint lifecycle, relay mutation, network changes, registration address reads, and route-revision installation.
 - Done: Routed Mac accept-loop recovery through the engine and retained bounded admission ownership in the server.
 - Done: Ported cancelled-dial draining, dead-on-arrival redial, queued control handoff, application-lane retry, and diagnostic correlation into the peer actor.
-- Verified: All 506 shared transport tests pass, including 41 Mac host runtime tests and the new connectivity-v2 cancellation and ownership tests.
-- Open: Legacy owner deletion, application build integration, database behavior execution, and end-to-end verification.
-- Next: Port the remaining legacy pool behavior checks to the engine, delete the superseded pool/direct transport path, then compile the Mac and iOS composition roots.
+- Done: Added an account-scoped revision invalidation channel, backend publication after committed register/revoke mutations, and the same bounded WebSocket subscriber on Mac and iPhone.
+- Done: Added read-only pushed-revision reconciliation on both Apple runtimes and coverage proving it does not re-register or refetch obsolete revisions.
+- Done: Deleted the superseded direct byte transport, session pool, pooled adapter, device-directed nudge protocol, and obsolete tests after porting their ownership and cancellation guarantees.
+- Verified: Worker typechecking and all 178 worker tests pass. Focused backend publication, Swift invalidation-wire, client reconciliation, host reconciliation, and peer ownership tests pass.
+- Verified: The full shared transport regression run passes all 486 tests across 61 suites, including newest-revision coalescing.
+- Open: Application build integration, database behavior execution, development backend deployment, and end-to-end verification.
+- Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.

@@ -28,6 +28,9 @@ public struct CmxConnectivityPeerSnapshot: Equatable, Sendable {
     /// Whether application RPC currently owns control framing.
     public let controlLaneOwned: Bool
 
+    /// Current control owner's local role, when the lane is owned.
+    public let controlPurpose: CmxTransportSessionPurpose?
+
     /// Creates one peer snapshot.
     public init(
         peerID: CmxConnectivityPeerID,
@@ -35,7 +38,8 @@ public struct CmxConnectivityPeerSnapshot: Equatable, Sendable {
         connectionGeneration: UInt64,
         stateRevision: UInt64,
         failure: DiagnosticFailureKind,
-        controlLaneOwned: Bool
+        controlLaneOwned: Bool,
+        controlPurpose: CmxTransportSessionPurpose? = nil
     ) {
         self.peerID = peerID
         self.phase = phase
@@ -43,5 +47,6 @@ public struct CmxConnectivityPeerSnapshot: Equatable, Sendable {
         self.stateRevision = stateRevision
         self.failure = failure
         self.controlLaneOwned = controlLaneOwned
+        self.controlPurpose = controlPurpose
     }
 }

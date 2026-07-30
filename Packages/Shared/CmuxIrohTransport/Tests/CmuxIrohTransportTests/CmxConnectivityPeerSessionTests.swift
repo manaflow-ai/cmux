@@ -7,6 +7,7 @@ struct CmxConnectivityPeerSessionTests {
     @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
         let request = try Self.request()
+        let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
         let peerID = try CmxConnectivityPeerID(request: request)
         let admitted = TestConnectivitySession(continuityID: 7)
         let builder = GatedConnectivitySessionBuilder(session: admitted)
@@ -19,7 +20,7 @@ struct CmxConnectivityPeerSessionTests {
 
         let first = Task { try await peer.connectedSession(for: request) }
         try await Self.waitUntil { await builder.callCount() == 1 }
-        let second = Task { try await peer.connectedSession(for: request) }
+        let second = Task { try await peer.connectedSession(for: routeVariant) }
         await builder.release()
 
         _ = try await first.value
@@ -33,6 +34,7 @@ struct CmxConnectivityPeerSessionTests {
     @Test
     func nextControlOwnerWaitsAndReleaseClosesThePeerConnection() async throws {
         let request = try Self.request()
+        let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
         let peerID = try CmxConnectivityPeerID(request: request)
         let firstSession = TestConnectivitySession(continuityID: 11)
         let secondSession = TestConnectivitySession(continuityID: 12)
@@ -50,7 +52,7 @@ struct CmxConnectivityPeerSessionTests {
 
         _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
         let secondAcquire = Task {
-            try await peer.acquireControl(for: request, ownerID: secondOwner)
+            try await peer.acquireControl(for: routeVariant, ownerID: secondOwner)
         }
         for _ in 0 ..< 100 {
             await Task.yield()
@@ -62,7 +64,57 @@ struct CmxConnectivityPeerSessionTests {
         _ = try await secondAcquire.value
         #expect(await builder.callCount() == 2)
         #expect(await peer.connectionContinuityID() == 12)
+        await peer.updateControlPurpose(
+            ownerID: secondOwner,
+            purpose: .backgroundControl
+        )
+        #expect(await peer.snapshot().controlPurpose == .backgroundControl)
+        await peer.releaseControl(ownerID: firstOwner)
+        #expect(await secondSession.closeCount() == 0)
         await peer.releaseControl(ownerID: secondOwner)
+    }
+
+    @Test
+    func cancelledControlWaiterCannotBlockTheNextOwner() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(continuityID: 13)
+        let nextSession = TestConnectivitySession(continuityID: 14)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, nextSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let firstOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        let cancelled = Task {
+            try await peer.acquireControl(for: request, ownerID: UUID())
+        }
+        for _ in 0 ..< 100 { await Task.yield() }
+        cancelled.cancel()
+        if case .success = await cancelled.result {
+            Issue.record("The cancelled control waiter unexpectedly acquired ownership")
+        }
+
+        let nextOwner = UUID()
+        let next = Task {
+            try await peer.acquireControl(for: request, ownerID: nextOwner)
+        }
+        for _ in 0 ..< 100 {
+            await Task.yield()
+            #expect(await builder.callCount() == 1)
+        }
+        await peer.releaseControl(ownerID: firstOwner)
+        _ = try await next.value
+
+        #expect(await builder.callCount() == 2)
+        #expect(await peer.connectionContinuityID() == 14)
+        await peer.releaseControl(ownerID: nextOwner)
     }
 
     @Test
@@ -215,14 +267,15 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     private static func request(
-        deviceID: String = "123e4567-e89b-42d3-a456-426614174999"
+        deviceID: String = "123e4567-e89b-42d3-a456-426614174999",
+        routeID: String = "iroh-v2"
     ) throws -> CmxByteTransportRequest {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
         return CmxByteTransportRequest(
             route: try CmxAttachRoute(
-                id: "iroh-v2",
+                id: routeID,
                 kind: .iroh,
                 endpoint: .peer(identity: identity, pathHints: [])
             ),
