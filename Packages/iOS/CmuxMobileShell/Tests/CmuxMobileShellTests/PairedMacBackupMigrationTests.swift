@@ -176,4 +176,89 @@ struct PairedMacBackupMigrationTests {
                 .map(\.httpMethod) == ["GET", "GET"]
         )
     }
+
+    @Test func legacyTombstoneMigratesAndRejectsLaterStaleUpsert() async throws {
+        let defaultsSuite = "paired-mac-migration-\(UUID().uuidString)"
+        let migrationDefaults = try #require(
+            UserDefaults(suiteName: defaultsSuite)
+        )
+        let stale = PairedMacBackupRecord(
+            macDeviceID: "forgotten-mac",
+            displayName: "Forgotten Mac",
+            routes: [],
+            createdAt: 1_000,
+            lastSeenAt: 2_000,
+            isActive: false,
+            instanceTag: "nightly"
+        )
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: stale.macDeviceID,
+            instanceTag: stale.instanceTag
+        )
+        let empty = try JSONEncoder().encode(
+            TestBackupList(records: [], deletedMacDeviceIDs: [])
+        )
+        let tombstoned = try JSONEncoder().encode(
+            TestBackupList(
+                records: [],
+                deletedMacDeviceIDs: [pairingID]
+            )
+        )
+        PairedMacBackupMigrationURLProtocol.reset(
+            primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
+            primaryResponse: empty,
+            legacyScope: nil,
+            legacyResponse: tombstoned,
+            primaryResponseAfterUpload: tombstoned
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
+        let client = PairedMacBackupClient(
+            serviceBaseURL: "https://presence.example",
+            tokenSource: PresenceTokenSource(
+                accessToken: { "access-token" },
+                currentUserID: { "user-1" }
+            ),
+            clientScopeProvider: { "ios:v3:Y29tLmNtdXguYXBw" },
+            legacyClientScopeProvider: { nil },
+            session: URLSession(configuration: configuration),
+            migrationDefaults: migrationDefaults
+        )
+
+        let migrated = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+        #expect(migrated.records.isEmpty)
+        #expect(migrated.deletedMacDeviceIDs == [pairingID])
+        let migrationRequests =
+            PairedMacBackupMigrationURLProtocol.capturedRequests()
+        #expect(
+            migrationRequests.map(\.httpMethod)
+                == ["GET", "GET", "POST", "GET"]
+        )
+        let migrationRequest = try #require(
+            migrationRequests.dropFirst(2).first
+        )
+        let migrationBody = try #require(migrationRequest.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: migrationBody)
+                as? [String: Any]
+        )
+        let ops = try #require(object["ops"] as? [[String: Any]])
+        #expect(ops.count == 1)
+        #expect(ops[0]["macDeviceID"] as? String == stale.macDeviceID)
+        #expect(ops[0]["instanceTag"] as? String == "nightly")
+        #expect(ops[0]["deleted"] as? Bool == true)
+
+        #expect(await client.upload(
+            ops: [.upsert(stale)],
+            teamID: nil,
+            expectedUserID: "user-1"
+        ))
+        let afterStaleUpsert = try #require(
+            await client.fetchSnapshot(teamID: nil, expectedUserID: "user-1")
+        )
+        #expect(afterStaleUpsert.records.isEmpty)
+        #expect(afterStaleUpsert.deletedMacDeviceIDs == [pairingID])
+    }
 }
