@@ -431,6 +431,34 @@ pub unsafe extern "C" fn cmux_mobile_snapshot_json(client: *mut CmuxMobileClient
     into_c_string(json.to_string())
 }
 
+/// The rendered terminal as JSON: size, styled rows, cursor, default colors,
+/// and the output sequence the model is current through.
+///
+/// The daemon keeps the terminal model, so a phone renders styled runs instead
+/// of carrying a VT parser and reproducing scroll regions, wrapping, and
+/// character sets on the client. Returns null when no terminal is open.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_mobile_terminal_json(client: *mut CmuxMobileClient) -> *mut c_char {
+    let Some(client) = (unsafe { client.as_ref() }) else {
+        return ptr::null_mut();
+    };
+    let rendered = client.runtime.block_on(async {
+        let terminal = client.terminal.lock().await;
+        let process = terminal.as_ref()?.process;
+        drop(terminal);
+        let response = client
+            .workspace
+            .request(WorkspaceRequest::SnapshotProcessTerminal { process })
+            .await
+            .ok()?;
+        let WorkspaceResponse::ProcessTerminalSnapshot { snapshot } = response else {
+            return None;
+        };
+        serde_json::to_string(&snapshot).ok()
+    });
+    rendered.map(into_c_string).unwrap_or(ptr::null_mut())
+}
+
 /// The message behind the last failing call on this handle, or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_mobile_last_error(client: *mut CmuxMobileClient) -> *mut c_char {

@@ -67,6 +67,12 @@ int32_t cmux_mobile_resize(CmuxMobileClient *client, uint16_t cols, uint16_t row
 /// route, and whether the selected iroh path is direct or relayed. Safe to log.
 char *cmux_mobile_snapshot_json(CmuxMobileClient *client);
 
+/// The rendered terminal as JSON: size, styled rows, cursor, default colors,
+/// and the output sequence the model is current through. The daemon keeps the
+/// terminal model, so the phone renders styled runs rather than carrying a VT
+/// parser. NULL when no terminal is open.
+char *cmux_mobile_terminal_json(CmuxMobileClient *client);
+
 /// The message behind the last failing call on this handle, or NULL.
 char *cmux_mobile_last_error(CmuxMobileClient *client);
 
