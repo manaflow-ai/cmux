@@ -142,6 +142,13 @@ actor FakeBackup: PairedMacBackingUp {
     /// before a forget, so only routed tombstones can deliver).
     func setFailNextFetches(_ count: Int) { failNextFetches = count }
 
+    /// Plant a record server-side after construction (e.g. another device
+    /// re-pairing a Mac between two of this phone's restores). Per-team mode
+    /// only.
+    func seedRecord(_ record: PairedMacBackupRecord, teamID: String?) {
+        recordsByTeam?[teamID ?? "", default: []].append(record)
+    }
+
     /// The team the fake "server" reports it stored a successful upload under,
     /// mirroring the presence worker's echo of its verified resolved team. When
     /// unset, a successful upload echoes the requested team back verbatim.
