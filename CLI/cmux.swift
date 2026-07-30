@@ -20977,6 +20977,7 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private var reportedSubagentDiagnosticKeys = Set<String>()
 
         init(
             appServerURL: String,
@@ -21106,6 +21107,7 @@ struct CMUXCLI {
                 )
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    codexTeamsMarkResumedThreadAttachable(thread)
                     try observeThreadSafely(thread)
                 }
             } catch {
@@ -21320,9 +21322,34 @@ struct CMUXCLI {
             let parentDepth = depthByThreadId[spawn.parentThreadId]
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
-            guard depth <= maxAutoDepth else { return }
-            guard !openedThreadIds.contains(thread.id) else { return }
-            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            guard depth <= maxAutoDepth else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "depth",
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.depthExceeded",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: depth \(depth) exceeds the automatic pane limit \(maxAutoDepth)."
+                    ) + "\n"
+                )
+                return
+            }
+            guard !openedThreadIds.contains(thread.id) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                return
+            }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                codexTeamsDiscardAttachableThreadId(thread.id)
+                reportSubagentDiagnosticOnce(
+                    threadId: thread.id,
+                    reason: "status",
+                    message: String(
+                        localized: "cli.codexTeams.watcher.subagent.statusNotAttachable",
+                        defaultValue: "cmux codex-teams watcher skipped a Codex subagent: thread status \(thread.statusType ?? "missing") is not attachable."
+                    ) + "\n"
+                )
+                return
+            }
             guard codexTeamsConsumeAttachableThreadId(thread.id) else {
                 codexTeamsScheduleReadinessProbe(threadId: thread.id)
                 return
@@ -21333,9 +21360,15 @@ struct CMUXCLI {
             } catch {
                 if lastAgentSurfaceId != nil {
                     lastAgentSurfaceId = nil
-                    try openSubagent(thread, spawn: spawn, depth: depth)
+                    do {
+                        try openSubagent(thread, spawn: spawn, depth: depth)
+                    } catch {
+                        reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                        return
+                    }
                 } else {
-                    throw error
+                    reportPaneCreationFailureOnce(threadId: thread.id, error: error)
+                    return
                 }
             }
             openedThreadIds.insert(thread.id)
@@ -21365,7 +21398,19 @@ struct CMUXCLI {
                     self.attachableThreadIds.insert(threadId)
                 }
                 self.readinessLock.unlock()
-                guard isAttachable else { return }
+                guard isAttachable else {
+                    self.stateLock.lock()
+                    self.reportSubagentDiagnosticOnce(
+                        threadId: threadId,
+                        reason: "readiness",
+                        message: String(
+                            localized: "cli.codexTeams.watcher.subagent.readinessFailed",
+                            defaultValue: "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+                        ) + "\n"
+                    )
+                    self.stateLock.unlock()
+                    return
+                }
                 do {
                     try self.openAttachableThread(threadId: threadId)
                 } catch {
@@ -21385,6 +21430,22 @@ struct CMUXCLI {
             try openObservedSubagent(thread, spawn: spawn)
         }
 
+        private func codexTeamsMarkResumedThreadAttachable(_ thread: CodexTeamsThread) {
+            guard thread.spawn != nil,
+                  CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else {
+                return
+            }
+            readinessLock.lock()
+            attachableThreadIds.insert(thread.id)
+            readinessLock.unlock()
+        }
+
+        private func codexTeamsDiscardAttachableThreadId(_ threadId: String) {
+            readinessLock.lock()
+            attachableThreadIds.remove(threadId)
+            readinessLock.unlock()
+        }
+
         private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
             readinessLock.lock()
             defer { readinessLock.unlock() }
@@ -21392,6 +21453,39 @@ struct CMUXCLI {
                 return false
             }
             return true
+        }
+
+        /// Called while `stateLock` is held after both supported split targets fail.
+        private func reportPaneCreationFailureOnce(threadId: String, error: Error) {
+            let message: String
+            if let code = (error as? CLIError)?.v2Code {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: \(code))."
+                )
+            } else {
+                message = String(
+                    localized: "cli.codexTeams.watcher.subagent.paneCreationFailed",
+                    defaultValue: "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+                )
+            }
+            reportSubagentDiagnosticOnce(
+                threadId: threadId,
+                reason: "pane",
+                message: message + "\n"
+            )
+        }
+
+        /// Called while `stateLock` is held so each stable skip reason is logged once.
+        private func reportSubagentDiagnosticOnce(
+            threadId: String,
+            reason: String,
+            message: String
+        ) {
+            guard reportedSubagentDiagnosticKeys.insert("\(threadId):\(reason)").inserted else {
+                return
+            }
+            cliWriteStderr(message)
         }
 
         private func openSubagent(
