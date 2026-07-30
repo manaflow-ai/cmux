@@ -1896,7 +1896,7 @@ public final class MobileIrohRuntimeComposition:
         initialTransportVerificationMode(defaults: defaults)
     }
 
-    nonisolated private static func developmentStoreDirectory(
+    nonisolated fileprivate static func developmentStoreDirectory(
         service: String,
         bundleIdentifier: String?
     ) -> URL {
