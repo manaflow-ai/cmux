@@ -3731,7 +3731,7 @@ def verify_retired_clear_source_cannot_reclaim_stopped_successor(
             )
 
 
-def verify_stop_failure_ends_running_turn(cli_path: str) -> None:
+def verify_stop_failure_marks_terminal_error(cli_path: str) -> None:
     workspace_id = str(uuid.uuid4()).upper()
     surface_id = str(uuid.uuid4()).upper()
     session_id = f"stop-failure-{uuid.uuid4().hex}"
@@ -3772,19 +3772,27 @@ def verify_stop_failure_ends_running_turn(cli_path: str) -> None:
         failure_commands = server.commands[failure_start:]
         if not has_command_with(
             failure_commands,
-            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            "set_status claude_code Claude Code error "
+            "--icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 "
+            f"--tab={workspace_id}",
             f"--panel={surface_id}",
         ):
             raise RuntimeError(
-                "StopFailure did not end the running turn as Idle:\n"
+                "StopFailure did not publish a terminal error status:\n"
                 f"commands={failure_commands!r}"
             )
 
         state = json.loads(state_path.read_text())
         record = state.get("sessions", {}).get(session_id)
-        if record is None or record.get("agentLifecycle") != "idle":
+        if (
+            record is None
+            or record.get("agentLifecycle") != "needsInput"
+            or record.get("runtimeStatus") != "error"
+            or record.get("lastNotificationStatus") != "error"
+            or record.get("lastBody") != "Credit balance is too low"
+        ):
             raise RuntimeError(
-                "StopFailure did not persist an idle lifecycle:\n"
+                "StopFailure did not persist a terminal error outcome:\n"
                 f"record={record!r}\nstate={state!r}"
             )
 
@@ -4042,7 +4050,7 @@ def main() -> int:
             cli_path
         )
         verify_retired_clear_source_cannot_reclaim_stopped_successor(cli_path)
-        verify_stop_failure_ends_running_turn(cli_path)
+        verify_stop_failure_marks_terminal_error(cli_path)
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
