@@ -10301,18 +10301,23 @@ struct CMUXCLI {
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
         ]
-        if let localCommandScript = localCommandScript?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !localCommandScript.isEmpty {
-            authScriptLines.append(localCommandScript)
-        }
         if authenticationLockPath != nil {
             authScriptLines += sharingOptions.successfulForegroundAuthenticationCleanupShellLines()
         }
-        let authScriptBody = authScriptLines.joined(separator: "\n")
-        let authScript = authenticationLockPath == nil
-            ? authScriptBody
-            : "/bin/zsh -fc \(shellQuote(authScriptBody))"
+        authScriptLines.append("exit 0")
+        let authScript = SSHForegroundAuthenticationRetryPolicy().classifyingTransientFailure(
+            in: authScriptLines.joined(separator: "\n")
+        )
+        var foregroundAuthScriptLines = [
+            authScript,
+            "cmux_auth_status=$?",
+            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
+        ]
+        if let localCommandScript = localCommandScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !localCommandScript.isEmpty {
+            foregroundAuthScriptLines.append(localCommandScript)
+        }
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
             shellFeatures: "",
@@ -10320,7 +10325,7 @@ struct CMUXCLI {
             isShellSnippet: true,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            oneTimeCommand: authScript,
+            oneTimeCommand: foregroundAuthScriptLines.joined(separator: "\n"),
             retryPTYAttachStatus: true
         )
     }
@@ -12421,16 +12426,17 @@ struct CMUXCLI {
             "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
             "cmux_ssh_attach_lifecycle_ended=0",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
-            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true; wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true; cmux_ssh_attach_backoff_pid=; elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
-            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
-            "trap 'cmux_ssh_attach_signal_exit 130' INT",
-            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
-        ] + SSHPTYAttachExitCode.retryLoopLines(
-            command: attachCommand,
-            reauthenticates: false
-        )).joined(separator: "\n")
+            "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130 INT' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143 TERM' TERM",
+        ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(script))"
+    }
+
+    private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
+        SSHPTYAttachRetryScriptBuilder().lines(command: command, reauthenticates: false)
     }
 
     private func sshSessionTargetParams(

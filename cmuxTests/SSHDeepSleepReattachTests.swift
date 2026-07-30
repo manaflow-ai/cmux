@@ -385,6 +385,7 @@ struct SSHDeepSleepReattachTests {
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
             "printf '%s' $((count + 1)) > \"${CMUX_TEST_AUTH_ATTEMPT_FILE}\"",
+            "printf '%s\\n' 'user@example.test: Permission denied (publickey,password).' >&2",
             "exit 255",
         ])
         for executable in [fakeCLI, fakeSSH] {
