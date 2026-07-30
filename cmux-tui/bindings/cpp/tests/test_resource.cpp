@@ -675,6 +675,7 @@ TEST("structured protocol errors retain code details and retryability") {
 TEST("layout undo requires and carries typed confirmation details") {
     cmux::UndoLayoutOptions missing_token{
         .confirm_close = true,
+        .confirmation_token = std::nullopt,
     };
     auto missing_params = missing_token.to_params();
     CHECK(!missing_params);
@@ -1062,6 +1063,7 @@ TEST("client metadata preserves omitted set-empty and clear states") {
                           .kind = cmux::OptionalStringUpdate::clear(),
                       });
     CHECK(result);
+    CHECK_EQ(result.value().transport, cmux::ClientTransport::unix_socket);
     std::lock_guard lock(state->mutex);
     auto envelope = cmux::Json::parse(state->outgoing.front());
     CHECK(envelope);

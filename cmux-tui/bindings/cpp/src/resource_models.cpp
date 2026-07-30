@@ -1147,7 +1147,7 @@ ClientSnapshot parse_client(const Json& value) {
         enum_value<ClientTransport>(
             field(object, "transport", "client"),
             {
-                {"unix", ClientTransport::unix},
+                {"unix", ClientTransport::unix_socket},
                 {"websocket", ClientTransport::websocket},
             },
             "client transport"),

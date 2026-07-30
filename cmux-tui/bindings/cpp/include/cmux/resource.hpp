@@ -750,7 +750,7 @@ struct ClientTerminalSize {
 };
 
 enum class ClientTransport {
-    unix,
+    unix_socket,
     websocket,
 };
 
@@ -759,7 +759,7 @@ struct ClientSnapshot {
     SessionId session_id;
     std::optional<std::string> name;
     std::optional<std::string> client_kind;
-    ClientTransport transport = ClientTransport::unix;
+    ClientTransport transport = ClientTransport::unix_socket;
     std::uint64_t connected_seconds = 0;
     std::vector<TerminalId> attached_terminal_ids;
     std::vector<ClientTerminalSize> sizes;
