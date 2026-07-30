@@ -3986,8 +3986,10 @@ mod tests {
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
         let mut stager = HostedFrameStager::new(40);
         let mut resize = Frame::new(MessageKind::Resized, {
+            let replay = b"authoritative replay";
             let mut payload = Vec::from([101, 0, 37, 0]);
-            payload.extend_from_slice(b"authoritative replay");
+            payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+            payload.extend_from_slice(replay);
             payload
         });
         resize.flags = FLAG_COLORS_FOLLOW;
