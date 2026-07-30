@@ -825,14 +825,15 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
             failingInstanceTag: nil,
             failingTeamID: "team-a"
         )
+        let backingUp = BackingUpPairedMacStore(
+            inner: failing,
+            backup: FakeBackup(),
+            teamIDProvider: { team.value }
+        )
         let store = MobileShellComposite(
             isSignedIn: true,
             connectionState: .connected,
-            pairedMacStore: BackingUpPairedMacStore(
-                inner: failing,
-                backup: FakeBackup(),
-                teamIDProvider: { team.value }
-            ),
+            pairedMacStore: backingUp,
             personalIrohForget: forget,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
@@ -856,18 +857,19 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         #expect(!ok)
         #expect(store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
         // Team B's row was deleted; its marker must be gone with it, so the
-        // Mac re-registering in team B is not unexpectedly hidden there.
-        try await base.upsert(
+        // Mac re-registering in team B (through the production write seam) is
+        // not unexpectedly hidden there.
+        team.value = "team-b"
+        try await backingUp.upsert(
             macDeviceID: "mac-a",
             displayName: "Desk Mac (team B)",
             routes: [try Self.route("100.82.214.113")],
             instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
-            teamID: "team-b",
+            teamID: nil,
             now: Date(timeIntervalSince1970: 3)
         )
-        team.value = "team-b"
         await store.loadPairedMacs()
         #expect(store.pairedMacs.contains { $0.macDeviceID == "mac-a" })
         #expect(!store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })

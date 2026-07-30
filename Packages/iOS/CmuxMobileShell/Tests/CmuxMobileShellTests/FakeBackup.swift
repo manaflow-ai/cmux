@@ -90,8 +90,10 @@ actor FakeBackup: PairedMacBackingUp {
         // Mirror the server: a SUCCESSFUL delete removes the record and a
         // successful upsert/revive (re)writes it, so later fetches reflect the
         // op order. A failed upload (above) leaves the backup untouched to
-        // model an undelivered request. In per-team mode only the addressed
-        // team's bucket changes.
+        // model an undelivered request. Record writes apply only in PER-TEAM
+        // mode — the legacy single-bucket mode returns its seeded list to
+        // every team, so applying uploads there would leak one team's mirror
+        // into every other team's restore.
         for op in ops {
             switch op {
             case .delete(let macDeviceID):
@@ -100,6 +102,7 @@ actor FakeBackup: PairedMacBackingUp {
                 removeRecords(teamID: teamID) { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
             case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
                  .revive(let record, _), .revivePreservingCustomizations(let record, _):
+                guard recordsByTeam != nil else { continue }
                 removeRecords(teamID: teamID) {
                     $0.macDeviceID == record.macDeviceID && $0.instanceTag == record.instanceTag
                 }

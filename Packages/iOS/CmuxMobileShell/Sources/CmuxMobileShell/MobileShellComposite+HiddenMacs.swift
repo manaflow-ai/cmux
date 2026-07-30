@@ -299,35 +299,90 @@ extension MobileShellComposite {
             hiddenMacsLog.error(
                 "forget hidden computer row removal failed: \(String(describing: error), privacy: .private)"
             )
+            // The batch deliberately attempts EVERY row, so some rows may be
+            // gone despite the failure — and a deleted row can never be
+            // re-enumerated on retry, so its markers must be cleared NOW or a
+            // re-registering Mac stays unexpectedly hidden in that team
+            // forever. Re-enumerate: scopes with no surviving row are the
+            // completed deletions. Clearing is NARROW — only the deleted row's
+            // own team scope and the user-wide key, never the display scope:
+            // the FAILED scope (the retry owner) shares the pairing's marker
+            // ids in the display scope, and the wide clear would erase the
+            // hidden entry the user retries from. If even the re-enumeration
+            // fails, clear nothing — markers err on the side of staying hidden
+            // and retryable.
+            if let survivors = try? await pairedMacStore.loadAllInstances(
+                macDeviceID: computer.macDeviceID,
+                stackUserID: pinnedAccountID
+            ) {
+                let survivorKeys = Set(survivors.map { row in
+                    "\(row.instanceTag ?? "")\u{0}\(row.teamID ?? "")"
+                })
+                for scope in scopes
+                where !survivorKeys.contains("\(scope.instanceTag ?? "")\u{0}\(scope.teamID ?? "")")
+                    && scope.teamID != displayScope.teamID {
+                    let ids = [
+                        scope.macDeviceID,
+                        MobilePairedMac.pairingID(
+                            macDeviceID: scope.macDeviceID,
+                            instanceTag: scope.instanceTag
+                        ),
+                    ]
+                    for id in ids {
+                        await clearHiddenMacDeviceID(
+                            id,
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: scope.teamID
+                            )
+                        )
+                        await clearHiddenMacDeviceID(
+                            id,
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: nil
+                            )
+                        )
+                    }
+                }
+            }
             return false
         }
-        // Markers are stored per (user, team). A marker may live under the
-        // display scope (where the user hid the row) AND under each deleted
-        // row's OWN team (the same pairing can be hidden from several teams),
-        // so clear both: a marker left in another team would keep a
-        // re-registering Mac unexpectedly hidden there, contradicting the
-        // forget confirmation that it reappears on its next connect. Cleared
-        // only after the rows are gone, so a still-online Mac that re-registers
-        // is not re-hidden by a stale marker.
+        // Cleared only after the rows are gone, so a still-online Mac that
+        // re-registers is not re-hidden by a stale marker.
         for scope in scopes {
+            await clearForgottenRowMarkers(scope: scope, displayScope: displayScope)
+        }
+        return true
+    }
+
+    /// Clears one deleted row's hidden markers. Markers are stored per
+    /// (user, team): one may live under the display scope (where the user hid
+    /// the row) AND under the row's OWN team (the same pairing can be hidden
+    /// from several teams), so clear both — a marker left in another team
+    /// would keep a re-registering Mac unexpectedly hidden there,
+    /// contradicting the forget confirmation that it reappears on its next
+    /// connect.
+    private func clearForgottenRowMarkers(
+        scope: MobilePairedMacExactScope,
+        displayScope: MobileShellScopeSnapshot
+    ) async {
+        await clearHiddenMacDeviceID(
+            scope.macDeviceID,
+            instanceTag: scope.instanceTag,
+            scope: displayScope
+        )
+        if scope.teamID != displayScope.teamID {
             await clearHiddenMacDeviceID(
                 scope.macDeviceID,
                 instanceTag: scope.instanceTag,
-                scope: displayScope
-            )
-            if scope.teamID != displayScope.teamID {
-                await clearHiddenMacDeviceID(
-                    scope.macDeviceID,
-                    instanceTag: scope.instanceTag,
-                    scope: MobileShellScopeSnapshot(
-                        userID: displayScope.userID,
-                        teamID: scope.teamID,
-                        generation: displayScope.generation
-                    )
+                scope: MobileShellScopeSnapshot(
+                    userID: displayScope.userID,
+                    teamID: scope.teamID,
+                    generation: displayScope.generation
                 )
-            }
+            )
         }
-        return true
     }
 
     /// Unhides one stored pairing immediately without requiring network access.
