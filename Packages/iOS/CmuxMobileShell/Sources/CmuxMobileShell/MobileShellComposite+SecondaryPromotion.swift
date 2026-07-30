@@ -238,6 +238,19 @@ extension MobileShellComposite {
         secondaryMacDrainReservations[ownerKey]
     }
 
+    /// Any still-draining retired owner on the given physical device. Fresh
+    /// dials block on this device-wide check because a replaced pairing (a
+    /// retagged build) reuses the SAME physical peer session: dialing before
+    /// the old transport drain completes cannot acquire the Iroh session.
+    func secondaryMacDrainReservation(
+        onDeviceOf ownerKey: MacPairingKey
+    ) -> SecondaryMacSubscription? {
+        if let exact = secondaryMacDrainReservations[ownerKey] { return exact }
+        return secondaryMacDrainReservations.first {
+            $0.key.canonicalMacDeviceID == ownerKey.canonicalMacDeviceID
+        }?.value
+    }
+
     @discardableResult
     func beginSecondaryMacDrainReservation(
         _ subscription: SecondaryMacSubscription,
@@ -536,6 +549,7 @@ extension MobileShellComposite {
             return .unavailable
         }
         let previousForegroundKey = foregroundMacKey
+        let previousForegroundTag = activeMacInstanceTag
         sub.detachKeepingClient()
         let displayName = workspacesByMac[ownerKey]?.displayName
         var demotedForegroundSubscription: SecondaryMacSubscription?
@@ -589,6 +603,17 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
+        // The foreground refetches this feed under the bare device key; the
+        // pairing-keyed source would otherwise linger as stale offline rows,
+        // and a sibling switch must not reuse the old build's device-keyed
+        // revision floor.
+        removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
+        resetForegroundNotificationFeedIfInstanceChanged(
+            previousDeviceID: previousForegroundID,
+            previousTag: previousForegroundTag,
+            newDeviceID: macID,
+            newTag: activeMacInstanceTag
+        )
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
         foregroundMacDeviceID = macID
         // The control entry's aggregate state was keyed by the STORED tag.

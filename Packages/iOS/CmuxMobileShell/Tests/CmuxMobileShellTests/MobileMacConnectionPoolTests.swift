@@ -2418,7 +2418,7 @@ import Testing
         )
         shell.remoteClient = client
         shell.foregroundMacDeviceID = "mac-provisional"
-        shell.connections["mac-provisional".pairingKey] = focused
+        shell.connections[MacPairingKey(macDeviceID: "mac-provisional", instanceTag: "provisional-tag")] = focused
         #expect(shell.transitionFocusedConnectionToControl(
             provisional,
             replacing: focused
@@ -2426,10 +2426,10 @@ import Testing
 
         await shell.refreshSecondaryMacWorkspaces()
 
-        #expect(shell.secondaryMacSubscriptions["mac-provisional".pairingKey]
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-provisional", instanceTag: "provisional-tag")]
             === provisional)
         provisional.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-provisional".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-provisional", instanceTag: "provisional-tag")] = nil
         await client.disconnect()
     }
 
@@ -2806,7 +2806,7 @@ import Testing
         )
         shell.remoteClient = client
         shell.foregroundMacDeviceID = "mac-a"
-        shell.connections["mac-a".pairingKey] = connection
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = connection
 
         let preparation = Task { @MainActor in
             await shell.prepareFocusedConnectionForHandoff(connection)
@@ -2835,8 +2835,8 @@ import Testing
         )
 
         #expect(!terminalStopped)
-        #expect(shell.connections["mac-a".pairingKey] == nil)
-        #expect(shell.secondaryMacSubscriptions["mac-a".pairingKey] == nil)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
         do {
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -2963,11 +2963,11 @@ import Testing
             supportedHostCapabilities: [],
             actionCapabilities: .none
         )
-        shell.connections["mac-focused".pairingKey] = focused
-        shell.secondaryMacSubscriptions["mac-focused".pairingKey] = rejectedControl
+        shell.connections[MacPairingKey(macDeviceID: "mac-focused", instanceTag: "mmpool")] = focused
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-focused", instanceTag: "mmpool")] = rejectedControl
 
-        #expect(shell.connections["mac-focused".pairingKey]?.client === focusedClient)
-        #expect(shell.secondaryMacSubscriptions["mac-focused".pairingKey] == nil)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-focused", instanceTag: "mmpool")]?.client === focusedClient)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-focused", instanceTag: "mmpool")] == nil)
 
         let control = SecondaryMacSubscription(
             macDeviceID: "mac-control",
@@ -2988,11 +2988,11 @@ import Testing
             supportedHostCapabilities: [],
             actionCapabilities: .none
         )
-        shell.secondaryMacSubscriptions["mac-control".pairingKey] = control
-        shell.connections["mac-control".pairingKey] = rejectedFocused
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-control", instanceTag: "mmpool")] = control
+        shell.connections[MacPairingKey(macDeviceID: "mac-control", instanceTag: "mmpool")] = rejectedFocused
 
-        #expect(shell.secondaryMacSubscriptions["mac-control".pairingKey] === control)
-        #expect(shell.connections["mac-control".pairingKey] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-control", instanceTag: "mmpool")] === control)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-control", instanceTag: "mmpool")] == nil)
         rejectedControl.cancel()
         control.cancel()
     }
@@ -3058,13 +3058,13 @@ import Testing
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeTicket = ticket
         shell.activeRoute = route
-        shell.connections["mac-a".pairingKey] = current
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = current
 
         await shell.installControlConnection(from: stale)
         shell.invalidateFocusedConnectionAfterAbortedHandoff(stale)
 
-        #expect(shell.connections["mac-a".pairingKey]?.generation == currentGeneration)
-        #expect(shell.secondaryMacSubscriptions["mac-a".pairingKey] == nil)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")]?.generation == currentGeneration)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
         #expect(shell.remoteClient === client)
         #expect(shell.foregroundMacDeviceID == "mac-a")
         let response = try await client.sendRequest(
@@ -3078,7 +3078,7 @@ import Testing
         shell.connectionGeneration = currentGeneration
         shell.invalidateFocusedConnectionAfterAbortedHandoff(current)
 
-        #expect(shell.connections["mac-a".pairingKey] == nil)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
         #expect(shell.remoteClient == nil)
         #expect(shell.foregroundMacDeviceID == nil)
         #expect(shell.connectionState == .disconnected)
@@ -3137,17 +3137,17 @@ import Testing
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeTicket = ticket
         shell.activeRoute = route
-        shell.connections["mac-a".pairingKey] = connection
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "legacy")] = connection
 
         await shell.installControlConnection(from: connection)
 
-        #expect(shell.connections["mac-a".pairingKey] == nil)
-        #expect(shell.secondaryMacSubscriptions["mac-a".pairingKey]?.client === client)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "legacy")] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "legacy")]?.client === client)
         #expect(try await pollUntil { clock.sleeperCount == 1 })
         #expect(await router.count(of: "mobile.events.subscribe") == 0)
 
-        shell.secondaryMacSubscriptions["mac-a".pairingKey]?.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-a".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "legacy")]?.detachKeepingClient()
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "legacy")] = nil
         await client.disconnect()
     }
 
@@ -3199,7 +3199,7 @@ import Testing
         shell.connectionGeneration = focusedGeneration
         shell.remoteClient = client
         shell.foregroundMacDeviceID = "mac-a"
-        shell.connections["mac-a".pairingKey] = connection
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = connection
 
         #expect(await shell.prepareFocusedConnectionForHandoff(connection))
         #expect(shell.focusedHandoffPreparedGenerations.contains(
@@ -3210,7 +3210,7 @@ import Testing
         shell.connectionGeneration = restoreGeneration
         shell.invalidateFocusedConnectionAfterAbortedHandoff(connection)
 
-        #expect(shell.connections["mac-a".pairingKey]?.generation == focusedGeneration)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")]?.generation == focusedGeneration)
         #expect(shell.remoteClient === client)
         #expect(shell.connectionState == .connected)
         #expect(shell.focusedHandoffPreparedGenerations.contains(
@@ -3605,7 +3605,7 @@ import Testing
             teamIDProvider: { "team-1" },
             controlPlaneSchedulingClock: clock
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = subscription
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = subscription
         shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
 
         #expect(try await pollUntil {
@@ -3613,7 +3613,7 @@ import Testing
                 of: "notification.feed.list"
             )
             return subscription.hasActivatedControlStream
-                && shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+                && shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                     == "Initial Catch-up"
                 && feedFetchCount >= 1
                 && clock.sleeperCount == 1
@@ -3655,12 +3655,12 @@ import Testing
             let feedFetchCount = await router.count(
                 of: "notification.feed.list"
             )
-            return shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+            return shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                 == "Event Fresh Catch-up"
                 && feedFetchCount >= feedFetchesBeforeGap + 2
                 && clock.sleeperCount == 1
         })
-        #expect(shell.secondaryMacSubscriptions["mac-b".pairingKey] === subscription)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] === subscription)
 
         await router.failNextNotificationFeedLists()
         await router.dropSubscription()
@@ -3671,9 +3671,9 @@ import Testing
             atLeast: 3
         ))
         #expect(try await pollUntil {
-            shell.secondaryMacSubscriptions["mac-b".pairingKey] == nil
+            shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] == nil
         })
-        #expect(shell.workspacesByMac["mac-b".pairingKey]?.status == .unavailable)
+        #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.status == .unavailable)
         await client.disconnect()
     }
 
@@ -3725,7 +3725,7 @@ import Testing
             isSignedIn: true,
             controlPlaneSchedulingClock: clock
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = subscription
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = subscription
         shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
 
         shell.scheduleSecondaryNotificationFeedRefresh(
@@ -3772,7 +3772,7 @@ import Testing
 
         shell.removeNotificationFeedSnapshot(macDeviceID: "mac-b")
         subscription.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = nil
         await client.disconnect()
     }
 
@@ -3824,7 +3824,7 @@ import Testing
             runtime: runtime,
             isSignedIn: true
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = subscription
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = subscription
         shell.notificationFeedKnownRevisionsByMac["mac-b"] = 3
         let completion = PromotionFenceCompletion()
         let repair = Task { @MainActor in
@@ -3858,7 +3858,7 @@ import Testing
         await router.releaseAllHeld()
         #expect(await repair.value)
         subscription.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = nil
         await client.disconnect()
     }
 
@@ -3943,11 +3943,11 @@ import Testing
             teamIDProvider: { "team-1" },
             controlPlaneSchedulingClock: clock
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = subscription
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = subscription
         shell.startSecondaryEventConsumer(subscription, displayName: "Mac B")
         #expect(try await pollUntil {
             subscription.hasActivatedControlStream
-                && shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+                && shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                     == "Initial Snapshot"
         })
         let transport = try #require(transportBox.get())
@@ -3969,7 +3969,7 @@ import Testing
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 3))
         #expect(try await pollUntil {
             let hasLeadingSnapshot =
-                shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+                shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                 == "Leading Snapshot"
             let heldRequestCount = await router.heldRequestCount()
             return hasLeadingSnapshot && heldRequestCount == 1
@@ -3982,7 +3982,7 @@ import Testing
         await router.releaseNextHeld()
 
         #expect(try await pollUntil {
-            shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+            shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                 == "Trailing Snapshot"
         })
         #expect(try await pollUntil {
@@ -4012,14 +4012,14 @@ import Testing
         clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
         #expect(try await pollUntil {
-            shell.workspacesByMac["mac-b".pairingKey]?.workspaces.first?.name
+            shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
                 == "Deferred Fresh Snapshot"
         })
         #expect(await router.count(of: "workspace.list") == 4)
-        #expect(shell.secondaryMacSubscriptions["mac-b".pairingKey] === subscription)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] === subscription)
 
         subscription.detachKeepingClient()
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = nil
         await client.disconnect()
     }
 
@@ -4207,7 +4207,7 @@ import Testing
             isSignedIn: true,
             connectionHandoffDrainTimeoutNanoseconds: 20_000_000
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = subscription
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = subscription
         shell.startSecondaryEventConsumer(
             subscription,
             displayName: "Mac B"
@@ -4224,8 +4224,8 @@ import Testing
             subscription
         )))
         #expect(subscription.isTransitioningToFocus)
-        #expect(shell.secondaryMacSubscriptions["mac-b".pairingKey] == nil)
-        #expect(shell.workspacesByMac["mac-b".pairingKey]?.status != .connected)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] == nil)
+        #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.status != .connected)
 
         await router.releaseAllHeld()
         await client.disconnect()
@@ -4493,7 +4493,7 @@ import Testing
         shell.activeTicket = oldTicket
         shell.activeRoute = oldRoute
         shell.connectedHostName = "Mac A"
-        shell.connections["mac-a".pairingKey] = MacConnection(
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = MacConnection(
             macDeviceID: "mac-a",
             ticket: oldTicket,
             route: oldRoute,
@@ -4504,7 +4504,7 @@ import Testing
             supportedHostCapabilities: ["old.capability"],
             actionCapabilities: .none
         )
-        shell.workspacesByMac["mac-a".pairingKey] = MacWorkspaceState(
+        shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = MacWorkspaceState(
             macDeviceID: "mac-a",
             displayName: "Mac A",
             workspaces: [
@@ -4531,7 +4531,7 @@ import Testing
             actionCapabilities: .none,
             displayName: "Mac B"
         )
-        shell.secondaryMacSubscriptions["mac-b".pairingKey] = displacedControl
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] = displacedControl
         for index in 0 ..<
             MobileShellComposite.maximumWarmControlConnectionCount - 1 {
             let macDeviceID = "mac-fill-\(index)"
@@ -4617,8 +4617,8 @@ import Testing
         #expect(shell.connectedHostName == "Mac B")
         #expect(shell.selectedWorkspace?.macDeviceID == "mac-b")
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
-        #expect(shell.secondaryMacSubscriptions["mac-b".pairingKey] == nil)
-        #expect(shell.secondaryMacSubscriptions["mac-a".pairingKey]?.client === oldClient)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")]?.client === oldClient)
         #expect(shell.secondaryMacSubscriptions.count
             == MobileShellComposite.maximumWarmControlConnectionCount)
         #expect(shell.liveMacConnections.filter {
@@ -4628,10 +4628,10 @@ import Testing
             $0.macDeviceID == "mac-a"
         }?.role == .control)
         #expect(shell.secondaryAggregationRetryTask == nil)
-        #expect(shell.workspacesByMac["mac-b".pairingKey]?.status == .connected)
-        #expect(shell.connections["mac-b".pairingKey]?.supportedHostCapabilities
+        #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.status == .connected)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.supportedHostCapabilities
             == Set(targetCapabilities))
-        #expect(shell.connections["mac-b".pairingKey]?.actionCapabilities.supportsCloseActions == true)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.actionCapabilities.supportsCloseActions == true)
         do {
             _ = try await displacedControlClient.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -5018,7 +5018,7 @@ import Testing
         shell.remoteClient = anonymousClient
         shell.activeTicket = anonymousTicket
         shell.activeRoute = route
-        shell.secondaryMacSubscriptions["mac-claimed".pairingKey] = control
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-claimed", instanceTag: "authenticated-owner")] = control
 
         await shell.applyHostReportedIdentity(
             client: anonymousClient,
@@ -5030,15 +5030,15 @@ import Testing
         #expect(shell.foregroundMacDeviceIDForTesting() == nil)
         #expect(shell.remoteClient == nil)
         #expect(shell.activeTicket == nil)
-        #expect(shell.secondaryMacSubscriptions["mac-claimed".pairingKey] === control)
-        #expect(shell.connections["mac-claimed".pairingKey] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-claimed", instanceTag: "authenticated-owner")] === control)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-claimed", instanceTag: "authenticated-owner")] == nil)
         _ = try await controlClient.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.host.status",
                 params: [:]
             )
         )
-        shell.secondaryMacSubscriptions["mac-claimed".pairingKey] = nil
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-claimed", instanceTag: "authenticated-owner")] = nil
         control.cancel()
     }
 
@@ -5092,7 +5092,7 @@ import Testing
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeTicket = previousTicket
         shell.activeRoute = route
-        shell.connections["mac-a".pairingKey] = MacConnection(
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] = MacConnection(
             macDeviceID: "mac-a",
             ticket: previousTicket,
             route: route,
@@ -5113,8 +5113,8 @@ import Testing
         #expect(shell.selectedWorkspace != nil)
         #expect(shell.selectedWorkspace?.macDeviceID == nil)
         #expect(shell.selectedWorkspace?.rpcWorkspaceID.rawValue == "live-workspace")
-        #expect(shell.connections["mac-a".pairingKey] == nil)
-        #expect(shell.secondaryMacSubscriptions["mac-a".pairingKey] == nil)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "mmpool")] == nil)
         #expect(shell.remoteClient !== previousClient)
     }
 
@@ -5174,7 +5174,7 @@ import Testing
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-1" }
         )
-        shell.workspacesByMac["mac-offline".pairingKey] = MacWorkspaceState(
+        shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")] = MacWorkspaceState(
             macDeviceID: "mac-offline",
             displayName: "Offline Mac",
             workspaces: [
@@ -5186,7 +5186,7 @@ import Testing
             ],
             status: .connected
         )
-        shell.secondaryMacSubscriptions["mac-offline".pairingKey] = SecondaryMacSubscription(
+        shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")] = SecondaryMacSubscription(
             macDeviceID: "mac-offline",
             client: client,
             route: route,
@@ -5214,13 +5214,13 @@ import Testing
         )
 
         let removedAfterPresence = try await pollUntil {
-            shell.secondaryMacSubscriptions["mac-offline".pairingKey] == nil
+            shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")] == nil
         }
 
         #expect(removedAfterPresence)
-        #expect(shell.secondaryMacSubscriptions["mac-offline".pairingKey] == nil)
-        #expect(shell.workspacesByMac["mac-offline".pairingKey]?.status == .unavailable)
-        #expect(shell.workspacesByMac["mac-offline".pairingKey]?.workspaces.map(\.name)
+        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")] == nil)
+        #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")]?.status == .unavailable)
+        #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-offline", instanceTag: "offline-tag")]?.workspaces.map(\.name)
             == ["Cached Workspace"])
     }
 

@@ -4991,7 +4991,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               !Task.isCancelled,
               secondaryMacSubscriptions[pairingKey] == nil,
-              secondaryMacDrainReservation(for: pairingKey) == nil else {
+              secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil else {
             return .superseded
         }
         let handle: SecondaryClientHandle
@@ -5026,7 +5026,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // its state; the loser disconnects its client.
         guard !Task.isCancelled,
               secondaryMacSubscriptions[pairingKey] == nil,
-              secondaryMacDrainReservation(for: pairingKey) == nil,
+              secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
               secondaryMacSubscriptions.count
                   < Self.maximumWarmControlConnectionCount,
               await isSecondaryMacStillVisible(
@@ -5067,7 +5067,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         guard !Task.isCancelled,
               secondaryMacSubscriptions[ownerKey] == nil,
-              secondaryMacDrainReservation(for: ownerKey) == nil,
+              secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
               await isSecondaryMacStillVisible(
                   macID,
                   instanceTag: handle.storedInstanceTag,
@@ -5108,7 +5108,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actionCapabilities: handle.actionCapabilities,
             displayName: mac.displayName
         )
-        guard secondaryMacDrainReservation(for: ownerKey) == nil,
+        guard secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
               macConnectionRegistry.insertControlIfAbsent(
                   subscription,
                   maximumControlCount:
@@ -7935,7 +7935,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     activeTicket = candidateTicket
                     connectedHostName = candidateHostName
+                    let previousForegroundDeviceIDForFeedReset = foregroundMacDeviceID
+                    let previousForegroundTagForFeedReset = activeMacInstanceTag
                     activeMacInstanceTag = resolvedInstanceTag
+                    resetForegroundNotificationFeedIfInstanceChanged(
+                        previousDeviceID: previousForegroundDeviceIDForFeedReset,
+                        previousTag: previousForegroundTagForFeedReset,
+                        newDeviceID: resolvedForegroundMacID.isEmpty
+                            ? previousForegroundDeviceIDForFeedReset
+                            : resolvedForegroundMacID,
+                        newTag: resolvedInstanceTag
+                    )
                     prepareTerminalThemeRevisionAuthority(
                         macInstanceTag: resolvedInstanceTag, producerEpoch: status.terminalThemeRevisionEpoch,
                         connectionID: liveConnectionGeneration.uuidString
