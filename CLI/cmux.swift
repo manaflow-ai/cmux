@@ -1664,24 +1664,40 @@ final class ClaudeHookSessionStore {
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int
     ) -> Bool {
-        return compareProcessGeneration(
-            recordedPID: record.pid,
-            recordedStartSeconds: record.pidStartSeconds,
-            recordedStartMicroseconds: record.pidStartMicroseconds,
-            incomingPID: incomingPID
-        ) == .newer
-            && recordedProcessGenerationIsProvablyDead(record)
+        guard recordedProcessGenerationIsProvablyDead(record) else {
+            return false
+        }
+        if record.pidStartSeconds != nil,
+           record.pidStartMicroseconds != nil {
+            return compareProcessGeneration(
+                recordedPID: record.pid,
+                recordedStartSeconds: record.pidStartSeconds,
+                recordedStartMicroseconds: record.pidStartMicroseconds,
+                incomingPID: incomingPID
+            ) == .newer
+        }
+        guard record.pidStartSeconds == nil,
+              record.pidStartMicroseconds == nil,
+              let incomingIdentity = processStartIdentity(pid: incomingPID) else {
+            return false
+        }
+        let incomingStartedAt =
+            TimeInterval(incomingIdentity.seconds)
+            + TimeInterval(incomingIdentity.microseconds) / 1_000_000
+        return incomingStartedAt > record.updatedAt
     }
 
     private func recordedProcessGenerationIsProvablyDead(
         _ record: ClaudeHookSessionRecord
     ) -> Bool {
-        guard let recordedPID = record.pid,
-              let recordedStartSeconds = record.pidStartSeconds,
-              let recordedStartMicroseconds = record.pidStartMicroseconds else {
+        guard let recordedPID = record.pid else {
             return false
         }
         if let currentIdentity = processStartIdentity(pid: recordedPID) {
+            guard let recordedStartSeconds = record.pidStartSeconds,
+                  let recordedStartMicroseconds = record.pidStartMicroseconds else {
+                return false
+            }
             return currentIdentity.seconds != recordedStartSeconds
                 || currentIdentity.microseconds != recordedStartMicroseconds
         }
