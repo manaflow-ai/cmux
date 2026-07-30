@@ -972,6 +972,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             if let foregroundMacDeviceID {
                 recoveryTargetMacDeviceID = foregroundMacDeviceID
+                recoveryTargetInstanceTag = activeMacInstanceTag
             }
             recomputeDerivedWorkspaceState()
         }
@@ -983,6 +984,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// instead of falling back to an actionable disconnected state mid-dial.
     /// Cleared on sign-out.
     private(set) var recoveryTargetMacDeviceID: String?
+    /// The recovery target's build tag, retained with the device id so
+    /// recovery-scoped UI attributes flags to the exact pairing being
+    /// redialed, never a healthy sibling build on the same physical Mac.
+    private(set) var recoveryTargetInstanceTag: String?
     /// Compatibility view over registry entries whose role is `.control`.
     var secondaryMacSubscriptions: MobileMacConnectionRegistry.ControlSubscriptions {
         macConnectionRegistry.controlSubscriptions
@@ -1172,13 +1177,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // `workspaces.first` would attribute foreground recovery to an
         // arbitrary row when nothing is selected. No selection reads as
         // foreground, matching the aggregate list surfaces.
-        guard let macID = explicitlySelectedWorkspace?.macDeviceID, !macID.isEmpty else {
+        guard let workspace = explicitlySelectedWorkspace,
+              let macID = workspace.macDeviceID, !macID.isEmpty else {
             return true
         }
         // Fall back to the retained recovery target: automatic recovery nils
         // foregroundMacDeviceID before the redial, and the workspace being
         // redialed must keep reading as recovering, not disconnected.
-        return macID == (foregroundMacDeviceID ?? recoveryTargetMacDeviceID)
+        let ownerDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID
+        guard macID == ownerDeviceID else { return false }
+        // Same device: the row is foreground-served only when its BUILD
+        // matches the live (or recovering) pairing. A sibling build's row
+        // stays healthy while the foreground connection recovers.
+        let ownerTag = foregroundMacDeviceID != nil
+            ? activeMacInstanceTag
+            : recoveryTargetInstanceTag
+        return macInstanceTagAuthority.sameStoredAuthority(
+            workspace.macInstanceTag,
+            ownerTag
+        )
     }
 
     /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
@@ -1628,6 +1645,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale per-Mac connection can't be reused.
         foregroundMacDeviceID = nil
         recoveryTargetMacDeviceID = nil
+        recoveryTargetInstanceTag = nil
         connections.removeAll()
         // A signed-out store owns no Macs: clear the per-Mac source of truth so
         // `workspaces`/`workspaceGroups` derive to empty. Group sections are
@@ -6732,12 +6750,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // to a Mac — or a sibling BUILD of the foreground's own Mac — other
         // than the current foreground connection. Switch the foreground to
         // that exact pairing first so the terminal attaches to the right one.
+        // No nil-tag wildcard: an untagged row on the foreground DEVICE may
+        // belong to a legacy sibling pairing, and treating it as
+        // foreground-owned would route its open through a tagged build's
+        // client. `sameStoredAuthority(nil, nil)` still matches the ordinary
+        // untagged-foreground case.
         let rowIsForegroundPairing = ownerMacDeviceID == foregroundMacDeviceID
-            && (ownerInstanceTag == nil
-                || macInstanceTagAuthority.sameStoredAuthority(
-                    ownerInstanceTag,
-                    activeMacInstanceTag
-                ))
+            && macInstanceTagAuthority.sameStoredAuthority(
+                ownerInstanceTag,
+                activeMacInstanceTag
+            )
         if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,

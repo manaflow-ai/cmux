@@ -133,7 +133,11 @@ struct WorkspaceMacSelectionScope {
                 return false
             }
             guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
-                return true
+                // An untagged selection names a legacy pairing. It matches
+                // only an untagged live foreground: a tagged sibling on the
+                // same device is a DIFFERENT app instance, and a missing tag
+                // is not proof of ownership.
+                return Self.normalizedTag(foregroundInstanceTag) == nil
             }
             // Prefer the live connection's tag; stored isActive lags promotion.
             if let liveTag = Self.normalizedTag(foregroundInstanceTag) {
@@ -216,7 +220,9 @@ struct WorkspaceMacSelectionScope {
                 return false
             }
             guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
-                return true
+                // Same rule as workspace creation: an untagged selection
+                // matches only an untagged live foreground build.
+                return Self.normalizedTag(foregroundInstanceTag) == nil
             }
             return Self.normalizedTag(selectedTag) == Self.normalizedTag(foregroundInstanceTag)
         case .all, .automatic:
