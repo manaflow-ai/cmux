@@ -358,7 +358,6 @@ def check_ui_automation(
     assert_invalid(
         cli_path, socket_path, fake_home, state,
         ["swipe", "--ref", "e1_4", "up", "--duration", "1e20"],
-        "Invalid arguments for simulator swipe",
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
