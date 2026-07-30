@@ -70,6 +70,12 @@ set -euo pipefail
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$CMUX_TEST_CALL_LOG"
 EOF
 done
+
+cat > "$FAKE_BIN/notarize-computer-use-helper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+EOF
 chmod +x "$FAKE_BIN"/*
 
 run_helper() {
@@ -85,6 +91,8 @@ run_helper() {
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+  CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   APPLE_ID=fixture@example.com \
   APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
   APPLE_TEAM_ID=FIXTURETEAM \
@@ -94,6 +102,12 @@ run_helper() {
 
 run_helper
 
+if ! grep -Fxq \
+  "notarize-helper $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
+  "$LOG"; then
+  echo "FAIL: nightly packaging skipped standalone Computer Use helper notarization" >&2
+  exit 1
+fi
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
   echo "FAIL: expected exactly one notarization submission" >&2
   exit 1
@@ -107,11 +121,14 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
+helper_notary_line="$(line_of "notarize-helper $APP")"
+create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
 app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"
 mounted_spctl_line="$(line_of "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount")"
-if ! [ "$submit_line" -lt "$app_staple_line" ] \
+if ! [ "$helper_notary_line" -lt "$create_dmg_line" ] \
+  || ! [ "$submit_line" -lt "$app_staple_line" ] \
   || ! [ "$app_staple_line" -lt "$dmg_staple_line" ] \
   || ! [ "$dmg_staple_line" -lt "$attach_line" ] \
   || ! [ "$attach_line" -lt "$mounted_spctl_line" ]; then

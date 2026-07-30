@@ -101,6 +101,10 @@ echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
+./scripts/ci/notarize-computer-use-helper.sh \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
