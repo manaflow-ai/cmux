@@ -69,6 +69,222 @@ test("stream fails closed at the default buffered-event cap", async () => {
   assert.equal(cleanups, 1);
 });
 
+test("command errors expose machine-readable codes", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({
+      id: request.id,
+      ok: false,
+      error: "layout changed",
+      error_code: "layout-undo-stale",
+    });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.request("ping"), (error: unknown) => {
+    assert.ok(error instanceof CmuxCommandError);
+    assert.equal(error.errorCode, "layout-undo-stale");
+    return true;
+  });
+  await client.close();
+});
+
+test("decoded browser frames preserve encoded dimensions and fill legacy defaults", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+      });
+      return;
+    }
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 1,
+      width: 80,
+      height: 24,
+      data: "cG5n",
+    });
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 2,
+      width: 80,
+      height: 24,
+      image_width: 160,
+      image_height: 48,
+      data: "cG5n",
+    });
+    connection.emit({
+      event: "browser-state",
+      surface: 7,
+      cols: 80,
+      rows: 24,
+      url: "https://example.com",
+      title: "Example",
+      status: "ready",
+      error: null,
+      frames_stalled: false,
+      frame: {
+        seq: 3,
+        width: 80,
+        height: 24,
+        data: "cG5n",
+      },
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    allowProtocolV6Attach: true,
+  });
+  const stream = await client.attachSurface(7);
+
+  const legacy = await stream.next();
+  const scaled = await stream.next();
+  const state = await stream.next();
+  assert.equal(legacy.event, "frame");
+  assert.equal(scaled.event, "frame");
+  if (legacy.event === "frame" && scaled.event === "frame") {
+    assert.equal(legacy.image_width, 80);
+    assert.equal(legacy.image_height, 24);
+    assert.equal(scaled.image_width, 160);
+    assert.equal(scaled.image_height, 48);
+  }
+  assert.equal(state.event, "browser-state");
+  if (
+    state.event === "browser-state"
+    && "frame" in state
+    && state.frame
+    && typeof state.frame === "object"
+    && "image_width" in state.frame
+    && "image_height" in state.frame
+  ) {
+    assert.equal(state.frame.image_width, 80);
+    assert.equal(state.frame.image_height, 24);
+  }
+  stream.close();
+  await client.close();
+});
+
+test("decoded browser frames accept missing CSS dimensions from CDP metadata", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+      });
+      return;
+    }
+    connection.emit({
+      event: "frame",
+      surface: 7,
+      seq: 1,
+      width: 0,
+      height: 0,
+      image_width: 160,
+      image_height: 48,
+      data: "cG5n",
+    });
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport,
+    timeoutMs: 100,
+    allowProtocolV6Attach: true,
+  });
+  const stream = await client.attachSurface(7);
+
+  const frame = await stream.next();
+  assert.equal(frame.event, "frame");
+  if (frame.event === "frame") {
+    assert.equal(frame.width, 0);
+    assert.equal(frame.height, 0);
+    assert.equal(frame.image_width, 160);
+    assert.equal(frame.image_height, 48);
+  }
+  stream.close();
+  await client.close();
+});
+
+test("browser frames reject missing, nonnumeric, and invalid dimensions", async () => {
+  const malformed = [
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        height: 24,
+        data: "cG5n",
+      },
+      error: /frame width is not a nonnegative integer/,
+    },
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        width: "80",
+        height: 24,
+        data: "cG5n",
+      },
+      error: /frame width is not a nonnegative integer/,
+    },
+    {
+      event: {
+        event: "frame",
+        surface: 7,
+        seq: 1,
+        width: 80,
+        height: -1,
+        data: "cG5n",
+      },
+      error: /frame height is not a nonnegative integer/,
+    },
+    {
+      event: {
+        event: "browser-state",
+        surface: 7,
+        frame: {
+          seq: 1,
+          width: 80,
+          height: 24,
+          image_width: 0,
+          image_height: 48,
+          data: "cG5n",
+        },
+      },
+      error: /browser-state frame image_width is not a positive integer/,
+    },
+  ];
+
+  for (const sample of malformed) {
+    const transport = new ScriptedTransport((request, connection) => {
+      if (request.cmd === "identify") {
+        connection.emit({
+          id: request.id,
+          ok: true,
+          data: { app: "cmux-tui", version: "0.1.2", protocol: 10, session: "main", pid: 1 },
+        });
+        return;
+      }
+      connection.emit(sample.event);
+      connection.emit({ id: request.id, ok: true, data: {} });
+    });
+    const client = new CmuxClient({
+      transport,
+      timeoutMs: 100,
+      allowProtocolV6Attach: true,
+    });
+
+    await assert.rejects(() => client.attachSurface(7), sample.error);
+    await client.close();
+  }
+});
+
 test("async iteration reports buffered-event overflow before the first pull", async () => {
   const stream = new CmuxStream<{ event: string }>(100, () => undefined, 1);
   stream.push({ event: "first" });
@@ -135,7 +351,7 @@ test("attach buffering enforces aggregate bytes and browser-frame limits", async
       { event: "output", surface: 7, data: "YWJj" },
       { event: "output", surface: 7, data: "ZGVm" },
     ],
-    [{ event: "frame", surface: 7, data: "AAAAA" }],
+    [{ event: "frame", surface: 7, seq: 1, width: 80, height: 24, data: "AAAAA" }],
     [{
       event: "browser-state",
       surface: 7,
@@ -205,6 +421,67 @@ test("newPane rejects servers older than protocol 9", async () => {
   const client = new CmuxClient({ transport, timeoutMs: 100 });
 
   await assert.rejects(client.newPane(1), /new-pane requires protocol 9/);
+  await client.close();
+});
+
+test("newPaneRight rejects invalid widths before transport", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    requests.push(request);
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-splits-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    connection.emit({ id: request.id, ok: true, data: { surface: 9 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  for (const width of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0.09, 1.01]) {
+    await assert.rejects(
+      client.newPaneRight(7, { width }),
+      /viewport pane width must be between 0.1 and 1.0/,
+    );
+  }
+  assert.deepEqual(requests, []);
+  await client.close();
+});
+
+test("newPaneRight preserves the typed null width default", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-splits-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    requests.push(request);
+    connection.emit({ id: request.id, ok: true, data: { surface: 9 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  assert.deepEqual(await client.newPaneRight(7, { width: null }), { surface: 9 });
+  assert.deepEqual(requests, [{ id: 2, cmd: "new-pane-right", pane: 7, width: null }]);
   await client.close();
 });
 
@@ -414,6 +691,128 @@ test("setSplitRatio accepts newer additive protocols", async () => {
 
   await client.setSplitRatio(1, 0.5);
   await client.close();
+});
+
+test("undoLayout preserves the preview revision for confirmation", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["layout-undo-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    requests.push(request);
+    if (request.confirm_close === true) {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { undone: true, screen: 3, revision: 9 },
+      });
+    } else {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          undone: false,
+          confirmation_required: true,
+          screen: 3,
+          revision: 8,
+          closes_panes: [15],
+        },
+      });
+    }
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const preview = await client.undoLayout(15);
+  assert.equal(preview.undone, false);
+  if (preview.undone) throw new Error("expected confirmation preview");
+  const result = await client.undoLayout(15, preview.revision);
+  assert.equal(result.undone, true);
+  assert.deepEqual(requests, [
+    { id: 2, cmd: "undo-layout", pane: 15 },
+    { id: 3, cmd: "undo-layout", pane: 15, revision: 8, confirm_close: true },
+  ]);
+  await client.close();
+});
+
+test("undoLayout rejects malformed result variants", async (t) => {
+  const invalidResults: Record<string, unknown>[] = [
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+    },
+    {
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [15],
+    },
+    {
+      undone: true,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [15],
+    },
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: -1,
+      closes_panes: [15],
+    },
+    {
+      undone: false,
+      confirmation_required: true,
+      screen: 3,
+      revision: 8,
+      closes_panes: [1.5],
+    },
+  ];
+
+  for (const [index, data] of invalidResults.entries()) {
+    await t.test(`case ${index + 1}`, async () => {
+      const transport = new ScriptedTransport((request, connection) => {
+        if (request.cmd === "identify") {
+          connection.emit({
+            id: request.id,
+            ok: true,
+            data: {
+              app: "cmux-tui",
+              version: "0.1.2",
+              protocol: 10,
+              capabilities: ["layout-undo-v1"],
+              session: "main",
+              pid: 1,
+            },
+          });
+          return;
+        }
+        connection.emit({ id: request.id, ok: true, data });
+      });
+      const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+      await assert.rejects(
+        client.undoLayout(15),
+        (error: unknown) => error instanceof CmuxProtocolError
+          && error.message.includes("layout undo"),
+      );
+      await client.close();
+    });
+  }
 });
 
 test("stable terminal resolve and close serialize process identity", async () => {
@@ -967,6 +1366,39 @@ test("setSplitRatio sends the stable split id", async () => {
   await client.setSplitRatio(42, 0.65);
 
   assert.deepEqual(sent, { id: 2, cmd: "set-split-ratio", split: 42, ratio: 0.65 });
+  await client.close();
+});
+
+test("resize methods forward one explicit transaction across drag samples", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: {
+          app: "cmux-tui",
+          version: "0.1.2",
+          protocol: 10,
+          capabilities: ["viewport-column-resize-v1"],
+          session: "main",
+          pid: 1,
+        },
+      });
+      return;
+    }
+    sent.push(request);
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport });
+
+  await client.setSplitRatio(42, 0.6, { transaction: 17 });
+  await client.setViewportPaneWidth(9, 0.75, { transaction: 17 });
+
+  assert.deepEqual(sent, [
+    { id: 2, cmd: "set-split-ratio", split: 42, ratio: 0.6, transaction: 17 },
+    { id: 3, cmd: "set-viewport-pane-width", pane: 9, width: 0.75, transaction: 17 },
+  ]);
   await client.close();
 });
 

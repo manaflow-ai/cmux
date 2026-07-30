@@ -3,7 +3,7 @@ import Observation
 import PostHog
 import os
 
-struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
+struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
     var id: String { key }
 
     let key: String
@@ -51,9 +51,9 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     #if DEBUG
-    private static let mobileWorkspaceChangesDefault = true
+    private nonisolated static let mobileWorkspaceChangesDefault = true
     #else
-    private static let mobileWorkspaceChangesDefault = false
+    private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let simulatorDefault = true
@@ -95,7 +95,7 @@ final class CmuxFeatureFlags {
     // Mac-side flag turns the whole feature off end to end. Release builds
     // keep it off until the PostHog flag enables it; DEBUG keeps it on for
     // dogfood.
-    static let mobileWorkspaceChangesFlag = CmuxFeatureFlagDefinition(
+    nonisolated static let mobileWorkspaceChangesFlag = CmuxFeatureFlagDefinition(
         key: "mobile-workspace-changes-enabled-release",
         title: String(
             localized: "featureFlags.mobileWorkspaceChanges.title",

@@ -1356,11 +1356,18 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     /// Explicit, unscaled surface font override. Nil follows the current config.
     var fontSize: Float?
+    /// In-flight workspace font requests already represented by `fontSize`.
+    /// Close-history restores preserve these tokens to avoid replaying a
+    /// projected request while its coordinator still owns the request.
+    var fontSizeChangeTokens: [UUID]?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    /// Agent-hook identity kept separately when a process-detected binding is
+    /// the effective terminal resume target.
+    var managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
@@ -1371,11 +1378,13 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     init(
         workingDirectory: String? = nil,
         fontSize: Float? = nil,
+        fontSizeChangeTokens: [UUID]? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
@@ -1383,11 +1392,13 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
+        self.fontSizeChangeTokens = fontSizeChangeTokens
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.managedAgentResumeBinding = managedAgentResumeBinding
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
@@ -1767,7 +1778,7 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
-    /// The workspace whose close dissolves the group. The loader prefers
+    /// The group's anchor workspace (the group header). The loader prefers
     /// `anchorMemberIndex` (restore-stable) and treats this field as a hint when
     /// duplicate/corrupt snapshots force a workspace to mint a fresh UUID.
     var anchorWorkspaceId: UUID? = nil

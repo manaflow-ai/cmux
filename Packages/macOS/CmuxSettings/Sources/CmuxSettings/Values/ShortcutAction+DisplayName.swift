@@ -38,8 +38,20 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Reorder Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Reorder Surface Right")
+        case .moveSurfaceToPreviousPane:
+            return String(localized: "shortcut.moveSurfaceToPreviousPane.label", defaultValue: "Move Surface to Previous Pane")
+        case .moveSurfaceToNextPane:
+            return String(localized: "shortcut.moveSurfaceToNextPane.label", defaultValue: "Move Surface to Next Pane")
+        case .moveSurfaceToPaneLeft:
+            return String(localized: "shortcut.moveSurfaceToPaneLeft.label", defaultValue: "Move Surface to Pane on Left")
+        case .moveSurfaceToPaneRight:
+            return String(localized: "shortcut.moveSurfaceToPaneRight.label", defaultValue: "Move Surface to Pane on Right")
+        case .moveSurfaceToPaneUp:
+            return String(localized: "shortcut.moveSurfaceToPaneUp.label", defaultValue: "Move Surface to Pane Above")
+        case .moveSurfaceToPaneDown:
+            return String(localized: "shortcut.moveSurfaceToPaneDown.label", defaultValue: "Move Surface to Pane Below")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
@@ -65,7 +77,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedWorkspace:
             return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
-        case .reopenClosedBrowserPanel: return "Reopen Last Closed"
+        case .reopenClosedBrowserPanel:
+            return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
@@ -83,6 +96,21 @@ extension ShortcutAction {
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .increaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Increase Font Size for Workspace Terminals"
+            )
+        case .decreaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Decrease Font Size for Workspace Terminals"
+            )
+        case .resetWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                defaultValue: "Reset Font Size for Workspace Terminals"
+            )
         case .equalizeSplits: return "Equalize Splits"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
@@ -144,6 +172,7 @@ extension ShortcutAction {
         case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
         case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
         case .toggleBrowserFocusMode: return "Enter Browser Focus Mode"
+        case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
         case .toggleReactGrab: return "Toggle React Grab"
         case .diffViewerScrollDown:
             return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")

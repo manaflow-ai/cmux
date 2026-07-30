@@ -1892,7 +1892,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         // the bare `claude` wrapper. https://github.com/manaflow-ai/cmux/issues/5427
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
-            sessionId: "claude-session-123",
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4",
             workingDirectory: "/tmp/cmux project",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
@@ -1914,7 +1914,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd -- '/tmp/cmux project' 2>/dev/null || [ ! -d '/tmp/cmux project' ] && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-123' '--model' 'sonnet' '--permission-mode' 'auto'")
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/tmp/claude config' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'a22293b7-bcef-4707-8439-2f538c8517a4' '--model' 'sonnet' '--permission-mode' 'auto'")
         )
         // The captured real-binary path must not survive: it would bypass the wrapper.
         XCTAssertFalse(snapshot.resumeCommand?.contains("/opt/Claude Code/bin/claude") ?? true)
@@ -2118,8 +2118,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
         // limitation shared by every agent kind) so the assertion isolates the claude
         // executable token itself.
-        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
-        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        let snapshot = Self.makeClaudeRestorableSnapshot(
+            workingDirectory: nil,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4"
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeStartupInput(allowLauncherScript: false))
 
         let recorded = try runClaudeResumeCommand(
             resumeCommand,
@@ -2297,10 +2300,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    private static func makeClaudeRestorableSnapshot(workingDirectory: String?) -> SessionRestorableAgentSnapshot {
+    private static func makeClaudeRestorableSnapshot(
+        workingDirectory: String?,
+        sessionId: String = "claude-session-123"
+    ) -> SessionRestorableAgentSnapshot {
         SessionRestorableAgentSnapshot(
             kind: .claude,
-            sessionId: "claude-session-123",
+            sessionId: sessionId,
             workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
@@ -2410,23 +2416,22 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try assertZshCommandChangesDirectory(cdCommand, expectedPath: cwdURL.path)
     }
 
-    /// Resolves a resume startup input to the line holding the resume command:
-    /// inline inputs are returned directly; `/bin/zsh '<script>'` launcher-script
-    /// inputs (used when the inline form exceeds the startup-input byte budget)
-    /// are read and the script line carrying the resume command is returned.
+    /// Resolves resume startup input to the inline command or launcher-script command line.
     private func inlineResumeCommandResolvingLauncherScript(from startupInput: String) throws -> String {
         let trimmed = startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/bin/zsh '") else { return trimmed }
-        let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
-        let scriptPath = try XCTUnwrap(
-            singleQuotedValueForTest(quotedPath),
-            "unparseable launcher-script startup input: \(trimmed)"
-        )
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        return try XCTUnwrap(
-            script.split(separator: "\n").map(String.init).last(where: { $0.contains(" && ") }),
-            "no resume command line in launcher script: \(script)"
-        )
+        if trimmed.hasPrefix("/bin/zsh '") {
+            let quotedPath = String(trimmed.dropFirst("/bin/zsh ".count))
+            let scriptPath = try XCTUnwrap(
+                singleQuotedValueForTest(quotedPath),
+                "unparseable launcher-script startup input: \(trimmed)"
+            )
+            let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+            return try XCTUnwrap(
+                script.split(separator: "\n").map(String.init).last,
+                "no resume command line in launcher script: \(script)"
+            )
+        }
+        return trimmed
     }
 
     private func singleQuotedValueForTest(_ value: String) -> String? {
@@ -2543,10 +2548,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(stdout, expectedPath, file: file, line: line)
     }
 
-    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() {
+    func testRestorableAgentStartupInputUsesInlineCommandWhenShort() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
-            sessionId: "claude-session-123",
+            sessionId: sessionId,
             workingDirectory: "/tmp/cmux project",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
@@ -2563,7 +2569,49 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(snapshot.resumeStartupInput(), snapshot.resumeCommand.map { $0 + "\n" })
+        let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
+        XCTAssertTrue(
+            startupInput.contains(
+                "/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=claude:\(sessionId)' /bin/sh -c"
+            ),
+            startupInput
+        )
+        XCTAssertFalse(try XCTUnwrap(snapshot.resumeCommand).contains("CMUX_AGENT_RESTORE_LAUNCH"))
+        XCTAssertFalse(try XCTUnwrap(snapshot.forkStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
+    }
+
+    func testRestorableAgentRestoreMarkerRequiresSupportedProviderAndUUIDSession() throws {
+        let unsupported = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "5839bed1-0a60-4c05-b6d1-2410d7a3741e",
+            workingDirectory: "/tmp/gemini repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "/Users/example/.bun/bin/gemini",
+                arguments: ["/Users/example/.bun/bin/gemini"],
+                workingDirectory: "/tmp/gemini repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let invalidSession = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "not-a-session-id",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+
+        XCTAssertFalse(try XCTUnwrap(unsupported.resumeStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
+        XCTAssertFalse(try XCTUnwrap(invalidSession.resumeStartupInput()).contains("CMUX_AGENT_RESTORE_LAUNCH"))
     }
 
     func testRestorableAgentStartupInputUsesLauncherScriptWhenCommandExceedsTerminalInputBudget() throws {
@@ -2604,9 +2652,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let prefix = "/bin/zsh '"
         let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
         let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertTrue(scriptContents.contains(longPath))
-        XCTAssertTrue(scriptContents.contains("'resume'"))
-        XCTAssertTrue(scriptContents.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
+        XCTAssertTrue(
+            scriptContents.contains(
+                "/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=codex:019dad34-d218-7943-b81a-eddac5c87951'"
+            )
+        )
+        let command = try inlineResumeCommandResolvingLauncherScript(from: input)
+        XCTAssertTrue(command.contains(longPath))
+        XCTAssertTrue(command.contains("'resume'"))
+        XCTAssertTrue(command.contains("'019dad34-d218-7943-b81a-eddac5c87951'"))
 
         let attributes = try FileManager.default.attributesOfItem(atPath: scriptPath)
         let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue & 0o777

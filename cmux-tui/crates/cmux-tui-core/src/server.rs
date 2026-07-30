@@ -43,6 +43,9 @@ use tungstenite::protocol::{Role, WebSocketConfig};
 use tungstenite::{Message, WebSocket, accept_with_config};
 use zeroize::Zeroize;
 
+use crate::browser::{
+    BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
+};
 use crate::model::{Screen, State, Workspace};
 use crate::mux::clamp_terminal_size;
 use crate::platform::{self, transport};
@@ -51,14 +54,19 @@ use crate::surface::{
 };
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
-    Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind,
-    SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node, NotificationLevel,
+    PairingDecision, PaneId, RenderAttachFrame, Rgb, ScreenId, SidebarPluginStatus, SplitDir,
+    SplitId, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
+    assign_short_ids,
 };
 
 const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
+pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
+pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
+pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
@@ -75,6 +83,10 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
+        GUARDED_BROWSER_POINTER_CAPABILITY,
+        VIEWPORT_SPLITS_CAPABILITY,
+        VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_UNDO_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
@@ -462,6 +474,8 @@ enum Command {
         name: Option<String>,
         #[serde(default)]
         kind: Option<String>,
+        #[serde(default)]
+        capabilities: Option<Vec<String>>,
     },
     ListClients,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
@@ -671,6 +685,10 @@ enum Command {
         #[serde(alias = "height_px")]
         height_px: u16,
     },
+    BrowserFramePresented {
+        surface: SurfaceId,
+        frame_seq: u64,
+    },
     BrowserMouse {
         surface: SurfaceId,
         kind: String,
@@ -682,6 +700,21 @@ enum Command {
         button: Option<String>,
         #[serde(default, alias = "click_count")]
         click_count: Option<u32>,
+        #[serde(default)]
+        frame_seq: Option<u64>,
+    },
+    BrowserMouseGuarded {
+        surface: SurfaceId,
+        kind: String,
+        #[serde(alias = "x_px")]
+        x_px: f64,
+        #[serde(alias = "y_px")]
+        y_px: f64,
+        #[serde(default)]
+        button: Option<String>,
+        #[serde(default, alias = "click_count")]
+        click_count: Option<u32>,
+        frame_seq: u64,
     },
     BrowserWheel {
         surface: SurfaceId,
@@ -691,10 +724,32 @@ enum Command {
         y_px: f64,
         #[serde(alias = "delta_y_px")]
         delta_y_px: f64,
+        #[serde(default)]
+        frame_seq: Option<u64>,
+    },
+    BrowserWheelGuarded {
+        surface: SurfaceId,
+        #[serde(alias = "x_px")]
+        x_px: f64,
+        #[serde(alias = "y_px")]
+        y_px: f64,
+        #[serde(alias = "delta_y_px")]
+        delta_y_px: f64,
+        frame_seq: u64,
     },
     BrowserKey {
         surface: SurfaceId,
         kind: String,
+        key: String,
+        code: String,
+        #[serde(alias = "windows_virtual_key_code")]
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        #[serde(default)]
+        text: Option<String>,
+    },
+    BrowserKeyPress {
+        surface: SurfaceId,
         key: String,
         code: String,
         #[serde(alias = "windows_virtual_key_code")]
@@ -784,6 +839,15 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    NewPaneRight {
+        pane: PaneId,
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
     Split {
         pane: PaneId,
         /// "right" or "down"
@@ -802,6 +866,21 @@ enum Command {
     SetSplitRatio {
         split: SplitId,
         ratio: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    SetViewportPaneWidth {
+        pane: PaneId,
+        width: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    UndoLayout {
+        pane: PaneId,
+        #[serde(default)]
+        revision: Option<u64>,
+        #[serde(default)]
+        confirm_close: bool,
     },
     PaneNeighbor {
         pane: PaneId,
@@ -1007,9 +1086,13 @@ impl Command {
             | Self::ReportAgent { surface, .. }
             | Self::VtState { surface }
             | Self::MintTerminalRenderer { surface, .. }
+            | Self::BrowserFramePresented { surface, .. }
             | Self::BrowserMouse { surface, .. }
+            | Self::BrowserMouseGuarded { surface, .. }
             | Self::BrowserWheel { surface, .. }
+            | Self::BrowserWheelGuarded { surface, .. }
             | Self::BrowserKey { surface, .. }
+            | Self::BrowserKeyPress { surface, .. }
             | Self::BrowserInsertText { surface, .. }
             | Self::BrowserNavigate { surface, .. }
             | Self::BrowserBack { surface }
@@ -1041,9 +1124,13 @@ impl Command {
             Self::ClearHistory { .. }
                 | Self::Send { .. }
                 | Self::SendKey { .. }
+                | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
+                | Self::BrowserMouseGuarded { .. }
                 | Self::BrowserWheel { .. }
+                | Self::BrowserWheelGuarded { .. }
                 | Self::BrowserKey { .. }
+                | Self::BrowserKeyPress { .. }
                 | Self::BrowserInsertText { .. }
                 | Self::BrowserNavigate { .. }
                 | Self::BrowserBack { .. }
@@ -1097,6 +1184,8 @@ struct Response {
     data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_delivery: Option<ResponseErrorDelivery>,
 }
@@ -2113,6 +2202,8 @@ struct ClientRecord {
     connected_at: Instant,
     name: Option<String>,
     kind: Option<String>,
+    capabilities: HashSet<String>,
+    browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     announced_attached: bool,
     writer: MessageWriter,
@@ -2143,6 +2234,8 @@ impl ClientRegistry {
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
+                capabilities: HashSet::new(),
+                browser_pointer_owner: None,
                 attached: BTreeMap::new(),
                 announced_attached: false,
                 writer,
@@ -2165,6 +2258,7 @@ impl ClientRegistry {
         client: u64,
         name: Option<String>,
         kind: Option<String>,
+        capabilities: Option<Vec<String>>,
         daemon_handoff_pending: &AtomicBool,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
         let mut state = self.state.lock().unwrap();
@@ -2183,7 +2277,41 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = Some(clamp_client_label(kind));
         }
+        if let Some(capabilities) = capabilities {
+            record.capabilities.extend(
+                capabilities
+                    .into_iter()
+                    .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY),
+            );
+        }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    fn supports_capability(&self, client: u64, capability: &str) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.capabilities.contains(capability))
+    }
+
+    fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if let Some(owner) = record.browser_pointer_owner {
+            return Ok(owner);
+        }
+        let owner = if record.capabilities.contains(GUARDED_BROWSER_POINTER_CAPABILITY) {
+            BrowserPointerOwner::Client(client)
+        } else {
+            BrowserPointerOwner::Legacy
+        };
+        record.browser_pointer_owner = Some(owner);
+        Ok(owner)
     }
 
     pub(crate) fn begin_daemon_handoff(
@@ -2890,6 +3018,24 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
+        // Pointer commands do not require a frame-stream attachment, so any
+        // browser worker may own this negotiated client. Disconnects are rare;
+        // wake all browser workers after registry removal instead of polling
+        // every idle worker forever.
+        let surfaces = mux.with_state(|state| {
+            state
+                .surfaces
+                .values()
+                .filter(|surface| surface.kind() == SurfaceKind::Browser)
+                .cloned()
+                .collect::<Vec<_>>()
+        });
+        for surface in surfaces {
+            surface.forget_browser_pointer_owner(owner);
+            surface.wake_browser_pointer_cleanup();
+        }
+    }
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
         for (surface, attached) in &record.attached {
@@ -2950,11 +3096,26 @@ fn handle_request_with_cancellation(
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
-        Ok(data) => Response { id, ok: true, data: Some(data), error: None, error_delivery: None },
+        Ok(data) => Response {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        },
         Err(error) => {
+            let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
-            Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery }
+            Response {
+                id,
+                ok: false,
+                data: None,
+                error: Some(error.to_string()),
+                error_code,
+                error_delivery,
+            }
         }
     };
     let response_ok = response.ok;
@@ -2976,6 +3137,16 @@ fn handle_request_with_cancellation(
     sent
 }
 
+fn response_error_code(error: &anyhow::Error) -> Option<String> {
+    error
+        .downcast_ref::<crate::LayoutUndoError>()
+        .map(|error| error.code().to_string())
+        .or_else(|| error.downcast_ref::<LayoutRatioError>().map(|error| error.code().to_string()))
+        .or_else(|| {
+            error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
+        })
+}
+
 fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
     send_request_error_with_delivery(writer, id, error, None)
 }
@@ -2988,7 +3159,14 @@ fn send_request_error_with_delivery(
 ) -> bool {
     send_response(
         writer,
-        Response { id, ok: false, data: None, error: Some(error.to_string()), error_delivery },
+        Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error.to_string()),
+            error_code: None,
+            error_delivery,
+        },
     )
 }
 
@@ -3167,7 +3345,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     };
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    Ok(json!({
+    let mut value = json!({
         "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
@@ -3177,7 +3355,20 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
                 .unwrap_or_default();
             json!({ "pane": pane_id, "surfaces": surfaces })
         }).collect::<Vec<_>>(),
-    }))
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    Ok(value)
 }
 
 fn pane_json(
@@ -3240,7 +3431,7 @@ fn screen_json(
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
-    json!({
+    let mut value = json!({
         "id": screen.id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
@@ -3249,7 +3440,20 @@ fn screen_json(
         "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root, screen.active_pane),
         "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
-    })
+    });
+    if !screen.viewport_splits.is_empty() {
+        value["viewport_splits"] = json!(
+            screen
+                .viewport_splits
+                .iter()
+                .map(|(split, width)| json!({"split": split, "width": width}))
+                .collect::<Vec<_>>()
+        );
+        if let Some(width) = screen.viewport_base_width {
+            value["viewport_base_width"] = json!(width);
+        }
+    }
+    value
 }
 
 fn workspaces_json(
@@ -3483,6 +3687,85 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
+fn handle_browser_frame_presented(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    frame_seq: u64,
+) -> anyhow::Result<Value> {
+    if !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY) {
+        anyhow::bail!(
+            "browser frame presentation requires client capability \
+             {GUARDED_BROWSER_POINTER_CAPABILITY}"
+        );
+    }
+    let surface = get_surface(mux, surface)?;
+    require_browser(&surface)?;
+    let owner = mux.control_clients.browser_pointer_owner(client)?;
+    let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
+    Ok(json!({ "accepted": accepted }))
+}
+
+struct BrowserMouseCommand<'a> {
+    surface: SurfaceId,
+    kind: &'a str,
+    x_px: f64,
+    y_px: f64,
+    button: Option<&'a str>,
+    click_count: Option<u32>,
+    frame_seq: Option<u64>,
+}
+
+fn handle_browser_mouse_command(
+    mux: &Mux,
+    client: u64,
+    command: BrowserMouseCommand<'_>,
+) -> anyhow::Result<Value> {
+    let frame_seq = command
+        .frame_seq
+        .ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
+    let surface = get_surface(mux, command.surface)?;
+    require_browser(&surface)?;
+    let event_type = match command.kind {
+        "down" => "mousePressed",
+        "up" => "mouseReleased",
+        "move" => "mouseMoved",
+        other => anyhow::bail!("bad browser mouse kind {other:?}"),
+    };
+    // Capability-aware clients keep a connection-scoped capture owner. Legacy
+    // one-shot calls share a bounded compatibility owner so down/move/up calls
+    // issued through separate short-lived sockets remain wire-compatible.
+    let input_owner = mux.control_clients.browser_pointer_owner(client)?;
+    surface.browser_mouse_event_for_frame_from(BrowserMouseDispatch {
+        input_owner,
+        event_type,
+        x: command.x_px,
+        y: command.y_px,
+        button: command.button,
+        click_count: command.click_count,
+        frame_seq: Some(frame_seq),
+    })?;
+    Ok(json!({}))
+}
+
+fn handle_browser_wheel_command(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    x_px: f64,
+    y_px: f64,
+    delta_y_px: f64,
+    frame_seq: Option<u64>,
+) -> anyhow::Result<Value> {
+    let frame_seq =
+        frame_seq.ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
+    let surface = get_surface(mux, surface)?;
+    require_browser(&surface)?;
+    let input_owner = mux.control_clients.browser_pointer_owner(client)?;
+    surface.browser_wheel_for_frame_from(input_owner, x_px, y_px, delta_y_px, Some(frame_seq))?;
+    Ok(json!({}))
+}
+
 fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     match level {
         "info" => Ok(NotificationLevel::Info),
@@ -3712,20 +3995,60 @@ fn browser_state_json(
         "title": state.title,
         "status": state.status.as_str(),
         "error": state.status.error(),
+        "pointer_frame_floor_seq": state.pointer_frame_floor_seq,
+        "pointer_frame_seq": state.pointer_frame_seq,
         "frames_stalled": state.frames_stalled,
     });
     if include_frame {
         value["frame"] = match state.frame.as_ref() {
-            Some(frame) => json!({
-                "seq": frame.seq,
-                "width": frame.css_width,
-                "height": frame.css_height,
-                "data": frame.data_b64,
-            }),
+            Some(frame) => browser_frame_payload(frame),
             None => Value::Null,
         };
     }
     value
+}
+
+fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate) -> Value {
+    json!({
+        "event": "frame",
+        "surface": surface,
+        "seq": update.frame.seq,
+        "width": update.frame.css_width,
+        "height": update.frame.css_height,
+        "image_width": update.frame.image_width,
+        "image_height": update.frame.image_height,
+        "data": update.frame.data_b64,
+        "status": update.status.as_str(),
+        "error": update.status.error(),
+        "pointer_frame_floor_seq": update.pointer_frame_floor_seq,
+        "pointer_frame_seq": update.pointer_frame_seq,
+    })
+}
+
+fn send_browser_attach_update(
+    writer: &MessageWriter,
+    surface: SurfaceId,
+    update: BrowserAttachUpdate,
+    outbound_stream: &OutboundStream,
+) -> std::io::Result<()> {
+    if let Some(frame) = update.frame {
+        writer.send_stream(&browser_frame_json(surface, &frame), outbound_stream)?;
+    }
+    if let Some(state) = update.state {
+        writer.send_stream(&browser_state_json(surface, &state, false), outbound_stream)?;
+    }
+    Ok(())
+}
+
+fn browser_frame_payload(frame: &crate::BrowserFrame) -> Value {
+    json!({
+        "seq": frame.seq,
+        "width": frame.css_width,
+        "height": frame.css_height,
+        "image_width": frame.image_width,
+        "image_height": frame.image_height,
+        "data": frame.data_b64,
+    })
 }
 
 fn spawn_attach_notification_stream(
@@ -4041,9 +4364,14 @@ fn handle_command_with_cancellation(
             "ghostty_commit": stamped_ghostty_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
-        Command::SetClientInfo { name, kind } => {
-            let (name, kind) =
-                mux.control_clients.set_info(client, name, kind, &mux.daemon_handoff_pending)?;
+        Command::SetClientInfo { name, kind, capabilities } => {
+            let (name, kind) = mux.control_clients.set_info(
+                client,
+                name,
+                kind,
+                capabilities,
+                &mux.daemon_handoff_pending,
+            )?;
             mux.emit(MuxEvent::ClientChanged { client, name, kind });
             Ok(json!({}))
         }
@@ -4560,23 +4888,58 @@ fn handle_command_with_cancellation(
                 .collect::<Vec<_>>();
             Ok(json!({"resizes": resizes, "failures": failures}))
         }
-        Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
-            let event_type = match kind.as_str() {
-                "down" => "mousePressed",
-                "up" => "mouseReleased",
-                "move" => "mouseMoved",
-                other => anyhow::bail!("bad browser mouse kind {other:?}"),
-            };
-            surface.browser_mouse_event(event_type, x_px, y_px, button.as_deref(), click_count)?;
-            Ok(json!({}))
+        Command::BrowserFramePresented { surface, frame_seq } => {
+            handle_browser_frame_presented(mux, client, surface, frame_seq)
         }
-        Command::BrowserWheel { surface, x_px, y_px, delta_y_px } => {
-            let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
-            surface.browser_wheel(x_px, y_px, delta_y_px)?;
-            Ok(json!({}))
+        Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
+            handle_browser_mouse_command(
+                mux,
+                client,
+                BrowserMouseCommand {
+                    surface,
+                    kind: &kind,
+                    x_px,
+                    y_px,
+                    button: button.as_deref(),
+                    click_count,
+                    frame_seq,
+                },
+            )
+        }
+        Command::BrowserMouseGuarded {
+            surface,
+            kind,
+            x_px,
+            y_px,
+            button,
+            click_count,
+            frame_seq,
+        } => handle_browser_mouse_command(
+            mux,
+            client,
+            BrowserMouseCommand {
+                surface,
+                kind: &kind,
+                x_px,
+                y_px,
+                button: button.as_deref(),
+                click_count,
+                frame_seq: Some(frame_seq),
+            },
+        ),
+        Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
+            handle_browser_wheel_command(mux, client, surface, x_px, y_px, delta_y_px, frame_seq)
+        }
+        Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
+            handle_browser_wheel_command(
+                mux,
+                client,
+                surface,
+                x_px,
+                y_px,
+                delta_y_px,
+                Some(frame_seq),
+            )
         }
         Command::BrowserKey {
             surface,
@@ -4596,6 +4959,25 @@ fn handle_command_with_cancellation(
             };
             surface.browser_key_event(
                 event_type,
+                &key,
+                &code,
+                windows_virtual_key_code,
+                modifiers,
+                text.as_deref(),
+            )?;
+            Ok(json!({}))
+        }
+        Command::BrowserKeyPress {
+            surface,
+            key,
+            code,
+            windows_virtual_key_code,
+            modifiers,
+            text,
+        } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(&surface)?;
+            surface.browser_key_press(
                 &key,
                 &code,
                 windows_virtual_key_code,
@@ -4754,6 +5136,14 @@ fn handle_command_with_cancellation(
             let surface = mux.new_pane(pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
+        Command::NewPaneRight { pane, width, cols, rows } => {
+            let surface = mux.new_pane_right(
+                pane,
+                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
+                optional_surface_size(cols, rows),
+            )?;
+            Ok(json!({ "surface": surface.id }))
+        }
         Command::Split { pane, dir, cols, rows } => {
             let dir = parse_split_dir(&dir)?;
             let surface = mux.split(pane, dir, optional_surface_size(cols, rows))?;
@@ -4761,16 +5151,49 @@ fn handle_command_with_cancellation(
         }
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
-            if !mux.set_ratio(pane, dir, ratio) {
-                anyhow::bail!("unknown pane/split {pane}");
-            }
+            mux.set_ratio_checked(pane, dir, ratio)?;
             Ok(json!({}))
         }
-        Command::SetSplitRatio { split, ratio } => {
-            if !mux.set_split_ratio(split, ratio) {
-                anyhow::bail!("unknown split {split}");
-            }
+        Command::SetSplitRatio { split, ratio, transaction } => {
+            transaction.map_or_else(
+                || mux.set_split_ratio_checked(split, ratio),
+                |transaction| {
+                    mux.set_split_ratio_in_transaction_checked(split, ratio, client, transaction)
+                },
+            )?;
             Ok(json!({}))
+        }
+        Command::SetViewportPaneWidth { pane, width, transaction } => {
+            transaction.map_or_else(
+                || mux.set_viewport_pane_width_checked(pane, width),
+                |transaction| {
+                    mux.set_viewport_pane_width_in_transaction_checked(
+                        pane,
+                        width,
+                        client,
+                        transaction,
+                    )
+                },
+            )?;
+            Ok(json!({}))
+        }
+        Command::UndoLayout { pane, revision, confirm_close } => {
+            match mux.undo_layout(pane, revision, confirm_close)? {
+                LayoutUndoResult::Undone { screen, revision } => Ok(json!({
+                    "undone": true,
+                    "screen": screen,
+                    "revision": revision,
+                })),
+                LayoutUndoResult::ConfirmationRequired { screen, revision, closes_panes } => {
+                    Ok(json!({
+                        "undone": false,
+                        "confirmation_required": true,
+                        "screen": screen,
+                        "revision": revision,
+                        "closes_panes": closes_panes,
+                    }))
+                }
+            }
         }
         Command::PaneNeighbor { pane, dir } => {
             let dir = parse_direction(&dir)?;
@@ -5179,6 +5602,20 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
             let surface = get_surface(mux, surface_id)?;
+            if surface.kind() == SurfaceKind::Browser {
+                let guarded_owner = mux
+                    .control_clients
+                    .supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+                    && mux.control_clients.browser_pointer_owner(client)?
+                        == BrowserPointerOwner::Client(client);
+                if !guarded_owner {
+                    anyhow::bail!(
+                        "browser attach requires client capability \
+                         {GUARDED_BROWSER_POINTER_CAPABILITY} before the first browser pointer \
+                         command; upgrade or restart the cmux-tui client"
+                    );
+                }
+            }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
             let render_mode = match mode.as_deref().unwrap_or("bytes") {
@@ -5405,26 +5842,17 @@ fn handle_command_with_cancellation(
                                 }
                             }
                             let update = std::mem::take(&mut *frames.slot.lock().unwrap());
-                            if let Some(state) = update.state {
-                                let value = browser_state_json(surface_id, &state, false);
-                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                    handle_attach_send_error(&lifecycle, &error);
-                                    break;
-                                }
-                            }
-                            if let Some(frame) = update.frame {
-                                let value = json!({
-                                    "event": "frame",
-                                    "surface": surface_id,
-                                    "seq": frame.seq,
-                                    "width": frame.css_width,
-                                    "height": frame.css_height,
-                                    "data": frame.data_b64,
-                                });
-                                if let Err(error) = writer.send_stream(&value, &outbound_stream) {
-                                    handle_attach_send_error(&lifecycle, &error);
-                                    break;
-                                }
+                            // A frame event applies its bitmap and authority
+                            // atomically. Publish it before a paired state
+                            // snapshot can expose the same positive token.
+                            if let Err(error) = send_browser_attach_update(
+                                &writer,
+                                surface_id,
+                                update,
+                                &outbound_stream,
+                            ) {
+                                handle_attach_send_error(&lifecycle, &error);
+                                break;
                             }
                         }
                         report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
@@ -5802,6 +6230,137 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    #[test]
+    fn browser_state_json_exposes_pointer_admission_separately_from_the_retained_frame() {
+        let state = crate::BrowserAttachState {
+            url: "https://example.test".to_string(),
+            title: "example".to_string(),
+            cols: 10,
+            rows: 5,
+            status: crate::BrowserStatus::Live,
+            frame: Some(crate::BrowserFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "AAAA".to_string(),
+                css_width: 80,
+                css_height: 48,
+                image_width: 80,
+                image_height: 48,
+                seq: 7,
+            }),
+            pointer_frame_floor_seq: None,
+            pointer_frame_seq: None,
+            frames_stalled: false,
+        };
+
+        let value = browser_state_json(1, &state, true);
+        assert_eq!(
+            value.get("pointer_frame_seq"),
+            Some(&Value::Null),
+            "a retained image can remain renderable while pointer admission is invalid"
+        );
+        assert_eq!(value["frame"]["seq"], 7);
+    }
+
+    #[test]
+    fn browser_frame_json_couples_authoritative_pointer_admission() {
+        let update = BrowserFrameUpdate {
+            frame: crate::BrowserFrame {
+                session_id: "session-test".to_string(),
+                data_b64: "AAAA".to_string(),
+                css_width: 80,
+                css_height: 48,
+                image_width: 80,
+                image_height: 48,
+                seq: 7,
+            },
+            status: crate::BrowserStatus::Failed("navigation failed".to_string()),
+            pointer_frame_floor_seq: None,
+            pointer_frame_seq: None,
+        };
+
+        let value = browser_frame_json(1, &update);
+
+        assert_eq!(value["status"], "failed");
+        assert_eq!(value["error"], "navigation failed");
+        assert_eq!(value.get("pointer_frame_seq"), Some(&Value::Null));
+        assert_eq!(value["seq"], 7);
+    }
+
+    #[test]
+    fn browser_attach_stream_publishes_frame_before_positive_state_authority() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&json!({"event": "overflow"})).unwrap();
+        let frame = crate::BrowserFrame {
+            session_id: "session-test".to_string(),
+            data_b64: "AAAA".to_string(),
+            css_width: 80,
+            css_height: 48,
+            image_width: 80,
+            image_height: 48,
+            seq: 7,
+        };
+        let update = BrowserAttachUpdate {
+            frame: Some(BrowserFrameUpdate {
+                frame: frame.clone(),
+                status: crate::BrowserStatus::Live,
+                pointer_frame_floor_seq: Some(7),
+                pointer_frame_seq: Some(7),
+            }),
+            state: Some(crate::BrowserAttachState {
+                url: "https://example.test".to_string(),
+                title: "example".to_string(),
+                cols: 10,
+                rows: 5,
+                status: crate::BrowserStatus::Live,
+                frame: Some(frame),
+                pointer_frame_floor_seq: Some(7),
+                pointer_frame_seq: Some(7),
+                frames_stalled: false,
+            }),
+        };
+
+        send_browser_attach_update(&writer, 1, update, &stream).unwrap();
+        let first: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        let second: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+
+        assert_eq!(first["event"], "frame");
+        assert_eq!(first["pointer_frame_floor_seq"], 7);
+        assert_eq!(first["pointer_frame_seq"], 7);
+        assert_eq!(second["event"], "browser-state");
+        assert_eq!(second["pointer_frame_floor_seq"], 7);
+        assert_eq!(second["pointer_frame_seq"], 7);
+    }
+
+    #[test]
+    fn browser_state_serializes_css_and_encoded_image_dimensions() {
+        let state = crate::BrowserAttachState {
+            url: "https://example.com".to_string(),
+            title: "Example".to_string(),
+            cols: 80,
+            rows: 24,
+            status: crate::BrowserStatus::Live,
+            frame: Some(crate::BrowserFrame {
+                session_id: "browser-session".to_string(),
+                data_b64: "frame".to_string(),
+                css_width: 800,
+                css_height: 600,
+                image_width: 400,
+                image_height: 300,
+                seq: 7,
+            }),
+            pointer_frame_floor_seq: Some(7),
+            pointer_frame_seq: Some(7),
+            frames_stalled: false,
+        };
+
+        let value = browser_state_json(3, &state, true);
+        assert_eq!(value["frame"]["width"], 800);
+        assert_eq!(value["frame"]["height"], 600);
+        assert_eq!(value["frame"]["image_width"], 400);
+        assert_eq!(value["frame"]["image_height"], 300);
     }
 
     #[test]
@@ -6248,6 +6807,44 @@ mod tests {
     }
 
     #[test]
+    fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
+        for cmd in [
+            Command::BrowserFramePresented { surface: 2, frame_seq: 7 },
+            Command::BrowserMouseGuarded {
+                surface: 2,
+                kind: "move".to_string(),
+                x_px: 1.0,
+                y_px: 1.0,
+                button: None,
+                click_count: None,
+                frame_seq: 7,
+            },
+            Command::BrowserWheelGuarded {
+                surface: 2,
+                x_px: 1.0,
+                y_px: 1.0,
+                delta_y_px: 1.0,
+                frame_seq: 7,
+            },
+        ] {
+            let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+            let mut state = ConnectionSurfaceState::default();
+            state.active_clear_surfaces.insert(1);
+            state.requests.push_back(PendingSurfaceRequest {
+                request: Request { id: Some(json!(1)), cmd },
+                retained_bytes: 0,
+                _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            });
+
+            assert_eq!(
+                ConnectionSurfaceScheduler::next_runnable_index(&state),
+                Some(0),
+                "guarded browser pointer input waited behind an unrelated clear-history worker"
+            );
+        }
+    }
+
+    #[test]
     fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -6660,6 +7257,240 @@ mod tests {
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
         assert_eq!(PROTOCOL_VERSION, 10);
+        assert!(
+            identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
+                .iter()
+                .any(|capability| capability == "browser-pointer-frame-guard-v1")),
+            "the server must advertise guarded browser pointer input"
+        );
+    }
+
+    #[test]
+    fn guarded_browser_pointer_commands_require_a_numeric_frame_guard() {
+        for cmd in ["browser-mouse-guarded", "browser-wheel-guarded"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+                "frame_seq": 9,
+            });
+            if cmd.starts_with("browser-mouse") {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_ok(),
+                "{cmd} must accept a numeric frame guard"
+            );
+
+            request.as_object_mut().unwrap().remove("frame_seq");
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_err(),
+                "{cmd} must reject a missing frame guard"
+            );
+
+            request["frame_seq"] = Value::Null;
+            assert!(
+                serde_json::from_value::<Request>(request).is_err(),
+                "{cmd} must reject a null frame guard"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_browser_pointer_schema_remains_compatible() {
+        for cmd in ["browser-mouse", "browser-wheel"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+            });
+            if cmd == "browser-mouse" {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            assert!(
+                serde_json::from_value::<Request>(request.clone()).is_ok(),
+                "{cmd} must keep accepting the protocol-10 legacy schema"
+            );
+
+            request["frame_seq"] = Value::Null;
+            assert!(
+                serde_json::from_value::<Request>(request).is_ok(),
+                "{cmd} must keep accepting a legacy null frame guard"
+            );
+        }
+    }
+
+    #[test]
+    fn browser_frame_presentation_requires_a_numeric_guard_and_capability() {
+        let request = json!({
+            "id": 1,
+            "cmd": "browser-frame-presented",
+            "surface": 7,
+            "frame_seq": 9,
+        });
+        assert!(serde_json::from_value::<Request>(request.clone()).is_ok());
+        let mut missing_guard = request.clone();
+        missing_guard.as_object_mut().unwrap().remove("frame_seq");
+        assert!(serde_json::from_value::<Request>(missing_guard).is_err());
+        let mut null_guard = request;
+        null_guard["frame_seq"] = Value::Null;
+        assert!(serde_json::from_value::<Request>(null_guard).is_err());
+
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let error = handle_command(
+            &mux,
+            client,
+            Command::BrowserFramePresented { surface: 99_999, frame_seq: 9 },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY));
+    }
+
+    #[test]
+    fn parsed_legacy_browser_pointer_still_requires_frame_authority() {
+        for cmd in ["browser-mouse", "browser-wheel"] {
+            let mut request = json!({
+                "id": 1,
+                "cmd": cmd,
+                "surface": 7,
+                "x_px": 1.0,
+                "y_px": 2.0,
+            });
+            if cmd == "browser-mouse" {
+                request["kind"] = json!("down");
+            } else {
+                request["delta_y_px"] = json!(3.0);
+            }
+            let request =
+                serde_json::from_value::<Request>(request).expect("legacy schema must parse");
+            let error = handle_command(&test_mux(), 0, request.cmd, &test_writer())
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("requires a frame guard"),
+                "{cmd} must fail closed before surface lookup: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn guarded_browser_capability_and_pointer_owner_are_connection_stable() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        assert!(
+            !mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 1,
+                "cmd": "set-client-info",
+                "kind": "tui",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(
+            mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY)
+        );
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Client(client)
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 2,
+                "cmd": "set-client-info",
+                "capabilities": [],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(
+            mux.control_clients.supports_capability(client, GUARDED_BROWSER_POINTER_CAPABILITY),
+            "connection-scoped pointer capability must not be withdrawn after admission"
+        );
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Client(client),
+            "metadata replacement must not change an already claimed pointer owner"
+        );
+
+        let legacy = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(legacy).unwrap(),
+            BrowserPointerOwner::Legacy
+        );
+        assert!(handle_message(
+            &mux,
+            legacy,
+            &json!({
+                "id": 3,
+                "cmd": "set-client-info",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(legacy).unwrap(),
+            BrowserPointerOwner::Legacy,
+            "a connection cannot change pointer identity after its first pointer command"
+        );
+    }
+
+    #[test]
+    fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((80, 24))).unwrap();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        assert_eq!(
+            mux.control_clients.browser_pointer_owner(client).unwrap(),
+            BrowserPointerOwner::Legacy
+        );
+        assert!(handle_message(
+            &mux,
+            client,
+            &json!({
+                "id": 1,
+                "cmd": "set-client-info",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            })
+            .to_string(),
+            &writer,
+        ));
+
+        let attach = handle_command(
+            &mux,
+            client,
+            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
+            &writer,
+        );
+        mux.shutdown();
+
+        let error = attach.expect_err("a legacy pointer owner must not gain a guarded attach");
+        assert!(
+            error.to_string().contains(GUARDED_BROWSER_POINTER_CAPABILITY),
+            "late capability upgrade must return the guarded-pointer admission error: {error:#}"
+        );
     }
 
     #[test]
@@ -6717,6 +7548,89 @@ mod tests {
             handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
             "unknown split 999999"
         );
+    }
+
+    #[test]
+    fn projected_split_ratio_range_failure_is_not_reported_as_unknown() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
+        let split =
+            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
+                [0]["screens"][0]["layout"]["split"]
+                .as_u64()
+                .expect("viewport projection exposes a stable split");
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 21,
+                "cmd": "set-split-ratio",
+                "split": split,
+                "ratio": 0.25
+            })
+            .to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 21);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], LayoutRatioError::OUT_OF_RANGE_CODE);
+        assert!(response["error"].as_str().unwrap().contains("width must be between"));
+        assert!(!response["error"].as_str().unwrap().contains("unknown split"));
+    }
+
+    #[test]
+    fn viewport_width_failures_have_stable_error_codes() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        for (id, width, code) in [
+            (31, 0.5, ViewportWidthError::COLUMN_MISSING_CODE),
+            (32, 1.1, ViewportWidthError::OUT_OF_RANGE_CODE),
+        ] {
+            handle_message(
+                &mux,
+                7,
+                &json!({
+                    "id": id,
+                    "cmd": "set-viewport-pane-width",
+                    "pane": pane,
+                    "width": width
+                })
+                .to_string(),
+                &writer,
+            );
+            let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+            assert_eq!(response["id"], id);
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error_code"], code);
+        }
+
+        handle_message(
+            &mux,
+            7,
+            &json!({
+                "id": 33,
+                "cmd": "new-pane-right",
+                "pane": pane,
+                "width": 1.1
+            })
+            .to_string(),
+            &writer,
+        );
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 33);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
     }
 
     #[test]
@@ -6907,6 +7821,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("existing browser".to_string()),
                 kind: Some("native-browser".to_string()),
+                capabilities: None,
             },
             &owner_writer,
         )
@@ -6942,6 +7857,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("late browser".to_string()),
                 kind: Some("native-browser".to_string()),
+                capabilities: None,
             },
             &late_writer,
         )
@@ -6994,6 +7910,7 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("\u{1b}]0;evil\u{07}name".to_string()),
                 kind: Some("web".to_string()),
+                capabilities: None,
             },
             &writer,
         )
@@ -7004,14 +7921,18 @@ mod tests {
         handle_command(
             &mux,
             client,
-            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None },
+            Command::SetClientInfo { name: Some("n".repeat(80)), kind: None, capabilities: None },
             &writer,
         )
         .unwrap();
         handle_command(
             &mux,
             client,
-            Command::SetClientInfo { name: None, kind: Some("tui".to_string()) },
+            Command::SetClientInfo {
+                name: None,
+                kind: Some("tui".to_string()),
+                capabilities: None,
+            },
             &writer,
         )
         .unwrap();
@@ -8417,7 +9338,12 @@ mod tests {
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
             "attach-initial-size",
+            SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
             "workspace-registry-v1",
+            GUARDED_BROWSER_POINTER_CAPABILITY,
+            VIEWPORT_SPLITS_CAPABILITY,
+            VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+            LAYOUT_UNDO_CAPABILITY,
             CLEAR_HISTORY_CAPABILITY,
             CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
@@ -8425,6 +9351,69 @@ mod tests {
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
+    }
+
+    #[test]
+    fn layout_undo_protocol_requires_the_preview_revision_before_closing_a_pane() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+        let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+        let writer = test_writer();
+
+        let preview = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: false },
+            &writer,
+        )
+        .unwrap();
+        let revision = preview["revision"].as_u64().expect("preview revision");
+        assert_eq!(preview["undone"].as_bool(), Some(false));
+        assert_eq!(preview["confirmation_required"].as_bool(), Some(true));
+        assert_eq!(preview["closes_panes"], json!([right_pane]));
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: None, confirm_close: true },
+            &writer,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("requires the preview revision"));
+        assert!(mux.surface(right.id).is_some());
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::UndoLayout { pane: right_pane, revision: Some(revision), confirm_close: true },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(result["undone"].as_bool(), Some(true));
+        assert!(mux.surface(right.id).is_none());
+    }
+
+    #[test]
+    fn layout_undo_protocol_serializes_the_machine_readable_error_code() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 22))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+
+        handle_message(
+            &mux,
+            7,
+            &json!({"id": 19, "cmd": "undo-layout", "pane": pane}).to_string(),
+            &writer,
+        );
+
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 19);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error_code"], crate::LayoutUndoError::UNAVAILABLE_CODE);
     }
 
     #[test]

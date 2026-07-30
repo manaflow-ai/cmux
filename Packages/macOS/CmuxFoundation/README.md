@@ -19,6 +19,7 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
+- `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
 
 ## Usage
 
@@ -53,6 +54,21 @@ restore a named tmux session without moving daemon or proxy traffic away from SS
 let profile = WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "agent-main")
 let remoteArguments = profile?.remoteCommandArguments
 ```
+
+CLI telemetry may suppress socket-connect `EPERM` only when the process
+environment contains a known restricted `CODEX_SANDBOX` value:
+
+```swift
+let policy = CLISocketSentryPolicy(environment: ProcessInfo.processInfo.environment)
+let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
+    stage: stage,
+    message: errorMessage,
+    allowSandboxPolicyDenial: policy.allowsSandboxPolicyDenial
+)
+```
+
+Pass the process environment directly. Missing, unknown, and unrestricted
+`CODEX_SANDBOX` values keep the error visible.
 
 ## Testing
 

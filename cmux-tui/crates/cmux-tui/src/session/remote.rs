@@ -12,23 +12,30 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
-    DefaultColors, MuxEvent, MuxEventBroadcaster, MuxEventReceiver, NotificationEvent,
-    NotificationLevel, PairingChallenge, Rgb, SurfaceId, SurfaceKind,
+    BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
+    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
+    PointerSnapshotProbe, Rgb, SurfaceId, SurfaceKind, TerminalPointerSnapshot,
     platform::transport,
-    server::{CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, ProtocolKeyInput},
+    server::{
+        CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
+        ProtocolKeyInput,
+    },
 };
 use cmux_tui_machine_protocol::BearerToken;
 use ghostty_vt::{
     Callbacks, CursorShape, KeyInput, MouseEncoders, MouseInput, RenderState, Terminal,
-    TerminalColorOverrides, parse_color,
+    TerminalColorOverrides, TerminalPointerSemanticSnapshot, parse_color,
 };
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
 use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
-use super::tree::{TreeView, parse_tree};
+#[cfg(test)]
+use super::tree::parse_tree;
+use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
@@ -38,6 +45,11 @@ const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const REMOTE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(test))]
+const GUARDED_POINTER_REQUEST_TIMEOUT: Duration = REMOTE_REQUEST_TIMEOUT;
+#[cfg(test)]
+const GUARDED_POINTER_REQUEST_TIMEOUT: Duration = Duration::from_millis(100);
 
 fn zeroize_string(value: &mut str) {
     // NUL is valid UTF-8, so the serialized request can be cleared in place
@@ -95,8 +107,14 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected { error: String, delivery: Option<ClearHistoryDelivery> },
+    Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
     Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GuardedPointerLifecycle {
+    Motion,
+    CaptureMutation,
 }
 
 impl RemoteRequestError {
@@ -106,6 +124,20 @@ impl RemoteRequestError {
 
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
+    }
+
+    pub(crate) fn rejection_code(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { code, .. } => code.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn rejection_message(&self) -> Option<&str> {
+        match self {
+            Self::Rejected { error, .. } => Some(error),
+            _ => None,
+        }
     }
 }
 
@@ -124,7 +156,7 @@ impl std::fmt::Display for RemoteRequestError {
 impl std::error::Error for RemoteRequestError {}
 #[derive(Clone)]
 struct RemoteBrowserFrame {
-    frame: BrowserFrame,
+    frame: Arc<BrowserFrame>,
 }
 
 #[derive(Clone)]
@@ -137,6 +169,9 @@ struct RemoteBrowserState {
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
     frame: Option<RemoteBrowserFrame>,
+    pointer_frame_floor_seq: Option<u64>,
+    pointer_frame_seq: Option<u64>,
+    presented_pointer_frame_seq: Option<u64>,
 }
 
 impl Default for RemoteBrowserState {
@@ -150,6 +185,9 @@ impl Default for RemoteBrowserState {
             live_since: None,
             last_frame_at: None,
             frame: None,
+            pointer_frame_floor_seq: None,
+            pointer_frame_seq: None,
+            presented_pointer_frame_seq: None,
         }
     }
 }
@@ -250,6 +288,7 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
+    pub(super) content_generation: AtomicU64,
     reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
@@ -272,7 +311,7 @@ impl RemoteSurface {
     pub(super) fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode(input, output)),
@@ -283,10 +322,67 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode(input, output))
+    }
+
+    pub(super) fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        if self.content_generation.load(Ordering::Acquire) != expected.content_generation {
+            return GuardedMouseEncode::ContentChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode(input, output))
+    }
+
     pub(super) fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => Some(encoders.encode_release(input, output)),
@@ -301,8 +397,8 @@ impl RemoteSurface {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         match self.mouse_encoders.try_lock() {
             Ok(mut encoders) => {
@@ -315,9 +411,73 @@ impl RemoteSurface {
         }
     }
 
+    pub(super) fn encode_mouse_press_pair_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> GuardedMouseEncode {
+        let term = match self.term.try_lock() {
+            Ok(term) => term,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return GuardedMouseEncode::SemanticsChanged;
+        }
+        if self.content_generation.load(Ordering::Acquire) != expected.content_generation {
+            return GuardedMouseEncode::ContentChanged;
+        }
+        let mut encoders = match self.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return GuardedMouseEncode::Contended;
+            }
+        };
+        encoders.sync_from_terminal(&term);
+        GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        ))
+    }
+
     pub(super) fn reset_mouse_motion_dedupe(&self) {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
+
+    pub(super) fn try_pointer_semantics(&self) -> PointerSemanticProbe {
+        match self.term.try_lock() {
+            Ok(term) => PointerSemanticProbe::Ready(term.pointer_semantic_snapshot()),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot())
+            }
+            Err(std::sync::TryLockError::WouldBlock) => PointerSemanticProbe::Contended,
+        }
+    }
+
+    pub(super) fn try_pointer_snapshot(&self) -> PointerSnapshotProbe {
+        match self.term.try_lock() {
+            Ok(term) => PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                semantics: term.pointer_semantic_snapshot(),
+                content_generation: self.content_generation.load(Ordering::Acquire),
+            }),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                    semantics: error.into_inner().pointer_semantic_snapshot(),
+                    content_generation: self.content_generation.load(Ordering::Acquire),
+                })
+            }
+            Err(std::sync::TryLockError::WouldBlock) => PointerSnapshotProbe::Contended,
+        }
+    }
+
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         self.apply_stream_resize_with_colors(cols, rows, replay, None);
@@ -343,6 +503,7 @@ impl RemoteSurface {
             }
             *term = fresh;
             self.sync_mouse_encoders(&term);
+            self.content_generation.fetch_add(1, Ordering::AcqRel);
             return;
         }
         let _ = term.resize(cols, rows, 8, 16);
@@ -350,6 +511,7 @@ impl RemoteSurface {
             apply_terminal_colors(&mut term, colors);
         }
         self.sync_mouse_encoders(&term);
+        self.content_generation.fetch_add(1, Ordering::AcqRel);
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
@@ -371,13 +533,68 @@ impl RemoteSurface {
         *self.reported_size.lock().unwrap() = None;
     }
 
-    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+    #[cfg(test)]
+    pub fn browser_frame(&self) -> Option<Arc<BrowserFrame>> {
         let browser = self.browser.lock().unwrap();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
             browser.frame.as_ref().map(|frame| frame.frame.clone())
         }
+    }
+
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            return None;
+        }
+        browser.frame.as_ref().map(|frame| BrowserFrameUpdate {
+            frame: (*frame.frame).clone(),
+            status: browser.status.clone(),
+            pointer_frame_floor_seq: browser.pointer_frame_floor_seq,
+            pointer_frame_seq: browser.pointer_frame_seq,
+        })
+    }
+
+    #[cfg(test)]
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.pointer_frame_seq
+        }
+    }
+
+    pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        let browser = self.browser.lock().unwrap();
+        matches!(browser.status, BrowserStatus::Live)
+            && browser.presented_pointer_frame_seq == Some(frame_seq)
+            && pointer_frame_is_in_range(&browser, frame_seq)
+    }
+
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        let browser = self.browser.lock().unwrap();
+        matches!(browser.status, BrowserStatus::Live)
+            && pointer_frame_is_in_range(&browser, frame_seq)
+    }
+
+    pub fn acknowledge_browser_pointer_frame(&self, frame_seq: u64) -> bool {
+        let mut browser = self.browser.lock().unwrap();
+        if !matches!(browser.status, BrowserStatus::Live)
+            || !pointer_frame_is_in_range(&browser, frame_seq)
+            || browser.presented_pointer_frame_seq == Some(frame_seq)
+            || browser.presented_pointer_frame_seq.is_some_and(|presented| presented > frame_seq)
+        {
+            return false;
+        }
+        browser.presented_pointer_frame_seq = Some(frame_seq);
+        true
+    }
+
+    pub fn has_browser_frame(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        !matches!(browser.status, BrowserStatus::Failed(_)) && browser.frame.is_some()
     }
 
     pub fn browser_url(&self) -> Option<String> {
@@ -414,34 +631,79 @@ impl RemoteSurface {
         let previous_status = browser.status.clone();
         browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
         browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
-        browser.status = match value.get("status").and_then(|v| v.as_str()) {
-            Some("failed") => BrowserStatus::Failed(
-                value.get("error").and_then(|v| v.as_str()).unwrap_or("browser failed").to_string(),
-            ),
-            Some("live") => BrowserStatus::Live,
-            _ => BrowserStatus::Starting,
-        };
+        browser.status = parse_browser_status(value).unwrap_or(BrowserStatus::Starting);
         browser.frames_stalled =
             value.get("frames_stalled").and_then(|v| v.as_bool()).unwrap_or(false);
         if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
             browser.live_since = Some(Instant::now());
         }
+        let mut received_frame = false;
         if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
             browser.last_frame_at = Some(Instant::now());
             browser.frame = Some(frame);
+            received_frame = true;
         }
+        let advertised_pointer_range =
+            matches!(browser.status, BrowserStatus::Live).then(|| parse_pointer_frame_range(value));
+        let advertised_pointer_range = advertised_pointer_range.flatten();
+        let current_pointer_range = browser.pointer_frame_floor_seq.zip(browser.pointer_frame_seq);
+        // State-only messages may retain existing authority or revoke it.
+        // New authority must arrive atomically with its pixels.
+        let accepted_pointer_range =
+            if received_frame || advertised_pointer_range == current_pointer_range {
+                advertised_pointer_range
+            } else {
+                None
+            };
+        (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) = accepted_pointer_range
+            .map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
+        retain_presented_pointer_frame(&mut browser);
     }
 
     fn update_browser_frame(&self, value: &Value) {
         if let Some(frame) = parse_browser_frame(value) {
             let mut browser = self.browser.lock().unwrap();
-            browser.status = BrowserStatus::Live;
+            let previous_status = browser.status.clone();
+            let status = parse_browser_status(value);
+            if let Some(status) = status.clone() {
+                browser.status = status;
+            }
             browser.frames_stalled = false;
-            browser.live_since.get_or_insert_with(Instant::now);
+            if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
+                browser.live_since = Some(Instant::now());
+            }
             browser.last_frame_at = Some(Instant::now());
+            let pointer_range = matches!(status, Some(BrowserStatus::Live))
+                .then(|| parse_pointer_frame_range(value))
+                .flatten();
+            (browser.pointer_frame_floor_seq, browser.pointer_frame_seq) =
+                pointer_range.map_or((None, None), |(floor, latest)| (Some(floor), Some(latest)));
+            retain_presented_pointer_frame(&mut browser);
             browser.frame = Some(frame);
         }
     }
+}
+
+fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {
+    browser
+        .pointer_frame_floor_seq
+        .zip(browser.pointer_frame_seq)
+        .is_some_and(|(floor, latest)| (floor..=latest).contains(&frame_seq))
+}
+
+fn retain_presented_pointer_frame(browser: &mut RemoteBrowserState) {
+    if browser
+        .presented_pointer_frame_seq
+        .is_some_and(|frame_seq| !pointer_frame_is_in_range(browser, frame_seq))
+    {
+        browser.presented_pointer_frame_seq = None;
+    }
+}
+
+fn parse_pointer_frame_range(value: &Value) -> Option<(u64, u64)> {
+    let latest = value.get("pointer_frame_seq").and_then(Value::as_u64)?;
+    let floor = value.get("pointer_frame_floor_seq").and_then(Value::as_u64).unwrap_or(latest);
+    (floor <= latest).then_some((floor, latest))
 }
 
 #[derive(Default)]
@@ -669,6 +931,9 @@ impl RemoteSession {
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }
+        if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
+            client_info["capabilities"] = json!([GUARDED_BROWSER_POINTER_CAPABILITY]);
+        }
         self.request(client_info)?;
         if subscribe {
             self.prime_local_subscription();
@@ -882,6 +1147,7 @@ impl RemoteSession {
                         apply_terminal_colors(&mut term, colors);
                     }
                     surface.sync_mouse_encoders(&term);
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
                     drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
@@ -929,6 +1195,7 @@ impl RemoteSession {
                     let mut term = surface.term.lock().unwrap();
                     apply_terminal_colors(&mut term, &colors);
                     surface.sync_mouse_encoders(&term);
+                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
                     drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
@@ -1196,7 +1463,11 @@ impl RemoteSession {
         self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
     }
 
-    pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
+    pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
+        self.request_with_timeout(cmd, REMOTE_REQUEST_TIMEOUT)
+    }
+
+    fn request_with_timeout(&self, mut cmd: Value, timeout: Duration) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
         let mut message = serde_json::to_string(&cmd)
@@ -1224,7 +1495,7 @@ impl RemoteSession {
             return Err(RemoteRequestError::Shutdown.into());
         }
 
-        let response = match rx.recv_timeout(Duration::from_secs(10)) {
+        let response = match rx.recv_timeout(timeout) {
             Ok(response) => response,
             Err(_) => {
                 // Drop the pending entry so a half-open session does not
@@ -1241,13 +1512,35 @@ impl RemoteSession {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+            let code = response.get("error_code").and_then(Value::as_str).map(ToString::to_string);
             let delivery = match response.get("error_delivery").and_then(Value::as_str) {
                 Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
                 Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
                 _ => None,
             };
-            Err(RemoteRequestError::Rejected { error: error.to_string(), delivery }.into())
+            Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
         }
+    }
+
+    pub(super) fn request_guarded_pointer(
+        &self,
+        cmd: Value,
+        lifecycle: GuardedPointerLifecycle,
+    ) -> anyhow::Result<Value> {
+        let result = self.request_with_timeout(cmd, GUARDED_POINTER_REQUEST_TIMEOUT);
+        if lifecycle == GuardedPointerLifecycle::CaptureMutation
+            && result
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<RemoteRequestError>())
+                .is_some_and(RemoteRequestError::is_timeout)
+        {
+            // The server may have accepted a press whose reply was lost.
+            // Closing the connection removes this client from the server
+            // registry and wakes every browser worker to balance its capture.
+            self.disconnect_transport();
+        }
+        result
     }
 
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
@@ -1429,7 +1722,7 @@ impl RemoteSession {
     }
 
     pub fn supports_browser_attach(&self) -> bool {
-        true
+        self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY)
     }
 
     fn record_surface_overflow(&self, id: SurfaceId) -> (Option<Duration>, bool) {
@@ -1512,6 +1805,7 @@ impl RemoteSession {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -1567,7 +1861,15 @@ impl RemoteSession {
                 return Err(e);
             }
         };
-        let tree = parse_tree(&data);
+        let capabilities = self.capabilities.lock().unwrap();
+        let tree = parse_tree_with_capabilities(
+            &data,
+            TreeCapabilities {
+                viewport_splits: capabilities.contains(VIEWPORT_SPLITS_CAPABILITY),
+                viewport_column_resize: capabilities.contains(VIEWPORT_COLUMN_RESIZE_CAPABILITY),
+            },
+        );
+        drop(capabilities);
         self.exited_surfaces.lock().unwrap().retain(|surface_id| {
             tree.workspaces
                 .iter()
@@ -1787,17 +2089,50 @@ fn hex_color(color: Rgb) -> String {
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let data_b64 = value.get("data")?.as_str()?.to_string();
     let seq = value.get("seq")?.as_u64()?;
-    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let width = value
+        .get("width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .unwrap_or(0);
+    let height = value
+        .get("height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .unwrap_or(0);
+    let image_width = value
+        .get("image_width")
+        .and_then(Value::as_u64)
+        .and_then(|width| u32::try_from(width).ok())
+        .filter(|width| *width > 0)
+        .unwrap_or(width);
+    let image_height = value
+        .get("image_height")
+        .and_then(Value::as_u64)
+        .and_then(|height| u32::try_from(height).ok())
+        .filter(|height| *height > 0)
+        .unwrap_or(height);
     Some(RemoteBrowserFrame {
-        frame: BrowserFrame {
+        frame: Arc::new(BrowserFrame {
             session_id: String::new(),
             data_b64,
             css_width: width,
             css_height: height,
+            image_width,
+            image_height,
             seq,
-        },
+        }),
     })
+}
+
+fn parse_browser_status(value: &Value) -> Option<BrowserStatus> {
+    match value.get("status")?.as_str()? {
+        "failed" => Some(BrowserStatus::Failed(
+            value.get("error").and_then(Value::as_str).unwrap_or("browser failed").to_string(),
+        )),
+        "live" => Some(BrowserStatus::Live),
+        "starting" => Some(BrowserStatus::Starting),
+        _ => Some(BrowserStatus::Starting),
+    }
 }
 
 #[cfg(test)]
@@ -1857,6 +2192,55 @@ pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
             cmux_tui_core::server::PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY.to_string()
         ]),
     )
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_live_browser(
+    surface_id: SurfaceId,
+    frame_seq: u64,
+) -> Arc<RemoteSession> {
+    test_session_with_browser_pointer_range(surface_id, frame_seq, frame_seq)
+}
+
+#[cfg(test)]
+pub(super) fn test_session_with_browser_pointer_range(
+    surface_id: SurfaceId,
+    pointer_frame_floor_seq: u64,
+    frame_seq: u64,
+) -> Arc<RemoteSession> {
+    let session = test_session_with_provider_context(None, HashSet::new());
+    let frame = BrowserFrame {
+        session_id: "test-browser-session".to_string(),
+        data_b64: "AAAA".to_string(),
+        css_width: 80,
+        css_height: 48,
+        image_width: 80,
+        image_height: 48,
+        seq: frame_seq,
+    };
+    let surface = Arc::new(RemoteSurface {
+        id: surface_id,
+        kind: SurfaceKind::Browser,
+        term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+        mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+        dirty: AtomicBool::new(false),
+        content_generation: AtomicU64::new(1),
+        reported_size: Mutex::new(None),
+        browser: Mutex::new(RemoteBrowserState {
+            url: Some("https://example.test".to_string()),
+            title: Some("example".to_string()),
+            status: BrowserStatus::Live,
+            live_since: Some(Instant::now()),
+            last_frame_at: Some(Instant::now()),
+            frame: Some(RemoteBrowserFrame { frame: Arc::new(frame) }),
+            pointer_frame_floor_seq: Some(pointer_frame_floor_seq),
+            pointer_frame_seq: Some(frame_seq),
+            presented_pointer_frame_seq: Some(pointer_frame_floor_seq),
+            ..RemoteBrowserState::default()
+        }),
+    });
+    session.surfaces.lock().unwrap().insert(surface_id, surface);
+    session
 }
 
 #[cfg(test)]
@@ -1920,6 +2304,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    }
+
+    #[test]
+    fn browser_attach_requires_the_guarded_pointer_capability() {
+        let unsupported = super::test_session_with_provider_context(None, HashSet::new());
+        assert!(!unsupported.supports_browser_attach());
+
+        let supported = super::test_session_with_provider_context(
+            None,
+            HashSet::from([GUARDED_BROWSER_POINTER_CAPABILITY.to_string()]),
+        );
+        assert!(supported.supports_browser_attach());
+    }
+
+    #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
         assert_eq!(SUPPORTED_PROTOCOL_VERSION, 10);
     }
@@ -1932,6 +2333,16 @@ mod tests {
             error.to_string(),
             "unsupported cmux-tui protocol 9; this client requires protocol 10; restart the cmux-tui server"
         );
+    }
+
+    #[test]
+    fn protocol_10_identity_with_guarded_pointer_capability_is_accepted() {
+        validate_remote_identity(&json!({
+            "app": "cmux-tui",
+            "protocol": 10,
+            "capabilities": ["browser-pointer-frame-guard-v1"],
+        }))
+        .unwrap();
     }
 
     #[test]
@@ -1964,6 +2375,32 @@ mod tests {
     #[test]
     fn protocol_10_identity_is_accepted() {
         validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    }
+
+    #[test]
+    fn browser_frame_parses_image_dimensions_with_legacy_fallback() {
+        let frame = parse_browser_frame(&json!({
+            "seq": 1,
+            "width": 800,
+            "height": 600,
+            "image_width": 400,
+            "image_height": 300,
+            "data": "frame",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((frame.css_width, frame.css_height), (800, 600));
+        assert_eq!((frame.image_width, frame.image_height), (400, 300));
+
+        let legacy = parse_browser_frame(&json!({
+            "seq": 2,
+            "width": 320,
+            "height": 200,
+            "data": "legacy",
+        }))
+        .unwrap()
+        .frame;
+        assert_eq!((legacy.image_width, legacy.image_height), (320, 200));
     }
 
     #[test]
@@ -2105,6 +2542,16 @@ mod tests {
                 .get("cmd")
                 .and_then(Value::as_str)
                 .ok_or_else(|| io::Error::other("remote request omitted its command"))?;
+            if command == "set-client-info" {
+                assert!(
+                    request["capabilities"].as_array().is_some_and(|capabilities| {
+                        capabilities.iter().any(|capability| {
+                            capability.as_str() == Some(GUARDED_BROWSER_POINTER_CAPABILITY)
+                        })
+                    }),
+                    "a client using guarded browser commands must advertise that capability"
+                );
+            }
             let response = match (self.failure, command) {
                 (InitializationFailure::IdentifyRejected, "identify") => {
                     json!({"id": id, "ok": false, "error": "identify rejected"})
@@ -2128,7 +2575,11 @@ mod tests {
                 (_, "identify") => json!({
                     "id": id,
                     "ok": true,
-                    "data": {"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION},
+                    "data": {
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    },
                 }),
                 (_, "set-client-info" | "subscribe") => {
                     json!({"id": id, "ok": true, "data": null})
@@ -2298,6 +2749,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -2379,6 +2831,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -2416,6 +2869,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -2584,6 +3038,50 @@ mod tests {
     }
 
     #[test]
+    fn guarded_pointer_timeout_uses_transport_disconnect_lifecycle() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        assert!(
+            session
+                .request_guarded_pointer(
+                    json!({
+                        "cmd": "browser-mouse-guarded",
+                        "kind": "down"
+                    }),
+                    GuardedPointerLifecycle::CaptureMutation
+                )
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
+        );
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn guarded_pointer_hover_timeout_preserves_the_transport() {
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));
+
+        assert!(
+            session
+                .request_guarded_pointer(
+                    json!({
+                        "cmd": "browser-mouse-guarded",
+                        "kind": "move"
+                    }),
+                    GuardedPointerLifecycle::Motion
+                )
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>()
+                .is_some_and(RemoteRequestError::is_timeout)
+        );
+        assert!(!session.shutdown.load(Ordering::Acquire));
+        assert!(!closed.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn initialization_failures_after_reader_spawn_close_the_transport() {
         for (failure, expected_error) in [
             (InitializationFailure::IdentifyRejected, "identify rejected"),
@@ -2642,7 +3140,11 @@ mod tests {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(request["cmd"], expected_command);
                 let data = if expected_command == "identify" {
-                    json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
                 } else {
                     Value::Null
                 };
@@ -3080,6 +3582,7 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -3090,17 +3593,252 @@ mod tests {
             "height": 40,
             "data": "Zmlyc3Q=",
         }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "a frame event without explicit authority metadata must fail closed"
+        );
         surface.update_browser_state(&json!({
             "url": "https://next.test",
             "title": "next",
             "status": "live",
             "frames_stalled": false,
         }));
+        assert_eq!(surface.browser_frame_seq(), None, "missing pointer admission must fail closed");
+
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "state alone must not grant new authority to the cached frame"
+        );
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "Zmlyc3Q=",
+            "status": "live",
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame_seq(), Some(9));
+
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": null,
+        }));
 
         let frame = surface.browser_frame().expect("cached frame");
         assert_eq!(frame.seq, 9);
         assert_eq!(frame.data_b64, "Zmlyc3Q=");
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "cached display frames must not imply pointer admission"
+        );
         assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "restoring cached-frame input requires a paired authoritative frame event"
+        );
+    }
+
+    #[test]
+    fn browser_state_cannot_grant_new_authority_to_cached_pixels() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_frame(&json!({
+            "seq": 8,
+            "width": 80,
+            "height": 40,
+            "data": "b2xk",
+            "status": "live",
+            "pointer_frame_seq": 8,
+        }));
+        surface.update_browser_state(&json!({
+            "url": "https://old.test",
+            "title": "same document",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 8,
+        }));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            Some(8),
+            "state may retain authority already paired with the cached pixels"
+        );
+
+        surface.update_browser_state(&json!({
+            "url": "https://new.test",
+            "title": "new document",
+            "status": "live",
+            "frames_stalled": false,
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame().map(|frame| frame.seq), Some(8));
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "state must not authorize old pixels with a token belonging to a delayed frame"
+        );
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3",
+            "status": "live",
+            "pointer_frame_seq": 9,
+        }));
+        assert_eq!(surface.browser_frame().map(|frame| frame.seq), Some(9));
+        assert_eq!(surface.browser_frame_seq(), Some(9));
+    }
+
+    #[test]
+    fn browser_pointer_range_does_not_authorize_unacknowledged_presentations() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3",
+            "status": "live",
+            "pointer_frame_floor_seq": 8,
+            "pointer_frame_seq": 9,
+        }));
+
+        assert!(
+            !surface.browser_accepts_pointer_frame(8),
+            "route membership must not imply that the client presented an older frame"
+        );
+        assert!(
+            !surface.browser_accepts_pointer_frame(9),
+            "receiving a frame must not acknowledge its presentation"
+        );
+        assert!(!surface.browser_accepts_pointer_frame(7));
+        assert!(!surface.browser_accepts_pointer_frame(10));
+
+        assert!(surface.acknowledge_browser_pointer_frame(8));
+        assert!(surface.browser_accepts_pointer_frame(8));
+        assert!(!surface.browser_accepts_pointer_frame(9));
+
+        surface.update_browser_frame(&json!({
+            "seq": 10,
+            "width": 80,
+            "height": 40,
+            "data": "bmV3ZXN0",
+            "status": "live",
+            "pointer_frame_floor_seq": 8,
+            "pointer_frame_seq": 10,
+        }));
+        assert!(
+            surface.browser_accepts_pointer_frame(8),
+            "receiving a repaint must preserve the exact frame still on screen"
+        );
+        assert!(surface.acknowledge_browser_pointer_frame(10));
+        assert!(!surface.browser_accepts_pointer_frame(8));
+        assert!(surface.browser_accepts_pointer_frame(10));
+        assert!(
+            !surface.acknowledge_browser_pointer_frame(9),
+            "a delayed acknowledgement must not roll authority backward"
+        );
+    }
+
+    #[test]
+    fn stale_frame_does_not_restore_failed_browser_pointer_admission() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
+            dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
+            reported_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+        surface.update_browser_state(&json!({
+            "url": "https://failed.test",
+            "title": "browser failed: navigation failed",
+            "status": "failed",
+            "error": "navigation failed",
+            "frames_stalled": false,
+            "pointer_frame_seq": null,
+        }));
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "c3RhbGU=",
+            "status": "failed",
+            "error": "navigation failed",
+            "pointer_frame_seq": null,
+        }));
+
+        assert!(
+            matches!(surface.browser_status(), BrowserStatus::Failed(ref error) if error == "navigation failed"),
+            "a stale screencast frame must not hide the authoritative navigation failure"
+        );
+        assert_eq!(
+            surface.browser_frame_seq(),
+            None,
+            "a stale failed-navigation frame must remain pointer-ineligible"
+        );
+        assert_eq!(
+            surface.browser.lock().unwrap().frame.as_ref().map(|frame| frame.frame.seq),
+            Some(9),
+            "the stale frame may remain cached for a later explicit recovery"
+        );
+
+        surface.update_browser_frame(&json!({
+            "seq": 10,
+            "width": 80,
+            "height": 40,
+            "data": "ZnJlc2g=",
+            "status": "live",
+            "error": null,
+            "pointer_frame_seq": 10,
+        }));
+        assert_eq!(surface.browser_status(), BrowserStatus::Live);
+        assert_eq!(
+            surface.browser_frame_seq(),
+            Some(10),
+            "explicit live frame metadata must restore pointer admission"
+        );
     }
 
     #[cfg(unix)]
@@ -3114,6 +3852,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3158,6 +3897,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3197,6 +3937,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3309,6 +4050,7 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
@@ -3342,6 +4084,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3377,6 +4120,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((12, 4))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3408,6 +4152,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(Some((90, 31))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
@@ -3576,6 +4321,7 @@ mod tests {
     fn subscription_recovery_retries_only_explicit_rejection() {
         let rejected = anyhow::Error::new(RemoteRequestError::Rejected {
             error: "no capacity".to_string(),
+            code: None,
             delivery: None,
         });
         let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
@@ -3600,6 +4346,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
+                content_generation: AtomicU64::new(1),
                 reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
@@ -3638,6 +4385,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
+            content_generation: AtomicU64::new(1),
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };

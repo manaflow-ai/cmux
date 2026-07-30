@@ -136,7 +136,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Every agent alert, in one place"].exists)
         let notificationsBody = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "The Notifications feed keeps every agent alert from your paired Macs in chronological order, even when push alerts are off. Tap one to open its workspace."
+            "Review every agent alert in one feed."
         )).firstMatch
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
@@ -167,9 +167,11 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
-            "Keep cmux open on your Mac and sign in with the same account. cmux finds it and connects securely."
+            "Use the same cmux account on both devices. Your Mac connects automatically."
         ].exists)
         XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
@@ -203,6 +205,42 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+    }
+
+    @MainActor
+    func testSignedOutOnboardingCompletesBeforeShowingSignIn() throws {
+        let app = launchApp(
+            mockData: false,
+            clearAuth: true,
+            launchArguments: [
+                "-dev.cmux.mobile.onboarding.redesign.progress.v1",
+                "welcome",
+            ]
+        )
+        defer { app.terminate() }
+
+        func element(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(element("MobileOnboardingAgentsScene").waitForExistence(timeout: 8))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+        primaryButton.tap()
+
+        XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
+        XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
+
+        primaryButton.tap()
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertFalse(element("MobileOnboardingConnectScene").exists)
     }
 
     @MainActor
@@ -453,6 +491,49 @@ final class cmuxUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "Search"))
         XCTAssertEqual(restoredMinimizedSearchMatches.count, 1)
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
+    }
+
+    /// Regression: on iOS 26 the workspace list's New Task control rendered in
+    /// the same bottom-trailing slot as the system search tab pill, so the two
+    /// stacked and New Task was occluded. The shared list host must lay the
+    /// button out clear of the search pill and keep both tappable.
+    @MainActor
+    func testWorkspaceListNewTaskButtonClearsSearchPill() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search pill requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let composer = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        guard let composerFrame = waitForUsableFrame(of: composer, timeout: 3) else {
+            XCTFail("New Task button had no usable frame")
+            return
+        }
+        let searchPill = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchPill.waitForExistence(timeout: 3))
+        guard let searchPillFrame = waitForUsableFrame(of: searchPill, timeout: 3) else {
+            XCTFail("Search pill had no usable frame")
+            return
+        }
+        XCTAssertFalse(
+            composerFrame.intersects(searchPillFrame),
+            "New Task \(composerFrame) must not overlap the search pill \(searchPillFrame)"
+        )
+        XCTAssertTrue(
+            waitForHittable(composer, timeout: 3),
+            "New Task must be tappable next to the search pill"
+        )
+        XCTAssertTrue(
+            waitForHittable(searchPill, timeout: 3),
+            "The search pill must stay tappable next to New Task"
+        )
     }
 
     @MainActor
