@@ -59,7 +59,26 @@ actor FakeBackup: PairedMacBackingUp {
         await upload(ops: ops, teamID: teamID, expectedUserID: nil)
     }
 
+    /// One-shot hook fired when an upload carrying a delete op ARRIVES (before
+    /// it applies), so a test can interleave a concurrent mutation exactly
+    /// inside the uploader's suspension window.
+    private var onDeleteUpload: (@Sendable () async -> Void)?
+
+    func setOnDeleteUpload(_ hook: @escaping @Sendable () async -> Void) {
+        onDeleteUpload = hook
+    }
+
     func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
+        let carriesDelete = ops.contains {
+            switch $0 {
+            case .delete, .deleteInstance: return true
+            default: return false
+            }
+        }
+        if carriesDelete, let hook = onDeleteUpload {
+            onDeleteUpload = nil
+            await hook()
+        }
         uploaded.append(contentsOf: ops)
         uploadedBatches.append(ops)
         uploadedTeamIDs.append(teamID)
@@ -68,28 +87,42 @@ actor FakeBackup: PairedMacBackingUp {
             failNextUploads -= 1
             return false
         }
-        // Mirror the server: a SUCCESSFUL delete removes the record from the
-        // backup, so later fetches no longer return it. A failed upload (above)
-        // leaves the record to model an undelivered tombstone. In per-team mode
-        // only the addressed team's bucket changes.
+        // Mirror the server: a SUCCESSFUL delete removes the record and a
+        // successful upsert/revive (re)writes it, so later fetches reflect the
+        // op order. A failed upload (above) leaves the backup untouched to
+        // model an undelivered request. In per-team mode only the addressed
+        // team's bucket changes.
         for op in ops {
-            let matches: (PairedMacBackupRecord) -> Bool
             switch op {
             case .delete(let macDeviceID):
-                matches = { $0.macDeviceID == macDeviceID && $0.instanceTag == nil }
+                removeRecords(teamID: teamID) { $0.macDeviceID == macDeviceID && $0.instanceTag == nil }
             case .deleteInstance(let macDeviceID, let instanceTag):
-                matches = { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
-            default:
-                continue
-            }
-            if recordsByTeam != nil {
-                let bucket = teamID ?? ""
-                recordsByTeam?[bucket]?.removeAll(where: matches)
-            } else {
-                records.removeAll(where: matches)
+                removeRecords(teamID: teamID) { $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag }
+            case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
+                 .revive(let record, _), .revivePreservingCustomizations(let record, _):
+                removeRecords(teamID: teamID) {
+                    $0.macDeviceID == record.macDeviceID && $0.instanceTag == record.instanceTag
+                }
+                appendRecord(record, teamID: teamID)
             }
         }
         return true
+    }
+
+    private func removeRecords(teamID: String?, where matches: (PairedMacBackupRecord) -> Bool) {
+        if recordsByTeam != nil {
+            recordsByTeam?[teamID ?? ""]?.removeAll(where: matches)
+        } else {
+            records.removeAll(where: matches)
+        }
+    }
+
+    private func appendRecord(_ record: PairedMacBackupRecord, teamID: String?) {
+        if recordsByTeam != nil {
+            recordsByTeam?[teamID ?? "", default: []].append(record)
+        } else {
+            records.append(record)
+        }
     }
 
     /// Every `upload` invocation's ops, one entry per network request, so a
@@ -101,6 +134,10 @@ actor FakeBackup: PairedMacBackingUp {
     /// Arm upload failures after construction (e.g. for the forget that follows
     /// a successful seeding upload).
     func setFailNextUploads(_ count: Int) { failNextUploads = count }
+
+    /// Arm fetch failures after construction (e.g. the network dropping right
+    /// before a forget, so only routed tombstones can deliver).
+    func setFailNextFetches(_ count: Int) { failNextFetches = count }
 
     /// The team the fake "server" reports it stored a successful upload under,
     /// mirroring the presence worker's echo of its verified resolved team. When

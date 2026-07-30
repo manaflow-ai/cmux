@@ -770,17 +770,141 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         })
     }
 
+    /// A PARTIALLY failed cleanup must still clear the markers of rows it DID
+    /// delete. The batch deliberately attempts every row; a row deleted before
+    /// the failure can never be re-enumerated on retry (`loadAllInstances`
+    /// reads the local rows), so its per-(user, team) hidden marker would
+    /// survive forever and keep the Mac unexpectedly hidden when it
+    /// re-registers in that team. The failed row's marker stays as the retry
+    /// owner.
+    @Test func partiallyFailedForgetClearsMarkersOfDeletedSiblings() async throws {
+        final class TeamBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var stored: String?
+            var value: String? {
+                get { lock.withLock { stored } }
+                set { lock.withLock { stored = newValue } }
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // The same pairing in two teams, hidden in both. Team A's delete FAILS
+        // (retry owner); team B's succeeds.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team A)",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 2)
+        )
+        let team = TeamBox()
+        team.value = "team-a"
+        let forget = WildcardRecordingForget()
+        // Production shape: the batching store attempts EVERY row even when
+        // one fails, so team B's row is deleted while team A's throws.
+        let failing = ExactScopeFailingStore(
+            inner: TeamScopedPairedMacStore(inner: base, teamIDProvider: { team.value }),
+            failingInstanceTag: nil,
+            failingTeamID: "team-a"
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: BackingUpPairedMacStore(
+                inner: failing,
+                backup: FakeBackup(),
+                teamIDProvider: { team.value }
+            ),
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { team.value },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        team.value = "team-b"
+        await store.loadPairedMacs()
+        await store.hideMac(macDeviceID: "mac-a", instanceTag: nil)
+        team.value = "team-a"
+        await store.loadPairedMacs()
+        let hidden = try #require(store.hiddenComputers.first {
+            $0.macDeviceID == "mac-a" && $0.instanceTag == nil
+        })
+
+        let ok = await store.forgetHiddenComputer(hidden)
+
+        // Team A's delete failed, so the forget reports failure and team A's
+        // hidden entry survives as the retry owner.
+        #expect(!ok)
+        #expect(store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
+        // Team B's row was deleted; its marker must be gone with it, so the
+        // Mac re-registering in team B is not unexpectedly hidden there.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac (team B)",
+            routes: [try Self.route("100.82.214.113")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-b",
+            now: Date(timeIntervalSince1970: 3)
+        )
+        team.value = "team-b"
+        await store.loadPairedMacs()
+        #expect(store.pairedMacs.contains { $0.macDeviceID == "mac-a" })
+        #expect(!store.hiddenComputers.contains { $0.macDeviceID == "mac-a" })
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
 }
 
-/// A store double whose exact-scope delete fails for one instance tag, so a
-/// batched wildcard cleanup partially succeeds. Everything else forwards.
+/// A store double whose exact-scope delete fails for one instance tag (or one
+/// (tag, team) pair), so a batched wildcard cleanup partially succeeds.
+/// Everything else forwards.
 private struct ExactScopeFailingStore: MobilePairedMacStoring {
     struct ExactScopeError: Error {}
     let inner: any MobilePairedMacStoring
-    let failingInstanceTag: String
+    let failingInstanceTag: String?
+    let failingTeamID: String?
+    let failsByTeam: Bool
+
+    init(inner: any MobilePairedMacStoring, failingInstanceTag: String) {
+        self.inner = inner
+        self.failingInstanceTag = failingInstanceTag
+        self.failingTeamID = nil
+        self.failsByTeam = false
+    }
+
+    init(
+        inner: any MobilePairedMacStoring,
+        failingInstanceTag: String?,
+        failingTeamID: String?
+    ) {
+        self.inner = inner
+        self.failingInstanceTag = failingInstanceTag
+        self.failingTeamID = failingTeamID
+        self.failsByTeam = true
+    }
 
     func removeExactScope(
         macDeviceID: String,
@@ -788,7 +912,10 @@ private struct ExactScopeFailingStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        if instanceTag == failingInstanceTag { throw ExactScopeError() }
+        let fails = failsByTeam
+            ? (instanceTag == failingInstanceTag && teamID == failingTeamID)
+            : (instanceTag == failingInstanceTag)
+        if fails { throw ExactScopeError() }
         try await inner.removeExactScope(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,

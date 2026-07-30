@@ -278,6 +278,169 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
         #expect(deletedTaggedInTeamB)
     }
 
+    /// The upload echo must be keyed by the ROW's stored team, not the live
+    /// display scope. `loadAll(teamID:)` deliberately includes legacy team-less
+    /// rows, so a team-less row mirrored while team A is selected would save
+    /// its verified destination under a team-A key — and the later forget,
+    /// which looks the mapping up with the row's actual nil team, misses it
+    /// and merely PARKS the tombstone. If the network is unavailable for the
+    /// echo-time recovery (or that team's restore is already memoized), the
+    /// delete never reaches the server and other devices restore the
+    /// forgotten computer.
+    @Test func mirrorEchoKeysByTheRowsOwnTeamScope() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A legacy TEAM-LESS row.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(
+            inner: TeamScopedPairedMacStore(inner: base, teamIDProvider: { "team-a" }),
+            backup: backup,
+            teamIDProvider: { "team-a" }
+        )
+        // A routine mirror (active-host flip) while team A is selected: the
+        // server echo verifies the record's backup lives in team A. The row's
+        // own scope stays team-less.
+        try await store.setActive(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // The network drops before the forget: the echo-time recovery path is
+        // unavailable, so only a ROUTED tombstone (using the persisted echo)
+        // can deliver the delete.
+        let deletesBefore = await backup.uploadedOps().count
+        await backup.setFailNextFetches(99)
+
+        let ok = await composite.forgetHiddenComputer(hidden)
+
+        #expect(ok)
+        // The persisted echo routed the tombstone to team A as part of the
+        // forget itself — no fetch required.
+        let ops = await backup.uploadedOps()
+        let teams = await backup.uploadTeams()
+        var routedDelete = false
+        var opIndex = 0
+        for (batchIndex, batch) in await backup.uploadBatches().enumerated() {
+            for op in batch {
+                defer { opIndex += 1 }
+                guard opIndex >= deletesBefore else { continue }
+                switch op {
+                case .delete(let macDeviceID) where macDeviceID == "mac-a":
+                    if teams.indices.contains(batchIndex), teams[batchIndex] == "team-a" {
+                        routedDelete = true
+                    }
+                default:
+                    break
+                }
+            }
+        }
+        #expect(routedDelete)
+        _ = ops
+    }
+
+    /// A parked delete must not tombstone a pairing revived DURING its upload.
+    /// The store is a reentrant actor: while the parked flush is suspended on
+    /// the network, a re-pair can clear the same intent and upload a revive;
+    /// if the older delete lands after that revive server-side, the new record
+    /// is wiped and nothing remains to repair it.
+    @Test func parkedDeleteRacingARevivalRepairsTheBackup() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let base = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        // A team-less local row seeded RAW; its backup lives in team-shown.
+        try await base.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try Self.route("100.82.214.112")],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let backup = FakeBackup(recordsByTeam: [
+            "team-shown": [
+                PairedMacBackupRecord(
+                    macDeviceID: "mac-a",
+                    displayName: "Desk Mac",
+                    routes: [try Self.route("100.82.214.112")],
+                    createdAt: 1_000,
+                    lastSeenAt: 9_000_000_000_000,
+                    isActive: false
+                ),
+            ],
+        ])
+        let store = BackingUpPairedMacStore(
+            inner: base,
+            backup: backup,
+            teamIDProvider: { "team-shown" }
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: store,
+            personalIrohForget: BackupRoutingForget(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-shown" },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await composite.loadPairedMacs()
+        await composite.hideMac(macDeviceID: "mac-a")
+        let hidden = try #require(composite.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        // While the parked delete is suspended in its upload (the forget's
+        // post-cleanup refresh restores the verified team, whose echo flushes
+        // the parked intent), the user re-pairs the same Mac: the revive
+        // clears the parked intent and uploads the record — and then the older
+        // delete lands.
+        await backup.setOnDeleteUpload { [store] in
+            try? await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Desk Mac",
+                routes: [try! Self.route("100.82.214.112")],
+                instanceTag: nil,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date(timeIntervalSince1970: 3)
+            )
+        }
+        // The forget PARKS the tombstone (team-less unmapped row), then its
+        // refresh restores team-shown and flushes the parked delete — into the
+        // armed race.
+        #expect(await composite.forgetHiddenComputer(hidden))
+
+        // The re-paired Mac's backup record must survive the stale delete.
+        let snapshot = await backup.fetchSnapshot(teamID: "team-shown", expectedUserID: "user-1")
+        #expect(snapshot?.records.contains { $0.macDeviceID == "mac-a" } == true)
+    }
+
     private static func route(_ host: String, port: Int = 50922) throws -> CmxAttachRoute {
         try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: host, port: port))
     }
