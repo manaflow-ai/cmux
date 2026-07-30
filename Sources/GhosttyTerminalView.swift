@@ -1205,6 +1205,7 @@ class GhosttyApp {
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
         loadCJKFontFallbackIfNeeded(config)
+        loadSymbolFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
@@ -1348,6 +1349,62 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-cjk-font-fallback",
             logLabel: "CJK font fallback"
+        )
+    }
+
+    /// When the user has not configured `font-codepoint-map` for pictographic
+    /// symbol ranges and has not already provided an explicit multi-entry
+    /// `font-family` fallback chain, Ghostty's `CTFontCollection` scoring may
+    /// pick an unpredictable "monospace" fallback font for glyphs like the
+    /// hexagon ⬡ (U+2B21) or the ▰/▱ gauge characters used by status-line
+    /// tools such as coralline, rather than the narrower substitute
+    /// CoreText's own cascade would choose. This injects Apple Symbols
+    /// (macOS's own symbol font) as a stable default, without overriding
+    /// user-managed fallback chains or configured fonts that already cover
+    /// the affected ranges.
+    ///
+    /// See: https://github.com/Nanako0129/coralline/issues/47
+    private func loadSymbolFontFallbackIfNeeded(_ config: ghostty_config_t) {
+        guard let mappings = Self.autoInjectedSymbolFontMappings() else { return }
+
+        var resolvedFonts: [String: String] = [:]
+        let lines = mappings.map { range, font in
+            let resolvedFont = resolvedFonts[font] ?? {
+                let resolved = Self.resolvedInjectedCJKFontName(named: font)
+                resolvedFonts[font] = resolved
+                return resolved
+            }()
+            return "font-codepoint-map = \(range)=\(resolvedFont)"
+        }.joined(separator: "\n")
+        loadInlineGhosttyConfig(
+            lines,
+            into: config,
+            prefix: "cmux-symbol-font-fallback",
+            logLabel: "symbol font fallback"
+        )
+    }
+
+    /// Returns only the symbol mappings cmux should auto-inject. Forwards to
+    /// ``GhosttyConfigDiscovery``.
+    static func autoInjectedSymbolFontMappings(
+        configPaths: [String]? = nil,
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        configDiscovery.autoInjectedSymbolFontMappings(
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
+        )
+    }
+
+    /// Whether cmux should inject its managed symbol-glyph fallback.
+    /// Forwards to ``GhosttyConfigDiscovery``.
+    static func shouldInjectSymbolFontFallback(
+        configPaths: [String]? = nil,
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+    ) -> Bool {
+        configDiscovery.shouldInjectSymbolFontFallback(
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
         )
     }
 
