@@ -4934,6 +4934,69 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
+    func testSurfaceResumeCommandHasApprovableSuffix() {
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume abc123",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume x ; evil",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume x; evil",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume x && evil",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume \"$(evil)\"",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume `evil`",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume \"`evil`\"",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume x\nevil",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertTrue(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume 'a;b'",
+                prefixTokenCount: 2
+            )
+        )
+        XCTAssertFalse(
+            SurfaceResumeCommandCanonicalizer.hasApprovableSuffix(
+                command: "claude --resume abc123",
+                prefixTokenCount: 4
+            )
+        )
+    }
+
     func testSurfaceResumeGeneralizedApprovalPrefix() {
         XCTAssertEqual(
             SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
@@ -4970,6 +5033,11 @@ extension SessionPersistenceTests {
             ),
             ["claude", "--resume"]
         )
+        XCTAssertNil(
+            SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+                forCommand: "claude --resume x && evil"
+            )
+        )
     }
 
     func testSurfaceResumeGeneralizedApprovalMatchesDifferentSessionInSameFolder() throws {
@@ -5005,10 +5073,24 @@ extension SessionPersistenceTests {
             source: nil,
             environment: ["PATH": "/usr/bin:/bin"]
         )
+        let compoundCommandBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session ; evil",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+        let chainedCommandBinding = SurfaceResumeBindingSnapshot(
+            command: "claude --resume second-session && evil",
+            cwd: "/tmp/project",
+            source: nil,
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
 
         XCTAssertEqual(record.commandPrefix, ["claude", "--resume"])
         XCTAssertTrue(record.matches(secondBinding))
         XCTAssertFalse(record.matches(differentFolderBinding))
+        XCTAssertFalse(record.matches(compoundCommandBinding))
+        XCTAssertFalse(record.matches(chainedCommandBinding))
     }
 
     func testSurfaceResumeGeneralizedAutoApprovalDoesNotPromptForMatchingProposal() throws {
@@ -5049,27 +5131,56 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
-    func testSurfaceResumeRunPromptBatchStickySemantics() {
+    func testSurfaceResumeRunPromptBatchDecisionIsEffectiveOnlyWithinPass() {
         let batch = SurfaceResumeRunPromptBatch.shared
         batch.reset()
         defer { batch.reset() }
 
         XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
 
-        batch.stickyDecision = .runAll
-        guard case .runAll? = batch.stickyDecision else {
-            XCTFail("Expected run-all sticky decision")
+        batch.beginRestorePass()
+        batch.recordDecision(.runAll)
+        guard case .runAll? = batch.effectiveDecision else {
+            XCTFail("Expected run-all decision during restore pass")
             return
         }
+        batch.endRestorePass()
 
-        batch.stickyDecision = .skipAll
-        guard case .skipAll? = batch.stickyDecision else {
-            XCTFail("Expected skip-all sticky decision")
-            return
-        }
-
-        batch.reset()
         XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchNestedPassKeepsDecisionUntilOuterEnd() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        batch.beginRestorePass()
+        batch.beginRestorePass()
+        batch.recordDecision(.skipAll)
+        batch.endRestorePass()
+        guard case .skipAll? = batch.effectiveDecision else {
+            XCTFail("Expected nested restore pass to keep skip-all decision")
+            return
+        }
+        batch.endRestorePass()
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
+    }
+
+    @MainActor
+    func testSurfaceResumeRunPromptBatchIgnoresDecisionOutsidePass() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        batch.recordDecision(.runAll)
+
+        XCTAssertNil(batch.stickyDecision)
+        XCTAssertNil(batch.effectiveDecision)
     }
 
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
