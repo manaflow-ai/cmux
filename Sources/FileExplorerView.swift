@@ -83,6 +83,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
