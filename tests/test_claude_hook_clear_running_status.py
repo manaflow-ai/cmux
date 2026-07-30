@@ -3561,6 +3561,28 @@ def verify_retired_clear_source_cannot_reclaim_stopped_successor(
         run_claude_hook(
             cli_path,
             server.socket_path,
+            "session-start",
+            {
+                "session_id": retired_session_id,
+                "source": "startup",
+                "cwd": "/tmp",
+            },
+            env,
+        )
+        source_state = json.loads(state_path.read_text())
+        source_record = source_state.get("sessions", {}).get(retired_session_id)
+        if (
+            source_record is None
+            or source_record.get("surfaceId") != surface_id
+        ):
+            raise RuntimeError(
+                "The pre-clear source was not registered for the pane:\n"
+                f"state={source_state!r}"
+            )
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
             "prompt-submit",
             {
                 "session_id": retired_session_id,
@@ -3569,6 +3591,24 @@ def verify_retired_clear_source_cannot_reclaim_stopped_successor(
             },
             env,
         )
+        running_state = json.loads(state_path.read_text())
+        running_record = running_state.get("sessions", {}).get(
+            retired_session_id
+        )
+        surface_owner = running_state.get("activeSessionsBySurface", {}).get(
+            surface_id
+        )
+        if (
+            running_record is None
+            or running_record.get("agentLifecycle") != "running"
+            or surface_owner is None
+            or surface_owner.get("sessionId") != retired_session_id
+        ):
+            raise RuntimeError(
+                "The pre-clear prompt did not establish active pane ownership:\n"
+                f"state={running_state!r}"
+            )
+
         run_claude_hook(
             cli_path,
             server.socket_path,
@@ -3594,6 +3634,25 @@ def verify_retired_clear_source_cannot_reclaim_stopped_successor(
             },
             env,
         )
+        retired_state = json.loads(state_path.read_text())
+        transfer = retired_state.get(
+            "clearBackgroundWorkTransfersBySurface",
+            {},
+        ).get(surface_id)
+        retired_record = retired_state.get("retiredSessions", {}).get(
+            retired_session_id
+        )
+        if (
+            transfer is None
+            or transfer.get("sourceSessionId") != retired_session_id
+            or retired_record is None
+        ):
+            raise RuntimeError(
+                "The accepted pre-clear source did not establish a durable "
+                "retirement boundary:\n"
+                f"state={retired_state!r}"
+            )
+
         run_claude_hook(
             cli_path,
             server.socket_path,
