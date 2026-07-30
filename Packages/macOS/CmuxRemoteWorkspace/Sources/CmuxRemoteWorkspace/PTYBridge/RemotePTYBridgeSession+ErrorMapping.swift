@@ -35,6 +35,9 @@ extension RemotePTYBridgeServer.Session {
     }
 
     static func bridgeErrorCode(for error: any Error) -> String? {
+        if let structuredCode = RemoteDaemonRPCClient.rpcErrorCode(from: error) {
+            return structuredCode
+        }
         let lowered = error.localizedDescription
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()

@@ -957,7 +957,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
-          "autoRetryAgentSessions": "Yönetilen bir ajan oturumunun etkin komutu sıfır olmayan ve sinyal kaynaklı olmayan bir hata durumuyla sona erdiğinde oturumu otomatik olarak sürdürür. Yeniden denemeler sınırlıdır ve üstel geri çekilme kullanır; normal tamamlanmalar ve kullanıcının açıkça sonlandırdığı oturumlar hiçbir zaman yeniden denenmez.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",

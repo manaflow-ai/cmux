@@ -91,6 +91,9 @@ extension MobileShellComposite {
             macSwitchRestoreBaseline = nil
         }
         macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
+        if macSwitchAttemptID == nil {
+            finishCompletedSecondaryMacDrainReservations()
+        }
     }
 
     /// Assign any newly seen real Mac a stable in-memory color slot.
