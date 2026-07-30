@@ -85,4 +85,56 @@ final class AgentChatProseStreamerTests: XCTestCase {
         }
         XCTAssertEqual(prose.text, expectedText)
     }
+
+    func testRearmingSessionOnDifferentSurfaceClearsPreviousPreview() async throws {
+        let originalSurfaceID = UUID()
+        let reboundSurfaceID = UUID()
+        let sessionID = "session-rebound-away-from-frozen-tab"
+        let expectedText = "Still working on the answer."
+        let originalRows = [
+            "> Explain the stalled tab.",
+            expectedText,
+            "Working (5m 29s Esc to interrupt)",
+        ]
+
+        let emittedFrame = expectation(description: "initial streaming prose frame emitted")
+        let clearedFrame = expectation(description: "stale streaming prose frame cleared")
+        let sleepGate = SleepGate()
+        var emittedFrames: [ChatSessionEventFrame] = []
+        let streamer = AgentChatProseStreamer(
+            emit: { frame in
+                if emittedFrames.isEmpty {
+                    emittedFrame.fulfill()
+                } else if case .streamingProse(nil) = frame.event {
+                    clearedFrame.fulfill()
+                }
+                emittedFrames.append(frame)
+            },
+            snapshot: { requestedSurfaceID in
+                requestedSurfaceID == originalSurfaceID ? originalRows : nil
+            },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) },
+            pollInterval: .seconds(60),
+            sleep: { _ in await sleepGate.wait() }
+        )
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: originalSurfaceID, agentKind: .codex)
+        await fulfillment(of: [emittedFrame], timeout: 1.0)
+
+        streamer.turnStarted(sessionID: sessionID, surfaceID: reboundSurfaceID, agentKind: .codex)
+        await fulfillment(of: [clearedFrame], timeout: 1.0)
+        streamer.turnEnded(sessionID: sessionID)
+        await sleepGate.resume()
+
+        XCTAssertEqual(emittedFrames.count, 2)
+        guard case .streamingProse(let initial?) = emittedFrames.first?.event,
+              case .prose(let prose) = initial.kind else {
+            return XCTFail("Expected initial preview prose")
+        }
+        XCTAssertEqual(prose.text, expectedText)
+        guard case .streamingProse(nil) = emittedFrames.last?.event else {
+            return XCTFail("Expected rebound surface to clear the old preview")
+        }
+    }
 }
