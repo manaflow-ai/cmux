@@ -1,0 +1,25 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205151 chars
+autoreview findings: 2
+[P1] [P1] Forget must delete backups from teams not restored locally
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+HiddenMacs.swift:275
+`loadAllInstances` enumerates only the local SQLite rail, so it cannot provide the account-wide breadth claimed here. After a reinstall, only the currently selected team's backup has normally been restored. If the same offline Mac also has records in another team's Durable Object, forgetting it from the current team revokes its account-wide binding and tombstones only locally known rows; switching teams later restores the untouched remote record as a dead computer. The forget flow needs a server-side account-wide delete or must enumerate every verified team backup, rather than treating local cross-team rows as complete.
+
+[P2] [P2] Keep synchronous Keychain resolution off the MainActor
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:316
+This closure is MainActor-isolated and synchronously calls `KeychainDeviceIdentityStore.read/createOrAdopt`, plus potentially `CmxIrohKeychainIdentityStore.containsAnyRecord`; those paths execute `SecItemCopyMatching`, `SecItemAdd`, and `SecItemUpdate`. The patch removes the previous actor-backed resolver whose explicit purpose was keeping this work off the UI actor, so activation can now block app UI on Keychain service latency. Capture `identifierForVendor` on the MainActor, then perform the Keychain/defaults resolution in an injected non-main actor before returning to activation.
+
+overall: patch is incorrect (0.96)
+The credential-pair and tombstone-routing work is substantial, but the forget operation still mistakes locally restored rows for the complete account-wide backup set, allowing revoked computers to return from another team. The change also regresses device-ID Keychain work onto the UI actor.

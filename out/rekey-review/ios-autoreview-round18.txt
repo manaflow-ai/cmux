@@ -1,0 +1,21 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205279 chars
+autoreview findings: 1
+[P1] Task-group child isolation fails the supported Swift 6 build
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:2675
+Annotating the `withThrowingTaskGroup` child closure with `@MainActor` triggers Swift 6's region-based isolation diagnostic (“pattern that the region-based isolation checker does not understand how to check”) in the hosted iOS build, so the app cannot compile. Leave the child closure unannotated and let the call to the actor-isolated `revokeMatchingBindings` perform the implicit MainActor hop.
+
+overall: patch is incorrect (0.99)
+The change bundle introduces a supported-toolchain compile failure in the new forget-deadline task group, blocking the iOS target from building.

@@ -765,6 +765,68 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func selectedPathFollowsLiveControlRoleRebinding() async throws {
+        let fixture = try PoolFixture()
+        let secondIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ef", count: 32)
+        )
+        let secondRequest = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh-role-rebinding",
+                kind: .iroh,
+                endpoint: .peer(identity: secondIdentity, pathHints: [])
+            ),
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174031",
+            authorizationMode: .transportAdmission,
+            sessionPurpose: .backgroundControl
+        )
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .direct
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: secondIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let first = try factory.makeTransport(for: fixture.request)
+        let second = try factory.makeTransport(for: secondRequest)
+        let firstRole = try #require(
+            first as? any CmxByteTransportSessionPurposeUpdating
+        )
+        let secondRole = try #require(
+            second as? any CmxByteTransportSessionPurposeUpdating
+        )
+
+        try await first.connect()
+        try await second.connect()
+        #expect(await pool.selectedObservedPath() == .direct)
+
+        await firstRole.updateSessionPurpose(.backgroundControl)
+        await secondRole.updateSessionPurpose(.foregroundControl)
+        #expect(await pool.selectedObservedPath()
+            == .relay(url: "https://relay.example.com/"))
+
+        await secondRole.updateSessionPurpose(.backgroundControl)
+        await firstRole.updateSessionPurpose(.foregroundControl)
+        #expect(await pool.selectedObservedPath() == .direct)
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+
+        await second.close()
+        await first.close()
+    }
+
+    @Test
     func ownerReleaseExplainsTheExactUnavailableRelayPrivatePathCycle() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(

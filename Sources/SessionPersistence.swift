@@ -391,25 +391,16 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     func startupInputWithLauncherScript(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        restoringWorkingDirectory: String? = nil
     ) -> String? {
-        guard let inlineInput = inlineStartupInput else { return nil }
-        let requiresLauncherScript = isAgentHookBinding && allowLauncherScript
-        guard requiresLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard allowLauncherScript else { return inlineInput }
-        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-            inlineInput: inlineInput,
-            binding: self,
+        startupInputWithLauncherScript(
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        ) else {
-            return nil
-        }
-
-        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            restoringWorkingDirectory: restoringWorkingDirectory,
+            repairPortableAgentExecutable: true
+        )
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -1217,71 +1208,6 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
-enum SurfaceResumeBindingScriptStore {
-    private static let directoryName = "cmux-surface-resume"
-    private static let scriptTTL: TimeInterval = 24 * 60 * 60
-
-    static func writeLauncherScript(
-        inlineInput: String,
-        binding: SurfaceResumeBindingSnapshot,
-        fileManager: FileManager,
-        temporaryDirectory: URL
-    ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let prefix = safeFilenamePrefix(binding: binding)
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(prefix)-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            lines.append(inlineInput)
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
-        }
-    }
-
-    private static func safeFilenamePrefix(binding: SurfaceResumeBindingSnapshot) -> String {
-        let rawPrefix = binding.kind ?? binding.source ?? "surface-resume"
-        let safePrefix = rawPrefix
-            .prefix(24)
-            .map { character -> Character in
-                character.isLetter || character.isNumber || character == "-" ? character : "_"
-            }
-        return safePrefix.isEmpty ? "surface-resume" : String(safePrefix)
-    }
-
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            guard let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let modifiedAt = values.contentModificationDate,
-                  modifiedAt < cutoff else {
-                continue
-            }
-            try? fileManager.removeItem(at: scriptURL)
-        }
-    }
-}
-
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     /// Explicit, unscaled surface font override. Nil follows the current config.
@@ -1295,6 +1221,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    /// Agent-hook identity kept separately when a process-detected binding is
+    /// the effective terminal resume target.
+    var managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
@@ -1311,6 +1240,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
@@ -1324,6 +1254,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.managedAgentResumeBinding = managedAgentResumeBinding
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID

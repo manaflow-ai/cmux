@@ -1,0 +1,25 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 157534 chars
+autoreview findings: 2
+[P1] Replay exact-scope tombstones through the exact delete path
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:468
+`removeExactScope` persists the same pending-delete record as the broad `remove` path. If the backup upload fails or the app exits after the local deletion, the next restore replays that record through `applyPendingLocalDeletes`, which calls `inner.remove` rather than `removeExactScope`. Through `TeamScopedPairedMacStore`/`IOSBuildScopedPairedMacStore`, this can re-resolve a team-less scope or delete the unrelated team-less build fallback—the exact over-deletion this patch is intended to prevent. Preserve the deletion mode in the outbox or replay exact-scope tombstones through `removeExactScope`, with a failed-upload/relaunch regression test.
+
+[P1] Do not mint a new Stack token for every broker request
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:2646
+Every broker `performRequest` invokes `credentialPair`, and this closure calls `authenticatedSessionSnapshot()`, which unconditionally performs a network token mint via `freshAccessToken(accessToken: nil, ...)`. The forget flow already captured a fresh coherent `session` before constructing the broker, but discards its tokens; discovery and every sequential revoke therefore add another Stack request. With a broker snapshot allowing up to 256 bindings and no aggregate deadline, the destructive UI action can remain busy for minutes and can fail during a Stack outage despite already holding valid credentials. Reuse the initially pinned pair while cheaply validating generation/account before each leg, or otherwise impose a bounded operation deadline.
+
+overall: patch is incorrect (0.98)
+The main identity and account-pinning changes are well defended, but exact-scope deletion is lost when pending backup tombstones are replayed, which can delete an unrelated pairing. The forget implementation also performs an unnecessary network token mint for every broker leg, leaving the user-visible operation without a practical aggregate latency bound.

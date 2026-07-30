@@ -55,16 +55,31 @@ private actor MobileIrohDurableDeviceIDResolver {
 
     func resolve() async -> String? {
         let witness = await DeviceRegistryService.currentDeviceWitness()
-        let bundleIdentifier = bundleIdentifier
         return DeviceRegistryService.durableDeviceID(
             defaults: defaults.value,
             deviceWitness: witness,
-            deviceContinuityEvidence: {
-                MobileIrohRuntimeComposition.deviceLocalIrohIdentityExists(
-                    bundleIdentifier: bundleIdentifier
-                )
-            }
+            evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe(
+                bundleIdentifier: bundleIdentifier
+            )
         )
+    }
+}
+
+/// DEBUG same-device evidence: dev builds keep iroh endpoint identities in a
+/// development FILE store, not the Keychain, so continuity is proven by any
+/// record in that store. The filesystem is always readable, so the verdict is
+/// two-state (never `.unavailable`).
+struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
+    let bundleIdentifier: String?
+
+    func probe() -> SameDeviceEvidence {
+        let exists = CmxIrohDevelopmentFileIdentityStore(
+            directory: MobileIrohRuntimeComposition.developmentStoreDirectory(
+                service: "identity",
+                bundleIdentifier: bundleIdentifier
+            )
+        ).containsAnyRecord()
+        return exists ? .present : .absent
     }
 }
 
@@ -1818,31 +1833,28 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
-    /// Whether an iroh endpoint identity already exists on THIS physical
-    /// device, without reading or creating one.
+    /// The same-device evidence probe `DeviceRegistryService` gates pre-witness
+    /// mirror adoption on, aware of where THIS composition actually stores iroh
+    /// endpoint identities.
     ///
-    /// This is the device-continuity evidence
-    /// `DeviceRegistryService.durableDeviceID(defaults:deviceContinuityEvidence:)`
-    /// gates pre-witness mirror adoption on. In Release the identity is an
-    /// `AfterFirstUnlockThisDeviceOnly` Keychain item that never travels in a
-    /// device backup, so its presence proves the install is continuing on the
-    /// same hardware — exactly the in-place-upgrade population whose live
-    /// binding the mirror id must keep. A restored backup on a NEW phone lacks
-    /// it and mints fresh, and an install that never activated iroh has no
-    /// binding a fresh id could strand. Every production caller resolving the
-    /// device id must pass THIS probe, so concurrent resolutions agree.
-    nonisolated static func deviceLocalIrohIdentityExists(
+    /// In Release the identity is an `AfterFirstUnlockThisDeviceOnly` Keychain
+    /// item that never travels in a device backup, so its presence proves the
+    /// install is continuing on the same hardware — exactly the
+    /// in-place-upgrade population whose live binding the mirror id must keep;
+    /// `IrohEndpointIdentityEvidenceProbe` reports it three-state (present /
+    /// absent / Keychain-locked). In DEBUG the identity lives in a development
+    /// FILE store instead, so probing the Keychain would report `.absent` for
+    /// every continuing dev install and mint (stranding the dev binding behind
+    /// `endpoint_already_bound`); probe the file store there. Every production
+    /// caller resolving the device id must pass THIS probe, so concurrent
+    /// resolutions agree.
+    nonisolated static func sameDeviceEvidenceProbe(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
-    ) -> Bool {
+    ) -> any SameDeviceEvidenceProbing {
         #if DEBUG
-        CmxIrohDevelopmentFileIdentityStore(
-            directory: developmentStoreDirectory(
-                service: "identity",
-                bundleIdentifier: bundleIdentifier
-            )
-        ).containsAnyRecord()
+        MobileIrohDevelopmentFileEvidenceProbe(bundleIdentifier: bundleIdentifier)
         #else
-        CmxIrohKeychainIdentityStore().containsAnyRecord()
+        IrohEndpointIdentityEvidenceProbe()
         #endif
     }
 

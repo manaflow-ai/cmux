@@ -1,0 +1,33 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205576 chars
+autoreview findings: 4
+[P1] [P1] Do not infer causality by comparing phone and server clocks
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PairedMacRestore.swift:333
+`stampMs` is produced from the iPhone's `Date()`, while `serverUpdatedAtMs` is stamped by the worker's `Date.now()`. A strict numeric comparison between those independent clocks is not a reliable ordering signal: a phone clock behind the server can classify a stale pre-forget record as a revival and resurrect it, while a phone clock ahead can suppress and delete a genuine later re-pair. Use a server-issued boundary/revision or another single causal source of truth rather than wall-clock ordering across devices.
+
+[P1] [P1] Keep a device-wide tombstone after one tagged instance revives
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:183
+For a tag-less intent, `covers` matches every tag of the device, so one newer echo for tag A causes this line to retire the entire device-wide intent. A stale tag B that existed only in another team's backup is then no longer suppressed and can later restore as a dead row whose binding was revoked by the wildcard forget. A revival must be handled per echoed pairing while retaining coverage for other tags/teams; the analogous wildcard clear in `clearPendingDelete` has the same breadth problem.
+
+[P1] [P1] Do not abandon cancellation-ignoring revoke tasks after the deadline
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:2695
+When the deadline wins, this unstructured task is only sent a cancellation signal and is neither awaited nor owned afterward. In the exact stated failure case—an awaited dependency ignores cooperative cancellation—it can remain alive indefinitely, retain the composition through the strong `self` local, and continue destructive revokes after the UI reports a timeout. Each retry can add another such task. Make every dependency in the revoke path bounded/cancellation-aware and retain/coalesce the operation under an owner instead of detaching the losing racer.
+
+[P2] [P2] Preserve local team scopes in pre-delete crash-recovery records
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:773
+The account-wide records are persisted before local deletion but discard each captured row's concrete team by storing `localTeamID: nil`. If the app is terminated after this write and before the per-row routed intent/delete, `applyPendingLocalDeletes` later calls `removeExactScope` only for the nil-team owner key, leaving rows from concrete teams intact. Offline recovery therefore fails despite the outbox being present. Preserve the exact local scope separately from the unknown backup destination, or persist distinct local-replay and account-wide suppression records.
+
+overall: patch is incorrect (0.98)
+The change improves credential coherence and backup routing, but the new forget/tombstone lifecycle still has correctness and lifecycle defects. Cross-clock revival ordering can reverse causality, a single tagged revival can prematurely remove device-wide protection, the deadline can strand cancellation-ignoring destructive work, and crash replay loses exact local team scopes.

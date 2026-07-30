@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205155 chars
+autoreview findings: 3
+[P1] Replay parked tombstones before any backup fetch
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:1214
+Unknown-destination deletes are now persisted in the account's nil-team scope, but `applyPendingLocalDeletes` reads only the currently requested scope. After a crash between writing the outbox record and deleting the local row, a later read under a selected team never applies that parked record locally. If the backup fetch is offline or fails, `PairedMacRestore` never gets a chance to process the suppression list, and `loadAll` returns the supposedly forgotten local row. Include the parked account scope in the pre-fetch local replay so crash recovery remains network-independent.
+
+[P1] Apply the forget deadline to discovery and in-flight broker calls
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:2700
+The claimed total deadline starts only after `broker.discover()` completes and is checked only before each revoke. Discovery, backpressure-gate acquisition, or the final revoke can therefore remain suspended past the deadline; concurrent forgets can queue behind one another without any bound. The row remains busy and no recovery error is surfaced. Race the entire operation—including credential capture, discovery, and every revoke—against an injected monotonic-clock deadline, cancelling the broker work when it expires.
+
+[P1] Bound or retire account-wide parked tombstones
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:684
+Every forget permanently inserts a pairing into the persisted nil-team set. The nil-team flush path explicitly never retires records after successful deletes; only re-pairing the exact device clears them. Macs that are genuinely forgotten therefore accumulate forever across devices, tags, teams, and accounts. The full historical set is loaded, unioned, and scanned on every restore, producing unbounded UserDefaults size and restore work. Add bounded retention/compaction or track verified team coverage so successfully propagated tombstones can eventually be retired.
+
+overall: patch is incorrect (0.96)
+The patch improves credential coherence and backup routing, but the new parked-tombstone design breaks network-independent crash recovery and introduces permanently growing persisted state. The forget deadline also does not actually bound the complete user-visible operation.

@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205581 chars
+autoreview findings: 3
+[P1] [P1] Do not treat pre-forget writes as revivals
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PairedMacRestore.swift:328
+The 60-second subtraction classifies any backup written during the minute before the forget as a post-forget revival, even with perfectly synchronized clocks. A recently refreshed stale copy therefore bypasses suppression; `resolveParkedTombstones` also retires the account-wide intent, allowing the supposedly forgotten Mac to restore instead of receiving a delete. Use a server-authored forget boundary or another ordering token rather than accepting timestamps earlier than the tombstone.
+
+[P2] [P2] Pin quarantine retry credentials to the pending account
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:1081
+The account equality check occurs before constructing the retry broker, but this closure fetches the live token pair later without checking its account or session generation. If account A passes the guard and the user switches to B before the revoke request captures credentials, B's tokens are sent with A's pending binding ID. The destructive retry should use `authenticatedSessionSnapshot()` and require its account to equal `pendingRevocation.accountID`, failing closed after a switch.
+
+[P2] [P2] Persist retry markers for failed sibling scopes
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+HiddenMacs.swift:318
+After a partial batch failure, the survivor pass only clears markers for successfully deleted scopes; it never creates a marker for a failed sibling in another team. Normally only the displayed row was hidden, so if that primary row was deleted while an undisplayed sibling failed, the remaining marker is rowless in the display scope. A subsequent load/relaunch removes it through rowless-marker migration, and the revoked sibling resurfaces normally in its own team with no Hidden Computers entry to retry from. Record an exact hidden marker for every surviving failed scope before returning failure.
+
+overall: patch is incorrect (0.95)
+The change improves routing and bounded cleanup, but it still has three correctness gaps: stale server records can be misclassified as revivals, a destructive quarantine retry can capture another account's credentials, and partial cleanup can lose its durable retry UI marker.

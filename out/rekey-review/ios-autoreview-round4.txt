@@ -1,0 +1,33 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 204950 chars
+autoreview findings: 4
+[P1] Scope backup-team mappings by the row’s owner scope
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:71
+`backupTeamKey` uses only the account and pairing ID, although local rows and server backups are additionally scoped by team and client scope. The store explicitly permits the same device/tag to coexist in team-less and team-scoped rows. Uploading the second row overwrites the first row’s destination; forgetting either row can then send its tombstone to the other team, delete the wrong backup, leave the intended backup restorable, and remove the shared mapping. Include the complete source scope—preferably the existing scope key—in every save/load/remove key.
+
+[P1] Persist the resolved team returned by backup restores
+workers/presence/src/do.ts:383
+The worker now returns `teamId` from GET specifically so restored records can retain their physical backup destination, but the Swift `PairedMacBackupListResponse` ignores that field and `PairedMacRestore` receives only records/tombstones. This is especially harmful after reinstall, when the new UserDefaults mapping is empty: a restored team-less row has no mapping, so a later delete falls back to `teamID == nil` and re-resolves to whichever team is current, recreating the wrong-backup deletion this patch addresses. Carry the echoed team through the fetch result and persist it for every restored pairing.
+
+[P1] Batch wildcard cleanup before refreshing UI and registry
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+HiddenMacs.swift:247
+Every tagged sibling in this loop calls `removeStoredPairedMacRow`, which performs a backup deletion and then calls both `loadPairedMacs()` and the network-backed `loadRegistryDevices()`. With backup enabled, each removal also clears the restore memo, so the subsequent load can issue another backup restore fetch. A wildcard forget can match up to the 256-binding snapshot limit, producing hundreds of sequential backup/registry requests and list rebuilds while the row remains busy, potentially stalling the action for minutes. Delete/clear all sibling rows first and refresh the paired list, registry, and reconnect hint once after the batch.
+
+[P2] Do not retain the unsafe two-source credential fallback
+Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohTrustBrokerClient.swift:386
+Making `credentialPair` optional preserves the exact torn-credential path this change identifies. Several production constructions in the iOS runtime and macOS host runtime still omit it; their access and refresh closures each independently call `auth.currentTokens()`. A session transition between those calls can therefore assemble credentials from different sessions and cause registration, discovery, or revocation to fail. Make the coherent pair the required source, or migrate every production caller before retaining a legacy-only adapter outside the runtime API.
+
+overall: patch is incorrect (0.98)
+The patch improves exact-scope deletion and session pinning, but the new backup-team routing is not keyed by the full owner scope and is not reconstructed during restore, so it can still delete the wrong backup or resurrect forgotten records. Wildcard cleanup also introduces large sequential network fan-out, and the broker API continues to permit production callers to assemble credentials from independent reads.

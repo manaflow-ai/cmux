@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205346 chars
+autoreview findings: 3
+[P1] [P1] Reconcile runtimes after same-account sign-in advances the generation
+Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift:614
+Every completed sign-in now advances `sessionGeneration`, including a same-account sign-in, while both the iOS and macOS Iroh broker sources are pinned to the generation captured during activation. Their auth observers only publish `accountID`, so signing in again as the same user produces no lifecycle transition; with an existing runtime, the fallback reconcile checks also do nothing. The old runtime then returns `nil` credentials for every broker request indefinitely, breaking registration, discovery, and relay refresh until a restart or account change. Include the session generation in the observed lifecycle state and rebuild on changes, or otherwise update the active runtime's pin.
+
+[P1] [P1] Do not treat a remote re-pair as a stale backup record
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:146
+A parked intent matches every later snapshot solely by pairing ID and unconditionally sends another delete. It is cleared only by a local `BackingUpPairedMacStore.upsert`, so if another phone re-pairs/revives this Mac, the forgetting phone never observes that clear: its next restore interprets the newly revived server record as stale, deletes it again, and retains the parked intent indefinitely. This contradicts the UI promise that the Mac reappears after reconnecting and can make cross-device re-pairing impossible to persist. The tombstone needs a server revision/time boundary or another authoritative revival signal so records created after the forget retire the local parked intent.
+
+[P1] [P1] Key restore echoes by the retained row's actual team scope
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:1085
+The restore callback records every snapshot mapping under `restoreTeam`, but LWW can keep a newer existing team-less row without writing/stamping it into that team. Later deletion looks up the mapping using the row's actual `teamID` (`nil`), misses this entry, and only parks the tombstone. Since that team restore is already memoized, the post-forget refresh does not fetch another echo, so the server copy remains and other devices can restore a computer the user was told was forgotten until a future forced restore or relaunch. Record the resolved destination against each retained local row's actual scope after the merge, not unconditionally against the requested restore scope.
+
+overall: patch is incorrect (0.98)
+The change introduces persistent lifecycle and backup-consistency failures: same-account authentication can permanently strand active Iroh runtimes on an obsolete generation, and the new parked-tombstone routing can delete legitimate remote revivals or fail to route deletes for retained team-less rows.

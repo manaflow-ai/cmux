@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205276 chars
+autoreview findings: 3
+[P1] [P1] Do not park a forget after a concurrent re-pair already cleared it
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:735
+The account-wide tombstones are inserted only after all local deletions have awaited. Because this actor is reentrant, an online Mac can re-register during an `inner.removeExactScope` await: its upsert clears the routed tombstone and uploads a revive, but cannot clear the not-yet-created parked intent. This loop then inserts that stale intent, and the post-forget `loadAll` replays it against the newly revived row and suppresses its backup. Persist the parked intent before the first suspension that permits a revive, or version the forget and verify it is still current before inserting.
+
+[P1] [P1] Do not subtract a newer same-pairing tombstone after repair awaits
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:1404
+After the initial delete upload, this method may suspend again while removing mappings or uploading a corrective revive, then subtracts the original raw records from the latest outbox state. If a re-pair clears a record and a second forget re-adds the identical encoded record during one of those awaits, this subtraction removes the second forget's intent. If that second upload fails, the corrective revive remains in backup with no tombstone, allowing the deleted Mac to restore. Retire the sent records before secondary awaits or give each intent/request a distinct generation so a newer identical tombstone cannot be consumed.
+
+[P2] [P2] Bound or reconcile the persisted backup-team mapping
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/UserDefaultsPairedMacBackupTeamStore.swift:29
+Every new account/team/pairing key is appended to one UserDefaults dictionary with no cap, TTL, or snapshot reconciliation. Entries are removed only when this device successfully sends that pairing's tombstone; records deleted from another device, abandoned accounts, and expired server records remain forever. Each route mirror then deserializes and rewrites the entire historical dictionary, so storage and per-update work grow without bound. Reconcile keys against successful snapshots and/or enforce bounded retention.
+
+overall: patch is incorrect (0.95)
+The change closes several identity and routing races, but the new tombstone workflow still has two actor-reentrancy windows that can suppress a legitimate re-pair or lose a later forget intent, allowing deleted backup records to return. It also introduces an unbounded persisted mapping on a repeated update path.

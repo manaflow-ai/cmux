@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205351 chars
+autoreview findings: 3
+[P1] Retired tombstones leave the revived record un-restored
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PairedMacRestore.swift:255
+The callback retires a parked tombstone only after `PairedMacRestore` has already filtered that record out of `liveRecords` and applied pending local deletes. The restore then returns `completed: true`, so `BackingUpPairedMacStore` memoizes the scope and normal subsequent loads do not fetch again. A record recognized as a valid remote re-pair therefore remains absent for the rest of the process despite its tombstone being cleared. Revival classification must happen before filtering, or newly revived echoes must be merged before the restore is marked complete.
+
+[P1] Use a server mutation revision instead of createdAt to identify revivals
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:169
+`createdAt` describes when a local pairing was first recorded, not when its server tombstone was revived. Another phone that retained its local row across this phone's Forget preserves the old `MobilePairedMac.createdAt` when it later reconnects and sends an explicit revive, so the resulting live server record can still compare older than `intent.stampMs`. This phone then treats the genuine post-forget revival as stale and repeatedly deletes it. Client clock skew and the intent's whole-second timestamp also make the comparison unreliable. Persist and compare a server-authored revive/update revision or timestamp instead.
+
+[P2] Batch backup-team mapping persistence for restore snapshots
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:101
+This loop awaits one `save` per snapshot record. The production `UserDefaultsPairedMacBackupTeamStore.save` reloads, rebuilds, and writes both the entire mapping dictionary and ordering array on every call. A valid 200-record restore therefore performs roughly 400 full UserDefaults writes plus quadratic collection work while the caller awaits the restore, materially delaying the user-visible paired-Mac load. Add a bulk-save operation that updates and persists the snapshot mappings once.
+
+overall: patch is incorrect (0.98)
+The patch's revival handling can both misclassify legitimate remote re-pairs and clear their tombstones only after the restore has discarded the revived records. It also introduces avoidable quadratic persistence work on bounded but user-visible restore paths.

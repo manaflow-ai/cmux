@@ -1,0 +1,29 @@
+merge-conflict gate: clean against origin/main
+autoreview wrapper target: branch
+cmux aziz prompt: enabled
+swift review addendum: enabled
+cmux policy: /Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/skills/autoreview/scripts/cmux-policy-check --mode branch --base origin/main
+autoreview target: branch
+branch: feat-iroh-ios-keychain-device-id
+engine: codex
+model: gpt-5.6-sol
+thinking: high
+tools: on
+web_search: on
+ref: origin/main
+bundle: 205578 chars
+autoreview findings: 3
+[P1] [P1] Preserve team-less retained rows in the routing lookup
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PairedMacRestore.swift:245
+`retainedTeams` has value type `String?`, so assigning `mac.teamID` through the dictionary subscript removes the entry when the row is team-less; it does not store a present key containing `nil`. The subsequent echo therefore reports `hasRetainedLocalRow == false` and records the backup-team mapping under `restoreTeam` rather than under the retained row's actual nil scope. A later offline forget cannot find that mapping, parks the tombstone, and can leave the server copy restorable on other devices. Use `updateValue(mac.teamID, forKey:)` or track row existence separately.
+
+[P1] [P1] Do not truncate the forget boundary to whole seconds
+Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift:767
+The tombstone boundary is floored to epoch seconds here and later multiplied by 1,000, while `serverUpdatedAtMs` retains millisecond precision. Thus a server write at 1000.5s followed by a forget at 1000.9s is compared as `1,000,500 > 1,000,000` and falsely classified as a post-forget revival. The parked intent is retired and the pre-forget record can be restored instead of deleted. Persist a millisecond boundary (with backward-compatible decoding); more robustly, use a server-issued boundary so client/server clock skew cannot make the same mistake.
+
+[P1] [P1] The task-group race does not enforce the advertised deadline
+ios/cmuxPackage/Sources/cmuxFeature/MobileIrohRuntimeComposition.swift:2677
+A throwing task-group scope waits for every child to finish before returning. When the sleeper wins, `cancelAll()` only requests cooperative cancellation; if discovery, a backpressure wait, or a broker implementation remains suspended or ignores cancellation, the group still waits for `revokeMatchingBindings` indefinitely. This is precisely the stalled-request case the deadline is intended to recover from, so the Forget row can retain its busy state past 60 seconds. Enforce cancellation/timeouts in every awaited dependency or use an owned timeout mechanism that can return without structurally awaiting an unresponsive loser.
+
+overall: patch is incorrect (0.99)
+The change introduces three user-visible reliability defects in the new forget/restore paths: team-less routing echoes lose their retained-row scope, tombstone timestamps can misclassify pre-forget records as revivals, and the advertised whole-operation deadline still waits on an unresponsive canceled child. These can leave supposedly forgotten computers restorable or keep the Forget UI busy indefinitely.

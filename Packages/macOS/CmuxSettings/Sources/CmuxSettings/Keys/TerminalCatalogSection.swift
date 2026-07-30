@@ -49,13 +49,6 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
-    /// Whether failed active agent sessions automatically resume with bounded retries.
-    public let autoRetryAgentSessions = DefaultsKey<Bool>(
-        id: "terminal.autoRetryAgentSessions",
-        defaultValue: false,
-        userDefaultsKey: "terminal.autoRetryAgentSessions"
-    )
-
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,
@@ -86,7 +79,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// reclaimed.
     public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.rendererRealization.idleSeconds",
-        defaultValue: 30,
+        defaultValue: 5,
         userDefaultsKey: "terminal.rendererRealization.idleSeconds"
     )
 
@@ -94,7 +87,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// instant. Extra off-screen renderers are reclaimed oldest first.
     public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
         id: "terminal.rendererRealization.maxWarmRenderers",
-        defaultValue: 12,
+        defaultValue: 1,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 

@@ -1,0 +1,29 @@
+{
+  "findings": [
+    {
+      "title": "[P1] Do not infer a team-less row's backup owner from the display team",
+      "body": "A team-less legacy row is intentionally visible under every selected team, so `displayScope.teamID` is not a reliable source of truth for the Durable Object that owns its backup. For example, a row backed up while team A was selected can later be displayed and forgotten under team B; this sends the tombstone to B, potentially deleting a same-device/tag record there, while A's backup survives and restores the supposedly forgotten row. Persist or migrate the authoritative backup team with the row, or fail closed when it cannot be determined.",
+      "priority": "P1",
+      "confidence": 0.97,
+      "category": "bug",
+      "code_location": {
+        "file_path": "Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+HiddenMacs.swift",
+        "line": 240
+      }
+    },
+    {
+      "title": "[P1] Capture the token pair atomically instead of wrapping currentTokens",
+      "body": "`authenticatedSessionSnapshot()` still calls `currentTokens()`, which separately awaits `client.accessToken()` and `client.refreshToken()`. A concurrent `forceRefreshAccessToken()` can rotate credentials between those awaits without changing `sessionGeneration` or making `sessionTokenTransitionIsActive` true, so both guards pass and the new `credentialPair` can still contain an old access token with a new refresh token. The broker then rejects discover/revoke during exactly the refresh race this change is intended to prevent. Capture both tokens atomically in the auth client/token store, or serialize refresh and snapshot reads under one owner.",
+      "priority": "P1",
+      "confidence": 0.96,
+      "category": "bug",
+      "code_location": {
+        "file_path": "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator+Tokens.swift",
+        "line": 165
+      }
+    }
+  ],
+  "overall_correctness": "patch is incorrect",
+  "overall_explanation": "The change improves account and local-row scoping, but two correctness-critical identity assumptions remain unreliable: the backup owner of a team-less row is inferred from its current presentation scope, and the claimed atomic credential snapshot still performs independent token reads. These can respectively delete or retain data in the wrong team backup and make Forget fail during token rotation.",
+  "overall_confidence": 0.96
+}

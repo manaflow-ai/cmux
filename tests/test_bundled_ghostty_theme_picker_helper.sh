@@ -235,9 +235,15 @@ def run_picker(label, scenario_config_path, scripted_input, expected_theme=None)
                 except ProcessLookupError:
                     pass
                 _, status = os.waitpid(pid, 0)
-            sys.stderr.write(
-                f"FAIL: theme picker did not exit after Enter in {label}.\n"
-            )
+            if sent_input:
+                sys.stderr.write(
+                    f"FAIL: theme picker did not exit after Enter in {label}.\n"
+                )
+            else:
+                sys.stderr.write(
+                    f"FAIL: theme picker never rendered its footer in {label}, "
+                    "so the scripted input was never sent.\n"
+                )
             sys.stderr.write(output[-2000:].decode("utf-8", errors="replace"))
             sys.exit(1)
 

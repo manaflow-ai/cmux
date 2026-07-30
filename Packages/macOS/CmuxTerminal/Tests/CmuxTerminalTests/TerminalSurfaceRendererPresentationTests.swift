@@ -13,6 +13,9 @@ private func resetRendererRealizedTracking()
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
 
+@_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
+private func rendererRebuildCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
 
@@ -62,7 +65,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.rendererPresentationReadinessDidChange()
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
@@ -91,10 +95,11 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.ensureRendererPresented(presentationReady: true)
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
-    @Test func hiddenRuntimeIsReleasedThenRealizedOnFirstVisibility() {
+    @Test func hiddenRuntimeIsReleasedThenRebuiltOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -116,11 +121,13 @@ private func rendererReleaseWasOccluded() -> Bool
 
         #expect(surface.isRendererPortalVisible)
         #expect(surface.isRendererRealized)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
 
         surface.setRendererPortalVisible(true, presentationReady: true)
 
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     @Test func hiddenRuntimeIsOccludedBeforeRendererRelease() {
@@ -167,7 +174,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRealizedCalls().isEmpty)
     }
 
-    @Test func reclaimedRuntimeIsRealizedOnceWhenShownAgain() {
+    @Test func reclaimedRuntimeIsRebuiltOnceWhenShownAgain() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -192,10 +199,11 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
-    @Test func failedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
+    @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -218,7 +226,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
         #expect(scheduler.scheduledSurfaceIDs.isEmpty)
 
         setRendererRealizedResult(true)
@@ -241,11 +250,12 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, false, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 2)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
     }
 
-    @Test func laterRendererActivityRepairsAfterRepeatedMailboxFailures() {
+    @Test func laterRendererActivityRepairsAfterRepeatedRebuildRejections() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -275,7 +285,8 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 2)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
 
         setRendererRealizedResult(true)
@@ -285,7 +296,8 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true, true, true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 3)
         #expect(scheduler.scheduledSurfaceIDs == [surface.id, surface.id])
     }
 
@@ -314,7 +326,8 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.retryRendererPresentationAfterActivity(presentationReady: true)
 
         #expect(!surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
         #expect(scheduler.scheduledSurfaceIDs.isEmpty)
     }
 
@@ -351,13 +364,15 @@ private func rendererReleaseWasOccluded() -> Bool
         )
 
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
 
         surface.releaseSurfaceForTesting()
         queuedRepair?()
 
         #expect(!surface.hasLiveSurface)
-        #expect(rendererRealizedCalls() == [true])
+        #expect(rendererRealizedCalls().isEmpty)
+        #expect(rendererRebuildCallCount() == 1)
     }
 
     private func rendererRealizedCalls() -> [Bool] {

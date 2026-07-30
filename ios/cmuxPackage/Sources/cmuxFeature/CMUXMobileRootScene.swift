@@ -185,13 +185,11 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            // The SAME continuity probe the iroh composition passes: both
+            // The SAME evidence probe the iroh composition passes: both
             // callers must resolve one identity, or whichever runs first would
             // persist a different winner and strand the other's binding.
             deviceID: DeviceRegistryService.deviceID(
-                deviceContinuityEvidence: {
-                    MobileIrohRuntimeComposition.deviceLocalIrohIdentityExists()
-                }
+                evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
             ),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
