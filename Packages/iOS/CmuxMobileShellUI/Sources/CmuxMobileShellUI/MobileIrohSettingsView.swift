@@ -420,6 +420,11 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
             )
+        case .some(.routeGated):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.routeGated",
+                defaultValue: "Connection Attempt Held"
+            )
         case .some(.cancelled):
             L10n.string("mobile.iroh.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
