@@ -981,7 +981,7 @@ private func waitForSelectedPathChangeCount(
     return false
 }
 
-private struct PoolFixture {
+struct PoolFixture {
     let localIdentity: CmxIrohPeerIdentity
     let remoteIdentity: CmxIrohPeerIdentity
     let request: CmxByteTransportRequest
@@ -1013,7 +1013,8 @@ private struct PoolFixture {
         endpoint: any CmxIrohEndpoint,
         generation: UInt64,
         contextProvider: (any CmxIrohClientContextProvider)? = nil,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: (any CmxIrohRelayClock)? = nil
     ) async throws -> CmxIrohClientSessionPool {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
@@ -1031,7 +1032,8 @@ private struct PoolFixture {
             contextProvider: contextProvider
                 ?? TestIrohClientContextProvider(context: context),
             protocolConfiguration: .testApplicationLanes,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            clock: clock ?? CmxIrohSystemRelayClock()
         )
         await pool.activate(runtimeGeneration: generation)
         return pool
