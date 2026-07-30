@@ -46,6 +46,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    /// The order last applied to the native data source. Keeping this compact
+    /// value avoids materializing a full diffable snapshot on every live
+    /// workspace payload update merely to ask whether row identity moved.
+    private var appliedItems: [WorkspaceListTableItem] = []
     private var pendingContextMenuWorkspaceClose: (
         workspace: MobileWorkspacePreview,
         sourceView: UIView
@@ -93,6 +97,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         previousConfiguration = nil
+        appliedItems = []
         apply(configuration: configuration, in: tableView)
     }
 
@@ -119,9 +124,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
-        let currentSnapshot = dataSource.snapshot()
-        let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
-            || currentSnapshot.itemIdentifiers != next.items
+        let structureChanged = appliedItems != next.items
         var changed: [WorkspaceListTableItem] = []
         var changedRowHeightsStable = true
         if let previous {
@@ -192,10 +195,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.appendSections([Self.section])
             snapshot.appendItems(next.items, toSection: Self.section)
         } else {
-            snapshot = currentSnapshot
+            snapshot = dataSource.snapshot()
         }
         snapshot.reconfigureItems(changed)
         dataSource.apply(snapshot, animatingDifferences: false)
+        if structureChanged {
+            appliedItems = next.items
+        }
         #if DEBUG
         recordPayloadApplyRoute(.snapshotApply)
         #endif
@@ -293,6 +299,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         localSnapshot.appendSections([Self.section])
         localSnapshot.appendItems(movedItems, toSection: Self.section)
         dataSource?.apply(localSnapshot, animatingDifferences: false)
+        appliedItems = movedItems
 
         moveRows(IndexSet(integer: source), swiftUIDestination)
         coordinator.drop(
@@ -922,6 +929,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         _ previous: MobileWorkspacePreview?,
         _ next: MobileWorkspacePreview?
     ) -> Bool {
+        if previous == next { return true }
         guard var normalizedPrevious = previous, let next else {
             return previous == nil && next == nil
         }
