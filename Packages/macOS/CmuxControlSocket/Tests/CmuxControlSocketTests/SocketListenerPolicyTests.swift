@@ -208,7 +208,6 @@ import Testing
     }
 
     @Test(arguments: [
-        ("create_lock_directory", EACCES),
         ("open_lock", EACCES),
         ("open_lock", ELOOP),
         ("open_lock", EINVAL),
@@ -224,6 +223,29 @@ import Testing
                 errnoCode: errnoCode,
                 currentUserID: 501
             ) == SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    // The user-scoped fallback lives in the same state directory as the stable
+    // default socket, so when that directory itself cannot be created (e.g.
+    // ~/.local/state owned by root after a past `sudo` install) every sibling
+    // path fails identically and the listener must escape to /tmp.
+    @Test(arguments: [
+        ("create_directory", EACCES),
+        ("create_directory", EPERM),
+        ("create_directory", EIO),
+        ("create_lock_directory", EACCES),
+        ("create_lock_directory", EPERM),
+        ("create_lock_directory", EIO),
+    ] as [(String, Int32)])
+    func stableSocketStateDirectoryCreationFailuresFallBackToLegacyTmpSocket(stage: String, errnoCode: Int32) {
+        #expect(
+            policy.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: stage,
+                errnoCode: errnoCode,
+                currentUserID: 501
+            ) == SocketControlSettings.legacyUserScopedStableSocketPath(currentUserID: 501)
         )
     }
 
