@@ -4695,6 +4695,57 @@ mod tests {
     }
 
     #[test]
+    fn bounded_replay_clips_a_placement_overlapping_the_retained_window() {
+        let mut source = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        source.resize(12, 4, 10, 20).unwrap();
+        for row in 0..12 {
+            source.vt_write(format!("row-{row:02}\r\n").as_bytes());
+        }
+        source.vt_write(b"tail");
+        let end = source.scrollbar().unwrap().total - 1;
+        let range = super::ReplayRowRange { start: end - 5, end };
+        let anchor = KittyPlacementAnchor { col: 0, row: u32::try_from(range.start - 1).unwrap() };
+        let placement =
+            replay_placement_fixture((10, 60), (1, 3), (10, 60), (1, 3), (0, 0), (0, 0));
+        let snapshot = KittyReplaySnapshot {
+            graphics: KittyGraphicsSnapshot {
+                generation: 1,
+                images: vec![KittyImage {
+                    id: 1,
+                    number: 0,
+                    generation: 1,
+                    width: 10,
+                    height: 60,
+                    format: KittyImageFormat::Rgb,
+                    data: std::sync::Arc::from(vec![127_u8; 10 * 60 * 3]),
+                }],
+                placements: vec![placement.clone()],
+            },
+            anchors: [(placement.key, anchor)].into_iter().collect(),
+        };
+        let catalog = KittyReplayCatalog::new(&snapshot, (10, 20), 4);
+        let text = source
+            .vt_replay_text_range_bounded(range, catalog.placement_rows(), usize::MAX, true)
+            .unwrap()
+            .unwrap();
+        let graphics = catalog.plan(Some(range), usize::MAX, false);
+        let mut replay = graphics.image_bytes;
+        replay.extend(text.interleave(&graphics.placements).unwrap());
+
+        let mut restored = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        restored.resize(12, 4, 10, 20).unwrap();
+        restored.vt_write(&replay);
+        let restored_graphics = restored.kitty_graphics_snapshot().unwrap();
+        let restored_placement =
+            restored_graphics.placements.first().expect("overlapping placement");
+
+        assert_eq!(restored_placement.source_y, 20);
+        assert_eq!(restored_placement.source_height, 40);
+        assert_eq!(restored_placement.rows, 2);
+        assert_eq!(restored_placement.grid_rows, 2);
+    }
+
+    #[test]
     fn kitty_inflight_tracking_uses_the_normalized_c1_stream() {
         let mut terminal = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
         terminal.vt_write(&[0xe0]);
