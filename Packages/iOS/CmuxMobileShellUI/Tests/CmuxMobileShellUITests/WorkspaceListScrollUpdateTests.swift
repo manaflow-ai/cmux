@@ -214,6 +214,37 @@ import UIKit
         #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
     }
 
+    @Test func groupHeaderReloadsNativeActionsWhenAnchorReadStateChanges() {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "workspace-1"
+        )
+        let read = configuration(
+            workspaceIDs: ["workspace-1", "workspace-2"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            workspaceHasUnread: false,
+            groupHasUnreadByID: [group.id: true]
+        )
+        let unread = configuration(
+            workspaceIDs: ["workspace-1", "workspace-2"],
+            groups: [group],
+            items: [.groupHeader(group.id)],
+            workspaceHasUnread: true,
+            groupHasUnreadByID: [group.id: true]
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: read)
+
+        #expect(
+            coordinator.nativeActionPayloadChanged(
+                .groupHeader(group.id),
+                previous: read,
+                next: unread
+            )
+        )
+    }
+
     private func menuActionIdentifiers(in elements: [UIMenuElement]) -> [String] {
         elements.flatMap { element -> [String] in
             if let action = element as? UIAction {
@@ -237,6 +268,8 @@ import UIKit
         groups: [MobileWorkspaceGroupPreview] = [],
         items: [WorkspaceListTableItem]? = nil,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
+        workspaceHasUnread: Bool = false,
+        groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] = [:],
         requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -256,6 +289,7 @@ import UIKit
             var workspace = MobileWorkspacePreview(
                 id: .init(rawValue: rawID),
                 name: rawID,
+                hasUnread: workspaceHasUnread,
                 terminals: []
             )
             workspace.actionCapabilities = actionCapabilities
@@ -265,7 +299,7 @@ import UIKit
             items: items ?? workspaces.map { .workspace($0.id, indented: false) },
             workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),
             groupsByID: Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) }),
-            groupHasUnreadByID: [:],
+            groupHasUnreadByID: groupHasUnreadByID,
             filter: .all,
             selectedWorkspaceID: nil,
             navigationStyle: .push,
