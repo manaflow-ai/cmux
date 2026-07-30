@@ -246,18 +246,19 @@ final class PhonePushClient {
             bodyDict["notificationIds"] = payload.notificationIds
         }
 
+        guard let targetNamespace =
+            MobileIOSPairingTargetStore().pushTargetNamespace else {
+            return
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 10
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        if let targetNamespace =
-            MobileIOSPairingTargetStore().pushTargetNamespace {
-            req.setValue(
-                targetNamespace.bundleIdentifier,
-                forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
-            )
-        }
+        req.setValue(
+            targetNamespace.bundleIdentifier,
+            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
+        )
         if let teamID, !teamID.isEmpty {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }

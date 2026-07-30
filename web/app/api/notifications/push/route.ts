@@ -1,5 +1,4 @@
-// New Mac builds send one exact iOS target. Older Mac builds omit the target
-// header and retain their pre-isolation account fanout during the rollout.
+// Every Mac sender must name one exact iOS target. Missing targets fail closed.
 
 import { checkRateLimit } from "@vercel/firewall";
 import { and, eq, or } from "drizzle-orm";
@@ -11,7 +10,6 @@ import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
 import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
 import {
-  MAX_DEVICE_TOKENS_PER_ACCOUNT,
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
@@ -47,17 +45,15 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
 
 type NotificationDb = ReturnType<typeof cloudDb>;
 
-export function notificationPushTargetLimit(bundleId?: string): number {
-  return bundleId
-    ? MAX_DEVICE_TOKENS_PER_USER
-    : MAX_DEVICE_TOKENS_PER_ACCOUNT;
+export function notificationPushTargetLimit(): number {
+  return MAX_DEVICE_TOKENS_PER_USER;
 }
 
-/** Selects one exact bundle, or all iOS bundles for a legacy Mac sender. */
+/** Selects one exact iOS bundle owned by the authenticated account. */
 export async function selectNotificationPushTargets(
   db: NotificationDb,
   userId: string,
-  bundleId?: string,
+  bundleId: string,
 ) {
   return db
     .select({
@@ -66,17 +62,12 @@ export async function selectNotificationPushTargets(
       environment: deviceTokens.environment,
     })
     .from(deviceTokens)
-    .where(bundleId
-      ? and(
-        eq(deviceTokens.userId, userId),
-        eq(deviceTokens.platform, "ios"),
-        eq(deviceTokens.bundleId, bundleId),
-      )
-      : and(
-        eq(deviceTokens.userId, userId),
-        eq(deviceTokens.platform, "ios"),
-      ))
-    .limit(notificationPushTargetLimit(bundleId));
+    .where(and(
+      eq(deviceTokens.userId, userId),
+      eq(deviceTokens.platform, "ios"),
+      eq(deviceTokens.bundleId, bundleId),
+    ))
+    .limit(notificationPushTargetLimit());
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -111,10 +102,11 @@ async function sendPush(request: Request): Promise<Response> {
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
   const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
-  const targetNamespace = requestedNamespace
-    ? normalizeApnsBundle(requestedNamespace)
-    : null;
-  if (requestedNamespace && !targetNamespace) {
+  if (!requestedNamespace) {
+    return jsonResponse({ error: "missing_target_namespace" }, 400);
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  if (!targetNamespace) {
     return jsonResponse({ error: "invalid_target_namespace" }, 400);
   }
 
@@ -122,7 +114,7 @@ async function sendPush(request: Request): Promise<Response> {
   const tokens = await selectNotificationPushTargets(
     db,
     user.id,
-    targetNamespace?.bundleId,
+    targetNamespace.bundleId,
   );
 
   if (tokens.length === 0) {

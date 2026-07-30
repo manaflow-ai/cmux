@@ -38,14 +38,9 @@ struct MobileIOSPairingTargetStore {
         return storedNamespace(in: available) ?? available.first
     }
 
-    /// Exact push target, or `nil` while an upgraded official Mac retains the
-    /// rollout-safe legacy fanout before the pairing picker is first opened.
+    /// Exact push target. An unset official Mac resolves to the App Store lane.
     var pushTargetNamespace: MobileIOSAppNamespace? {
-        let available = availableNamespaces
-        if let stored = storedNamespace(in: available) {
-            return stored
-        }
-        return isOfficialMacLane ? nil : available.first
+        selectedNamespace
     }
 
     var selectedPairingURLScheme: CmxPairingURLScheme? {

@@ -101,9 +101,8 @@ beforeEach(async () => {
 });
 
 describe("notifications push route", () => {
-  test("uses bundle and account limits for exact and legacy senders", () => {
-    expect(pushRoute.notificationPushTargetLimit("dev.cmux.app.internal")).toBe(10);
-    expect(pushRoute.notificationPushTargetLimit()).toBe(100);
+  test("uses the exact-bundle device limit", () => {
+    expect(pushRoute.notificationPushTargetLimit()).toBe(10);
   });
 
   test("applies the Vercel user limiter before body parsing or DB access", async () => {

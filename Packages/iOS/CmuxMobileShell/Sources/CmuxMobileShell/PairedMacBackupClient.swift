@@ -40,6 +40,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     }
 
     private static let path = "/v1/sync/paired-macs"
+    private static let maximumMigrationUploadOperations = 200
 
     /// Build the paired-Mac backup endpoint from a service base URL. The base
     /// may include or omit a trailing slash, and may include a deployment base
@@ -195,12 +196,24 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             migrationDefaults.set(true, forKey: migrationKey)
             return primary
         }
-        guard await upload(
-            ops: migrationOps,
-            teamID: teamID,
-            expectedUserID: expectedUserID
-        ),
-        let refreshed = await fetchSnapshot(
+        for startIndex in stride(
+            from: 0,
+            to: migrationOps.count,
+            by: Self.maximumMigrationUploadOperations
+        ) {
+            let endIndex = min(
+                startIndex + Self.maximumMigrationUploadOperations,
+                migrationOps.count
+            )
+            guard await upload(
+                ops: Array(migrationOps[startIndex ..< endIndex]),
+                teamID: teamID,
+                expectedUserID: expectedUserID
+            ) else {
+                return primary
+            }
+        }
+        guard let refreshed = await fetchSnapshot(
             teamID: teamID,
             expectedUserID: expectedUserID,
             scope: .current

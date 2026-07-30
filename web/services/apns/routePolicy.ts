@@ -67,7 +67,7 @@ export type JsonObjectResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
-const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 // Every TestFlight lane (beta AND internal) uses the production APNs
 // environment; the internal lane's bundle id is set in
 // .github/workflows/ios-testflight.yml (IOS_BETA_BUNDLE_ID).
