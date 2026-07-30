@@ -17,8 +17,7 @@ extension DockSplitStore {
                 cachedTransfer.restorableAgent != nil ||
                 cachedTransfer.restorableAgentResumeState != nil ||
                 cachedTransfer.restoredAgentCompletedGeneration != nil ||
-                cachedTransfer.restoredResumeSessionWorkingDirectory != nil ||
-                cachedTransfer.agentSessionRetryCompletedAttempts != nil
+                cachedTransfer.restoredResumeSessionWorkingDirectory != nil
             let incomingBindingMatchesCachedSession: Bool
             if let cachedManagedBinding {
                 incomingBindingMatchesCachedSession =

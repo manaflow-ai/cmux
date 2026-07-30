@@ -91,9 +91,15 @@ extension DockSplitStore {
                snapshot,
                snapshotWorkspaceId: sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities
-           ) {
+            ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
-            if restoredPanelId == nil { detached.panel.close() }
+            if restoredPanelId == nil {
+                AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                    workspaceId: detached.sourceWorkspaceId,
+                    panelId: detached.panelId
+                )
+                detached.panel.close()
+            }
             return restoredPanelId
         }
         if sourceWorkspaceId != nil, snapshot.terminal?.isRemoteTerminal == true {
@@ -235,7 +241,10 @@ extension DockSplitStore {
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: TerminalFontSizeCreationPolicy.sessionRestore(
-                overrideBasePoints: terminalSnapshot.fontSize
+                overrideBasePoints: terminalSnapshot.fontSize,
+                representedChangeTokens: Set(
+                    terminalSnapshot.fontSizeChangeTokens ?? []
+                )
             ).applying(to: nil),
             workingDirectory: startupHandlesWorkingDirectory ? nil : workingDirectory,
             initialCommand: initialCommand,
@@ -354,8 +363,7 @@ extension DockSplitStore {
             isPinned: false,
             inPane: paneId
         ) else {
-            panels.removeValue(forKey: panel.id)
-            panel.close()
+            discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id

@@ -678,7 +678,6 @@ struct DockPortalReconcileTests {
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
             managedAgentResumeBinding: nil,
-            agentSessionRetryCompletedAttempts: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

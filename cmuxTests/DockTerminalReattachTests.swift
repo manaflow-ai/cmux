@@ -56,7 +56,6 @@ extension DockSocketLifecycleTests {
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
-        agentSessionRetryCompletedAttempts: Int? = nil,
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil,
         isRemoteTerminal: Bool = false
     ) -> Workspace.DetachedSurfaceTransfer {
@@ -87,7 +86,6 @@ extension DockSocketLifecycleTests {
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedAgentResumeBinding,
-            agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
             agentRuntime: agentRuntime,
             isRemoteTerminal: isRemoteTerminal,
             remoteRelayPort: nil,
@@ -358,8 +356,7 @@ extension DockSocketLifecycleTests {
             restorableAgentResumeState: .completedAgentExit,
             restoredAgentCompletedGeneration: completedGeneration,
             restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-stale",
-            resumeBinding: staleBinding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: staleBinding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -387,7 +384,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Replacement and clear cannot restore an older cached Dock session")
@@ -429,8 +425,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: oldAgent,
             restorableAgentResumeState: .observedAgentCommandRunning,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: oldBinding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: oldBinding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -461,7 +456,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Replacement and clear cannot restore snapshot-only Dock state")
@@ -492,8 +486,7 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgent: oldAgent,
             restorableAgentResumeState: .observedAgentCommandRunning,
-            restoredResumeSessionWorkingDirectory: directory,
-            agentSessionRetryCompletedAttempts: 2
+            restoredResumeSessionWorkingDirectory: directory
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -524,7 +517,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Matching hook clear invalidates snapshot-only Dock state")
@@ -554,8 +546,7 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgent: agent,
             restorableAgentResumeState: .observedAgentCommandRunning,
-            restoredResumeSessionWorkingDirectory: directory,
-            agentSessionRetryCompletedAttempts: 2
+            restoredResumeSessionWorkingDirectory: directory
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -586,7 +577,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Snapshot-only Dock state cannot retarget a replacement hook binding")
@@ -812,8 +802,7 @@ extension DockSocketLifecycleTests {
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgentResumeState: .awaitingAutoResumeCommand,
-            resumeBinding: binding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: binding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
 
@@ -821,7 +810,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgent == nil)
         #expect(roundTripped.restorableAgentResumeState == .awaitingAutoResumeCommand)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == 2)
     }
 
     @Test("Binding-only tmux transfer keeps hook ownership through refresh and clear")
@@ -857,8 +845,7 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             restorableAgentResumeState: .awaitingAutoResumeCommand,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: managedBinding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: managedBinding
         )
         #expect(
             sourceStore.attachDetachedSurface(
@@ -893,7 +880,6 @@ extension DockSocketLifecycleTests {
         #expect(firstTransfer.managedAgentResumeBinding?.checkpointId == sessionId)
         #expect(firstTransfer.restorableAgentResumeState == .awaitingAutoResumeCommand)
         #expect(firstTransfer.restoredResumeSessionWorkingDirectory == directory)
-        #expect(firstTransfer.agentSessionRetryCompletedAttempts == 2)
 
         let refreshedStore = DockSplitStore(
             workspaceId: UUID(),
@@ -928,7 +914,6 @@ extension DockSocketLifecycleTests {
         #expect(refreshedTransfer.managedAgentResumeBinding?.checkpointId == sessionId)
         #expect(refreshedTransfer.restorableAgentResumeState == .awaitingAutoResumeCommand)
         #expect(refreshedTransfer.restoredResumeSessionWorkingDirectory == directory)
-        #expect(refreshedTransfer.agentSessionRetryCompletedAttempts == 2)
 
         let clearedStore = DockSplitStore(
             workspaceId: UUID(),
@@ -959,7 +944,6 @@ extension DockSocketLifecycleTests {
         #expect(clearedTransfer.restoredResumeSessionWorkingDirectory == nil)
         #expect(clearedTransfer.resumeBinding?.source == "process-detected")
         #expect(clearedTransfer.managedAgentResumeBinding == nil)
-        #expect(clearedTransfer.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Dock detach preserves a completed tombstone after its binding clears")
@@ -1002,8 +986,7 @@ extension DockSocketLifecycleTests {
             restorableAgentResumeState: .completedAgentExit,
             restoredAgentCompletedGeneration: completedGeneration,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: binding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: binding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
         #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
@@ -1015,7 +998,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration?.processIdentities.isEmpty == true)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Session-ending Dock clear marks completion before a prompt event")
@@ -1053,8 +1035,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: agent,
             restorableAgentResumeState: .observedAgentCommandRunning,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: binding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: binding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
         #expect(store.clearSurfaceResumeBinding(
@@ -1068,7 +1049,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration != nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Process-detected tmux binding preserves the managed Dock agent")
@@ -1106,8 +1086,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: agent,
             restorableAgentResumeState: .observedAgentCommandRunning,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: binding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: binding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
         store.surfaceResumeBindingsByPanelId[panel.id] = SurfaceResumeBindingSnapshot(
@@ -1126,7 +1105,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == .observedAgentCommandRunning)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == directory)
         #expect(roundTripped.resumeBinding?.source == "process-detected")
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == 2)
     }
 
     @Test("Session-ending hook clear survives a process-detected tmux binding")
@@ -1167,8 +1145,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: agent,
             restorableAgentResumeState: .observedAgentCommandRunning,
             restoredResumeSessionWorkingDirectory: directory,
-            resumeBinding: managedBinding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: managedBinding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
         #expect(store.setSurfaceResumeBinding(managedBinding, panelId: panel.id))
@@ -1233,7 +1210,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredAgentCompletedGeneration != nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding?.source == "process-detected")
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Cleared Dock binding cannot fall back to the cached transfer")
@@ -1270,8 +1246,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: agent,
             restorableAgentResumeState: .awaitingAutoResumeCommand,
             restoredResumeSessionWorkingDirectory: "/tmp/cmux-omp-cleared-binding",
-            resumeBinding: binding,
-            agentSessionRetryCompletedAttempts: 2
+            resumeBinding: binding
         )
         #expect(store.attachDetachedSurface(detached, inPane: rootPane, focus: false) == panel.id)
         #expect(store.clearSurfaceResumeBinding(panelId: panel.id))
@@ -1281,7 +1256,6 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
-        #expect(roundTripped.agentSessionRetryCompletedAttempts == nil)
     }
 
     @Test("Cleared binding cannot transfer state from a session-restored Dock panel")

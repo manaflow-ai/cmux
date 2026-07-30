@@ -51,8 +51,6 @@ extension Workspace {
         /// Authoritative hook identity when `resumeBinding` is an effective
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
-        /// Retry attempts only when the source proved this binding owned the running command.
-        let agentSessionRetryCompletedAttempts: Int?
         var agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -99,7 +97,6 @@ extension Workspace {
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 managedAgentResumeBinding: managedAgentResumeBinding,
-                agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

@@ -393,7 +393,6 @@ struct DockWorkingDirectoryInheritanceTests {
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
             managedAgentResumeBinding: nil,
-            agentSessionRetryCompletedAttempts: nil,
             agentRuntime: nil,
             isRemoteTerminal: true,
             remoteRelayPort: nil,

@@ -2041,6 +2041,23 @@
         }
       }
     },
+    "mobile.connection.toast.unavailableMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The live connection dropped. Your Mac may still be online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ接続が切断されました。Mac はまだオンラインの可能性があります。"
+          }
+        }
+      }
+    },
     "mobile.connection.unavailableDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -5641,6 +5658,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再接続中…"
+          }
+        }
+      }
+    },
+    "mobile.recovery.switchAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトしてアカウントを切り替える"
           }
         }
       }
@@ -17116,6 +17150,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "20,000行"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.loadingMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading more notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに通知を読み込み中"
           }
         }
       }

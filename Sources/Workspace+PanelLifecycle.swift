@@ -421,7 +421,9 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
-        cleanupControllerSurfaceState: Bool = false
+        discardAgentHibernationTracking: Bool = true,
+        cleanupControllerSurfaceState: Bool = false,
+        preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -461,7 +463,23 @@ extension Workspace {
             )
         }
 
-        panels.removeValue(forKey: panelId)
+        let removedPanel = panels.removeValue(forKey: panelId)
+        if discardAgentHibernationTracking {
+            AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+                workspaceId: id,
+                panelId: panelId
+            )
+        }
+        if let terminalPanel =
+                (removedPanel ?? panel) as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveWorkspace(
+                    terminalPanel,
+                    workspace: self,
+                    preservingTransfer:
+                        preservesTerminalForTransfer
+                )
+        }
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
