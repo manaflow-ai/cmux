@@ -12,11 +12,10 @@ struct SimulatorAccessibilityOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             let bounds = CGRect(origin: .zero, size: proxy.size)
-            let screen = simulatorPresentedScreenRect(
+            let screen = chrome?.swiftUIScreenRect(
                 in: bounds,
-                chrome: chrome,
                 orientation: snapshot.display.orientation
-            )
+            ) ?? bounds
             let frames = simulatorAccessibilityOverlayFrames(
                 rows: rows,
                 screenRect: screen

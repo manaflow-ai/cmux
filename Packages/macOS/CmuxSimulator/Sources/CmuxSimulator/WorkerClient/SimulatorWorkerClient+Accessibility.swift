@@ -13,7 +13,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.accessibilityCapability",
-                        defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                        defaultValue: "The simulator worker does not support accessibility inspection."
                     )
                 )
             }
@@ -40,7 +40,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.foregroundCapability",
-                        defaultValue: "The active Xcode worker did not negotiate foreground-app inspection."
+                        defaultValue: "The simulator worker does not support foreground-app inspection."
                     )
                 )
             }
@@ -78,7 +78,7 @@ extension SimulatorWorkerClient {
                 arguments: [],
                 message: String(
                     localized: "simulator.failure.accessibilityCapability",
-                    defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                    defaultValue: "The simulator worker does not support accessibility inspection."
                 )
             )
         }

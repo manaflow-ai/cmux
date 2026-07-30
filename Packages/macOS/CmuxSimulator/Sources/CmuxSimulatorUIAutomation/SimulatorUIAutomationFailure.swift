@@ -1,12 +1,16 @@
 import CmuxControlSocket
 
 /// A recoverable UI automation failure with machine-readable recovery data.
-struct SimulatorUIAutomationFailure: Error, Sendable {
-    let code: String
-    let message: String
-    let uiError: JSONValue
+public struct SimulatorUIAutomationFailure: Error, Sendable {
+    /// Stable control-socket failure code.
+    public let code: String
+    /// Localized user-facing failure message.
+    public let message: String
+    /// Structured UI automation recovery data.
+    public let uiError: JSONValue
 
-    init(
+    /// Creates a structured UI automation failure.
+    public init(
         code: String,
         message: String,
         recoveryHint: String,
@@ -37,7 +41,8 @@ struct SimulatorUIAutomationFailure: Error, Sendable {
         uiError = .object(fields)
     }
 
-    var controlData: JSONValue {
+    /// Control-socket payload containing the structured failure.
+    public var controlData: JSONValue {
         .object(["ui_error": uiError])
     }
 }

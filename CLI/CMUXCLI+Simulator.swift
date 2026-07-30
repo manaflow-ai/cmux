@@ -56,27 +56,11 @@ extension CMUXCLI {
 
             Subcommands:
               type [text] [--stdin|--file <path>]  Type text and wait for transmission completion
-              snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions
-              tap <x> <y> [x2 y2]                 Send a coordinate tap
-              tap --ref <eN>                       Tap an element from the latest snapshot
-              tap (--label <text>|--identifier <id>) [--role <role>]
-                                                    Tap one visible accessibility element
-              touch --ref <eN> --down|--up         Send semantic touch phases
+              tap <x> <y> [x2 y2]                 Send a correlated one- or two-finger tap
               gesture <json> [--stdin|--file]      Send 1...256 ordered normalized touch events
-              gesture-preset <name>                Send a named screen or edge gesture
               multitouch <json> [--stdin|--file]  Send ordered two-finger touch events
               swipe <x1> <y1> <x2> <y2> [steps]  Send a sampled swipe
-              swipe --ref <eN> <direction>         Swipe inside a semantic element
-              drag --ref <eN> <direction>          Drag from a semantic element
-              long-press --ref <eN> <milliseconds> Hold a semantic element
-              type --ref <eN> [text]               Focus and type into a text field
-              key <hid-code>                       Press one USB HID key
-              keys <code,...>                      Press a USB HID key sequence
-              batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps
-              wait <predicate> [selectors]         Wait for exists, gone, enabled, focused,
-                                                    text-contains, or settled
               button <name>                       Press a Simulator hardware button
-              recover                             Restart a failed Simulator worker
               rotate <orientation>                Rotate to a logical orientation
               ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic
               memory-warning                      Simulate a memory warning
@@ -95,6 +79,27 @@ extension CMUXCLI {
             prints the raw response carrying the same JSON request id.
             """
         )
+        let automation = String(
+            localized: "cli.simulator.usage.automation",
+            defaultValue: """
+            Semantic UI automation:
+              snapshot [--since-screen-hash <hash>] Capture refs, roles, state, and actions
+              tap --ref <eN>                       Tap an element from the latest snapshot
+              tap (--label <text>|--identifier <id>) [--role <role>]
+                                                    Tap one visible accessibility element
+              touch --ref <eN> --down|--up         Send semantic touch phases
+              gesture-preset <name>                Send a named screen or edge gesture
+              swipe --ref <eN> <direction>         Swipe inside a semantic element
+              drag --ref <eN> <direction>          Drag from a semantic element
+              long-press --ref <eN> <milliseconds> Hold a semantic element
+              type --ref <eN> [text]               Focus and type into a text field
+              key <hid-code>                       Press one USB HID key
+              keys <code,...>                      Press a USB HID key sequence
+              batch <json> [--stdin|--file]        Run same-snapshot semantic tap steps
+              wait <predicate> [selectors]         Wait for UI state
+              recover                             Restart a failed Simulator worker
+            """
+        )
         let inspection = String(
             localized: "cli.simulator.usage.inspection",
             defaultValue: """
@@ -103,7 +108,7 @@ extension CMUXCLI {
               foreground                          Print the foreground application
             """
         )
-        return "\(usage)\n\n\(inspection)"
+        return "\(usage)\n\n\(automation)\n\n\(inspection)"
     }
 
     func iosSubcommandUsage() -> String {
@@ -122,7 +127,6 @@ extension CMUXCLI {
 
             Examples:
               cmux ios list --json
-              cmux ios tap --label General --role Button
               cmux ios screenshot --surface surface:2 --out phone.png
               cmux ios screenshot --all --out screenshots/
               cmux ios rotate landscape-left

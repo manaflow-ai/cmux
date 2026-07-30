@@ -8,6 +8,13 @@ struct SimulatorUIAutomationSnapshotBuilder {
     private struct FlattenedNode {
         let node: SimulatorAccessibilityNode
         let path: String
+        var descendantFrameBounds: SimulatorRect?
+    }
+
+    private struct PendingNode {
+        let node: SimulatorAccessibilityNode
+        let path: String
+        let parentIndex: Int?
     }
 
     private struct ScreenHashPayload: Encodable {
@@ -49,7 +56,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
                 node: input.node,
                 path: input.path,
                 index: index,
-                viewport: viewport
+                viewport: viewport,
+                descendantFrameBounds: input.descendantFrameBounds
             )
         }
         let elements = records.map(\.element)
@@ -87,18 +95,45 @@ struct SimulatorUIAutomationSnapshotBuilder {
         _ roots: [SimulatorAccessibilityNode]
     ) -> [FlattenedNode] {
         var pending = roots.enumerated().reversed().map {
-            FlattenedNode(node: $0.element, path: String($0.offset))
+            PendingNode(
+                node: $0.element,
+                path: String($0.offset),
+                parentIndex: nil
+            )
         }
         var result: [FlattenedNode] = []
+        var parentIndices: [Int?] = []
         result.reserveCapacity(roots.reduce(0) { $0 + $1.subtreeNodeCount })
+        parentIndices.reserveCapacity(result.capacity)
         while let current = pending.popLast() {
-            result.append(current)
+            let currentIndex = result.count
+            result.append(FlattenedNode(
+                node: current.node,
+                path: current.path,
+                descendantFrameBounds: nil
+            ))
+            parentIndices.append(current.parentIndex)
             for (index, child) in current.node.children.enumerated().reversed() {
-                pending.append(FlattenedNode(
+                pending.append(PendingNode(
                     node: child,
-                    path: "\(current.path).\(index)"
+                    path: "\(current.path).\(index)",
+                    parentIndex: currentIndex
                 ))
             }
+        }
+        for index in result.indices.reversed() {
+            let nodeFrame = result[index].node.frame.flatMap {
+                simulatorUIAutomationIsValidFrame($0) ? $0 : nil
+            }
+            let subtreeBounds = mergedFrame(
+                nodeFrame,
+                result[index].descendantFrameBounds
+            )
+            guard let parentIndex = parentIndices[index] else { continue }
+            result[parentIndex].descendantFrameBounds = mergedFrame(
+                result[parentIndex].descendantFrameBounds,
+                subtreeBounds
+            )
         }
         return result
     }
@@ -107,7 +142,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         node: SimulatorAccessibilityNode,
         path: String,
         index: Int,
-        viewport: SimulatorRect
+        viewport: SimulatorRect,
+        descendantFrameBounds: SimulatorRect?
     ) -> SimulatorUIAutomationElementRecord {
         let frame = node.frame ?? SimulatorRect(x: 0, y: 0, width: 0, height: 0)
         let normalizedLabel = simulatorUIAutomationNormalizedText(node.label)
@@ -131,7 +167,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
             hasSemanticIdentity: normalizedLabel != nil || normalizedIdentifier != nil,
             enabled: enabled,
             visible: visible,
-            frame: frame
+            frame: frame,
+            descendantFrameBounds: descendantFrameBounds
         )
         let element = SimulatorUIAutomationElement(
             ref: "e\(sequence)_\(index + 1)",
@@ -216,7 +253,8 @@ struct SimulatorUIAutomationSnapshotBuilder {
         hasSemanticIdentity: Bool,
         enabled: Bool,
         visible: Bool,
-        frame: SimulatorRect
+        frame: SimulatorRect,
+        descendantFrameBounds: SimulatorRect?
     ) -> [SimulatorUIAutomationActionName] {
         guard enabled, visible else { return [] }
         var actions: [SimulatorUIAutomationActionName] = []
@@ -235,7 +273,12 @@ struct SimulatorUIAutomationSnapshotBuilder {
             actions.append(.touch)
         }
         if role == .scrollView || role == .list || role == .cell
-            || inferredScrollableContainer(node: node, frame: frame, role: role) {
+            || inferredScrollableContainer(
+                node: node,
+                frame: frame,
+                role: role,
+                descendantFrameBounds: descendantFrameBounds
+            ) {
             actions.append(.swipeWithin)
         }
         return actions
@@ -244,27 +287,40 @@ struct SimulatorUIAutomationSnapshotBuilder {
     private func inferredScrollableContainer(
         node: SimulatorAccessibilityNode,
         frame: SimulatorRect,
-        role: SimulatorUIAutomationRole?
+        role: SimulatorUIAutomationRole?,
+        descendantFrameBounds: SimulatorRect?
     ) -> Bool {
         guard role == .application || role == .window || role == .other,
               frame.width >= 100, frame.height >= 100,
-              !node.children.isEmpty else {
+              !node.children.isEmpty,
+              let descendantFrameBounds else {
             return false
         }
         let tolerance = 8.0
-        var pending = node.children
-        while let descendant = pending.popLast() {
-            if let childFrame = descendant.frame,
-               simulatorUIAutomationIsValidFrame(childFrame),
-               childFrame.x < frame.x - tolerance
-                || childFrame.y < frame.y - tolerance
-                || childFrame.x + childFrame.width > frame.x + frame.width + tolerance
-                || childFrame.y + childFrame.height > frame.y + frame.height + tolerance {
-                return true
-            }
-            pending.append(contentsOf: descendant.children)
-        }
-        return false
+        return descendantFrameBounds.x < frame.x - tolerance
+            || descendantFrameBounds.y < frame.y - tolerance
+            || descendantFrameBounds.x + descendantFrameBounds.width
+                > frame.x + frame.width + tolerance
+            || descendantFrameBounds.y + descendantFrameBounds.height
+                > frame.y + frame.height + tolerance
+    }
+
+    private func mergedFrame(
+        _ first: SimulatorRect?,
+        _ second: SimulatorRect?
+    ) -> SimulatorRect? {
+        guard let first else { return second }
+        guard let second else { return first }
+        let minimumX = min(first.x, second.x)
+        let minimumY = min(first.y, second.y)
+        let maximumX = max(first.x + first.width, second.x + second.width)
+        let maximumY = max(first.y + first.height, second.y + second.height)
+        return SimulatorRect(
+            x: minimumX,
+            y: minimumY,
+            width: maximumX - minimumX,
+            height: maximumY - minimumY
+        )
     }
 
     private func isScrollSemanticIdentifier(_ identifier: String?) -> Bool {

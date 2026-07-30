@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxSimulatorUI
+import CmuxSimulatorUIAutomation
 
 extension TerminalController {
     func performSimulatorUIAutomationOperation(

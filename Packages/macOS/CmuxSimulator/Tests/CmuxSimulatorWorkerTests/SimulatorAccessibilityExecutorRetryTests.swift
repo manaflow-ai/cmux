@@ -10,7 +10,9 @@ struct SimulatorAccessibilityExecutorRetryTests {
         let bridge = TransientAccessibilityBridge(failuresBeforeSuccess: 4)
         let executor = SimulatorAccessibilityExecutor(
             bridge: bridge,
-            retrySleep: { _ in }
+            retrySchedule: SimulatorAccessibilityRetrySchedule(
+                nextEvent: { _ in }
+            )
         )
 
         #expect(await executor.attach(

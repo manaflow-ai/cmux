@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import CmuxSimulator
 import CmuxSimulatorUI
+import CmuxSimulatorUIAutomation
 import Foundation
 
 extension TerminalController {

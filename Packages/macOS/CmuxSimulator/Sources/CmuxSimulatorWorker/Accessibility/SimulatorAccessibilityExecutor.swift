@@ -19,26 +19,18 @@ extension SimulatorAccessibilityBridge: SimulatorAccessibilityBridging {}
 actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
     private let bridge: any SimulatorAccessibilityBridging
     private let mutationGate: SimulatorMutationGate
-    private let retrySleep: @Sendable (Duration) async throws -> Void
+    private let retrySchedule: SimulatorAccessibilityRetrySchedule
     private var attachedDeviceIdentifier: String?
-    private static let retryDelays: [Duration] = [
-        .zero,
-        .milliseconds(100),
-        .milliseconds(300),
-        .milliseconds(700),
-        .milliseconds(1_500),
-    ]
 
     init(
         bridge: any SimulatorAccessibilityBridging = SimulatorAccessibilityBridge(),
         mutationGate: SimulatorMutationGate = SimulatorMutationGate(),
-        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
-        }
+        retrySchedule: SimulatorAccessibilityRetrySchedule =
+            SimulatorAccessibilityRetrySchedule()
     ) {
         self.bridge = bridge
         self.mutationGate = mutationGate
-        self.retrySleep = retrySleep
+        self.retrySchedule = retrySchedule
     }
 
     func attach(
@@ -84,13 +76,12 @@ actor SimulatorAccessibilityExecutor: SimulatorAccessibilityExecuting {
         ], isolation: self)
         defer { lease.release() }
 
+        // A process-local actor cannot serialize sibling cmux worker processes.
+        // The keyed lease is the smallest crash-safe boundary around the
+        // CoreSimulator connection retained per device.
         var lastFailure: SimulatorWorkerFailure?
-        for delay in Self.retryDelays {
-            try Task.checkCancellation()
+        for try await _ in retrySchedule {
             bridge.resetAccessibilityConnection()
-            if delay != .zero {
-                try await retrySleep(delay)
-            }
             do {
                 let result = try operation()
                 bridge.resetAccessibilityConnection()

@@ -1,11 +1,6 @@
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxSimulatorUIAutomation
 
 @MainActor
 @Suite("Simulator UI automation capture retry")
@@ -13,7 +8,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
     @Test("Transient snapshot failures retry within the shared deadline")
     func transientFailuresRetry() async throws {
         let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
-        let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
+        let retry = SimulatorUIAutomationCaptureRetry(scheduler: timing)
         var attempts = 0
 
         let value: Int = try await retry.capture(until: 1_250) { _ in
@@ -32,7 +27,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
     @Test("Non-transient failures are never retried")
     func nonTransientFailureStopsImmediately() async throws {
         let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
-        let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
+        let retry = SimulatorUIAutomationCaptureRetry(scheduler: timing)
         var attempts = 0
 
         do {
@@ -56,7 +51,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
     @Test("The last transient failure escapes when the deadline expires")
     func deadlineStopsRetrying() async throws {
         let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
-        let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
+        let retry = SimulatorUIAutomationCaptureRetry(scheduler: timing)
         var attempts = 0
 
         do {
@@ -76,7 +71,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
     @Test("An expired deadline does not start a capture")
     func expiredDeadlineSkipsCapture() async {
         let timing = AdvancingSimulatorUIAutomationTiming(nowMilliseconds: 1_000)
-        let retry = SimulatorUIAutomationCaptureRetry(timing: timing)
+        let retry = SimulatorUIAutomationCaptureRetry(scheduler: timing)
         var attempts = 0
 
         do {
@@ -103,7 +98,7 @@ struct SimulatorUIAutomationCaptureRetryTests {
 }
 
 private final class AdvancingSimulatorUIAutomationTiming:
-    SimulatorUIAutomationTiming,
+    SimulatorUIAutomationScheduling,
     @unchecked Sendable
 {
     private let lock = NSLock()
@@ -122,7 +117,7 @@ private final class AdvancingSimulatorUIAutomationTiming:
         lock.withLock { currentMilliseconds }
     }
 
-    func sleep(for duration: Duration) async throws {
+    func nextEvent(after duration: Duration) async throws {
         let components = duration.components
         let milliseconds = components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000

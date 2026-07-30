@@ -188,6 +188,56 @@ struct SimulatorUIAutomationSnapshotTests {
         #expect(scrollView.actions.contains(.swipeWithin))
     }
 
+    @Test("Nested content extending past a container infers one swipe target")
+    func nestedOverflowInfersScrollableContainer() throws {
+        let source = SimulatorAccessibilitySnapshot(
+            roots: [
+                node(
+                    id: "0",
+                    role: "Application",
+                    label: "Example",
+                    frame: SimulatorRect(x: 0, y: 0, width: 390, height: 844),
+                    children: [
+                        node(
+                            id: "0.0",
+                            role: "Group",
+                            label: "Content",
+                            frame: SimulatorRect(x: 0, y: 100, width: 390, height: 500),
+                            children: [
+                                node(
+                                    id: "0.0.0",
+                                    role: "Group",
+                                    label: "Nested",
+                                    frame: SimulatorRect(
+                                        x: 0,
+                                        y: 580,
+                                        width: 390,
+                                        height: 100
+                                    )
+                                ),
+                            ]
+                        ),
+                    ]
+                ),
+            ],
+            display: SimulatorDisplayMetadata(
+                width: 1_170,
+                height: 2_532,
+                orientation: .portrait,
+                scale: 3
+            )
+        )
+
+        let record = try source.uiAutomationRecord(
+            simulatorID: "SIM-1",
+            sequence: 1,
+            capturedAtMilliseconds: 1_000
+        )
+
+        let container = try #require(record.element(ref: "e1_2")?.element)
+        #expect(container.actions.contains(.swipeWithin))
+    }
+
     @Test("Duplicate refs retain the first lookup record without trapping")
     func duplicateRefsRetainFirstRecord() throws {
         let built = try snapshot().uiAutomationRecord(

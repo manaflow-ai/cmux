@@ -105,7 +105,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -151,7 +151,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionReadbackCapability",
-                        defaultValue: "The active Xcode worker did not negotiate permission readback."
+                        defaultValue: "The simulator worker does not support permission readback."
                     )
                 )
             }
@@ -201,7 +201,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.accessibilityCapability",
-                        defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                        defaultValue: "The simulator worker does not support accessibility inspection."
                     )
                 )
             }
@@ -238,7 +238,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -275,7 +275,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.cameraAdapterCapability",
-                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                        defaultValue: "The simulator worker does not support camera injection."
                     )
                 )
             }
@@ -313,7 +313,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionResetAllCapability",
-                        defaultValue: "Reset All needs the active Xcode worker's isolated extended-permissions adapter."
+                        defaultValue: "Reset All is unavailable for this simulator runtime."
                     )
                 )
             }
@@ -334,7 +334,7 @@ extension SimulatorWorkerClient {
                     arguments: [],
                     message: String(
                         localized: "simulator.failure.permissionMutationCapability",
-                        defaultValue: "The active Xcode worker did not negotiate a safe adapter for \(service.rawValue)."
+                        defaultValue: "The simulator worker does not support \(service.rawValue)."
                     )
                 )
             }

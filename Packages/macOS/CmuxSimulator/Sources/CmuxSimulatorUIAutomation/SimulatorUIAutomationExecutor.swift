@@ -5,23 +5,27 @@ import Foundation
 
 /// Executes serialized UI automation against one Simulator pane coordinator.
 @MainActor
-struct SimulatorUIAutomationExecutor {
-    static let postMutationAccessibilityQuiescenceMilliseconds = 750
+public struct SimulatorUIAutomationExecutor {
+    /// Minimum accessibility-settle interval after an input mutation.
+    public static let postMutationAccessibilityQuiescenceMilliseconds = 750
 
     private struct ActionPreflight {
         let sourceRecord: SimulatorUIAutomationSnapshotRecord?
         let previousScreenHash: String?
     }
 
-    private let timing: any SimulatorUIAutomationTiming
+    private let scheduler: any SimulatorUIAutomationScheduling
 
-    init(
-        timing: any SimulatorUIAutomationTiming = ContinuousSimulatorUIAutomationTiming()
+    /// Creates an executor with an injectable event scheduler for deterministic tests.
+    public init(
+        scheduler: any SimulatorUIAutomationScheduling =
+            ContinuousSimulatorUIAutomationScheduler()
     ) {
-        self.timing = timing
+        self.scheduler = scheduler
     }
 
-    func perform(
+    /// Executes one validated control-socket operation against a pane.
+    public func perform(
         _ operation: ControlSimulatorOperation,
         coordinator: SimulatorPaneCoordinator
     ) async throws -> JSONValue {
@@ -686,10 +690,14 @@ struct SimulatorUIAutomationExecutor {
         var stableSince: Int64?
         var latestRecord: SimulatorUIAutomationSnapshotRecord?
         // CoreSimulator's accessibility translator exposes snapshots but no
-        // change notification, so bounded wait predicates require sampling.
-        while true {
-            try Task.checkCancellation()
-            guard simulatorUINowMilliseconds() < deadline else { break }
+        // change notification, so a cancellation-aware scheduler owns the
+        // bounded sampling events.
+        let events = SimulatorUIAutomationTickSequence(
+            scheduler: scheduler,
+            intervalMilliseconds: Int64(wait.pollIntervalMilliseconds),
+            deadlineMilliseconds: deadline
+        )
+        for try await _ in events {
             let record = try await captureSimulatorUIAutomationSnapshot(
                 coordinator: coordinator,
                 retryingUntil: deadline
@@ -712,10 +720,6 @@ struct SimulatorUIAutomationExecutor {
                     "matches": .array(matches.elements.map(simulatorUIElementPayload)),
                 ])
             }
-            guard now < deadline else { break }
-            try await simulatorUIDelay(
-                min(wait.pollIntervalMilliseconds, Int(deadline - now))
-            )
         }
 
         let candidates = latestRecord.map {
@@ -747,7 +751,12 @@ struct SimulatorUIAutomationExecutor {
         let deadline = simulatorUINowMilliseconds() + timeoutMilliseconds
         var latestCandidates: [SimulatorUIAutomationElement] = []
 
-        while simulatorUINowMilliseconds() < deadline {
+        let events = SimulatorUIAutomationTickSequence(
+            scheduler: scheduler,
+            intervalMilliseconds: 100,
+            deadlineMilliseconds: deadline
+        )
+        for try await _ in events {
             let record = try await captureSimulatorUIAutomationSnapshot(
                 coordinator: coordinator,
                 retryingUntil: deadline
@@ -770,9 +779,6 @@ struct SimulatorUIAutomationExecutor {
                     candidates: [simulatorUIElementPayload(candidate)]
                 )
             }
-            let now = simulatorUINowMilliseconds()
-            guard now < deadline else { break }
-            try await simulatorUIDelay(min(100, Int(deadline - now)))
         }
 
         throw SimulatorUIAutomationFailure(
@@ -918,7 +924,9 @@ struct SimulatorUIAutomationExecutor {
             )
         }
         do {
-            return try await SimulatorUIAutomationCaptureRetry(timing: timing).capture(
+            return try await SimulatorUIAutomationCaptureRetry(
+                scheduler: scheduler
+            ).capture(
                 until: deadlineMilliseconds
             ) { remaining in
                 try await captureSimulatorUIAutomationSnapshotOnce(
@@ -990,8 +998,13 @@ struct SimulatorUIAutomationExecutor {
         var previousHash: String?
         var stableSince: Int64?
         // The accessibility bridge has no event stream. Sampling is bounded,
-        // cancellable, and uses the injected timing seam.
-        while true {
+        // cancellable, and emitted only by the injected scheduler.
+        let events = SimulatorUIAutomationTickSequence(
+            scheduler: scheduler,
+            intervalMilliseconds: 100,
+            deadlineMilliseconds: deadline
+        )
+        for try await _ in events {
             let record = try await captureSimulatorUIAutomationSnapshot(
                 coordinator: coordinator,
                 retryingUntil: deadline
@@ -1005,14 +1018,11 @@ struct SimulatorUIAutomationExecutor {
                 previousHash = record.snapshot.screenHash
                 stableSince = now
             }
-            guard now < deadline else {
-                throw simulatorUISnapshotCaptureFailure(String(
-                    localized: "cli.simulator.error.uiSnapshotDidNotSettle",
-                    defaultValue: "The refreshed Simulator UI snapshot did not settle"
-                ))
-            }
-            try await simulatorUIDelay(min(100, Int(deadline - now)))
         }
+        throw simulatorUISnapshotCaptureFailure(String(
+            localized: "cli.simulator.error.uiSnapshotDidNotSettle",
+            defaultValue: "The refreshed Simulator UI snapshot did not settle"
+        ))
     }
 
     private func currentSimulatorUISnapshot(
@@ -1402,11 +1412,11 @@ struct SimulatorUIAutomationExecutor {
 
     private func simulatorUIDelay(_ milliseconds: Int) async throws {
         guard milliseconds > 0 else { return }
-        try await timing.sleep(for: .milliseconds(milliseconds))
+        try await scheduler.nextEvent(after: .milliseconds(milliseconds))
     }
 
     private func simulatorUINowMilliseconds() -> Int64 {
-        timing.nowMilliseconds()
+        scheduler.nowMilliseconds()
     }
 
     private func simulatorUIGestureActionPayload(
@@ -1490,5 +1500,9 @@ struct SimulatorUIAutomationExecutor {
 
     private func simulatorUIPointPayload(_ point: SimulatorPoint) -> JSONValue {
         .object(["x": .double(point.x), "y": .double(point.y)])
+    }
+
+    private func invalidSimulatorOperation(_ message: String) -> SimulatorFailure {
+        SimulatorFailure(code: "invalid_params", message: message, isRecoverable: true)
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxControlSocket
 import CmuxSimulator
 import CmuxSimulatorUI
+import CmuxSimulatorUIAutomation
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -912,7 +913,7 @@ struct SimulatorPanelIntegrationTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: device.id)
         let timing = SimulatorPreActionMutationTiming(client: client)
-        let executor = SimulatorUIAutomationExecutor(timing: timing)
+        let executor = SimulatorUIAutomationExecutor(scheduler: timing)
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
             coordinator: coordinator
@@ -956,7 +957,7 @@ struct SimulatorPanelIntegrationTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
         let executor = SimulatorUIAutomationExecutor(
-            timing: InstantSimulatorUIAutomationTiming()
+            scheduler: InstantSimulatorUIAutomationTiming()
         )
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
@@ -996,7 +997,7 @@ struct SimulatorPanelIntegrationTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
         let executor = SimulatorUIAutomationExecutor(
-            timing: InstantSimulatorUIAutomationTiming()
+            scheduler: InstantSimulatorUIAutomationTiming()
         )
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
@@ -1048,7 +1049,7 @@ struct SimulatorPanelIntegrationTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
         let executor = SimulatorUIAutomationExecutor(
-            timing: InstantSimulatorUIAutomationTiming()
+            scheduler: InstantSimulatorUIAutomationTiming()
         )
         let first = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
@@ -1089,7 +1090,7 @@ struct SimulatorPanelIntegrationTests {
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
         let executor = SimulatorUIAutomationExecutor(
-            timing: InstantSimulatorUIAutomationTiming()
+            scheduler: InstantSimulatorUIAutomationTiming()
         )
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
@@ -1130,7 +1131,7 @@ struct SimulatorPanelIntegrationTests {
         )
         let coordinator = SimulatorPaneCoordinator(client: client)
         try await coordinator.selectDeviceAndWait(id: client.deviceID)
-        let executor = SimulatorUIAutomationExecutor(timing: timing)
+        let executor = SimulatorUIAutomationExecutor(scheduler: timing)
         let snapshot = try await executor.perform(
             .uiSnapshot(sinceScreenHash: nil),
             coordinator: coordinator
@@ -1226,7 +1227,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
         onTermination: {}
     )
     private let behavior: Behavior
-    private let timing: (any SimulatorUIAutomationTiming)?
+    private let timing: (any SimulatorUIAutomationScheduling)?
     private var actions: [SimulatorControlAction] = []
     private var messages: [SimulatorWorkerInbound] = []
     private var recordedTimeline: [String] = []
@@ -1238,7 +1239,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
 
     init(
         behavior: Behavior,
-        timing: (any SimulatorUIAutomationTiming)? = nil
+        timing: (any SimulatorUIAutomationScheduling)? = nil
     ) {
         self.behavior = behavior
         self.timing = timing
@@ -1398,7 +1399,7 @@ private actor SimulatorSemanticAutomationPaneClient: SimulatorPaneClient {
 }
 
 private final class InstantSimulatorUIAutomationTiming:
-    SimulatorUIAutomationTiming,
+    SimulatorUIAutomationScheduling,
     @unchecked Sendable
 {
     private let lock = NSLock()
@@ -1408,7 +1409,7 @@ private final class InstantSimulatorUIAutomationTiming:
         lock.withLock { currentMilliseconds }
     }
 
-    func sleep(for duration: Duration) async throws {
+    func nextEvent(after duration: Duration) async throws {
         let components = duration.components
         let milliseconds = components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000
@@ -1690,7 +1691,7 @@ private actor SimulatorDelayedAccessibilityPaneClient: SimulatorPaneClient {
 }
 
 private final class SimulatorPreActionMutationTiming:
-    SimulatorUIAutomationTiming,
+    SimulatorUIAutomationScheduling,
     @unchecked Sendable
 {
     private let lock = NSLock()
@@ -1706,7 +1707,7 @@ private final class SimulatorPreActionMutationTiming:
         lock.withLock { currentMilliseconds }
     }
 
-    func sleep(for duration: Duration) async throws {
+    func nextEvent(after duration: Duration) async throws {
         let components = duration.components
         let milliseconds = components.seconds * 1_000
             + components.attoseconds / 1_000_000_000_000_000

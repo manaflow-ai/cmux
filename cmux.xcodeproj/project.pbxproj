@@ -746,6 +746,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A700000000000000000A5 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
 		C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000B2 /* CmuxSimulatorUI */; };
 		C51A700000000000000000B4 /* CmuxSimulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000B2 /* CmuxSimulatorUI */; };
+		C51A700000000000000000D3 /* CmuxSimulatorUIAutomation in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000D2 /* CmuxSimulatorUIAutomation */; };
+		C51A700000000000000000D4 /* CmuxSimulatorUIAutomation in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000D2 /* CmuxSimulatorUIAutomation */; };
 		C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
 		C51A700000000000000000C4 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
@@ -845,7 +847,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
-		C51A76000000000000000001 /* ContinuousSimulatorUIAutomationTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000002 /* ContinuousSimulatorUIAutomationTiming.swift */; };
 		BFC914190FEF400683D6DEBC /* ControlSidebarAgentLifecycleRegistryScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085B717ACCEF4FDBA77A2FD9 /* ControlSidebarAgentLifecycleRegistryScope.swift */; };
 		BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */; };
 		C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */; };
@@ -1927,11 +1928,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */; };
 		C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */; };
 		C51A710000000000000000B1 /* SimulatorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000B2 /* SimulatorPanelView.swift */; };
-		C51A76100000000000000001 /* SimulatorUIAutomationCaptureRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */; };
-		C51A76200000000000000001 /* SimulatorUIAutomationCaptureRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76200000000000000002 /* SimulatorUIAutomationCaptureRetryTests.swift */; };
-		C51A76000000000000000003 /* SimulatorUIAutomationExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */; };
-		C51A76000000000000000005 /* SimulatorUIAutomationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */; };
-		C51A76000000000000000007 /* SimulatorUIAutomationTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A76000000000000000008 /* SimulatorUIAutomationTiming.swift */; };
 		C7B0000000000000000000F2 /* SleepyAgentCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000F1 /* SleepyAgentCensus.swift */; };
 		C7B0FACE0000000000000004 /* SleepyAgentCensusing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000005 /* SleepyAgentCensusing.swift */; };
 		C7B0FACE0000000000000002 /* SleepyAgentCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000003 /* SleepyAgentCounts.swift */; };
@@ -3359,7 +3355,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
-		C51A76000000000000000002 /* ContinuousSimulatorUIAutomationTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuousSimulatorUIAutomationTiming.swift; sourceTree = "<group>"; };
 		085B717ACCEF4FDBA77A2FD9 /* ControlSidebarAgentLifecycleRegistryScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSidebarAgentLifecycleRegistryScope.swift; sourceTree = "<group>"; };
 		8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSidebarPanelOwner.swift; sourceTree = "<group>"; };
 		C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSimulatorPendingTextInput.swift; sourceTree = "<group>"; };
@@ -4429,11 +4424,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelIntegrationTests.swift; sourceTree = "<group>"; };
 		C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelThemeTests.swift; sourceTree = "<group>"; };
 		C51A710000000000000000B2 /* SimulatorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanelView.swift; sourceTree = "<group>"; };
-		C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationCaptureRetry.swift; sourceTree = "<group>"; };
-		C51A76200000000000000002 /* SimulatorUIAutomationCaptureRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationCaptureRetryTests.swift; sourceTree = "<group>"; };
-		C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationExecutor.swift; sourceTree = "<group>"; };
-		C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationFailure.swift; sourceTree = "<group>"; };
-		C51A76000000000000000008 /* SimulatorUIAutomationTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorUIAutomationTiming.swift; sourceTree = "<group>"; };
 		C7B0000000000000000000F1 /* SleepyAgentCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyAgentCensus.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000005 /* SleepyAgentCensusing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyAgentCensusing.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000003 /* SleepyAgentCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyAgentCounts.swift; sourceTree = "<group>"; };
@@ -5055,6 +5045,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */,
 				C51A700000000000000000A3 /* CmuxSimulator in Frameworks */,
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
+				C51A700000000000000000D3 /* CmuxSimulatorUIAutomation in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
@@ -5125,6 +5116,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				C51A700000000000000000A4 /* CmuxSimulator in Frameworks */,
 				C51A700000000000000000B4 /* CmuxSimulatorUI in Frameworks */,
+				C51A700000000000000000D4 /* CmuxSimulatorUIAutomation in Frameworks */,
 				C51A700000000000000000C4 /* CmuxSimulatorWorker in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -6846,11 +6838,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A7300000000000000000C /* TerminalController+ControlSimulatorOperations.swift */,
 				C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */,
 				C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */,
-				C51A76000000000000000002 /* ContinuousSimulatorUIAutomationTiming.swift */,
-				C51A76100000000000000002 /* SimulatorUIAutomationCaptureRetry.swift */,
-				C51A76000000000000000004 /* SimulatorUIAutomationExecutor.swift */,
-				C51A76000000000000000006 /* SimulatorUIAutomationFailure.swift */,
-				C51A76000000000000000008 /* SimulatorUIAutomationTiming.swift */,
 				C51A7600000000000000000A /* TerminalController+ControlSimulatorUIAutomation.swift */,
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
@@ -7079,7 +7066,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */,
-				C51A76200000000000000002 /* SimulatorUIAutomationCaptureRetryTests.swift */,
 				C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
@@ -7717,6 +7703,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */,
 				C51A700000000000000000A2 /* CmuxSimulator */,
 				C51A700000000000000000B2 /* CmuxSimulatorUI */,
+				C51A700000000000000000D2 /* CmuxSimulatorUIAutomation */,
 				C51A700000000000000000C2 /* CmuxSimulatorWorker */,
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
@@ -7844,6 +7831,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001262 /* Bonsplit */,
 				C51A700000000000000000A2 /* CmuxSimulator */,
 				C51A700000000000000000B2 /* CmuxSimulatorUI */,
+				C51A700000000000000000D2 /* CmuxSimulatorUIAutomation */,
 				C51A700000000000000000C2 /* CmuxSimulatorWorker */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 			);
@@ -8568,7 +8556,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
-				C51A76000000000000000001 /* ContinuousSimulatorUIAutomationTiming.swift in Sources */,
 				BFC914190FEF400683D6DEBC /* ControlSidebarAgentLifecycleRegistryScope.swift in Sources */,
 				BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */,
 				C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */,
@@ -9298,10 +9285,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A71F10000000000000004 /* SimulatorFocusOwnershipView.swift in Sources */,
 				C51A710000000000000000A1 /* SimulatorPanel.swift in Sources */,
 				C51A710000000000000000B1 /* SimulatorPanelView.swift in Sources */,
-				C51A76100000000000000001 /* SimulatorUIAutomationCaptureRetry.swift in Sources */,
-				C51A76000000000000000003 /* SimulatorUIAutomationExecutor.swift in Sources */,
-				C51A76000000000000000005 /* SimulatorUIAutomationFailure.swift in Sources */,
-				C51A76000000000000000007 /* SimulatorUIAutomationTiming.swift in Sources */,
 				C7B0000000000000000000F2 /* SleepyAgentCensus.swift in Sources */,
 				C7B0FACE0000000000000004 /* SleepyAgentCensusing.swift in Sources */,
 				C7B0FACE0000000000000002 /* SleepyAgentCounts.swift in Sources */,
@@ -10448,7 +10431,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B804C0010000000000000001 /* SidebarWorkspaceTableTests.swift in Sources */,
 				C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */,
 				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
-				C51A76200000000000000001 /* SimulatorUIAutomationCaptureRetryTests.swift in Sources */,
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,
 				A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
@@ -11293,6 +11275,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C51A700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSimulator" */;
 			productName = CmuxSimulatorWorker;
+		};
+		C51A700000000000000000D2 /* CmuxSimulatorUIAutomation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C51A700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSimulator" */;
+			productName = CmuxSimulatorUIAutomation;
 		};
 		C617000000000000000000A2 /* CmuxGit */ = {
 			isa = XCSwiftPackageProductDependency;
