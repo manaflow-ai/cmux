@@ -354,16 +354,20 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let table = app.tables["MobileWorkspaceList"]
-        let firstRow = app.descendants(matching: .any)[
+        let tableMatches = app.tables.matching(
+            NSPredicate(format: "identifier == %@", "MobileWorkspaceList")
+        )
+        guard let table = waitForVisibleElement(in: tableMatches, app: app, timeout: 8) else {
+            return XCTFail("The visible workspace table never appeared.")
+        }
+        let firstRow = table.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-0"
         ]
-        let lastRow = app.descendants(matching: .any)[
+        let lastRow = table.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-59"
         ]
         let settingsButton = app.buttons["MobileWorkspaceSettingsMenu"]
         let workspacesTab = app.tabBars.buttons["Workspaces"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
         XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
