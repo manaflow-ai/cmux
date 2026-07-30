@@ -6663,6 +6663,35 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn publication_lock_rejects_symlink_without_changing_target_permissions() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let sequence = SOCKET_CLEANUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-publication-symlink-{}-{sequence:x}", std::process::id()));
+        std::fs::create_dir(&directory).unwrap();
+        let socket_path = directory.join("server.sock");
+        let target = directory.join("target");
+        std::fs::write(&target, b"target").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let lock_path = socket_publication_lock_path(&socket_path).unwrap();
+        symlink(&target, &lock_path).unwrap();
+
+        let result =
+            SocketPublicationLock::acquire(&socket_path, Instant::now() + Duration::from_secs(1));
+        let target_mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        let rejected = result.is_err();
+        drop(result);
+        std::fs::remove_file(&lock_path).unwrap();
+        std::fs::remove_file(&target).unwrap();
+        std::fs::remove_dir(&directory).unwrap();
+
+        assert!(rejected, "publication lock followed a symbolic link");
+        assert_eq!(target_mode, 0o644, "publication lock changed the symlink target mode");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn concurrent_stale_socket_reclamation_has_one_owner() {
         const CHILD_ENV: &str = "CMUX_TUI_TEST_CONCURRENT_SOCKET_RECLAMATION";
         const TEST_NAME: &str = "server::tests::concurrent_stale_socket_reclamation_has_one_owner";
