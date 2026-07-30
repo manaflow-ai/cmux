@@ -7,6 +7,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 cat > "$TMP_DIR/xcodebuild" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
 sleep 10
 SH
 chmod +x "$TMP_DIR/xcodebuild"
@@ -14,6 +15,7 @@ chmod +x "$TMP_DIR/xcodebuild"
 set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$TMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
   bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/output.log" 2>&1
@@ -36,6 +38,13 @@ timeout_count="$(grep -Fc "Idle timed out after 0.1s" "$TMP_DIR/output.log")"
 if [ "$timeout_count" -ne 2 ]; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: expected two timed-out attempts, got $timeout_count"
+  exit 1
+fi
+
+marker_count="$(grep -cx 'CMUX_TEST_PROCESS=1' "$TMP_DIR/xcodebuild-args.log" || true)"
+if [ "$marker_count" -ne 2 ]; then
+  cat "$TMP_DIR/xcodebuild-args.log"
+  echo "FAIL: expected every app-host build attempt to receive CMUX_TEST_PROCESS=1"
   exit 1
 fi
 
