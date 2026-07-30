@@ -3504,9 +3504,9 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn remote_stop_refuses_mismatched_stale_runtime_finalization() {
+    fn remote_stop_acknowledges_stale_failed_runtime_finalization() {
         let directory = tempfile::tempdir().unwrap();
-        let session = "reject-mismatched-stale-runtime";
+        let session = "acknowledge-stale-failed-runtime";
         let (state_dir, link_socket, admin_socket) =
             daemon_paths(session, Some(directory.path())).unwrap();
         fs::create_dir_all(&state_dir).unwrap();
@@ -3540,6 +3540,50 @@ mod tests {
         )
         .unwrap();
 
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(!runtime_path.exists());
+        assert!(!outcome.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_refuses_recovery_while_recorded_socket_is_active() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "reject-active-recovery";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&link_socket).unwrap();
+        let runtime_path = state_dir.join("runtime.json");
+        fs::write(
+            &runtime_path,
+            serde_json::to_vec(&crate::remote_runtime::DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir,
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "active-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("active-lifecycle".into()),
+                replaceable_sidecar: true,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
         let error = run_remote_stop(
             &[
                 "--session",
@@ -3550,11 +3594,36 @@ mod tests {
             ]
             .map(str::to_string),
         )
-        .expect_err("mismatched shutdown evidence was acknowledged");
+        .expect_err("active daemon recovery was acknowledged");
 
-        assert!(error.to_string().contains("different daemon lifecycle"), "{error:#}");
+        assert!(error.to_string().contains("daemon socket"), "{error:#}");
         assert!(runtime_path.exists());
-        assert!(outcome.exists());
+        drop(listener);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_stop_acknowledges_malformed_outcome_without_runtime_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let session = "acknowledge-malformed-outcome";
+        let (state_dir, _, _) = daemon_paths(session, Some(directory.path())).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        let outcome = state_dir.join("shutdown.json");
+        fs::write(&outcome, b"{not-json").unwrap();
+
+        run_remote_stop(
+            &[
+                "--session",
+                session,
+                "--state-dir",
+                directory.path().to_string_lossy().as_ref(),
+                "--acknowledge-failed-finalization",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
+
+        assert!(!outcome.exists());
     }
 
     #[cfg(unix)]

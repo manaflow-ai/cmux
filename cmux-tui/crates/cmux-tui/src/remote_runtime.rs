@@ -2172,15 +2172,17 @@ fn read_runtime_info(state_dir: &Path) -> Result<Option<DaemonRuntimeInfo>, Iden
     serde_json::from_slice(&encoded).map(Some).map_err(IdentityError::Json)
 }
 
-fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
-    let path = state_dir.join("shutdown.json");
-    let encoded = match fs::read(&path) {
-        Ok(encoded) => encoded,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(IdentityError::Io(error)),
-    };
+fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>, IdentityError> {
+    match fs::read(path) {
+        Ok(encoded) => Ok(Some(encoded)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(IdentityError::Io(error)),
+    }
+}
+
+fn decode_shutdown_outcome(encoded: &[u8]) -> Result<DaemonShutdownOutcome, IdentityError> {
     let outcome: DaemonShutdownOutcome =
-        serde_json::from_slice(&encoded).map_err(IdentityError::Json)?;
+        serde_json::from_slice(encoded).map_err(IdentityError::Json)?;
     if outcome.version != DAEMON_SHUTDOWN_OUTCOME_VERSION {
         return Err(IdentityError::Invalid(format!(
             "remote daemon shutdown outcome version {} is unsupported",
@@ -2192,7 +2194,12 @@ fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcom
             "remote daemon shutdown outcome has an empty lifecycle id".into(),
         ));
     }
-    Ok(Some(outcome))
+    Ok(outcome)
+}
+
+fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
+    let path = state_dir.join("shutdown.json");
+    read_optional_file(&path)?.map(|encoded| decode_shutdown_outcome(&encoded)).transpose()
 }
 
 pub(crate) fn load_shutdown_outcome(state_dir: &Path) -> anyhow::Result<DaemonShutdownOutcome> {
@@ -2218,36 +2225,52 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     let auth = AuthDatabase::load_or_create(state_dir.join("auth"), daemon_name, true)
         .context("could not acquire the remote daemon authorization lease for recovery")?;
 
-    let runtime = read_runtime_info(state_dir)
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    let runtime_snapshot = read_optional_file(&runtime_path)
+        .context("could not snapshot remote daemon runtime metadata for recovery")?;
+    let outcome_snapshot = read_optional_file(&outcome_path)
+        .context("could not snapshot remote daemon authorization finalization for recovery")?;
+    let runtime = runtime_snapshot
+        .as_deref()
+        .map(serde_json::from_slice::<DaemonRuntimeInfo>)
+        .transpose()
         .context("could not verify remote daemon runtime metadata for recovery")?;
-    let outcome = read_shutdown_outcome(state_dir)
-        .context("could not verify remote daemon authorization finalization for recovery")?
-        .ok_or_else(|| anyhow!("no failed remote daemon authorization finalization is recorded"))?;
-    if outcome.status != DaemonShutdownStatus::Failed {
-        return Err(anyhow!(
-            "remote daemon authorization finalization succeeded and does not need acknowledgement"
-        ));
-    }
+
     if let Some(runtime) = &runtime {
         match runtime.lifecycle_id.as_deref() {
-            Some(lifecycle_id) if lifecycle_id == outcome.lifecycle_id => {}
-            Some(_) => {
-                return Err(anyhow!(
-                    "refusing to acknowledge failed authorization finalization because runtime metadata belongs to a different daemon lifecycle"
-                ));
-            }
-            None => {
+            Some(lifecycle_id) if !lifecycle_id.is_empty() => {}
+            _ => {
                 return Err(anyhow!(
                     "refusing to acknowledge failed authorization finalization with legacy runtime metadata"
                 ));
             }
         }
+    } else {
+        let encoded = outcome_snapshot.as_deref().ok_or_else(|| {
+            anyhow!("no failed remote daemon authorization finalization is recorded")
+        })?;
+        if matches!(
+            decode_shutdown_outcome(encoded),
+            Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. })
+        ) {
+            return Err(anyhow!(
+                "remote daemon authorization finalization succeeded and does not need acknowledgement"
+            ));
+        }
     }
-    let (link_socket, admin_socket) = runtime
-        .as_ref()
-        .map(|runtime| (runtime.link_socket.as_path(), runtime.admin_socket.as_path()))
-        .unwrap_or((link_socket, admin_socket));
+
+    let mut sockets = Vec::new();
+    if let Some(runtime) = &runtime {
+        sockets.push(runtime.link_socket.as_path());
+        sockets.push(runtime.admin_socket.as_path());
+    }
     for socket in [link_socket, admin_socket] {
+        if !sockets.contains(&socket) {
+            sockets.push(socket);
+        }
+    }
+    for socket in sockets {
         match UnixStream::connect(socket) {
             Ok(_) => {
                 return Err(anyhow!(
@@ -2268,39 +2291,41 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         }
     }
 
-    let lifecycle_id = outcome.lifecycle_id;
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
         if finalization.is_err() {
             return Ok(());
         }
-        remove_failed_shutdown_evidence(&cleanup_state_dir, &lifecycle_id)
+        remove_shutdown_recovery_evidence(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
     })
     .await
     .context("could not complete remote daemon authorization recovery")
 }
 
-fn remove_failed_shutdown_evidence(
+fn remove_shutdown_recovery_evidence(
     state_dir: &Path,
-    expected_lifecycle_id: &str,
+    expected_runtime: Option<Vec<u8>>,
+    expected_outcome: Option<Vec<u8>>,
 ) -> Result<(), IdentityError> {
-    let outcome = read_shutdown_outcome(state_dir)?.ok_or_else(|| {
-        IdentityError::Invalid(
-            "remote daemon authorization finalization outcome disappeared during recovery".into(),
-        )
-    })?;
-    if outcome.lifecycle_id != expected_lifecycle_id
-        || outcome.status != DaemonShutdownStatus::Failed
+    let runtime_path = state_dir.join("runtime.json");
+    let outcome_path = state_dir.join("shutdown.json");
+    if read_optional_file(&runtime_path)? != expected_runtime
+        || read_optional_file(&outcome_path)? != expected_outcome
     {
         return Err(IdentityError::Invalid(
-            "remote daemon authorization finalization outcome changed during recovery".into(),
+            "remote daemon lifecycle evidence changed during recovery".into(),
         ));
     }
-    remove_owned_runtime_info(state_dir, expected_lifecycle_id)?;
-    match fs::remove_file(state_dir.join("shutdown.json")) {
-        Ok(()) => sync_state_directory(state_dir),
-        Err(error) => Err(IdentityError::Io(error)),
+
+    if expected_runtime.is_some() {
+        fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
     }
+    if expected_outcome.is_some() {
+        fs::remove_file(outcome_path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2695,6 +2720,26 @@ mod tests {
         let error = result.expect_err("shutdown failures were discarded").to_string();
         assert!(error.contains("transport shutdown failure"), "{error}");
         assert!(error.contains("authorization finalization failed"), "{error}");
+    }
+
+    #[test]
+    fn shutdown_recovery_preserves_lifecycle_evidence_when_its_snapshot_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime_path = directory.path().join("runtime.json");
+        let outcome_path = directory.path().join("shutdown.json");
+        fs::write(&runtime_path, b"runtime-before").unwrap();
+        fs::write(&outcome_path, b"outcome-before").unwrap();
+        let runtime_snapshot = read_optional_file(&runtime_path).unwrap();
+        let outcome_snapshot = read_optional_file(&outcome_path).unwrap();
+        fs::write(&runtime_path, b"runtime-after").unwrap();
+
+        let error =
+            remove_shutdown_recovery_evidence(directory.path(), runtime_snapshot, outcome_snapshot)
+                .expect_err("changed lifecycle evidence was removed");
+
+        assert!(error.to_string().contains("changed"), "{error}");
+        assert_eq!(fs::read(&runtime_path).unwrap(), b"runtime-after");
+        assert_eq!(fs::read(&outcome_path).unwrap(), b"outcome-before");
     }
 
     #[cfg(unix)]
