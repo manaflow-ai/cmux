@@ -64,6 +64,22 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
 
         self.assertEqual(declarations, [])
 
+    def test_interpolated_nested_strings_do_not_hide_following_declaration(self) -> None:
+        declarations = self.scan(
+            r'''
+            final class Owner {
+                let ordinary = "value: \(values["quoted\"key"] ?? "fallback")"
+                let raw = #"value: \#(values["key"] ?? "fallback")"#
+                private var timeout: DispatchWorkItem?
+            }
+            '''
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text) for item in declarations],
+            [("timeout", "DispatchWorkItem?")],
+        )
+
     def test_context_distinguishes_member_from_function_local(self) -> None:
         declarations = self.scan(
             """

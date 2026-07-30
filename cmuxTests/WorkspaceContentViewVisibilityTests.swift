@@ -37,7 +37,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
         let clock = SidebarTestManualClock()
@@ -54,6 +54,23 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(releases.isEmpty)
         let immediateRelease = await releaseIterator.next()
         #expect(immediateRelease == false)
+        #expect(releases == [false])
+        releases.removeAll()
+
+        scheduler.scheduleAfterHoverExit { force in
+            releases.append(force)
+            releaseEvents.continuation.yield(force)
+        }
+        await clock.waitUntilSleeping(for: .milliseconds(50))
+        clock.advance(by: .milliseconds(49))
+        for _ in 0..<3 {
+            await Task.yield()
+        }
+        #expect(releases.isEmpty)
+
+        clock.advance(by: .milliseconds(1))
+        let hoverExitRelease = await releaseIterator.next()
+        #expect(hoverExitRelease == false)
         #expect(releases == [false])
         releases.removeAll()
 

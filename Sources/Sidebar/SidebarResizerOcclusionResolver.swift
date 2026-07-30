@@ -12,6 +12,10 @@ final class SidebarResizerCursorReleaseScheduler {
         scheduler.cancel()
     }
 
+    func scheduleAfterHoverExit(release: @escaping @MainActor (Bool) -> Void) {
+        schedule(force: false, delay: .milliseconds(50), release: release)
+    }
+
     func schedule(
         force: Bool,
         delay: Duration,

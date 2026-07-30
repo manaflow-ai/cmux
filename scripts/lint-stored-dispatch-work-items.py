@@ -132,6 +132,77 @@ def tokenize_swift(source: str) -> list[Token]:
                 column += 1
             index += 1
 
+    def string_opening() -> tuple[int, int] | None:
+        hash_count = 0
+        while index + hash_count < len(source) and source[index + hash_count] == "#":
+            hash_count += 1
+        quote_index = index + hash_count
+        if quote_index < len(source) and source[quote_index] == '"':
+            return (hash_count, quote_index)
+        return None
+
+    def advance_ignored() -> None:
+        if source[index] == "\n":
+            _newline(tokens, line, column)
+        advance()
+
+    def skip_block_comment() -> None:
+        depth = 1
+        advance(2)
+        while index < len(source) and depth:
+            if source.startswith("/*", index):
+                depth += 1
+                advance(2)
+            elif source.startswith("*/", index):
+                depth -= 1
+                advance(2)
+            else:
+                advance_ignored()
+
+    def skip_interpolation() -> None:
+        depth = 1
+        while index < len(source) and depth:
+            if source.startswith("//", index):
+                while index < len(source) and source[index] != "\n":
+                    advance()
+                continue
+            if source.startswith("/*", index):
+                skip_block_comment()
+                continue
+            if opening := string_opening():
+                skip_string_literal(*opening)
+                continue
+            if source[index] == "(":
+                depth += 1
+                advance()
+                continue
+            if source[index] == ")":
+                depth -= 1
+                advance()
+                continue
+            advance_ignored()
+
+    def skip_string_literal(hash_count: int, quote_index: int) -> None:
+        opening_length = hash_count + (3 if source.startswith('"""', quote_index) else 1)
+        closing_quote = '"""' if opening_length - hash_count == 3 else '"'
+        closing = closing_quote + ("#" * hash_count)
+        interpolation_opening = "\\" + ("#" * hash_count) + "("
+        advance(opening_length)
+        while index < len(source):
+            if source.startswith(closing, index):
+                advance(len(closing))
+                return
+            if source.startswith(interpolation_opening, index):
+                advance(len(interpolation_opening))
+                skip_interpolation()
+                continue
+            if hash_count == 0 and source[index] == "\\":
+                advance()
+                if index < len(source):
+                    advance_ignored()
+                continue
+            advance_ignored()
+
     while index < len(source):
         character = source[index]
         if character == "\n":
@@ -146,44 +217,11 @@ def tokenize_swift(source: str) -> list[Token]:
                 advance()
             continue
         if source.startswith("/*", index):
-            depth = 1
-            advance(2)
-            while index < len(source) and depth:
-                if source.startswith("/*", index):
-                    depth += 1
-                    advance(2)
-                elif source.startswith("*/", index):
-                    depth -= 1
-                    advance(2)
-                else:
-                    if source[index] == "\n":
-                        _newline(tokens, line, column)
-                    advance()
+            skip_block_comment()
             continue
 
-        hash_count = 0
-        while index + hash_count < len(source) and source[index + hash_count] == "#":
-            hash_count += 1
-        quote_index = index + hash_count
-        if quote_index < len(source) and source[quote_index] == '"':
-            opening_length = hash_count + (3 if source.startswith('"""', quote_index) else 1)
-            closing_quote = '"""' if opening_length - hash_count == 3 else '"'
-            closing = closing_quote + ("#" * hash_count)
-            advance(opening_length)
-            while index < len(source):
-                if source.startswith(closing, index):
-                    advance(len(closing))
-                    break
-                if hash_count == 0 and source[index] == "\\":
-                    advance()
-                    if index < len(source):
-                        if source[index] == "\n":
-                            _newline(tokens, line, column)
-                        advance()
-                    continue
-                if source[index] == "\n":
-                    _newline(tokens, line, column)
-                advance()
+        if opening := string_opening():
+            skip_string_literal(*opening)
             continue
 
         token_line = line
