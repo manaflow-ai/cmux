@@ -1,7 +1,9 @@
 #if DEBUG && os(iOS)
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import os
 import SwiftUI
+import UIKit
 
 /// Deterministic real-app fixture for notification-feed interaction and visual
 /// verification. It mounts the production tab scaffold and production feed.
@@ -21,7 +23,16 @@ public struct NotificationFeedPreviewView: View {
     public init() {
         let referenceDate = Date()
         _referenceDate = State(initialValue: referenceDate)
-        _items = State(initialValue: makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate))
+        let items: [MobileNotificationFeedItem]
+        if let stressCount = UITestConfig.notificationFeedPreviewItemCount {
+            items = makeNotificationFeedPreviewStressItems(
+                referenceDate: referenceDate,
+                count: stressCount
+            )
+        } else {
+            items = makeNotificationFeedPreviewFixtureItems(referenceDate: referenceDate)
+        }
+        _items = State(initialValue: items)
     }
 
     /// The preview fixture's production-style tab and feed body.
@@ -35,36 +46,8 @@ public struct NotificationFeedPreviewView: View {
                 NotificationFeedPreviewWorkspacesView()
             } notifications: {
                 NavigationStack {
-                    NotificationFeedView(
-                        status: .ready,
-                        projection: projection,
-                        refreshesOnAppear: true,
-                        actions: actions
-                    )
-                    .toolbar {
-                        WorkspaceRootToolbarContent(
-                            openSettings: {},
-                            openDevices: {},
-                            title: L10n.string(
-                                "mobile.workspaces.macPicker.allMacs",
-                                defaultValue: "All Computers"
-                            ),
-                            isLoading: false,
-                            selection: macSelection,
-                            select: { macSelection = $0 },
-                            machines: [],
-                            showAddDevice: nil
-                        )
-                    }
-                    .navigationDestination(isPresented: notificationRouteIsPresented) {
-                        NotificationFeedPreviewWorkspaceDestination(
-                            workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
-                                ?? L10n.string(
-                                    "mobile.notificationFeed.workspaceFallback",
-                                    defaultValue: "Workspace"
-                                )
-                        )
-                        .toolbarVisibility(.hidden, for: .tabBar)
+                    ScrollViewReader { proxy in
+                        notificationsTabFeed(proxy: proxy)
                     }
                 }
                 .onAppear {
@@ -109,6 +92,44 @@ public struct NotificationFeedPreviewView: View {
         }
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
+        }
+    }
+
+    /// The notifications-tab feed with the optional profiling scroll driver.
+    private func notificationsTabFeed(proxy: ScrollViewProxy) -> some View {
+        NotificationFeedView(
+            status: .ready,
+            projection: projection,
+            refreshesOnAppear: true,
+            actions: actions
+        )
+        .task {
+            await runScrollStressIfEnabled(proxy: proxy)
+        }
+        .toolbar {
+            WorkspaceRootToolbarContent(
+                openSettings: {},
+                openDevices: {},
+                title: L10n.string(
+                    "mobile.workspaces.macPicker.allMacs",
+                    defaultValue: "All Computers"
+                ),
+                isLoading: false,
+                selection: macSelection,
+                select: { macSelection = $0 },
+                machines: [],
+                showAddDevice: nil
+            )
+        }
+        .navigationDestination(isPresented: notificationRouteIsPresented) {
+            NotificationFeedPreviewWorkspaceDestination(
+                workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
+                    ?? L10n.string(
+                        "mobile.notificationFeed.workspaceFallback",
+                        defaultValue: "Workspace"
+                    )
+            )
+            .toolbarVisibility(.hidden, for: .tabBar)
         }
     }
 
@@ -183,6 +204,70 @@ public struct NotificationFeedPreviewView: View {
         beforeSelection()
         selectedTab = tab
         return previousTab != tab
+    }
+
+    /// Drives deterministic profiling scroll passes over the feed when
+    /// `CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_AUTOSCROLL=1`: one animated pass
+    /// top-to-bottom and one back up, hopping a screenful of rows at a time so
+    /// every row materializes, bracketed by `OSSignposter` intervals.
+    private func runScrollStressIfEnabled(proxy: ScrollViewProxy) async {
+        guard UITestConfig.notificationFeedPreviewAutoScrollEnabled else { return }
+        let clock = ContinuousClock()
+        for _ in 0..<100 where projection.sections.isEmpty {
+            await projection.waitForPendingRebuild()
+            if projection.sections.isEmpty {
+                do { try await clock.sleep(for: .milliseconds(50)) } catch { return }
+            }
+        }
+        guard !projection.sections.isEmpty else { return }
+        let signposter = OSSignposter(
+            subsystem: "dev.cmux.ios",
+            category: "NotificationFeedScrollStress"
+        )
+        signposter.emitEvent("scrollStressStart")
+        let monitor = NotificationFeedScrollStressFrameMonitor()
+        monitor.start()
+        // The scroll passes return early on task cancellation (tab change,
+        // view disappearance); the display link must not outlive them.
+        defer { monitor.stop() }
+        let hop = 10
+        // The down pass re-reads mounted row ids per hop so it follows the
+        // projection's row window as the load-more sentinel extends it, and
+        // waits briefly at the mounted edge while an extension rebuild runs.
+        var mountedIDs = projection.sections.flatMap { section in section.items.map(\.id) }
+        var index = 0
+        var stalledRounds = 0
+        let downState = signposter.beginInterval("scrollDown")
+        while stalledRounds < 40 {
+            mountedIDs = projection.sections.flatMap { section in section.items.map(\.id) }
+            if index < mountedIDs.count {
+                stalledRounds = 0
+                withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(mountedIDs[index], anchor: .top) }
+                index += hop
+                do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
+            } else if projection.hasMoreRows || projection.isSourceRebuilding {
+                stalledRounds += 1
+                if let last = mountedIDs.last {
+                    withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(last, anchor: .top) }
+                }
+                await projection.waitForPendingRebuild()
+                do { try await clock.sleep(for: .milliseconds(100)) } catch { return }
+            } else {
+                break
+            }
+        }
+        signposter.endInterval("scrollDown", downState)
+        let upState = signposter.beginInterval("scrollUp")
+        for index in stride(from: mountedIDs.count - 1, through: 0, by: -hop) {
+            withAnimation(.linear(duration: 0.14)) { proxy.scrollTo(mountedIDs[index], anchor: .top) }
+            do { try await clock.sleep(for: .milliseconds(150)) } catch { return }
+        }
+        signposter.endInterval("scrollUp", upState)
+        monitor.stop()
+        signposter.emitEvent("scrollStressComplete")
+        Logger(subsystem: "dev.cmux.ios", category: "NotificationFeedScrollStress").notice(
+            "NFSCROLLSTRESS result rows=\(mountedIDs.count) frames=\(monitor.frameCount) hitches=\(monitor.hitchCount) hitchTotalMs=\(Int(monitor.hitchTotal * 1000)) worstHitchMs=\(Int(monitor.worstHitch * 1000))"
+        )
     }
 
 }
@@ -335,6 +420,62 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
             connectionStatus: .reconnecting
         ),
     ]
+}
+
+/// Builds `count` deterministic synthetic feed items for scroll-perf stress
+/// runs: newest-first, spread across ~2 weeks of day sections and three Macs,
+/// with mixed read state, connection status, body lengths, and the
+/// title-matches-workspace layout branch. Index-derived values keep every run
+/// identical; plain strings are fine here because the fixture is DEBUG-only
+/// synthetic data, never product UI copy.
+private func makeNotificationFeedPreviewStressItems(
+    referenceDate: Date,
+    count: Int
+) -> [MobileNotificationFeedItem] {
+    let macs: [(id: String, name: String, status: MobileMacConnectionStatus)] = [
+        ("studio", "Studio", .connected),
+        ("macbook", "MacBook Pro", .connected),
+        ("build-mac", "Build Mac", .reconnecting),
+    ]
+    let titles = [
+        "Codex needs approval",
+        "Tests passed",
+        "Agent finished",
+        "Input needed",
+        "Build completed with 3 warnings while linking the release configuration",
+        "Merge conflict detected in the integration branch",
+    ]
+    let bodies: [String] = [
+        "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass.",
+        "All focused iOS notification tests passed in 42 seconds.",
+        "",
+        "Choose whether to retry the unavailable builder or keep the current artifact. This longer message verifies wrapping without hiding the workspace and Mac context below it.",
+        "Short update.",
+        "The onboarding copy now explains the notification history.",
+    ]
+    let workspaces = ["cmux iOS", "Release", "Localization", "Cloud Builder", "Docs", "Perf Lab"]
+    return (0..<count).map { index in
+        let mac = macs[index % macs.count]
+        let workspace = workspaces[index % workspaces.count]
+        let title = index % 7 == 0
+            ? workspace
+            : "\(titles[index % titles.count]) #\(index)"
+        return MobileNotificationFeedItem(
+            macDeviceID: mac.id,
+            notificationID: "stress-\(index)",
+            macDisplayName: mac.name,
+            remoteWorkspaceID: "workspace-\(index % workspaces.count)",
+            remoteSurfaceID: "surface-\(index % 4)",
+            title: title,
+            subtitle: index % 5 == 0 ? "Stress subtitle \(index)" : nil,
+            body: bodies[index % bodies.count],
+            createdAt: referenceDate.addingTimeInterval(-Double(index) * 631),
+            isRead: index % 3 != 0,
+            workspaceTitle: workspace,
+            surfaceTitle: "Surface \(index % 4)",
+            connectionStatus: mac.status
+        )
+    }
 }
 
 private struct NotificationFeedPreviewWorkspacesView: View {
