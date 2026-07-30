@@ -1,34 +1,63 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { posthog } from "../lib/posthog-client";
 import {
   PRO_PRICING_USD,
   type ProBillingInterval,
 } from "../../services/billing/plans";
+import { CheckoutButton } from "./checkout-navigation";
+import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
+export type ProCheckoutHrefs = Record<ProBillingInterval, string>;
+
+type PricingIntervalContextValue = {
+  interval: ProBillingInterval;
+  setInterval: (interval: ProBillingInterval) => void;
+};
+
+const PricingIntervalContext =
+  createContext<PricingIntervalContextValue | null>(null);
+
+export function PricingIntervalProvider({
+  initialInterval,
+  children,
+}: {
+  initialInterval: ProBillingInterval;
+  children: ReactNode;
+}) {
+  const [interval, setInterval] = useState(initialInterval);
+
+  return (
+    <PricingIntervalContext.Provider value={{ interval, setInterval }}>
+      {children}
+    </PricingIntervalContext.Provider>
+  );
+}
 
 export function PricingIntervalSelector({
-  interval,
-  monthlyHref,
-  annualHref,
   billingPeriodLabel,
   monthlyLabel,
   annualLabel,
   savingsLabel,
   surface,
 }: {
-  interval: ProBillingInterval;
-  monthlyHref: string;
-  annualHref: string;
   billingPeriodLabel: string;
   monthlyLabel: string;
   annualLabel: string;
   savingsLabel: string;
   surface: PricingSurface;
 }) {
+  const { interval, setInterval } = usePricingInterval();
   const capturedView = useRef(false);
   const captureView = useCallback(
     (node: HTMLDivElement | null) => {
@@ -46,40 +75,103 @@ export function PricingIntervalSelector({
       role="group"
       aria-label={billingPeriodLabel}
     >
-      <IntervalLink
-        href={monthlyHref}
+      <IntervalButton
         selected={interval === "month"}
-        onSelect={() => capturePricingEvent("cmuxterm_pricing_interval_selected", "month", surface)}
+        onSelect={() => {
+          setInterval("month");
+          capturePricingEvent(
+            "cmuxterm_pricing_interval_selected",
+            "month",
+            surface,
+          );
+        }}
       >
         {monthlyLabel}
-      </IntervalLink>
-      <IntervalLink
-        href={annualHref}
+      </IntervalButton>
+      <IntervalButton
         selected={interval === "year"}
-        onSelect={() => capturePricingEvent("cmuxterm_pricing_interval_selected", "year", surface)}
+        onSelect={() => {
+          setInterval("year");
+          capturePricingEvent(
+            "cmuxterm_pricing_interval_selected",
+            "year",
+            surface,
+          );
+        }}
       >
         {annualLabel}
         <span className="ml-1.5 text-xs opacity-75">{savingsLabel}</span>
-      </IntervalLink>
+      </IntervalButton>
     </div>
   );
 }
 
-function IntervalLink({
-  href,
+export function PricingIntervalValue({
+  monthly,
+  annual,
+}: {
+  monthly: ReactNode;
+  annual: ReactNode;
+}) {
+  const { interval } = usePricingInterval();
+  return interval === "year" ? annual : monthly;
+}
+
+export function PricingAnnualDetail({ children }: { children: ReactNode }) {
+  const { interval } = usePricingInterval();
+  if (interval !== "year") return null;
+  return <p className="mt-1 text-xs text-muted">{children}</p>;
+}
+
+export function PricingCheckoutButton({
+  hrefs,
+  children,
+  location,
+  size = "default",
+}: {
+  hrefs: ProCheckoutHrefs;
+  children: ReactNode;
+  location: string;
+  size?: PricingActionSize;
+}) {
+  const { interval } = usePricingInterval();
+  const pricing = PRO_PRICING_USD[interval];
+
+  return (
+    <CheckoutButton
+      href={hrefs[interval]}
+      size={size}
+      analytics={{
+        event: "cmuxterm_pro_cta_clicked",
+        properties: {
+          location,
+          checkout: true,
+          interval,
+          currency: "usd",
+          billed_amount_usd: pricing.billedAmount,
+          monthly_equivalent_usd: pricing.monthlyEquivalent,
+          discount_percent: pricing.discountPercent,
+        },
+      }}
+    >
+      {children}
+    </CheckoutButton>
+  );
+}
+
+function IntervalButton({
   selected,
   onSelect,
   children,
 }: {
-  href: string;
   selected: boolean;
   onSelect: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <a
-      href={href}
-      aria-current={selected ? "true" : undefined}
+    <button
+      type="button"
+      aria-pressed={selected}
       onClick={onSelect}
       className={
         selected
@@ -88,8 +180,18 @@ function IntervalLink({
       }
     >
       {children}
-    </a>
+    </button>
   );
+}
+
+function usePricingInterval() {
+  const context = useContext(PricingIntervalContext);
+  if (!context) {
+    throw new Error(
+      "Pricing interval controls must be wrapped in PricingIntervalProvider",
+    );
+  }
+  return context;
 }
 
 function capturePricingEvent(

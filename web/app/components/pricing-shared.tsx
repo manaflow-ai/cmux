@@ -71,9 +71,9 @@ export function PlanCard({
   children,
 }: {
   name: string;
-  price: string;
+  price: ReactNode;
   period?: string;
-  priceDetail?: string;
+  priceDetail?: ReactNode;
   badge?: ReactNode;
   children: ReactNode;
 }) {
@@ -85,9 +85,7 @@ export function PlanCard({
         <span className="text-3xl font-medium tracking-tight">{price}</span>
         {period ? <span className="text-sm text-muted">{period}</span> : null}
       </div>
-      {priceDetail ? (
-        <p className="mt-1 text-xs text-muted">{priceDetail}</p>
-      ) : null}
+      {priceDetail}
       <div className="mt-6">{children}</div>
     </div>
   );
@@ -182,7 +180,7 @@ export function PricingCompareTable({
 }: {
   rows: CompareRow[];
   names: Record<PlanColumn, string>;
-  prices: Record<PlanColumn, string>;
+  prices: Record<PlanColumn, ReactNode>;
   actions?: Partial<Record<PlanColumn, ReactNode>>;
   stickyTopClassName?: string;
 }) {
@@ -301,7 +299,7 @@ function ColumnHead({
   action,
 }: {
   name: string;
-  price: string;
+  price: ReactNode;
   action?: ReactNode;
 }) {
   return (

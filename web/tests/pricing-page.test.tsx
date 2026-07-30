@@ -41,12 +41,6 @@ mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
 }));
 
-mock.module("../app/[locale]/components/pro-cta-link", () => ({
-  ProCtaLink: ({ checkoutHref, children }: { checkoutHref: string; children: React.ReactNode }) => (
-    <a href={checkoutHref}>{children}</a>
-  ),
-}));
-
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
@@ -122,6 +116,8 @@ describe("localized pricing page", () => {
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
+    expect(html).toContain('<button type="button" aria-pressed="true"');
+    expect(html).not.toContain('href="?interval=');
   });
 });
 

@@ -39,7 +39,12 @@ import {
   type SizeRow,
 } from "../../components/pricing-shared";
 import { CheckoutButton } from "../../components/checkout-navigation";
-import { PricingIntervalSelector } from "../../components/pricing-interval-selector";
+import {
+  PricingAnnualDetail,
+  PricingIntervalProvider,
+  PricingIntervalSelector,
+  PricingIntervalValue,
+} from "../../components/pricing-interval-selector";
 import {
   PRO_PRICING_USD,
   proBillingInterval,
@@ -96,23 +101,18 @@ export default async function PricingPage({
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
   const interval = proBillingInterval(firstParam(query.interval));
-  const proPricing = PRO_PRICING_USD[interval];
-  const proCheckoutURL = withCheckoutInterval(PRO_CHECKOUT_URL, interval);
-  const annualPriceDetail = interval === "year"
-    ? t("annualPriceDetail", {
-        amount: PRO_PRICING_USD.year.billedAmount,
-        discount: PRO_PRICING_USD.year.discountPercent,
-      })
-    : undefined;
-  const proPrice = interval === "year"
-    ? `$${proPricing.monthlyEquivalent}`
-    : t("pro.price");
-  const compareProPrice = interval === "year"
-    ? t("annualComparePrice", {
-        monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-        annual: PRO_PRICING_USD.year.billedAmount,
-      })
-    : `${t("pro.price")}${t("perMonth")}`;
+  const proCheckoutHrefs = {
+    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
+    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+  };
+  const annualPriceDetail = t("annualPriceDetail", {
+    amount: PRO_PRICING_USD.year.billedAmount,
+    discount: PRO_PRICING_USD.year.discountPercent,
+  });
+  const annualComparePrice = t("annualComparePrice", {
+    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+    annual: PRO_PRICING_USD.year.billedAmount,
+  });
 
   const freeFeatures = t.raw("free.features") as string[];
   const proBaseFeatures = t.raw("pro.features") as string[];
@@ -142,141 +142,151 @@ export default async function PricingPage({
           <ProWelcomeBanner />
         </Suspense>
 
-        {/* Title */}
-        <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-        <PricingIntervalSelector
-          interval={interval}
-          monthlyHref="?interval=month"
-          annualHref="?interval=year"
-          billingPeriodLabel={t("billingPeriod")}
-          monthlyLabel={t("monthly")}
-          annualLabel={t("annual")}
-          savingsLabel={t("saveAnnual", {
-            discount: PRO_PRICING_USD.year.discountPercent,
-          })}
-          surface="public_pricing"
-        />
-
-        {/* Tier cards */}
-        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
-          {/* Free */}
-          <PlanCard
-            name={t("free.name")}
-            price={t("free.price")}
-            period={t("perMonth")}
-          >
-            <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
-            <p className="mt-5 text-sm font-medium text-muted">
-              {t("free.featuresLead")}
-            </p>
-            <FeatureList items={freeFeatures} />
-          </PlanCard>
-
-          {/* Pro */}
-          <PlanCard
-            name={t("pro.name")}
-            price={proPrice}
-            period={t("perMonth")}
-            priceDetail={annualPriceDetail}
-            badge={
-              snapshot.isPro ? (
-                <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-              ) : null
-            }
-          >
-            {snapshot.isPro ? (
-              <div className="space-y-2">
-                <DisabledButton>{t("currentPlan")}</DisabledButton>
-                <SecondaryLink href="/api/billing/portal">
-                  {t("manageBilling")}
-                </SecondaryLink>
-              </div>
-            ) : (
-              <ProCtaLink checkoutHref={proCheckoutURL} interval={interval}>
-                {t("pro.cta")}
-              </ProCtaLink>
-            )}
-            <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
-            <FeatureList items={proFeatures} />
-          </PlanCard>
-
-          {/* Team */}
-          <PlanCard
-            name={t("team.name")}
-            price={t("team.price")}
-            period={t("perUserMonth")}
-          >
-            <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
-            <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
-            <FeatureList items={teamFeatures} />
-          </PlanCard>
-
-          {/* Enterprise */}
-          <PlanCard
-            name={t("enterprise.name")}
-            price={t("enterprise.price")}
-          >
-            <SecondaryLink href={ENTERPRISE_CTA_URL}>
-              {t("enterprise.cta")}
-            </SecondaryLink>
-            <p className="mt-5 text-sm font-medium">
-              {t("enterprise.featuresLead")}
-            </p>
-            <FeatureList items={enterpriseFeatures} />
-          </PlanCard>
-        </div>
-
-        {/* Compare plans. Header row is sticky under the 48px h-12 site header.
-            Horizontal scrolling is mobile-only so desktop keeps the page as the
-            sticky scroll container. */}
-        <section className="mt-16">
-          <PricingCompareTable
-            rows={compareRows}
-            names={{
-              free: t("free.name"),
-              pro: t("pro.name"),
-              team: t("team.name"),
-              enterprise: t("enterprise.name"),
-            }}
-            prices={{
-              free: t("free.price"),
-              pro: compareProPrice,
-              team: `${t("team.price")}${t("perUserMonth")}`,
-              enterprise: t("enterprise.price"),
-            }}
-            actions={{
-              free: (
-                <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-                  {t("free.cta")}
-                </PrimaryLink>
-              ),
-              pro: (
-                snapshot.isPro ? (
-                  <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                ) : (
-                  <ProCtaLink
-                    checkoutHref={proCheckoutURL}
-                    size="compact"
-                    location="pricing_compare_header"
-                    interval={interval}
-                  >
-                    {t("pro.cta")}
-                  </ProCtaLink>
-                )
-              ),
-              team: (
-                <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
-                  {t("team.cta")}
-                </CheckoutButton>
-              ),
-              enterprise: (
-                <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
-                  {t("enterprise.cta")}
-                </SecondaryLink>
-              ),
-            }}
+        <PricingIntervalProvider initialInterval={interval}>
+          {/* Title */}
+          <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+          <PricingIntervalSelector
+            billingPeriodLabel={t("billingPeriod")}
+            monthlyLabel={t("monthly")}
+            annualLabel={t("annual")}
+            savingsLabel={t("saveAnnual", {
+              discount: PRO_PRICING_USD.year.discountPercent,
+            })}
+            surface="public_pricing"
           />
-        </section>
+
+          {/* Tier cards */}
+          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
+            {/* Free */}
+            <PlanCard
+              name={t("free.name")}
+              price={t("free.price")}
+              period={t("perMonth")}
+            >
+              <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
+              <p className="mt-5 text-sm font-medium text-muted">
+                {t("free.featuresLead")}
+              </p>
+              <FeatureList items={freeFeatures} />
+            </PlanCard>
+
+            {/* Pro */}
+            <PlanCard
+              name={t("pro.name")}
+              price={
+                <PricingIntervalValue
+                  monthly={t("pro.price")}
+                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
+                />
+              }
+              period={t("perMonth")}
+              priceDetail={
+                <PricingAnnualDetail>{annualPriceDetail}</PricingAnnualDetail>
+              }
+              badge={
+                snapshot.isPro ? (
+                  <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+                ) : null
+              }
+            >
+              {snapshot.isPro ? (
+                <div className="space-y-2">
+                  <DisabledButton>{t("currentPlan")}</DisabledButton>
+                  <SecondaryLink href="/api/billing/portal">
+                    {t("manageBilling")}
+                  </SecondaryLink>
+                </div>
+              ) : (
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
+                  {t("pro.cta")}
+                </ProCtaLink>
+              )}
+              <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
+              <FeatureList items={proFeatures} />
+            </PlanCard>
+
+            {/* Team */}
+            <PlanCard
+              name={t("team.name")}
+              price={t("team.price")}
+              period={t("perUserMonth")}
+            >
+              <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
+              <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
+              <FeatureList items={teamFeatures} />
+            </PlanCard>
+
+            {/* Enterprise */}
+            <PlanCard
+              name={t("enterprise.name")}
+              price={t("enterprise.price")}
+            >
+              <SecondaryLink href={ENTERPRISE_CTA_URL}>
+                {t("enterprise.cta")}
+              </SecondaryLink>
+              <p className="mt-5 text-sm font-medium">
+                {t("enterprise.featuresLead")}
+              </p>
+              <FeatureList items={enterpriseFeatures} />
+            </PlanCard>
+          </div>
+
+          {/* Compare plans. Header row is sticky under the 48px h-12 site header.
+              Horizontal scrolling is mobile-only so desktop keeps the page as the
+              sticky scroll container. */}
+          <section className="mt-16">
+            <PricingCompareTable
+              rows={compareRows}
+              names={{
+                free: t("free.name"),
+                pro: t("pro.name"),
+                team: t("team.name"),
+                enterprise: t("enterprise.name"),
+              }}
+              prices={{
+                free: t("free.price"),
+                pro: (
+                  <PricingIntervalValue
+                    monthly={`${t("pro.price")}${t("perMonth")}`}
+                    annual={annualComparePrice}
+                  />
+                ),
+                team: `${t("team.price")}${t("perUserMonth")}`,
+                enterprise: t("enterprise.price"),
+              }}
+              actions={{
+                free: (
+                  <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
+                    {t("free.cta")}
+                  </PrimaryLink>
+                ),
+                pro: (
+                  snapshot.isPro ? (
+                    <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : (
+                    <ProCtaLink
+                      checkoutHrefs={proCheckoutHrefs}
+                      size="compact"
+                      location="pricing_compare_header"
+                    >
+                      {t("pro.cta")}
+                    </ProCtaLink>
+                  )
+                ),
+                team: (
+                  <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
+                    {t("team.cta")}
+                  </CheckoutButton>
+                ),
+                enterprise: (
+                  <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
+                    {t("enterprise.cta")}
+                  </SecondaryLink>
+                ),
+              }}
+            />
+          </section>
+        </PricingIntervalProvider>
 
         {/* Cloud VM sizes */}
         <PricingSizeTable

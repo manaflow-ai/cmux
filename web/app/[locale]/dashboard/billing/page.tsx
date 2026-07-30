@@ -15,8 +15,13 @@ import {
   PrimaryLink,
   visibleProFeatures,
 } from "@/app/components/pricing-shared";
-import { CheckoutButton } from "@/app/components/checkout-navigation";
-import { PricingIntervalSelector } from "@/app/components/pricing-interval-selector";
+import {
+  PricingAnnualDetail,
+  PricingCheckoutButton,
+  PricingIntervalProvider,
+  PricingIntervalSelector,
+  PricingIntervalValue,
+} from "@/app/components/pricing-interval-selector";
 import { cloudDb } from "@/db/client";
 import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
@@ -240,93 +245,85 @@ function FreePlanUpsell({
     hostedNetworking: pricingT.raw("pro.hostedNetworkingFeatures") as string[],
   });
   const teamFeatures = pricingT.raw("team.features") as string[];
-  const proPricing = PRO_PRICING_USD[interval];
-  const proCheckoutURL = withCheckoutInterval(PRO_CHECKOUT_URL, interval);
-  const proPrice = interval === "year"
-    ? `$${proPricing.monthlyEquivalent}`
-    : pricingT("pro.price");
-  const annualPriceDetail = interval === "year"
-    ? pricingT("annualPriceDetail", {
-        amount: PRO_PRICING_USD.year.billedAmount,
-        discount: PRO_PRICING_USD.year.discountPercent,
-      })
-    : undefined;
+  const proCheckoutHrefs = {
+    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
+    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+  };
+  const annualPriceDetail = pricingT("annualPriceDetail", {
+    amount: PRO_PRICING_USD.year.billedAmount,
+    discount: PRO_PRICING_USD.year.discountPercent,
+  });
 
   return (
-    <div className="space-y-3">
-      <section className="border border-border p-3">
-        <h2 className="text-sm font-medium">{t("free.name")}</h2>
-        <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
-      </section>
+    <PricingIntervalProvider initialInterval={interval}>
+      <div className="space-y-3">
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("free.name")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
+        </section>
 
-      <section>
-        <div className="mb-2">
-          <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
-          <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
-          <PricingIntervalSelector
-            interval={interval}
-            monthlyHref="?interval=month"
-            annualHref="?interval=year"
-            billingPeriodLabel={pricingT("billingPeriod")}
-            monthlyLabel={pricingT("monthly")}
-            annualLabel={pricingT("annual")}
-            savingsLabel={pricingT("saveAnnual", {
-              discount: PRO_PRICING_USD.year.discountPercent,
-            })}
-            surface="dashboard_billing"
-          />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <PlanCard
-            name={pricingT("pro.name")}
-            price={proPrice}
-            period={pricingT("perMonth")}
-            priceDetail={annualPriceDetail}
-          >
-            <CheckoutButton
-              href={proCheckoutURL}
-              analytics={{
-                event: "cmuxterm_pro_cta_clicked",
-                properties: {
-                  location: "dashboard_billing",
-                  checkout: true,
-                  interval,
-                  currency: "usd",
-                  billed_amount_usd: proPricing.billedAmount,
-                  monthly_equivalent_usd: proPricing.monthlyEquivalent,
-                  discount_percent: proPricing.discountPercent,
-                },
-              }}
+        <section>
+          <div className="mb-2">
+            <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
+            <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
+            <PricingIntervalSelector
+              billingPeriodLabel={pricingT("billingPeriod")}
+              monthlyLabel={pricingT("monthly")}
+              annualLabel={pricingT("annual")}
+              savingsLabel={pricingT("saveAnnual", {
+                discount: PRO_PRICING_USD.year.discountPercent,
+              })}
+              surface="dashboard_billing"
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <PlanCard
+              name={pricingT("pro.name")}
+              price={
+                <PricingIntervalValue
+                  monthly={pricingT("pro.price")}
+                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
+                />
+              }
+              period={pricingT("perMonth")}
+              priceDetail={
+                <PricingAnnualDetail>{annualPriceDetail}</PricingAnnualDetail>
+              }
             >
-              {pricingT("pro.cta")}
-            </CheckoutButton>
-            <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
-            <FeatureList items={proFeatures} />
-          </PlanCard>
+              <PricingCheckoutButton
+                hrefs={proCheckoutHrefs}
+                location="dashboard_billing"
+              >
+                {pricingT("pro.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
+              <FeatureList items={proFeatures} />
+            </PlanCard>
 
-          <PlanCard
-            name={pricingT("team.name")}
-            price={pricingT("team.price")}
-            period={pricingT("perUserMonth")}
+            <PlanCard
+              name={pricingT("team.name")}
+              price={pricingT("team.price")}
+              period={pricingT("perUserMonth")}
+            >
+              <PrimaryLink href={TEAM_CHECKOUT_URL}>{pricingT("team.cta")}</PrimaryLink>
+              <p className="mt-5 text-sm font-medium">{pricingT("team.featuresLead")}</p>
+              <FeatureList items={teamFeatures} />
+            </PlanCard>
+          </div>
+        </section>
+
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("free.testflightTitle")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("free.testflightBody")}</p>
+          <Link
+            href="/dashboard/testflight"
+            className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
           >
-            <PrimaryLink href={TEAM_CHECKOUT_URL}>{pricingT("team.cta")}</PrimaryLink>
-            <p className="mt-5 text-sm font-medium">{pricingT("team.featuresLead")}</p>
-            <FeatureList items={teamFeatures} />
-          </PlanCard>
-        </div>
-      </section>
-
-      <section className="border border-border p-3">
-        <h2 className="text-sm font-medium">{t("free.testflightTitle")}</h2>
-        <p className="mt-2 max-w-2xl text-muted">{t("free.testflightBody")}</p>
-        <Link
-          href="/dashboard/testflight"
-          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-        >
-          {t("free.testflightCta")}
-        </Link>
-      </section>
-    </div>
+            {t("free.testflightCta")}
+          </Link>
+        </section>
+      </div>
+    </PricingIntervalProvider>
   );
 }
 
