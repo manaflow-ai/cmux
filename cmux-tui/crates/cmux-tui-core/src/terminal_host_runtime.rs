@@ -2256,8 +2256,51 @@ mod unix {
     }
 
     fn prepare_private_dir(path: &Path) -> anyhow::Result<()> {
-        fs::create_dir_all(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        match fs::create_dir(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let parent = path.parent().ok_or_else(|| {
+                    anyhow::anyhow!("terminal-host directory has no parent: {}", path.display())
+                })?;
+                fs::create_dir_all(parent)?;
+                match fs::create_dir(path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        let directory = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(path)
+            .with_context(|| format!("open private terminal-host directory {}", path.display()))?;
+        let metadata = directory.metadata().with_context(|| {
+            format!("inspect private terminal-host directory {}", path.display())
+        })?;
+        // SAFETY: geteuid has no preconditions and returns the effective user
+        // that must own this process-private endpoint directory.
+        let current_user = unsafe { libc::geteuid() };
+        if !metadata.file_type().is_dir() || metadata.uid() != current_user {
+            anyhow::bail!(
+                "private terminal-host directory is not an owned directory: {}",
+                path.display()
+            );
+        }
+        directory.set_permissions(fs::Permissions::from_mode(0o700))?;
+
+        let current = fs::symlink_metadata(path).with_context(|| {
+            format!("reinspect private terminal-host directory {}", path.display())
+        })?;
+        if !current.file_type().is_dir()
+            || current.dev() != metadata.dev()
+            || current.ino() != metadata.ino()
+        {
+            anyhow::bail!("private terminal-host directory changed: {}", path.display());
+        }
         Ok(())
     }
 
