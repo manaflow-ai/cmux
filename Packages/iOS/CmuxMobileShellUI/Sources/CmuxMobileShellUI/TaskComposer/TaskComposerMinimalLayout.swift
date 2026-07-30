@@ -228,7 +228,6 @@ struct TaskComposerMinimalLayout: View {
             .background(Color.primary.opacity(0.07), in: Capsule())
             .frame(minHeight: 44)
             .contentShape(Rectangle())
-            .id(selectedTemplate.map(agentPillTitle(for:)))
         }
         .tint(Color.primary)
         .disabled(isDisabled)
@@ -236,6 +235,10 @@ struct TaskComposerMinimalLayout: View {
         .accessibilityValue(selectedTemplate?.name ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentPill")
+        // Recreate the whole Menu when the title changes: the UIKit menu
+        // button otherwise animates its frame to the new width on iOS 26 and
+        // clips the label against the stale bounds until it settles.
+        .id(selectedTemplate.map(agentPillTitle(for:)))
     }
 
     private var modelPill: some View {
@@ -269,12 +272,14 @@ struct TaskComposerMinimalLayout: View {
             .background(Color.primary.opacity(0.07), in: Capsule())
             .frame(minHeight: 44)
             .contentShape(Rectangle())
-            .id(selectedModelName)
         }
         .tint(Color.primary)
         .disabled(isDisabled)
         .taskComposerModelAccessibility(valueName: selectedModelName)
         .accessibilityIdentifier("MobileTaskComposerModelPill")
+        // See agentPill: identity-swap the Menu so the new title cannot be
+        // clipped by the old button frame mid-animation.
+        .id(selectedModelName)
     }
 
     private var submitButton: some View {
@@ -312,29 +317,16 @@ struct TaskComposerMinimalLayout: View {
         selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
     }
 
-    /// Mirrors the classic agent menu's "name · model" title so the combined
-    /// variant keeps a visible model indication even though its standalone
-    /// pill is hidden in this layout.
     private func agentPillTitle(for template: MobileTaskTemplate) -> String {
-        guard modelPickerVariant.renderedVariant == .combined,
-              let modelName = models.first(where: { $0.id == selectedModelID })?.displayName
-        else {
-            return template.name
-        }
-        return "\(template.name) · \(modelName)"
+        template.name
     }
 
-    /// Each lab variant keeps exactly one model entry point in this layout:
-    /// combined lives inside the agent pill's submenus, contextRow lives in
-    /// the Task Options context card, and the remaining variants collapse to
-    /// the standalone bottom-bar pill.
+    /// The composer layout has ONE canonical model treatment regardless of the
+    /// classic-layout lab variant: a dedicated pill beside the agent pill,
+    /// mirroring the reference composer. The agent menu stays plain (see
+    /// `agentMenuValue`), so the pill is the single model entry point.
     private var showsStandaloneModelPill: Bool {
-        switch modelPickerVariant.renderedVariant {
-        case .off, .combined, .contextRow:
-            false
-        case .separateRow, .trailingChip, .pillStrip:
-            true
-        }
+        modelPickerVariant.renderedVariant != .off
     }
 
     private var selectedModelName: String {
@@ -362,10 +354,16 @@ struct TaskComposerMinimalLayout: View {
     }
 
     private var agentMenuValue: TaskComposerAgentMenuValue {
+        // Force the plain (non-combined) agent menu: the standalone model
+        // pill is this layout's single model entry point, so the menu must
+        // not duplicate model submenus even when the classic-layout lab
+        // variant is `combined`.
         TaskComposerAgentMenuValue(
             templates: templates,
             selectedTemplateID: selectedTemplateID,
-            modelPickerVariant: modelPickerVariant,
+            modelPickerVariant: modelPickerVariant.renderedVariant == .combined
+                ? .separateRow
+                : modelPickerVariant,
             selectedModelID: selectedModelID,
             isDisabled: isDisabled
         )

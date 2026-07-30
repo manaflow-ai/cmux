@@ -445,7 +445,9 @@ struct TaskComposerSheet: View {
             selectedMacPairingID: selectedMacPairingID,
             buildLabelsByID: machineBuildLabelsByID,
             directory: directory,
-            modelPickerVariant: displaySettings.taskComposerModelPickerVariant,
+            // The composer layout's bottom-bar pill is the single model entry
+            // point; the options sheet never repeats the contextRow variant.
+            modelPickerVariant: .off,
             models: availableModels,
             selectedModelID: selectedModelID,
             isDisabled: submissionPhase.disablesRequestEditing,
