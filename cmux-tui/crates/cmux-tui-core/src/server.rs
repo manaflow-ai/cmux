@@ -2793,12 +2793,38 @@ struct SocketPublicationLock {
 impl SocketPublicationLock {
     fn acquire(path: &Path, deadline: Instant) -> std::io::Result<Self> {
         let lock_path = socket_publication_lock_path(path)?;
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(false).read(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+
+            options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        let file = options.open(&lock_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+            let metadata = file.metadata()?;
+            if !metadata.file_type().is_file() || metadata.nlink() != 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "server socket publication lock is not a single regular file",
+                ));
+            }
+            // SAFETY: geteuid has no preconditions and returns the effective
+            // user that owns files created by this process.
+            let current_user = unsafe { libc::geteuid() };
+            if metadata.uid() != current_user {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "server socket publication lock is owned by another user",
+                ));
+            }
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        #[cfg(not(unix))]
         platform::restrict_file(&lock_path)?;
         loop {
             match FileExt::try_lock(&file) {
