@@ -1388,6 +1388,9 @@ extension Workspace {
                 if restorableAgent.registration?.cwd == .ignore {
                     return nil
                 }
+                if restoresRemoteWorkspaceTerminalSnapshot {
+                    return workingDirectory
+                }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
@@ -1436,7 +1439,11 @@ extension Workspace {
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
-                        restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
+                        restorableAgent?.resumeStartupInput(
+                            allowLauncherScript: false,
+                            allowOversizedInlineInput: true,
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                        )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
                         restorableAgent?.resumeStartupInput(

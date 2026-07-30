@@ -785,17 +785,19 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
+        let effectiveWorkingDirectory = resumeWorkingDirectory(
+            preferred: restoringWorkingDirectory
+        )
         let restoreCommand = resumeCommand(
-            includeWorkingDirectoryPrefix: !allowLauncherScript
+            includeWorkingDirectoryPrefix: !allowLauncherScript,
+            restoringWorkingDirectory: allowLauncherScript ? nil : effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
         return startupInput(
             command: restoreCommand,
-            workingDirectory: allowLauncherScript
-                ? resumeWorkingDirectory(preferred: restoringWorkingDirectory)
-                : nil,
+            workingDirectory: allowLauncherScript ? effectiveWorkingDirectory : nil,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
