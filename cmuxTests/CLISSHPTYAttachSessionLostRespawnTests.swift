@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import XCTest
 
@@ -306,7 +307,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1, "\(methods)")
     }
 
-    func testSSHPTYAttachTransientPreReadyFailureKeepsLifecycleForRetry() throws {
+    func testSSHPTYAttachCapacityFailureKeepsSurfaceForWrapperRetry() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptypreretry")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -364,8 +365,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let firstBridgeHandled = startBridgeErrorServer(
             listenerFD: firstBridge.fd,
-            message: "connection reset",
-            code: "remote_pty_error"
+            message: "remote PTY attach failed",
+            code: "unavailable"
         )
         let secondBridgeHandled = startBridgeReadyThenCloseServer(listenerFD: secondBridge.fd)
         let arguments = [
@@ -385,7 +386,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
         XCTAssertFalse(first.timedOut, first.stderr)
-        XCTAssertEqual(first.status, SSHPTYAttachExitCode.retryableTransient.rawValue, first.stderr)
+        XCTAssertEqual(first.status, 251, first.stderr)
+        let firstMethods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertFalse(
+            firstMethods.contains("workspace.remote.pty_attach_end"),
+            "capacity retry must preserve the surface: \(firstMethods)"
+        )
 
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "0"
         let second = runProcess(
