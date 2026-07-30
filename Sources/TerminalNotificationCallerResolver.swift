@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 @MainActor
@@ -78,9 +79,33 @@ extension TerminalController {
         let title = stringParam(params, "title") ?? "Notification"
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
+        guard let notificationPresentation = Self.callerNotificationPresentation(params) else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.notification.invalidPresentation",
+                    defaultValue: "Invalid notification presentation"
+                ),
+                data: nil
+            )
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
+            if params["notification_id"] != nil,
+               TerminalNotificationStore.shared.notifications.contains(where: {
+                   $0.id == notificationPresentation.notificationID
+               }) {
+                result = .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.notification.invalidPresentation",
+                        defaultValue: "Invalid notification presentation"
+                    ),
+                    data: nil
+                )
+                return
+            }
             let target = Self.callerNotificationTarget(
                 fallback: fallbackTabManager,
                 preferredWorkspaceId: preferredWorkspaceId,
@@ -93,19 +118,37 @@ extension TerminalController {
                 return
             }
             self.deliverNotificationSynchronously(
+                notificationID: notificationPresentation.notificationID,
                 tabId: target.workspace.id,
                 surfaceId: target.surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                presentation: notificationPresentation.presentation
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
             result = .ok([
+                "id": notificationPresentation.notificationID.uuidString,
                 "workspace_id": target.workspace.id.uuidString,
                 "surface_id": surfaceId
             ])
         }
         return result
+    }
+
+    private static func callerNotificationPresentation(
+        _ params: [String: Any]
+    ) -> (notificationID: UUID, presentation: TerminalNotificationPresentation)? {
+        guard case .object(let parameters)? = JSONValue(foundationObject: params),
+              let controlPresentation = ControlNotificationPresentation(
+                  parameters: parameters
+              ) else {
+            return nil
+        }
+        return (
+            controlPresentation.notificationID,
+            terminalPresentation(controlPresentation)
+        )
     }
 
     private static func callerNotificationTarget(

@@ -1,4 +1,7 @@
+import AppKit
 import CmuxControlSocket
+import CmuxSettings
+import DynamicNotchKit
 import Foundation
 
 /// The notification-domain witnesses are the byte-faithful bodies of the former
@@ -11,12 +14,108 @@ import Foundation
 /// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
 /// stays on the legacy app-side dispatcher.
 extension TerminalController: ControlNotificationContext {
+    func controlDynamicNotchSettings()
+        -> ControlDynamicNotchSettingsSnapshot {
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        let catalog = SettingCatalog().notifications
+        let appearance = settings.value(for: catalog.dynamicNotch)
+        let position: Double
+        if case .number(let value) =
+            appearance[.syntheticNotchHorizontalPosition] {
+            position = value
+        } else {
+            position = 0.5
+        }
+        let serializedPositions = settings.value(
+            for: catalog.dynamicNotchDisplayPositions
+        )
+        let displays = NSScreen.screens.map { screen in
+            let displayKey = screen.cmuxDynamicNotchDisplayKey
+            let override = DynamicNotchDisplayPositionSettings.position(
+                for: displayKey,
+                in: serializedPositions
+            )
+            let geometry = DynamicNotchScreenGeometry(
+                screen: screen,
+                syntheticNotchWidth: appearance.dimension(
+                    .syntheticNotchWidth
+                ),
+                syntheticNotchHorizontalPosition: CGFloat(
+                    override ?? position
+                )
+            )
+            return ControlDynamicNotchDisplaySnapshot(
+                key: displayKey,
+                id: screen.cmuxDisplayID,
+                name: screen.localizedName,
+                hasHardwareNotch: geometry.hasHardwareNotch,
+                horizontalPosition: override ?? position,
+                hasPositionOverride: override != nil
+            )
+        }
+        return ControlDynamicNotchSettingsSnapshot(
+            enabled: DynamicNotchDeliverySettings.isEnabled(
+                mode: settings.value(for: catalog.delivery)
+            ),
+            horizontalPosition: position,
+            displays: displays
+        )
+    }
+
+    func controlDynamicNotchConfigure(
+        enabled: Bool?,
+        horizontalPosition: Double?,
+        displayKey: String?,
+        resetDisplayPosition: Bool
+    ) -> ControlDynamicNotchSettingsSnapshot {
+        if let enabled {
+            DynamicNotchDeliverySettings.setEnabled(enabled)
+        }
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        let catalog = SettingCatalog().notifications
+        if resetDisplayPosition, let displayKey {
+            let key = catalog.dynamicNotchDisplayPositions
+            settings.set(
+                DynamicNotchDisplayPositionSettings.removing(
+                    displayKey: displayKey,
+                    from: settings.value(for: key)
+                ),
+                for: key
+            )
+        } else if let horizontalPosition, let displayKey {
+            let key = catalog.dynamicNotchDisplayPositions
+            settings.set(
+                DynamicNotchDisplayPositionSettings.setting(
+                    horizontalPosition,
+                    for: displayKey,
+                    in: settings.value(for: key)
+                ),
+                for: key
+            )
+        } else if let horizontalPosition {
+            let key = catalog.dynamicNotch
+            settings.set(
+                settings.value(for: key).replacing(
+                    .number(horizontalPosition),
+                    for: .syntheticNotchHorizontalPosition
+                ),
+                for: key
+            )
+            settings.set(
+                [:],
+                for: catalog.dynamicNotchDisplayPositions
+            )
+        }
+        return controlDynamicNotchSettings()
+    }
+
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -24,7 +123,8 @@ extension TerminalController: ControlNotificationContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             if let explicitSurfaceID,
                let rehomed = controlNotificationRehomedDelivery(
-                   surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body
+                   surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                   presentation: presentation
                ) {
                 return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
             }
@@ -32,7 +132,8 @@ extension TerminalController: ControlNotificationContext {
         }
         if let explicitSurfaceID, !notificationWorkspace(ws, contains: explicitSurfaceID) {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: explicitSurfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(workspaceID: rehomed.workspaceID, surfaceID: rehomed.surfaceID)
             }
@@ -42,11 +143,13 @@ extension TerminalController: ControlNotificationContext {
             ws.surfaceOwnershipTarget(for: $0)?.surfaceID
         }
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(workspaceID: ws.id, surfaceID: surfaceId)
     }
@@ -56,7 +159,8 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -70,7 +174,8 @@ extension TerminalController: ControlNotificationContext {
         // `create_for_target` path before they reach this trusted local path.
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -82,7 +187,8 @@ extension TerminalController: ControlNotificationContext {
         }
         guard notificationWorkspace(ws, contains: surfaceID) else {
             if let rehomed = controlNotificationRehomedDelivery(
-                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body
+                surfaceID: surfaceID, title: title, subtitle: subtitle, body: body,
+                presentation: presentation
             ) {
                 return .delivered(
                     workspaceID: rehomed.workspaceID,
@@ -94,11 +200,13 @@ extension TerminalController: ControlNotificationContext {
         }
         let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(
             workspaceID: ws.id,
@@ -114,17 +222,20 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> (workspaceID: UUID, surfaceID: UUID, windowID: UUID?)? {
         guard let owner = AppDelegate.shared?.notificationSurfaceOwner(surfaceID: surfaceID) else {
             return nil
         }
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: owner.tabID,
             surfaceId: owner.surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: Self.terminalPresentation(presentation)
         )
         return (
             owner.tabID,
@@ -139,7 +250,8 @@ extension TerminalController: ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation = ControlNotificationPresentation()
     ) -> ControlNotificationTargetedDeliveryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -162,17 +274,52 @@ extension TerminalController: ControlNotificationContext {
         }
         let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
         deliverNotificationSynchronously(
+            notificationID: presentation.notificationID,
             tabId: ws.id,
             surfaceId: targetSurfaceID,
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: false
+            retargetsToLiveSurfaceOwner: false,
+            presentation: Self.terminalPresentation(presentation)
         )
         return .delivered(
             workspaceID: ws.id,
             surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager)
+        )
+    }
+
+    static func terminalPresentation(
+        _ presentation: ControlNotificationPresentation
+    ) -> TerminalNotificationPresentation {
+        let delivery: TerminalNotificationPresentation.Delivery
+        switch presentation.delivery {
+        case .settings:
+            delivery = .settings
+        case .system:
+            delivery = .system
+        case .dynamicNotch:
+            delivery = .dynamicNotch
+        }
+        return TerminalNotificationPresentation(
+            delivery: delivery,
+            iconSymbolName: presentation.iconSymbolName,
+            actions: presentation.actions.map {
+                TerminalNotificationPresentation.Action(id: $0.id, title: $0.title)
+            },
+            inputs: presentation.inputs.map {
+                TerminalNotificationPresentation.Input(
+                    id: $0.id,
+                    label: $0.label,
+                    placeholder: $0.placeholder,
+                    initialValue: $0.initialValue,
+                    kind: $0.kind == .secure ? .secure : .text
+                )
+            },
+            appearance: presentation.appearance,
+            responseToken: presentation.responseToken,
+            timeout: presentation.timeout
         )
     }
 
@@ -261,6 +408,10 @@ extension TerminalController: ControlNotificationContext {
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            invalidPresentation: String(
+                localized: "socket.notification.invalidPresentation",
+                defaultValue: "Invalid notification presentation"
+            ),
             dismissSelectorRequired: String(
                 localized: "socket.notification.dismissSelectorRequired",
                 defaultValue: "Select exactly one of id or all_read"
@@ -288,6 +439,44 @@ extension TerminalController: ControlNotificationContext {
             targetNotFound: String(
                 localized: "socket.notification.targetNotFound",
                 defaultValue: "Notification target not found"
+            ),
+            dynamicNotchUnavailable: String(
+                localized: "socket.notification.dynamicNotch.unavailable",
+                defaultValue: "Dynamic Notch settings unavailable"
+            ),
+            dynamicNotchEnabledMustBeBoolean: String(
+                localized:
+                    "socket.notification.dynamicNotch.enabledMustBeBoolean",
+                defaultValue: "enabled must be a boolean"
+            ),
+            dynamicNotchHorizontalPositionInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.horizontalPositionInvalid",
+                defaultValue:
+                    "horizontal_position must be a number from 0 to 1"
+            ),
+            dynamicNotchDisplayKeyInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.displayKeyInvalid",
+                defaultValue: "display_key must be a non-empty string"
+            ),
+            dynamicNotchResetMustBeBoolean: String(
+                localized:
+                    "socket.notification.dynamicNotch.resetMustBeBoolean",
+                defaultValue:
+                    "reset_display_position must be a boolean"
+            ),
+            dynamicNotchDisplayConfigurationInvalid: String(
+                localized:
+                    "socket.notification.dynamicNotch.displayConfigurationInvalid",
+                defaultValue:
+                    "display_key requires horizontal_position or reset_display_position"
+            ),
+            dynamicNotchConfigurationRequired: String(
+                localized:
+                    "socket.notification.dynamicNotch.configurationRequired",
+                defaultValue:
+                    "enabled, horizontal_position, or reset_display_position is required"
             )
         )
     }

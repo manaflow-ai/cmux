@@ -139,7 +139,8 @@ extension ControlNotificationContext {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationCreateResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForSurface(
@@ -147,7 +148,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationCreateForTarget(
@@ -156,7 +158,8 @@ extension ControlNotificationContext {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution { .tabManagerUnavailable }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] { [] }
@@ -172,16 +175,47 @@ extension ControlNotificationContext {
     func controlNotificationOpen(id: UUID) -> ControlNotificationOpenResolution { .notificationNotFound }
     func controlNotificationJumpToUnread() -> ControlNotificationSnapshot? { nil }
     func controlNotificationClear() {}
+    func controlDynamicNotchSettings() -> ControlDynamicNotchSettingsSnapshot {
+        ControlDynamicNotchSettingsSnapshot(
+            enabled: false,
+            horizontalPosition: 0.5
+        )
+    }
+    func controlDynamicNotchConfigure(
+        enabled: Bool?,
+        horizontalPosition: Double?,
+        displayKey: String?,
+        resetDisplayPosition: Bool
+    ) -> ControlDynamicNotchSettingsSnapshot {
+        ControlDynamicNotchSettingsSnapshot(
+            enabled: enabled ?? false,
+            horizontalPosition: horizontalPosition ?? 0.5
+        )
+    }
 
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
+            invalidPresentation: "invalid notification presentation",
             dismissSelectorRequired: "",
             idRequired: "",
             notFound: "",
             markReadSelectorRequired: "",
             surfaceIDInvalid: "",
             surfaceIDRequiresWorkspace: "",
-            targetNotFound: ""
+            targetNotFound: "",
+            dynamicNotchUnavailable: "Dynamic Notch settings unavailable",
+            dynamicNotchEnabledMustBeBoolean:
+                "enabled must be a boolean",
+            dynamicNotchHorizontalPositionInvalid:
+                "horizontal_position must be a number from 0 to 1",
+            dynamicNotchDisplayKeyInvalid:
+                "display_key must be a non-empty string",
+            dynamicNotchResetMustBeBoolean:
+                "reset_display_position must be a boolean",
+            dynamicNotchDisplayConfigurationInvalid:
+                "display_key requires horizontal_position or reset_display_position",
+            dynamicNotchConfigurationRequired:
+                "enabled, horizontal_position, or reset_display_position is required"
         )
     }
 }

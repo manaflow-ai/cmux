@@ -11,6 +11,11 @@ nonisolated private let terminalNotificationLogger = Logger(
     category: "notification"
 )
 
+enum DynamicNotchNotificationMutation {
+    case upsert(notification: TerminalNotification)
+    case dismiss(Set<UUID>)
+}
+
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
 // usernoted under the hood. When usernoted is slow, this blocks the calling thread
@@ -429,12 +434,20 @@ final class TerminalNotificationStore: ObservableObject {
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    private var notificationDeliveryHandler: (
+        TerminalNotificationStore,
+        TerminalNotification,
+        TerminalNotificationPolicyEffects
+    ) -> Void = {
         store,
         notification,
         effects in
-        store.scheduleUserNotification(notification, effects: effects)
+        store.routeNotificationDelivery(
+            notification,
+            effects: effects
+        )
     }
+    private var dynamicNotchMutationHandler: ((DynamicNotchNotificationMutation) -> Void)?
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -622,12 +635,41 @@ final class TerminalNotificationStore: ObservableObject {
 
     func sendSettingsTestNotification() {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
+        if NotificationsCatalogSection().delivery.value(in: .standard) == .dynamicNotch {
+            let testNotification = TerminalNotification(
+                id: UUID(),
+                tabId: AppDelegate.shared?.tabManager?.selectedTabId ?? UUID(),
+                surfaceId: nil,
+                title: String(
+                    localized: "settings.notifications.test.title",
+                    defaultValue: "cmux test notification"
+                ),
+                subtitle: "",
+                body: String(
+                    localized: "settings.notifications.test.dynamicNotch.body",
+                    defaultValue: "Dynamic Notch notifications are enabled."
+                ),
+                createdAt: Date(),
+                isRead: true
+            )
+            routeNotificationDelivery(
+                testNotification,
+                effects: TerminalNotificationPolicyEffects()
+            )
+            return
+        }
         ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "cmux test notification"
-            content.body = "Desktop notifications are enabled."
+            content.title = String(
+                localized: "settings.notifications.test.title",
+                defaultValue: "cmux test notification"
+            )
+            content.body = String(
+                localized: "settings.notifications.test.system.body",
+                defaultValue: "Desktop notifications are enabled."
+            )
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
 
@@ -860,6 +902,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func addNotification(
+        notificationID: UUID = UUID(),
+        presentation: TerminalNotificationPresentation = TerminalNotificationPresentation(),
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
@@ -906,6 +950,8 @@ final class TerminalNotificationStore: ObservableObject {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
         let policyContext = makeNotificationPolicyContext(
+            notificationID: notificationID,
+            presentation: presentation,
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
@@ -1070,6 +1116,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func makeNotificationPolicyContext(
+        notificationID: UUID = UUID(),
+        presentation: TerminalNotificationPresentation = TerminalNotificationPresentation(),
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
@@ -1108,6 +1156,8 @@ final class TerminalNotificationStore: ObservableObject {
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
+                notificationID: notificationID,
+                presentation: presentation,
                 tabId: tabId,
                 surfaceId: surfaceId,
                 panelId: panelId,
@@ -1138,6 +1188,8 @@ final class TerminalNotificationStore: ObservableObject {
         let payload = envelope.notification
         applyNotification(
             request: TerminalNotificationPolicyRequest(
+                notificationID: request.notificationID,
+                presentation: request.presentation,
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
@@ -1173,7 +1225,7 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: request.surfaceId
         )
         let notification = TerminalNotification(
-            id: UUID(),
+            id: request.notificationID,
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
@@ -1186,7 +1238,8 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
             scrollPosition: scrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction,
+            presentation: request.presentation
         )
         if effects.record {
             recordNotification(
@@ -1264,6 +1317,9 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         if !idsToClear.isEmpty {
+            // Notification Center and the sidebar keep one current card per
+            // surface. Dynamic Notch is a pending-action tray, so its rows keep
+            // their own UUID lifetime until their action, dismissal, or timeout.
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             // A newer notification for this tab+surface superseded the old one
@@ -1344,10 +1400,25 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if shouldSuppressExternalDelivery {
+        if shouldSuppressExternalDelivery,
+           usesDynamicNotchDelivery(for: notification) {
+            // Dynamic Notch is the user's presentation intent, whether chosen
+            // per notification or in Settings. Show it even when its target is
+            // focused, but do not mirror it to the phone from this normally
+            // suppressed path.
+            notificationDeliveryHandler(
+                self,
+                notification,
+                effects
+            )
+        } else if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
-            notificationDeliveryHandler(self, notification, effects)
+            notificationDeliveryHandler(
+                self,
+                notification,
+                effects
+            )
             // Mirror to the user's iPhone (opt-in, off by default). Only on the
             // desktop-delivery path so it matches what the Mac actually shows;
             // suppressed/focused notifications are not forwarded. The badge is
@@ -1449,6 +1520,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !activeIDs.isEmpty {
             notifications = updated
+            dismissDynamicNotchPresentations(withIdentifiers: activeIDs)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: activeIDs)
             emitNotificationsDismissed(
                 ids: activeIDs,
@@ -1509,6 +1581,7 @@ final class TerminalNotificationStore: ObservableObject {
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
                 ids: idsToClear,
@@ -1553,6 +1626,7 @@ final class TerminalNotificationStore: ObservableObject {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
@@ -1633,6 +1707,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             emitNotificationsDismissed(
@@ -1648,6 +1723,7 @@ final class TerminalNotificationStore: ObservableObject {
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
+        dynamicNotchMutationHandler?(.dismiss([id]))
         notifications = updated
         notificationFeedHistory.markRead(ids: [id])
         if let removed {
@@ -1700,6 +1776,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearFocusedReadIndicator(forTabId: tabId)
 
         if didChangeNotifications, !removedIds.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: removedIds)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
         }
@@ -1731,7 +1808,8 @@ final class TerminalNotificationStore: ObservableObject {
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
             scrollPosition: notification.scrollPosition,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            presentation: notification.presentation
         )
     }
 
@@ -1756,6 +1834,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
+        dismissDynamicNotchPresentations(withIdentifiers: ids)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
         emitNotificationsDismissed(ids: ids, drainedSuperseded: supersededPhoneDismissBuffer.flushAll())
@@ -1801,6 +1880,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         indicatorTabIds.forEach { clearFocusedReadIndicator(forTabId: $0, surfaceId: surfaceId) }
         if !idsToClear.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabIds.count == 1 ? tabId : nil, surfaceId: surfaceId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1836,7 +1916,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
                 scrollPosition: notification.scrollPosition,
-                clickAction: notification.clickAction
+                clickAction: notification.clickAction,
+                presentation: notification.presentation
             )
         }
         if didMoveNotification {
@@ -1876,6 +1957,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
+            dismissDynamicNotchPresentations(withIdentifiers: idsToClear)
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1964,6 +2046,52 @@ final class TerminalNotificationStore: ObservableObject {
         if !nativeDeliveryHooks.authorizeForTesting(handleAuthorization) {
             ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
         }
+    }
+
+    func routeNotificationDelivery(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard usesDynamicNotchDelivery(for: notification),
+              let dynamicNotchMutationHandler else {
+            scheduleUserNotification(notification, effects: effects)
+            return
+        }
+
+        if effects.desktop {
+            dynamicNotchMutationHandler(
+                .upsert(notification: notification)
+            )
+        }
+        playLocalNotificationFeedback(
+            title: resolvedNotificationTitle(for: notification),
+            subtitle: notification.subtitle,
+            body: notification.body,
+            effects: effects
+        )
+    }
+
+    private func usesDynamicNotchDelivery(for notification: TerminalNotification) -> Bool {
+        switch notification.presentation.delivery {
+        case .system:
+            return false
+        case .dynamicNotch:
+            return true
+        case .settings:
+            return NotificationsCatalogSection().delivery.value(in: .standard) == .dynamicNotch
+        }
+    }
+
+    func configureDynamicNotchDelivery(
+        _ handler: ((DynamicNotchNotificationMutation) -> Void)?
+    ) {
+        dynamicNotchMutationHandler = handler
+    }
+
+    private func dismissDynamicNotchPresentations(withIdentifiers identifiers: [String]) {
+        let identifiers = Set(identifiers.compactMap(UUID.init(uuidString:)))
+        guard !identifiers.isEmpty else { return }
+        dynamicNotchMutationHandler?(.dismiss(identifiers))
     }
 
     private func playSuppressedNotificationFeedback(
@@ -2242,12 +2370,17 @@ final class TerminalNotificationStore: ObservableObject {
     func configureNotificationDeliveryHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
     ) {
-        notificationDeliveryHandler = handler
+        notificationDeliveryHandler = { store, notification, effects in
+            handler(store, notification, effects)
+        }
     }
 
     func resetNotificationDeliveryHandlerForTesting() {
         notificationDeliveryHandler = { store, notification, effects in
-            store.scheduleUserNotification(notification, effects: effects)
+            store.routeNotificationDelivery(
+                notification,
+                effects: effects
+            )
         }
     }
 

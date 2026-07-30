@@ -2575,6 +2575,8 @@ class TerminalController {
             "notification.mark_read",
             "notification.open",
             "notification.jump_to_unread",
+            "notification.dynamic_notch.settings",
+            "notification.dynamic_notch.configure",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",
@@ -11918,6 +11920,10 @@ class TerminalController {
             storedKey = keyToken.lowercased() == "tab" ? "\t" : "\r"
             keyCode = UInt16(keyToken.lowercased() == "tab" ? kVK_Tab : kVK_Return)
             charactersIgnoringModifiers = storedKey
+        case "escape", "esc":
+            storedKey = "\u{1B}"
+            keyCode = UInt16(kVK_Escape)
+            charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
             guard let code = keyCodeForShortcutKey(key) else { return nil }
@@ -13163,7 +13169,10 @@ class TerminalController {
         return "OK"
     }
 
-    func captureScreenshot(_ args: String) -> String {
+    func captureScreenshot(
+        _ args: String,
+        windowIdentifier: String? = nil
+    ) -> String {
         // Parse optional label from args
         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -13194,7 +13203,20 @@ class TerminalController {
             let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
                 .compactMap { $0 }
                 .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
+            let normalizedWindowIdentifier = windowIdentifier?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let identifiedWindow = normalizedWindowIdentifier.flatMap { identifier in
+                candidateWindows.first {
+                    $0.identifier?.rawValue == identifier
+                }
+            }
+            if let normalizedWindowIdentifier,
+               !normalizedWindowIdentifier.isEmpty,
+               identifiedWindow == nil {
+                captureError = "No visible window matched identifier \(normalizedWindowIdentifier)"
+                return
+            }
+            let window = identifiedWindow ?? preferredWindow ?? candidateWindows.max { lhs, rhs in
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             } ?? NSApp.mainWindow ?? NSApp.windows.first
 
@@ -13203,8 +13225,17 @@ class TerminalController {
                 return
             }
 
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
+            let pngData: Data?
+            if identifiedWindow != nil {
+                // Overlay panels can be omitted from CGWindow capture even
+                // while visible. Render their AppKit hierarchy first.
+                pngData = self.captureAppKitWindowPNGData(window)
+                    ?? self.captureCompositedWindowPNGData(window)
+            } else {
+                pngData = self.captureCompositedWindowPNGData(window)
+                    ?? self.captureAppKitWindowPNGData(window)
+            }
+            guard let pngData else {
                 captureError = "Failed to create PNG data"
                 return
             }

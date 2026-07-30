@@ -411,7 +411,10 @@ extension ControlCommandCoordinator {
     /// body; the coordinator parses its 2-field response line).
     func debugScreenshot(_ params: [String: JSONValue]) -> ControlCallResult {
         let label = string(params, "label") ?? ""
-        let resp = debugContext?.controlDebugCaptureScreenshot(label: label)
+        let resp = debugContext?.controlDebugCaptureScreenshot(
+            label: label,
+            windowIdentifier: string(params, "window_identifier")
+        )
             ?? Self.debugContextUnavailableResponse
         guard resp.hasPrefix("OK ") else {
             return .err(code: "internal_error", message: resp, data: nil)

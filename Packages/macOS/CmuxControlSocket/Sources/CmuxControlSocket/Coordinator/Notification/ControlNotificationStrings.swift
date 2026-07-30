@@ -8,6 +8,9 @@
 /// dropping the non-English variants — so the app passes the already-resolved
 /// strings across the seam instead.
 public struct ControlNotificationStrings: Sendable, Equatable {
+    /// `socket.notification.invalidPresentation` —
+    /// "Invalid notification presentation".
+    public let invalidPresentation: String
     /// `socket.notification.dismissSelectorRequired` —
     /// "Select exactly one of id or all_read".
     public let dismissSelectorRequired: String
@@ -25,10 +28,18 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     public let surfaceIDRequiresWorkspace: String
     /// `socket.notification.targetNotFound` — "Notification target not found".
     public let targetNotFound: String
+    public let dynamicNotchUnavailable: String
+    public let dynamicNotchEnabledMustBeBoolean: String
+    public let dynamicNotchHorizontalPositionInvalid: String
+    public let dynamicNotchDisplayKeyInvalid: String
+    public let dynamicNotchResetMustBeBoolean: String
+    public let dynamicNotchDisplayConfigurationInvalid: String
+    public let dynamicNotchConfigurationRequired: String
 
     /// Creates the localized message bundle.
     ///
     /// - Parameters:
+    ///   - invalidPresentation: The invalid-presentation message.
     ///   - dismissSelectorRequired: The dismiss-selector-required message.
     ///   - idRequired: The id-required message.
     ///   - notFound: The notification-not-found message.
@@ -37,14 +48,23 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     ///   - surfaceIDRequiresWorkspace: The surface_id-requires-workspace message.
     ///   - targetNotFound: The target-not-found message.
     public init(
+        invalidPresentation: String,
         dismissSelectorRequired: String,
         idRequired: String,
         notFound: String,
         markReadSelectorRequired: String,
         surfaceIDInvalid: String,
         surfaceIDRequiresWorkspace: String,
-        targetNotFound: String
+        targetNotFound: String,
+        dynamicNotchUnavailable: String,
+        dynamicNotchEnabledMustBeBoolean: String,
+        dynamicNotchHorizontalPositionInvalid: String,
+        dynamicNotchDisplayKeyInvalid: String,
+        dynamicNotchResetMustBeBoolean: String,
+        dynamicNotchDisplayConfigurationInvalid: String,
+        dynamicNotchConfigurationRequired: String
     ) {
+        self.invalidPresentation = invalidPresentation
         self.dismissSelectorRequired = dismissSelectorRequired
         self.idRequired = idRequired
         self.notFound = notFound
@@ -52,5 +72,18 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         self.surfaceIDInvalid = surfaceIDInvalid
         self.surfaceIDRequiresWorkspace = surfaceIDRequiresWorkspace
         self.targetNotFound = targetNotFound
+        self.dynamicNotchUnavailable = dynamicNotchUnavailable
+        self.dynamicNotchEnabledMustBeBoolean =
+            dynamicNotchEnabledMustBeBoolean
+        self.dynamicNotchHorizontalPositionInvalid =
+            dynamicNotchHorizontalPositionInvalid
+        self.dynamicNotchDisplayKeyInvalid =
+            dynamicNotchDisplayKeyInvalid
+        self.dynamicNotchResetMustBeBoolean =
+            dynamicNotchResetMustBeBoolean
+        self.dynamicNotchDisplayConfigurationInvalid =
+            dynamicNotchDisplayConfigurationInvalid
+        self.dynamicNotchConfigurationRequired =
+            dynamicNotchConfigurationRequired
     }
 }

@@ -2,6 +2,26 @@ import Foundation
 
 /// Settings under the dotted-id prefix `notifications.*`.
 public struct NotificationsCatalogSection: SettingCatalogSection {
+    public let delivery = DefaultsKey<NotificationDeliveryMode>(
+        id: "notifications.delivery",
+        defaultValue: .system,
+        userDefaultsKey: "notificationDeliveryMode"
+    )
+
+    /// Global Dynamic Notch geometry, spacing, colors, and behavior.
+    public let dynamicNotch = DefaultsKey<DynamicNotchAppearance>(
+        id: "notifications.dynamicNotch",
+        defaultValue: DynamicNotchAppearance(),
+        userDefaultsKey: "notificationDynamicNotchAppearance"
+    )
+
+    /// Per-display synthetic-notch anchors keyed by cmux's stable display key.
+    public let dynamicNotchDisplayPositions = DefaultsKey<[String: String]>(
+        id: "notifications.dynamicNotchDisplayPositions",
+        defaultValue: [:],
+        userDefaultsKey: "notificationDynamicNotchDisplayPositions"
+    )
+
     public let dockBadge = DefaultsKey<Bool>(
         id: "notifications.dockBadge",
         defaultValue: true,

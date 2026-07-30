@@ -29,7 +29,12 @@ extension ControlDebugContext {
     func controlDebugResetFlashCounts() -> String { "ERROR: not implemented" }
     func controlDebugPanelSnapshot(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String { "ERROR: not implemented" }
-    func controlDebugCaptureScreenshot(label: String) -> String { "ERROR: not implemented" }
+    func controlDebugCaptureScreenshot(
+        label: String,
+        windowIdentifier: String?
+    ) -> String { "ERROR: not implemented" }
+    func controlDebugDynamicNotchSnapshot() -> JSONValue? { nil }
+    func controlDebugSetDynamicNotchPhase(_ phase: String) -> Bool { false }
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }

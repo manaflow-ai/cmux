@@ -498,6 +498,40 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        if let value = section["delivery"] {
+            if let raw = jsonString(value),
+               NotificationDeliveryMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[NotificationsCatalogSection().delivery.userDefaultsKey] = .string(raw)
+            } else {
+                logInvalid("notifications.delivery", sourcePath: sourcePath)
+            }
+        }
+        if let rawAppearance = section["dynamicNotch"] {
+            if let appearance = DynamicNotchAppearance.decodeFromJSON(rawAppearance),
+               let serialized = appearance.encodeForUserDefaults() as? [String: String] {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection().dynamicNotch.userDefaultsKey
+                ] = .stringDictionary(serialized)
+            } else {
+                logInvalid("notifications.dynamicNotch", sourcePath: sourcePath)
+            }
+        }
+        if let rawPositions = section["dynamicNotchDisplayPositions"] {
+            if let serialized =
+                DynamicNotchDisplayPositionSettings.serializedPositions(
+                    fromJSONObject: rawPositions
+                ) {
+                snapshot.managedUserDefaults[
+                    NotificationsCatalogSection()
+                        .dynamicNotchDisplayPositions.userDefaultsKey
+                ] = .stringDictionary(serialized)
+            } else {
+                logInvalid(
+                    "notifications.dynamicNotchDisplayPositions",
+                    sourcePath: sourcePath
+                )
+            }
+        }
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
             guard allowed.contains(raw) else {

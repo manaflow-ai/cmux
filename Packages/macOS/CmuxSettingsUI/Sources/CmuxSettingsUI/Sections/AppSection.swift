@@ -45,6 +45,8 @@ public struct AppSection: View {
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
+    @State private var notificationDelivery: DefaultsValueModel<NotificationDeliveryMode>
+    @State private var dynamicNotchAppearance: DefaultsValueModel<DynamicNotchAppearance>
     @State private var dockBadge: DefaultsValueModel<Bool>
     @State private var menuBarOnly: DefaultsValueModel<Bool>
     @State private var showInMenuBar: DefaultsValueModel<Bool>
@@ -69,6 +71,7 @@ public struct AppSection: View {
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
+    @State private var showsDynamicNotchAppearanceEditor = false
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -99,6 +102,8 @@ public struct AppSection: View {
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
+        _notificationDelivery = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.delivery))
+        _dynamicNotchAppearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dynamicNotch))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
         _menuBarOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly))
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
@@ -140,8 +145,11 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, notificationDelivery, dynamicNotchAppearance, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+        }
+        .sheet(isPresented: $showsDynamicNotchAppearanceEditor) {
+            DynamicNotchAppearanceEditor(model: dynamicNotchAppearance)
         }
     }
 
@@ -642,14 +650,87 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
 
-            // Desktop Notifications
             SettingsCardDivider()
-            DesktopNotificationsSettingsRow(
-                state: desktopNotifications.current,
-                requestAuthorization: { hostActions.requestNotificationAuthorization() },
-                openSystemSettings: { hostActions.openSystemNotificationSettings() },
-                sendTest: { hostActions.sendTestNotification() }
-            )
+            SettingsCardRow(
+                configurationReview: .json("notifications.delivery"),
+                String(
+                    localized: "settings.notifications.dynamicNotch.enabled.title",
+                    defaultValue: "Dynamic Notch Notifications"
+                ),
+                subtitle: String(
+                    localized: "settings.notifications.dynamicNotch.enabled.subtitle",
+                    defaultValue: "Use the interactive notch tray instead of macOS Notification Center. Focus and Do Not Disturb do not suppress it."
+                )
+            ) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: {
+                            DynamicNotchDeliverySettings.isEnabled(
+                                mode: notificationDelivery.current
+                            )
+                        },
+                        set: {
+                            notificationDelivery.set(
+                                DynamicNotchDeliverySettings.mode(
+                                    enabled: $0
+                                )
+                            )
+                        }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "SettingsDynamicNotchNotificationsToggle"
+                )
+            }
+
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("notifications.dynamicNotch"),
+                String(
+                    localized: "settings.notifications.dynamicNotch.appearance.title",
+                    defaultValue: "Dynamic Notch Appearance"
+                ),
+                subtitle: String(
+                    localized: "settings.notifications.dynamicNotch.appearance.subtitle",
+                    defaultValue: "Configure tray dimensions, padding, spacing, colors, opacity, and scrolling."
+                )
+            ) {
+                Button(
+                    String(
+                        localized: "settings.app.workspaceLayouts.customize",
+                        defaultValue: "Customize…"
+                    )
+                ) {
+                    showsDynamicNotchAppearanceEditor = true
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsDynamicNotchAppearanceCustomize")
+            }
+
+            SettingsCardDivider()
+            if notificationDelivery.current == .system {
+                DesktopNotificationsSettingsRow(
+                    state: desktopNotifications.current,
+                    requestAuthorization: { hostActions.requestNotificationAuthorization() },
+                    openSystemSettings: { hostActions.openSystemNotificationSettings() },
+                    sendTest: { hostActions.sendTestNotification() }
+                )
+            } else {
+                SettingsCardRow(
+                    configurationReview: .action,
+                    searchAnchorID: "setting:app:desktop-notifications",
+                    String(localized: "settings.notifications.delivery.option.dynamicNotch", defaultValue: "Dynamic Notch"),
+                    subtitle: String(localized: "settings.notifications.delivery.dynamicNotch.testSubtitle", defaultValue: "Send a test Dynamic Notch notification.")
+                ) {
+                    Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
+                        hostActions.sendTestNotification()
+                    }
+                    .controlSize(.small)
+                }
+            }
             SettingsCardDivider()
 
             // Notification Sound — Picker over NSSound names with

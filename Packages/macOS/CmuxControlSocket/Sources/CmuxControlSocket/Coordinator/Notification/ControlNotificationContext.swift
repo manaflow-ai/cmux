@@ -35,7 +35,8 @@ public protocol ControlNotificationContext: AnyObject {
         explicitSurfaceID: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationCreateResolution
 
     /// Delivers a notification for `notification.create_for_surface`: resolves
@@ -56,7 +57,8 @@ public protocol ControlNotificationContext: AnyObject {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Delivers a notification for `notification.create_for_target`: resolves
@@ -80,7 +82,8 @@ public protocol ControlNotificationContext: AnyObject {
         surfaceID: UUID,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        presentation: ControlNotificationPresentation
     ) -> ControlNotificationTargetedDeliveryResolution
 
     /// Snapshots every notification for `notification.list`, in store order,
@@ -144,6 +147,19 @@ public protocol ControlNotificationContext: AnyObject {
 
     /// Enqueues clearing all notifications for `notification.clear`.
     func controlNotificationClear()
+
+    /// Reads the default Dynamic Notch delivery and synthetic display anchor.
+    func controlDynamicNotchSettings()
+        -> ControlDynamicNotchSettingsSnapshot
+
+    /// Updates either Dynamic Notch default delivery, its synthetic display
+    /// anchor, or both, then returns the resolved settings.
+    func controlDynamicNotchConfigure(
+        enabled: Bool?,
+        horizontalPosition: Double?,
+        displayKey: String?,
+        resetDisplayPosition: Bool
+    ) -> ControlDynamicNotchSettingsSnapshot
 
     /// The localized notification-domain error strings, resolved against the
     /// app's `Localizable.xcstrings` (the package bundle lacks these keys, so

@@ -1,6 +1,6 @@
 # Notifications
 
-cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
+cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Desktop notifications can use macOS Notification Center or an interactive Dynamic Notch panel.
 
 > For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
@@ -50,9 +50,132 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
-cmux notify --title "Done" --tab 0 --panel 1
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
+
+# Force an interactive notch and wait for the selected action id
+choice=$(cmux notify --delivery notch --title "Deploy?" \
+  --action deploy=Deploy --action cancel=Cancel --wait)
 ```
+
+## Dynamic Notch
+
+Enable Dynamic Notch Notifications under Settings > App, run `cmux dynamic-notch enable`, or set `notifications.delivery` to `dynamicNotch` in `~/.config/cmux/cmux.json`. Cmd-Shift-P also exposes Enable or Disable Dynamic Notch Notifications. The panel is independent of macOS Notification Center, so Focus and Do Not Disturb do not suppress it.
+
+Dynamic Notch notifications accumulate in a compact tray instead of replacing one another. The tray shows the pending count, expands into a newest-first scrollable list while hovered, and collapses when the pointer leaves or Escape is pressed. Each button, dismissal, or timeout resolves only its own row.
+
+`cmux notify --delivery notch` overrides the setting for one notification. `--icon` accepts an SF Symbol name, repeated `--action id=Label` flags add up to four buttons, and `--input id=Label` or `--secure-input id=Label` add runtime-defined fields. IDs must be unique ASCII strings containing only letters, numbers, `.`, `_`, or `-`. `--timeout` controls dismissal. `--wait` prints the selected action id when no fields exist, and prints JSON containing `action`, `notification_id`, and `values` when the form has fields. cmux never executes action payloads as shell commands.
+
+`cmux dynamic-notch status --json` returns `enabled`, `delivery`, the default `horizontal_position`, and every connected display with its stable key and resolved position. Use `enable`, `disable`, or `toggle` to change default delivery. `cmux dynamic-notch position left|center|right` and `position <0...1>` align every synthetic display. Add `--display <id|name|key>` to move one display. `reset-position --display <id|name|key>` removes that display's override.
+
+### Appearance
+
+Use Settings > App > Dynamic Notch Appearance, or set global values under `notifications.dynamicNotch`:
+
+```jsonc
+{
+  "notifications": {
+    "delivery": "dynamicNotch",
+    "dynamicNotch": {
+      "expandedWidth": 560,
+      "maximumExpandedHeight": 640,
+      "syntheticNotchHorizontalPosition": 0.5,
+      "rowHorizontalPadding": 22,
+      "accentColor": "#0A84FF",
+      "shellBackgroundColor": "#111318",
+      "shellBackgroundOpacity": 0.96,
+      "showScrollIndicators": false
+    },
+    "dynamicNotchDisplayPositions": {
+      "uuid:DISPLAY-KEY-FROM-STATUS": 0.2
+    }
+  }
+}
+```
+
+Override any value for one notification with repeated `--style key=value` flags:
+
+```bash
+cmux notify --delivery notch --title "Approval needed" \
+  --style expandedWidth=620 \
+  --style rowHorizontalPadding=24 \
+  --style accentColor=#FF9F0A
+```
+
+The JSON form API accepts the same keys under `appearance`:
+
+```json
+{
+  "version": 1,
+  "title": "Approve deployment?",
+  "appearance": {
+    "expandedWidth": 620,
+    "accentColor": "#FF9F0A",
+    "bodyLineLimit": 8
+  }
+}
+```
+
+Precedence is global `cmux.json`, then the form's `appearance`, then direct `--style` flags. Direct flags win when a key appears more than once. Each accumulated row retains its own text, input, row, and action styling. The newest pending notification controls tray-wide dimensions, shell chrome, and compact styling. Removing it restores the next row's tray-wide values.
+
+Colors accept `system`, `null` in JSON, or `#RRGGBB`. `system` and `null` use the native semantic color for that role. Every numeric value is range-checked. Unknown keys, invalid colors, non-finite numbers, and out-of-range values reject the notification before display.
+
+Available tokens:
+
+- Layout: `compactWidth`, `compactHeight`, `syntheticNotchWidth`, `syntheticNotchHorizontalPosition`, `expandedWidth`, `maximumExpandedHeight`, `shellPadding`, `scrollContainerHorizontalPadding`, `floatingOuterPadding`, `compactHorizontalPadding`, `compactVerticalPadding`, `rowHorizontalPadding`, `rowTopPadding`, `rowBottomPadding`, `dividerHorizontalPadding`, `floatingCornerRadius`, `notchTopCornerRadius`, `notchBottomCornerRadius`, `rowCornerRadius`, `compactCornerRadius`, `inputCornerRadius`, `inputHorizontalPadding`, `inputVerticalPadding`, `compactIconSize`, `notificationIconSize`, `notificationIconFrame`, `shellBorderWidth`, `inputBorderWidth`.
+
+- Spacing: `compactSpacing`, `rowSpacing`, `headerSpacing`, `textSpacing`, `inputSpacing`, `inputLabelSpacing`, `actionSpacing`.
+
+- Colors: `shellBackgroundColor`, `shellBorderColor`, `shadowColor`, `primaryTextColor`, `secondaryTextColor`, `accentColor`, `dividerColor`, `rowBackgroundColor`, `compactBackgroundColor`, `compactTextColor`, `compactIconColor`, `closeButtonColor`, `inputBackgroundColor`, `inputTextColor`, `inputBorderColor`.
+
+- Behavior: `animationDuration`, `arrivalRevealDuration`, `shellBackgroundOpacity`, `shadowOpacity`, `shadowRadius`, `hoverShadowOpacity`, `hoverShadowRadius`, `rowBackgroundOpacity`, `compactBackgroundOpacity`, `inputBackgroundOpacity`, `titleLineLimit`, `subtitleLineLimit`, `bodyLineLimit`, `showScrollIndicators`, `pointerRevealDistance`, `retractWhenPointerLeaves`.
+
+cmux creates one island on every connected display and mirrors the same accumulated queue into each island. Hover, expansion, and drag state remain local to that display, while acting on a row removes it from every display. On a display without a physical notch, cmux draws a synthetic notch inside the menu-bar band. Drag the pill horizontally to avoid menu-bar content. The pointer changes from an open hand to a closed hand while dragging, the vertical position stays pinned, and cmux persists the normalized position under that display's stable key. `syntheticNotchHorizontalPosition` remains the default for displays without an override.
+
+New arrivals show the compact pill for `arrivalRevealDuration` seconds, with rapid arrivals resetting that interval in place. Each island then retracts to the plain notch silhouette while the pointer is away and expands the accumulated tray only when the pointer enters that display's hardware or synthetic notch. Set `pointerRevealDistance` above its default of `0` to add an approach margin around each notch, or set `retractWhenPointerLeaves` to `false` to keep the pending count visible. The scroll viewport and overlay indicator are flush with the shell by default, and the document width stays fixed while the indicator appears or fades. `scrollContainerHorizontalPadding` adds an outer inset without changing `rowHorizontalPadding`. Shadows are disabled by default; `shadowOpacity`, `hoverShadowOpacity`, their radii, and `shadowColor` can restore a custom shadow. Menu-bar height falls back to the system status-bar thickness when macOS auto-hides the menu bar.
+
+Run `cmux notify --print-schema` for exact types, ranges, and defaults. The command works without a running cmux instance, which lets agents validate and generate forms before connecting.
+
+Agents can pass the complete form with `--spec '<json>'`, `--spec @path`, or `--spec -` for stdin:
+
+```json
+{
+  "version": 1,
+  "title": "Approve deployment?",
+  "body": "Production will restart.",
+  "icon": "shippingbox.fill",
+  "timeout": 300,
+  "appearance": {
+    "expandedWidth": 620,
+    "accentColor": "#0A84FF"
+  },
+  "actions": [
+    { "id": "approve", "label": "Approve" },
+    { "id": "deny", "label": "Deny" }
+  ],
+  "inputs": [
+    {
+      "id": "reason",
+      "label": "Reason",
+      "placeholder": "Optional note",
+      "value": "",
+      "secure": false
+    }
+  ]
+}
+```
+
+`cmux notify --print-schema` prints the versioned JSON Schema without connecting to a running app. Unknown keys and invalid types are rejected. Scalar command-line flags and repeated `--style` values override the spec, while repeated `--action`, `--input`, and `--secure-input` values are appended. Custom actions replace the built-in Open button.
+
+Explicit delivery overrides and interactive forms require a local cmux socket. A relayed Cloud VM CLI can still send ordinary notifications, which use the Mac's configured delivery mode.
+
+```bash
+response=$(cmux notify --spec @approval.json --wait --json)
+action=$(printf '%s' "$response" | jq -r .action)
+reason=$(printf '%s' "$response" | jq -r .values.reason)
+```
+
+The response action is a caller-defined action id, `open`, `dismiss`, `timeout`, or `dismissed`. Distinct notification IDs remain pending even when they target the same workspace surface. The reserved `replaced` value remains in the schema for compatibility with older cmux builds. Callers should treat every value except their accepted action ids as cancellation.
 
 ## Navigation
 
@@ -238,7 +361,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify --title <text> [--subtitle <text>] [--body <text>] [--delivery default|system|notch] [--icon <sf-symbol>] [--action <id=Label>] [--input <id=Label>] [--secure-input <id=Label>] [--spec <json|@file|->] [--wait] [--json] [--timeout <seconds>] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)

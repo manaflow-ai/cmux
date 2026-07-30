@@ -9,12 +9,14 @@ import Foundation
 
 extension TerminalController {
     func deliverNotificationSynchronously(
+        notificationID: UUID = UUID(),
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
         body: String,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        presentation: TerminalNotificationPresentation = TerminalNotificationPresentation()
     ) {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -50,6 +52,8 @@ extension TerminalController {
         )
 #endif
         TerminalNotificationStore.shared.addNotification(
+            notificationID: notificationID,
+            presentation: presentation,
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: title,
@@ -112,6 +116,8 @@ extension TerminalNotificationStore {
             surfaceId: request.surfaceId
         ) else { return nil }
         return TerminalNotificationPolicyRequest(
+            notificationID: request.notificationID,
+            presentation: request.presentation,
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             panelId: request.panelId,

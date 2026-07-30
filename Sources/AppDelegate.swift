@@ -680,6 +680,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         actionTitles: notificationDeliveryActionTitles
     )
 
+    lazy var dynamicNotchNotificationPresenter = DynamicNotchNotificationPresenter(
+        openNotification: { [weak self] notification in
+            _ = self?.openTerminalNotification(notification)
+        },
+        markRead: { notificationID in
+            TerminalNotificationStore.shared.markRead(id: notificationID)
+        }
+    )
+
     private var notificationDeliveryActionTitles: NotificationDeliveryActionTitles {
         NotificationDeliveryActionTitles(
             show: String(
@@ -16087,6 +16096,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func configureUserNotifications() {
         notificationDelivery.configureUserNotifications(delegate: self)
+        TerminalNotificationStore.shared.configureDynamicNotchDelivery {
+            [weak self] mutation in
+            self?.dynamicNotchNotificationPresenter.apply(mutation)
+        }
     }
 
     private func disableNativeTabbingShortcut() {

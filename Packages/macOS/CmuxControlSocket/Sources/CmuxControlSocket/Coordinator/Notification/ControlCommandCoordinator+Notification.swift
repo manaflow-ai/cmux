@@ -33,6 +33,10 @@ extension ControlCommandCoordinator {
             return notificationOpen(request.params)
         case "notification.jump_to_unread":
             return notificationJumpToUnread()
+        case "notification.dynamic_notch.settings":
+            return dynamicNotchSettings()
+        case "notification.dynamic_notch.configure":
+            return dynamicNotchConfigure(request.params)
         default:
             return nil
         }
@@ -45,12 +49,16 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreate(
             routing: routingSelectors(params),
             explicitSurfaceID: uuid(params, "surface_id"),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -66,6 +74,7 @@ extension ControlCommandCoordinator {
             )
         case .delivered(let workspaceID, let surfaceID):
             return .ok(.object([
+                "id": .string(presentation.notificationID.uuidString),
                 "workspace_id": .string(workspaceID.uuidString),
                 "surface_id": orNull(surfaceID?.uuidString),
             ]))
@@ -81,14 +90,18 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreateForSurface(
             routing: routingSelectors(params),
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
-        return targetedDeliveryResult(resolution)
+        return targetedDeliveryResult(resolution, notificationID: presentation.notificationID)
     }
 
     /// `notification.create_for_target` — deliver to a required workspace +
@@ -103,20 +116,25 @@ extension ControlCommandCoordinator {
         let title = rawString(params, "title") ?? "Notification"
         let subtitle = rawString(params, "subtitle") ?? ""
         let body = rawString(params, "body") ?? ""
+        guard let presentation = notificationPresentation(params) else {
+            return .err(code: "invalid_params", message: notificationInvalidPresentationMessage, data: nil)
+        }
         let resolution = context?.controlNotificationCreateForTarget(
             routing: routingSelectors(params),
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            presentation: presentation
         ) ?? .tabManagerUnavailable
-        return targetedDeliveryResult(resolution)
+        return targetedDeliveryResult(resolution, notificationID: presentation.notificationID)
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.
     private func targetedDeliveryResult(
-        _ resolution: ControlNotificationTargetedDeliveryResolution
+        _ resolution: ControlNotificationTargetedDeliveryResolution,
+        notificationID: UUID
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
@@ -132,6 +150,7 @@ extension ControlCommandCoordinator {
             )
         case .delivered(let workspaceID, let surfaceID, let windowID):
             return .ok(.object([
+                "id": .string(notificationID.uuidString),
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
                 "surface_id": .string(surfaceID.uuidString),
@@ -140,6 +159,21 @@ extension ControlCommandCoordinator {
                 "window_ref": ref(.window, windowID),
             ]))
         }
+    }
+
+    private func notificationPresentation(
+        _ params: [String: JSONValue]
+    ) -> ControlNotificationPresentation? {
+        guard let presentation = ControlNotificationPresentation(parameters: params) else {
+            return nil
+        }
+        if params["notification_id"] != nil,
+           context?.controlNotificationList().contains(where: {
+               $0.id == presentation.notificationID
+           }) == true {
+            return nil
+        }
+        return presentation
     }
 
     // MARK: - List / clear
@@ -362,14 +396,31 @@ extension ControlCommandCoordinator {
     /// identical to the legacy `String(localized:)` calls.
     private var notificationStrings: ControlNotificationStrings {
         context?.notificationStrings ?? ControlNotificationStrings(
+            invalidPresentation: "Invalid notification presentation",
             dismissSelectorRequired: "Select exactly one of id or all_read",
             idRequired: "Missing or invalid notification id",
             notFound: "Notification not found",
             markReadSelectorRequired: "Select exactly one of id, tab_id, or all",
             surfaceIDInvalid: "Missing or invalid surface_id",
             surfaceIDRequiresWorkspace: "surface_id requires tab_id or workspace_id",
-            targetNotFound: "Notification target not found"
+            targetNotFound: "Notification target not found",
+            dynamicNotchUnavailable: "Dynamic Notch settings unavailable",
+            dynamicNotchEnabledMustBeBoolean: "enabled must be a boolean",
+            dynamicNotchHorizontalPositionInvalid:
+                "horizontal_position must be a number from 0 to 1",
+            dynamicNotchDisplayKeyInvalid:
+                "display_key must be a non-empty string",
+            dynamicNotchResetMustBeBoolean:
+                "reset_display_position must be a boolean",
+            dynamicNotchDisplayConfigurationInvalid:
+                "display_key requires horizontal_position or reset_display_position",
+            dynamicNotchConfigurationRequired:
+                "enabled, horizontal_position, or reset_display_position is required"
         )
+    }
+
+    private var notificationInvalidPresentationMessage: String {
+        notificationStrings.invalidPresentation
     }
 
     private var notificationDismissSelectorRequiredMessage: String {
@@ -398,5 +449,168 @@ extension ControlCommandCoordinator {
 
     private var notificationTargetNotFoundMessage: String {
         notificationStrings.targetNotFound
+    }
+
+    // MARK: - Dynamic Notch settings
+
+    func dynamicNotchSettings() -> ControlCallResult {
+        guard let snapshot = context?.controlDynamicNotchSettings() else {
+            return .err(
+                code: "unavailable",
+                message: notificationStrings.dynamicNotchUnavailable,
+                data: nil
+            )
+        }
+        return .ok(dynamicNotchSettingsPayload(snapshot))
+    }
+
+    func dynamicNotchConfigure(
+        _ params: [String: JSONValue]
+    ) -> ControlCallResult {
+        let enabled: Bool?
+        if let raw = params["enabled"] {
+            guard case .bool(let value) = raw else {
+                return .err(
+                    code: "invalid_params",
+                    message:
+                        notificationStrings.dynamicNotchEnabledMustBeBoolean,
+                    data: nil
+                )
+            }
+            enabled = value
+        } else {
+            enabled = nil
+        }
+
+        let horizontalPosition: Double?
+        if let raw = params["horizontal_position"] {
+            let value: Double
+            switch raw {
+            case .int(let number):
+                value = Double(number)
+            case .double(let number):
+                value = number
+            default:
+                return .err(
+                    code: "invalid_params",
+                    message: notificationStrings
+                        .dynamicNotchHorizontalPositionInvalid,
+                    data: nil
+                )
+            }
+            guard value.isFinite, (0 ... 1).contains(value) else {
+                return .err(
+                    code: "invalid_params",
+                    message: notificationStrings
+                        .dynamicNotchHorizontalPositionInvalid,
+                    data: nil
+                )
+            }
+            horizontalPosition = value
+        } else {
+            horizontalPosition = nil
+        }
+
+        let displayKey: String?
+        if let raw = params["display_key"] {
+            guard case .string(let value) = raw,
+                  !value.trimmingCharacters(
+                      in: .whitespacesAndNewlines
+                  ).isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message:
+                        notificationStrings.dynamicNotchDisplayKeyInvalid,
+                    data: nil
+                )
+            }
+            displayKey = value
+        } else {
+            displayKey = nil
+        }
+
+        let resetDisplayPosition: Bool
+        if let raw = params["reset_display_position"] {
+            guard case .bool(let value) = raw else {
+                return .err(
+                    code: "invalid_params",
+                    message:
+                        notificationStrings.dynamicNotchResetMustBeBoolean,
+                    data: nil
+                )
+            }
+            resetDisplayPosition = value
+        } else {
+            resetDisplayPosition = false
+        }
+
+        guard !(resetDisplayPosition && horizontalPosition != nil),
+              !resetDisplayPosition || displayKey != nil,
+              displayKey == nil
+                || horizontalPosition != nil
+                || resetDisplayPosition else {
+            return .err(
+                code: "invalid_params",
+                message: notificationStrings
+                    .dynamicNotchDisplayConfigurationInvalid,
+                data: nil
+            )
+        }
+
+        guard enabled != nil
+                || horizontalPosition != nil
+                || resetDisplayPosition else {
+            return .err(
+                code: "invalid_params",
+                message:
+                    notificationStrings.dynamicNotchConfigurationRequired,
+                data: nil
+            )
+        }
+        guard let snapshot = context?.controlDynamicNotchConfigure(
+            enabled: enabled,
+            horizontalPosition: horizontalPosition,
+            displayKey: displayKey,
+            resetDisplayPosition: resetDisplayPosition
+        ) else {
+            return .err(
+                code: "unavailable",
+                message: notificationStrings.dynamicNotchUnavailable,
+                data: nil
+            )
+        }
+        return .ok(dynamicNotchSettingsPayload(snapshot))
+    }
+
+    private func dynamicNotchSettingsPayload(
+        _ snapshot: ControlDynamicNotchSettingsSnapshot
+    ) -> JSONValue {
+        .object([
+            "enabled": .bool(snapshot.enabled),
+            "delivery": .string(
+                snapshot.enabled ? "dynamicNotch" : "system"
+            ),
+            "horizontal_position": .double(
+                snapshot.horizontalPosition
+            ),
+            "displays": .array(snapshot.displays.map { display in
+                .object([
+                    "key": .string(display.key),
+                    "id": display.id.map {
+                        .int(Int64($0))
+                    } ?? .null,
+                    "name": .string(display.name),
+                    "has_hardware_notch": .bool(
+                        display.hasHardwareNotch
+                    ),
+                    "horizontal_position": .double(
+                        display.horizontalPosition
+                    ),
+                    "has_position_override": .bool(
+                        display.hasPositionOverride
+                    ),
+                ])
+            }),
+        ])
     }
 }

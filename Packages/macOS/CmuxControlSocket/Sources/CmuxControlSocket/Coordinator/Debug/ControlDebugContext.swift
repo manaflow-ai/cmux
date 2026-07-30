@@ -149,9 +149,20 @@ public protocol ControlDebugContext: AnyObject {
 
     /// Runs the shared v1 `screenshot` body for `debug.window.screenshot`.
     ///
-    /// - Parameter label: The optional screenshot label (may be empty).
+    /// - Parameters:
+    ///   - label: The optional screenshot label (may be empty).
+    ///   - windowIdentifier: An optional `NSWindow.identifier` raw value.
     /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
-    func controlDebugCaptureScreenshot(label: String) -> String
+    func controlDebugCaptureScreenshot(
+        label: String,
+        windowIdentifier: String?
+    ) -> String
+
+    /// Returns the current Dynamic Notch presentation snapshot.
+    func controlDebugDynamicNotchSnapshot() -> JSONValue?
+
+    /// Forces a Dynamic Notch phase, or restores pointer-driven `auto`.
+    func controlDebugSetDynamicNotchPhase(_ phase: String) -> Bool
 
     /// Shows the canvas Command+scroll discovery hint for
     /// `debug.canvas.command_scroll_hint`.

@@ -1,6 +1,26 @@
 public import AppKit
 
 extension NSScrollView {
+    /// Uses an overlay vertical scroller so indicator visibility never changes
+    /// the document viewport width.
+    @MainActor
+    public func applyOverlayScrollerConfiguration(
+        showsVerticalScroller: Bool
+    ) {
+        if hasHorizontalScroller {
+            hasHorizontalScroller = false
+        }
+        if scrollerStyle != .overlay {
+            scrollerStyle = .overlay
+        }
+        if !autohidesScrollers {
+            autohidesScrollers = true
+        }
+        if hasVerticalScroller != showsVerticalScroller {
+            hasVerticalScroller = showsVerticalScroller
+        }
+    }
+
     /// Forces the sidebar workspace list's stable overlay-scroller
     /// configuration, writing each property only when it differs to avoid
     /// cancelling an in-flight scroller fade.
@@ -18,17 +38,6 @@ extension NSScrollView {
     /// actor.
     @MainActor
     public func applySidebarOverlayScrollerConfiguration() {
-        if hasHorizontalScroller {
-            hasHorizontalScroller = false
-        }
-        if scrollerStyle != .overlay {
-            scrollerStyle = .overlay
-        }
-        if !autohidesScrollers {
-            autohidesScrollers = true
-        }
-        if !hasVerticalScroller {
-            hasVerticalScroller = true
-        }
+        applyOverlayScrollerConfiguration(showsVerticalScroller: true)
     }
 }

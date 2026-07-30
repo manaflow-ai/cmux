@@ -96,6 +96,10 @@ extension ControlCommandCoordinator {
             return debugPanelSnapshotReset(request.params)
         case "debug.window.screenshot":
             return debugScreenshot(request.params)
+        case "debug.dynamic_notch.inspect":
+            return debugDynamicNotchInspect()
+        case "debug.dynamic_notch.phase":
+            return debugDynamicNotchPhase(request.params)
         case "debug.canvas.command_scroll_hint":
             return debugCanvasCommandScrollHint(request.params)
         default:
@@ -133,6 +137,42 @@ extension ControlCommandCoordinator {
         let resolution = debugContext?.controlDebugShowCanvasCommandScrollHint(routing: routing)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
+    }
+
+    // MARK: - debug.dynamic_notch.*
+
+    func debugDynamicNotchInspect() -> ControlCallResult {
+        guard let snapshot = debugContext?.controlDebugDynamicNotchSnapshot() else {
+            return .err(
+                code: "not_found",
+                message: "No active Dynamic Notch presentation",
+                data: nil
+            )
+        }
+        return .ok(snapshot)
+    }
+
+    func debugDynamicNotchPhase(
+        _ params: [String: JSONValue]
+    ) -> ControlCallResult {
+        guard let phase = string(params, "phase"),
+              ["auto", "retracted", "compact", "expanded"].contains(
+                  phase.lowercased()
+              ) else {
+            return .err(
+                code: "invalid_params",
+                message: "phase must be auto, retracted, compact, or expanded",
+                data: nil
+            )
+        }
+        guard debugContext?.controlDebugSetDynamicNotchPhase(phase) == true else {
+            return .err(
+                code: "not_found",
+                message: "No active Dynamic Notch presentation",
+                data: nil
+            )
+        }
+        return .ok(.object(["phase": .string(phase.lowercased())]))
     }
 
     // MARK: - debug.session_snapshot_benchmark
