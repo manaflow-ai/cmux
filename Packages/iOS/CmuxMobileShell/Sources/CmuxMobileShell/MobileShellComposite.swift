@@ -3058,10 +3058,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || macInstanceTagAuthority.sameStoredAuthority(
                 instanceTag,
                 secondaryMacSubscriptions[macDeviceID]?.storedInstanceTag
-            ),
-           await promoteSecondaryToForeground(macDeviceID, switchAttemptID: switchAttemptID) {
-            macSwitchRestoreBaseline = nil
-            return true
+            ) {
+            switch await promoteSecondaryToForegroundOutcome(
+                macDeviceID,
+                switchAttemptID: switchAttemptID
+            ) {
+            case .promoted:
+                macSwitchRestoreBaseline = nil
+                return true
+            case .transientFailure:
+                return false
+            case .unavailable:
+                break
+            }
         }
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
@@ -4552,12 +4561,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryAggregationRetryState.reset()
         }
     }
-    private func isSecondaryRefreshStillCurrent(
+    func readSecondaryStoredAuthority(
+        macDeviceID: String,
+        storedInstanceTag: String?,
+        scope: MobileShellScopeSnapshot
+    ) async -> SecondaryStoredAuthorityRead {
+        guard let pairedMacStore else { return .revoked }
+        do {
+            let currentMac = try await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first(where: {
+                $0.macDeviceID == macDeviceID
+                    && macInstanceTagAuthority.sameStoredAuthority(
+                        $0.instanceTag,
+                        storedInstanceTag
+                    )
+            })
+            guard let currentMac else { return .revoked }
+            return .authorized(currentMac)
+        } catch {
+            return .transientFailure
+        }
+    }
+
+    private func secondaryRefreshAuthorityRead(
         macDeviceID: String,
         subscription: SecondaryMacSubscription,
         scope: MobileShellScopeSnapshot,
         authorityValidation: SecondaryStoredAuthorityValidation
-    ) async -> Bool {
+    ) async -> SecondaryStoredAuthorityRead {
         guard await isAggregationScopeValid(scope),
               secondaryMacSubscriptions[macDeviceID] === subscription,
               await !isHiddenMacDeviceID(
@@ -4566,38 +4599,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   scope: scope
               ),
               secondaryMacSubscriptions[macDeviceID] === subscription else {
-            return false
+            return .revoked
         }
-        let currentMac: MobilePairedMac?
+        let authorityRead: SecondaryStoredAuthorityRead
         switch authorityValidation {
         case .cached:
-            currentMac = cachedStoredPairedMac(
+            if let currentMac = cachedStoredPairedMac(
                 macDeviceID: macDeviceID,
                 instanceTag: subscription.storedInstanceTag,
                 scope: scope
-            )
+            ) {
+                authorityRead = .authorized(currentMac)
+            } else {
+                authorityRead = .revoked
+            }
         case .store:
-            guard let pairedMacStore else { return false }
-            currentMac = try? await pairedMacStore.loadAll(
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            ).first(where: {
-                $0.macDeviceID == macDeviceID
-                    && macInstanceTagAuthority.sameStoredAuthority(
-                        $0.instanceTag,
-                        subscription.storedInstanceTag
-                    )
-            })
+            authorityRead = await readSecondaryStoredAuthority(
+                macDeviceID: macDeviceID,
+                storedInstanceTag: subscription.storedInstanceTag,
+                scope: scope
+            )
         }
-        guard secondaryMacSubscriptions[macDeviceID] === subscription,
-              let currentMac,
-              macInstanceTagAuthority.sameStoredAuthority(
-                  currentMac.instanceTag,
-                  subscription.storedInstanceTag
-              ) else {
-            return false
+        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return .revoked
         }
-        return true
+        return authorityRead
     }
     private func isSecondaryMacStillVisible(
         _ macDeviceID: String,
@@ -5673,6 +5699,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             var refreshFailed = false
             var refreshShouldRetry = true
+            var authorityReadFailedTransiently = false
             var completedPassCount = 0
             refreshLoop: repeat {
                 guard !Task.isCancelled,
@@ -5699,14 +5726,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 guard !subscription.isTransitioningToFocus else { break }
-                guard await self.isSecondaryRefreshStillCurrent(
+                switch await self.secondaryRefreshAuthorityRead(
                     macDeviceID: macID,
                     subscription: subscription,
                     scope: scope,
                     authorityValidation: authorityValidation
-                ) else {
-                    refreshFailed = true
+                ) {
+                case .authorized:
                     break
+                case .revoked:
+                    refreshFailed = true
+                    refreshShouldRetry = false
+                    break refreshLoop
+                case .transientFailure:
+                    authorityReadFailedTransiently = true
+                    break refreshLoop
                 }
                 let wasSuperseded =
                     subscription.workspaceRefreshGeneration
@@ -5750,7 +5784,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
             guard subscription.refreshOperationID == operationID else { return }
             let needsDeferredRefresh =
-                subscription.refreshPending && !refreshFailed
+                subscription.refreshPending
+                    && !refreshFailed
+                    && !authorityReadFailedTransiently
             subscription.refreshTask = nil
             subscription.refreshOperationID = nil
             subscription.refreshPending = needsDeferredRefresh
@@ -5760,6 +5796,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     displayName: displayName,
                     authorityValidation: authorityValidation
                 )
+            }
+            if authorityReadFailedTransiently {
+                guard self.secondaryMacSubscriptions[macID]
+                        === subscription,
+                      !subscription.isTransitioningToFocus else {
+                    return
+                }
+                self.scheduleSecondaryAggregationRetry(
+                    macDeviceIDs: [macID]
+                )
+                return
             }
             guard refreshFailed,
                   self.secondaryMacSubscriptions[macID] === subscription,

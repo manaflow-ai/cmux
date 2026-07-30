@@ -749,6 +749,102 @@ import Testing
         shell.secondaryMacSubscriptions[pairedMac.macDeviceID]?.cancel()
     }
 
+    @Test func refreshAuthorityStoreFailurePreservesWarmControlConnection()
+        async throws {
+        let route = try CmxAttachRoute(
+            id: "refresh-authority-store-failure",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_592)
+        )
+        let pairedMac = MobilePairedMac(
+            macDeviceID: "mac-refresh-authority-store-failure",
+            displayName: "Refresh Authority Mac",
+            routes: [route],
+            createdAt: .distantPast,
+            lastSeenAt: Date(),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            instanceTag: "refresh-authority-tag"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-1": [pairedMac]],
+            blockedTeams: []
+        )
+        await pairedStore.failLoadAll(call: 2)
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: pairedMac.macDeviceID,
+            instanceTag: pairedMac.instanceTag,
+            displayName: pairedMac.displayName
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: pairedMac.macDeviceID,
+            macDisplayName: pairedMac.displayName,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: pairedMac.macDeviceID,
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: pairedMac.instanceTag,
+            authenticatedInstanceTag: pairedMac.instanceTag,
+            supportedHostCapabilities: ["terminal.render_grid.v1"],
+            actionCapabilities: .none,
+            displayName: pairedMac.displayName
+        )
+        shell.secondaryMacSubscriptions[pairedMac.macDeviceID] =
+            subscription
+        shell.workspacesByMac[pairedMac.macDeviceID] = MacWorkspaceState(
+            macDeviceID: pairedMac.macDeviceID,
+            displayName: pairedMac.displayName,
+            status: .connected
+        )
+
+        await shell.refreshSecondaryMacWorkspaces()
+
+        #expect(
+            shell.secondaryMacSubscriptions[pairedMac.macDeviceID]
+                === subscription
+        )
+        #expect(
+            shell.workspacesByMac[pairedMac.macDeviceID]?.status
+                == .connected
+        )
+        #expect(shell.secondaryAggregationRetryTask != nil)
+        #expect(shell.secondaryAggregationRetryMacIDs == [
+            pairedMac.macDeviceID,
+        ])
+        subscription.cancel()
+    }
+
     @Test
     func targetedOfflineAliasRetiresRepresentativeControlConnection()
         async throws {

@@ -384,29 +384,48 @@ extension MobileShellComposite {
         _ macID: String,
         switchAttemptID: UUID
     ) async -> Bool {
-        guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID] else {
+        switch await promoteSecondaryToForegroundOutcome(
+            macID,
+            switchAttemptID: switchAttemptID
+        ) {
+        case .promoted:
+            return true
+        case .unavailable, .transientFailure:
             return false
         }
-        guard let pairedMacStore,
-              let scope = await currentScopeSnapshot(),
-              let current = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macID
-                      && macInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          sub.storedInstanceTag
-                      )
-              }),
-              macInstanceTagAuthority.sameStoredAuthority(
-                  current.instanceTag, sub.storedInstanceTag
-              ) else {
+    }
+
+    func promoteSecondaryToForegroundOutcome(
+        _ macID: String,
+        switchAttemptID: UUID
+    ) async -> SecondaryPromotionOutcome {
+        guard runtime != nil,
+              let sub = secondaryMacSubscriptions[macID] else {
+            return .unavailable
+        }
+        guard let scope = await currentScopeSnapshot() else {
             await retireSecondaryPromotionCandidate(
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
+        }
+        switch await readSecondaryStoredAuthority(
+            macDeviceID: macID,
+            storedInstanceTag: sub.storedInstanceTag,
+            scope: scope
+        ) {
+        case .authorized:
+            break
+        case .revoked:
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        case .transientFailure:
+            scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            return .transientFailure
         }
         let preflightWorkspaces = await fetchSecondaryWorkspaces(
             on: sub.client,
@@ -414,27 +433,39 @@ extension MobileShellComposite {
         )
         guard case .received = preflightWorkspaces,
               secondaryMacSubscriptions[macID] === sub,
-              isCurrentMacSwitchAttempt(switchAttemptID),
-              let refreshed = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID, teamID: scope.teamID
-              ).first(where: {
-                  $0.macDeviceID == macID
-                      && macInstanceTagAuthority.sameStoredAuthority(
-                          $0.instanceTag,
-                          sub.storedInstanceTag
-                      )
-              }),
+              isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        }
+        switch await readSecondaryStoredAuthority(
+            macDeviceID: macID,
+            storedInstanceTag: sub.storedInstanceTag,
+            scope: scope
+        ) {
+        case .authorized:
+            break
+        case .revoked:
+            await retireSecondaryPromotionCandidate(
+                sub,
+                macDeviceID: macID
+            )
+            return .unavailable
+        case .transientFailure:
+            scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
+            return .transientFailure
+        }
+        guard
               secondaryMacSubscriptions[macID] === sub,
-              macInstanceTagAuthority.sameStoredAuthority(
-                  refreshed.instanceTag, sub.storedInstanceTag
-              ),
               scope.generation == secondaryAggregationScopeGeneration,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
             await retireSecondaryPromotionCandidate(
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
         }
         secondaryPromotionLog.info(
             "reusing authenticated secondary client mac=\(macID, privacy: .public)"
@@ -449,12 +480,14 @@ extension MobileShellComposite {
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil
-        guard isCurrentMacSwitchAttempt(switchAttemptID) else { return false }
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            return .unavailable
+        }
         guard await prepareSecondarySubscriptionForPromotion(
             sub,
             macDeviceID: macID
         ) else {
-            return false
+            return .unavailable
         }
         guard secondaryMacSubscriptions[macID] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
@@ -462,7 +495,7 @@ extension MobileShellComposite {
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
         }
         // Remove the target's control registration before disturbing the live
         // foreground. If this acknowledgement fails, its client is discarded
@@ -476,7 +509,7 @@ extension MobileShellComposite {
                     sub,
                     macDeviceID: macID
                 )
-                return false
+                return .unavailable
             }
         }
         guard secondaryMacSubscriptions[macID] === sub,
@@ -485,7 +518,7 @@ extension MobileShellComposite {
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
         }
         await sub.client.updateTransportSessionPurpose(.foregroundControl)
         guard secondaryMacSubscriptions[macID] === sub,
@@ -494,7 +527,7 @@ extension MobileShellComposite {
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
         }
         clearPendingTerminalInputForFocusChange()
         // The old foreground can stay warm only after the Mac proves its
@@ -535,7 +568,7 @@ extension MobileShellComposite {
                     previousForegroundConnection
                 )
             }
-            return false
+            return .unavailable
         }
         let previousForegroundKey = foregroundMacKey
         sub.detachKeepingClient()
@@ -567,7 +600,7 @@ extension MobileShellComposite {
                     invalidateFocusedConnectionAfterAbortedHandoff(
                         previousForegroundConnection
                     )
-                    return false
+                    return .unavailable
                 }
                 focusedHandoffPreparedGenerations.remove(
                     previousForegroundConnection.generation
@@ -584,7 +617,7 @@ extension MobileShellComposite {
                 sub,
                 macDeviceID: macID
             )
-            return false
+            return .unavailable
         }
         if let unregisteredPreviousClient,
            unregisteredPreviousClient !== sub.client {
@@ -667,7 +700,7 @@ extension MobileShellComposite {
                 macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
-            return false
+            return .unavailable
         }
         guard foregroundEventsReady else {
             stopTerminalRefreshPolling()
@@ -677,7 +710,7 @@ extension MobileShellComposite {
                 macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
-            return false
+            return .unavailable
         }
         let snapshotEventGeneration = workspaceListEventGeneration
         let snapshotStateRevision = foregroundWorkspaceStateRevision
@@ -694,7 +727,7 @@ extension MobileShellComposite {
                 macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
-            return false
+            return .unavailable
         }
         guard case let .received(authoritativePreviews) =
                 authoritativeWorkspaceAttempt else {
@@ -705,7 +738,7 @@ extension MobileShellComposite {
                 macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
-            return false
+            return .unavailable
         }
         let eventRaced =
             workspaceListEventGeneration != snapshotEventGeneration
@@ -735,7 +768,7 @@ extension MobileShellComposite {
                     macDeviceID: macID,
                     switchAttemptID: switchAttemptID
                 )
-                return false
+                return .unavailable
             }
         } else if !newerWorkspaceStateApplied {
             workspacesByMac[macID] = MacWorkspaceState(
@@ -760,6 +793,6 @@ extension MobileShellComposite {
             reloadAfterWrite: false
         )
         scheduleSecondaryAggregation()
-        return true
+        return .promoted
     }
 }
