@@ -12,7 +12,7 @@ type BuildBinding = {
   readonly clientNamespace: string;
 };
 
-export function canIOSBindingForgetMac(
+export function canIOSBindingUseMac(
   caller: BuildBinding,
   target: BuildBinding,
 ): boolean {
@@ -29,3 +29,5 @@ export function canIOSBindingForgetMac(
   }
   return caller.tag === target.tag;
 }
+
+export const canIOSBindingForgetMac = canIOSBindingUseMac;

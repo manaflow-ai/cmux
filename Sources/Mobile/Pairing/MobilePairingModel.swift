@@ -148,6 +148,15 @@ final class MobilePairingModel {
             $0.bundleIdentifier
                 == targetStore.selectedNamespace?.bundleIdentifier
         } ?? targets[0]
+        // Opening the picker makes its displayed default authoritative. Before
+        // this point an upgraded official Mac keeps legacy push fanout; after
+        // the UI exposes App Store as selected, every consumer uses that target.
+        if targetStore.pushTargetNamespace == nil,
+           let namespace = MobileIOSAppNamespace(
+               bundleIdentifier: selectedIOSAppTarget.bundleIdentifier
+           ) {
+            _ = targetStore.select(namespace)
+        }
     }
 
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }

@@ -834,6 +834,45 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
+  test("an official iOS binding can pair with a Nightly Mac", async () => {
+    const fixture = makeFixture();
+    const initiator = binding({
+      userId: USER_A,
+      clientNamespace: "dev.cmux.app.internal",
+      tag: "default",
+      platform: "ios",
+      endpointId: fixture.endpointId,
+    });
+    const acceptor = binding({
+      userId: USER_A,
+      clientNamespace: "mac:nightly",
+      tag: "nightly",
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(initiator, acceptor);
+    const body = {
+      initiatorBindingId: initiator.id,
+      acceptorBindingId: acceptor.id,
+    };
+
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(
+      USER_A,
+      body,
+      NOW,
+      initiator.clientNamespace,
+      fixture.bindingProof(
+        initiator.id,
+        "POST",
+        "api/devices/iroh/pair-grants",
+        body,
+      ),
+    )) as { grant: string };
+
+    expect(result.grant.split(".")).toHaveLength(3);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(1);
+  });
+
   test("a namespaced app cannot discover or mutate a sibling app binding", async () => {
     const fixture = makeFixture();
     const internal = binding({

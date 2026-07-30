@@ -252,7 +252,7 @@ final class PhonePushClient {
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         if let targetNamespace =
-            MobileIOSPairingTargetStore().selectedNamespace {
+            MobileIOSPairingTargetStore().pushTargetNamespace {
             req.setValue(
                 targetNamespace.bundleIdentifier,
                 forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"

@@ -56,6 +56,7 @@ import {
   sha256,
   type IrohPathHint,
 } from "./model";
+import { canIOSBindingUseMac } from "./buildCompatibility";
 import {
   IrohRepository,
   IrohRepositoryLive,
@@ -441,6 +442,9 @@ export function makeIrohTrustBroker(
         return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
       }
       if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+        return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
+      }
+      if (!canIOSBindingUseMac(initiator, acceptor)) {
         return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
       }
       if (initiator.deviceUuid === acceptor.deviceUuid) {

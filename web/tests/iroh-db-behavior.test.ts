@@ -595,6 +595,8 @@ describe("Iroh trust broker database behavior", () => {
     const demo = await Effect.runPromise(repo.discoverySnapshot({
       userId,
       clientNamespace: "dev.cmux.app.demo",
+      callerBindingId: idByNamespace.get("dev.cmux.app.demo")!,
+      callerPlatform: "ios",
       now: NOW,
     }));
     expect(demo.bindings.map((row) => row.id).sort()).toEqual([
@@ -605,6 +607,8 @@ describe("Iroh trust broker database behavior", () => {
     const mac = await Effect.runPromise(repo.discoverySnapshot({
       userId,
       clientNamespace: "mac:stable",
+      callerBindingId: idByNamespace.get("mac:stable")!,
+      callerPlatform: "mac",
       now: NOW,
     }));
     expect(mac.bindings.map((row) => row.id).sort()).toEqual(

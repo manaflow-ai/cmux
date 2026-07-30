@@ -35,14 +35,16 @@ struct MobileIOSPairingTargetStore {
 
     var selectedNamespace: MobileIOSAppNamespace? {
         let available = availableNamespaces
-        if let stored = defaults.string(forKey: Self.defaultsKey),
-           let namespace = MobileIOSAppNamespace(bundleIdentifier: stored),
-           available.contains(namespace) {
-            return namespace
+        return storedNamespace(in: available) ?? available.first
+    }
+
+    /// Exact push target, or `nil` while an upgraded official Mac retains the
+    /// rollout-safe legacy fanout before the pairing picker is first opened.
+    var pushTargetNamespace: MobileIOSAppNamespace? {
+        let available = availableNamespaces
+        if let stored = storedNamespace(in: available) {
+            return stored
         }
-        // Existing Stable and Nightly installations did not persist an exact
-        // iOS target. Leave them unset so push delivery keeps the rollout-safe
-        // legacy fanout until the user explicitly selects one app.
         return isOfficialMacLane ? nil : available.first
     }
 
@@ -69,5 +71,18 @@ struct MobileIOSPairingTargetStore {
         default:
             false
         }
+    }
+
+    private func storedNamespace(
+        in available: [MobileIOSAppNamespace]
+    ) -> MobileIOSAppNamespace? {
+        guard let stored = defaults.string(forKey: Self.defaultsKey),
+              let namespace = MobileIOSAppNamespace(
+                  bundleIdentifier: stored
+              ),
+              available.contains(namespace) else {
+            return nil
+        }
+        return namespace
     }
 }

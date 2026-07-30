@@ -25,7 +25,8 @@ struct PairedMacBackupMigrationTests {
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
             primaryResponse: Data(#"{"records":[],"deletedMacDeviceIDs":[]}"#.utf8),
             legacyScope: nil,
-            legacyResponse: legacyResponse
+            legacyResponse: legacyResponse,
+            primaryResponseAfterUpload: legacyResponse
         )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
@@ -47,12 +48,13 @@ struct PairedMacBackupMigrationTests {
 
         #expect(snapshot.records == [record])
         let requests = PairedMacBackupMigrationURLProtocol.capturedRequests()
-        #expect(requests.map(\.httpMethod) == ["GET", "GET", "POST"])
+        #expect(requests.map(\.httpMethod) == ["GET", "GET", "POST", "GET"])
         #expect(requests.map {
             $0.value(forHTTPHeaderField: "X-Cmux-Client-Scope")
         } == [
             "ios:v3:Y29tLmNtdXguYXBw",
             nil,
+            "ios:v3:Y29tLmNtdXguYXBw",
             "ios:v3:Y29tLmNtdXguYXBw",
         ])
     }
@@ -78,6 +80,12 @@ struct PairedMacBackupMigrationTests {
             lastSeenAt: 2_000,
             isActive: false
         )
+        let combinedResponse = try JSONEncoder().encode(
+            TestBackupList(
+                records: [current, legacy],
+                deletedMacDeviceIDs: []
+            )
+        )
         PairedMacBackupMigrationURLProtocol.reset(
             primaryScope: "ios:v3:Y29tLmNtdXguYXBw",
             primaryResponse: try JSONEncoder().encode(
@@ -86,7 +94,8 @@ struct PairedMacBackupMigrationTests {
             legacyScope: nil,
             legacyResponse: try JSONEncoder().encode(
                 TestBackupList(records: [legacy], deletedMacDeviceIDs: [])
-            )
+            ),
+            primaryResponseAfterUpload: combinedResponse
         )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PairedMacBackupMigrationURLProtocol.self]
@@ -108,7 +117,7 @@ struct PairedMacBackupMigrationTests {
 
         #expect(snapshot.records == [current, legacy])
         let requests = PairedMacBackupMigrationURLProtocol.capturedRequests()
-        #expect(requests.map(\.httpMethod) == ["GET", "GET", "POST"])
+        #expect(requests.map(\.httpMethod) == ["GET", "GET", "POST", "GET"])
     }
 
     @Test func currentTombstonePreventsLegacyRecordResurrection() async throws {

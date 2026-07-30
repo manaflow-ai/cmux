@@ -9,19 +9,24 @@ final class PairedMacBackupMigrationURLProtocol:
     private nonisolated(unsafe) static var primaryResponse = Data()
     private nonisolated(unsafe) static var legacyScope: String?
     private nonisolated(unsafe) static var legacyResponse = Data()
+    private nonisolated(unsafe) static var primaryResponseAfterUpload: Data?
+    private nonisolated(unsafe) static var didUpload = false
     private nonisolated(unsafe) static var requests: [URLRequest] = []
 
     static func reset(
         primaryScope: String,
         primaryResponse: Data,
         legacyScope: String?,
-        legacyResponse: Data
+        legacyResponse: Data,
+        primaryResponseAfterUpload: Data? = nil
     ) {
         lock.withLock {
             self.primaryScope = primaryScope
             self.primaryResponse = primaryResponse
             self.legacyScope = legacyScope
             self.legacyResponse = legacyResponse
+            self.primaryResponseAfterUpload = primaryResponseAfterUpload
+            didUpload = false
             requests = []
         }
     }
@@ -40,12 +45,18 @@ final class PairedMacBackupMigrationURLProtocol:
         let body = Self.lock.withLock { () -> Data in
             Self.requests.append(request)
             guard request.httpMethod == "GET" else {
+                Self.didUpload = true
                 return Data(#"{"ok":true}"#.utf8)
             }
             let scope = request.value(
                 forHTTPHeaderField: "X-Cmux-Client-Scope"
             )
             if scope == Self.primaryScope {
+                if Self.didUpload,
+                   let primaryResponseAfterUpload =
+                    Self.primaryResponseAfterUpload {
+                    return primaryResponseAfterUpload
+                }
                 return Self.primaryResponse
             }
             if scope == Self.legacyScope {
