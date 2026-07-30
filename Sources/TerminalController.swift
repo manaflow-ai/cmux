@@ -2296,7 +2296,9 @@ class TerminalController {
         // extension.sidebar.snapshot handled by ControlCommandCoordinator.
         // workspace.next/previous/last/equalize_splits + workspace.remote.* (configure/
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
-        // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
+        // terminal_session_launching/terminal_session_connected/
+        // terminal_session_end) handled by
+        // ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
         case "workspace.cloud_vm_open":
             return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
@@ -2523,7 +2525,9 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "workspace.remote.terminal_session_launching",
+            "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -14896,6 +14900,12 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.in.recv",
+            "s=\(surfaceId.uuidString.prefix(8).lowercased()) bytes=\(text.utf8.count)"
+        )
+        #endif
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14928,6 +14938,14 @@ class TerminalController {
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
+            #if DEBUG
+            if sendResult == .sent {
+                HostLatencyTrace.stamp(
+                    "host.in.applied",
+                    "s=\(surfaceId.uuidString.prefix(8).lowercased()) seq=\(seq)"
+                )
+            }
+            #endif
         }
         return .ok(payload)
     }

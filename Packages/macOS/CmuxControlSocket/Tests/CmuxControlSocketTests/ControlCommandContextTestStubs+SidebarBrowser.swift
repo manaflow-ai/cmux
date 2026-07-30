@@ -61,7 +61,11 @@ extension ControlSidebarContext {
         pid: Int32?
     ) {}
 
-    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
+    nonisolated func controlSidebarScheduleStatusClear(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?
+    ) {}
 
     nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
@@ -114,7 +118,8 @@ extension ControlSidebarContext {
         expectedLifecycleSessionID: String?,
         expectedPID: Int32?,
         expectedPIDStartSeconds: Int64?,
-        expectedPIDStartMicroseconds: Int64?
+        expectedPIDStartMicroseconds: Int64?,
+        requireOwnedKey: Bool
     ) {}
 
     nonisolated func controlSidebarScheduleMetadataBlockUpsert(

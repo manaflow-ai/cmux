@@ -111,8 +111,19 @@ extension ControlCommandCoordinator {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = sidebarParseOptionalPanelIdOption(
+            options: parsed.options,
+            usage: usage
+        )
+        if let error = panelResolution.error {
+            return error
+        }
 
-        context?.controlSidebarScheduleStatusClear(target: target, key: key)
+        context?.controlSidebarScheduleStatusClear(
+            target: target,
+            key: key,
+            panelID: panelResolution.panelId
+        )
         return "OK"
     }
 
@@ -497,7 +508,8 @@ extension ControlCommandCoordinator {
             expectedLifecycleSessionID: expectedLifecycleSessionID,
             expectedPID: expectedPID,
             expectedPIDStartSeconds: expectedPIDStartSeconds,
-            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
+            requireOwnedKey: parsed.options["require-owned-key"] != nil
         )
         return "OK"
     }

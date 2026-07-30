@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -6,7 +7,7 @@ import Foundation
 /// Value fields only: action closures live in ``SidebarGroupHeaderRowActions``
 /// and are excluded from equality so recycled cells can reconfigure cheaply
 /// (same discipline as the hosted rows' Equatable snapshot contract).
-struct SidebarGroupHeaderRowModel: Equatable {
+struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
@@ -15,6 +16,8 @@ struct SidebarGroupHeaderRowModel: Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
+    let isMultiSelected: Bool
+    let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
@@ -41,7 +44,7 @@ struct SidebarGroupHeaderRowModel: Equatable {
 @MainActor
 struct SidebarGroupHeaderRowActions {
     let onToggleCollapsed: () -> Void
-    let onFocusAnchor: () -> Void
+    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void

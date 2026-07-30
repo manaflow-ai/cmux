@@ -7893,7 +7893,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             shellActivityState: nil,
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
-            agentSessionRetryCompletedAttempts: nil,
+            managedAgentResumeBinding: nil,
             agentRuntime: nil,
             agentLifecycleRecords: [:],
             isRemoteTerminal: false,

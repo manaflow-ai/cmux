@@ -3253,7 +3253,9 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restorableAgentResumeState: nil, restoredAgentCompletedGeneration: nil,
             shellActivityState: nil, restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
-            agentSessionRetryCompletedAttempts: nil,
+            managedAgentResumeBinding: resumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            },
             agentRuntime: nil,
             agentLifecycleRecords: [:],
             isRemoteTerminal: false,

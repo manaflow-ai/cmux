@@ -153,6 +153,19 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func remoteTerminalReadinessRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_launching"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_connected"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
     }

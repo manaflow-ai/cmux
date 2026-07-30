@@ -2123,7 +2123,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
-    let agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings
     private let settings: any SettingsReading
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -2453,6 +2452,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
+    // Unsuppressed controller truth retained while live terminal liveness
+    // temporarily owns the published presentation above.
+    var remoteControllerConnectionState: WorkspaceRemoteConnectionState = .disconnected
+    var remoteControllerConnectionDetail: String?
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
     @Published var remoteDetectedPorts: [Int] = []
     @Published var remoteForwardedPorts: [Int] = []
@@ -2482,6 +2485,10 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    var remoteTerminalSessionStatesBySurfaceId: [UUID: WorkspaceRemoteTerminalSessionState] = [:]
+    var pendingRemoteTerminalConnectionsBySurfaceId: [UUID: PendingWorkspaceRemoteTerminalConnection] = [:]
+    var remoteTerminalAttemptIDsBySurfaceId: [UUID: UUID] = [:]
+    var endedRemoteTerminalLifecycleIDsBySurfaceId: [UUID: UUID] = [:]
     private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
@@ -2544,10 +2551,6 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
-    lazy var agentSessionRetryCoordinator = AgentSessionRetryCoordinator(
-        workspace: self,
-        settings: agentSessionAutoRetrySettings
-    )
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
         get { restoredAgentLifecycle.snapshotsByPanelId }
         set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
@@ -2641,14 +2644,17 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration?.transport == .ssh && hasRemoteTerminalStartupCommand
     }
 
-    private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
+    private func preservesProxyFailureWhileSSHTerminalIsAlive(
+        in externalDocks: [DockSplitStore]
+    ) -> Bool {
         preservesProxyFailureForSSHRemoteWorkspace
             && remoteConfiguration?.preserveAfterTerminalExit != true
-            && activeRemoteTerminalSessionCount > 0
+            && hasAuthoritativelyConnectedRemoteTerminal(in: externalDocks)
     }
 
     private var suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive: Bool {
-        isDefaultFreestyleSSHDRemoteWorkspace && preservesProxyFailureWhileSSHTerminalIsAlive
+        isDefaultFreestyleSSHDRemoteWorkspace &&
+            preservesProxyFailureWhileSSHTerminalIsAlive(in: [])
     }
 
     private var suppressesProxyOnlySidebarErrorForDefaultCloud: Bool {
@@ -2660,10 +2666,13 @@ final class Workspace: Identifiable, ObservableObject {
         return entry.lowercased().contains("remote proxy unavailable")
     }
 
-    private func clearProxyOnlyRemoteSidebarArtifacts() {
+    func clearProxyOnlyRemoteSidebarArtifacts() {
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         logEntries.removeAll(where: Self.isProxyOnlyRemoteLogEntry)
         remoteLastErrorFingerprint = nil
+        if let key = remoteProxyNotificationCooldownKey(target: remoteDisplayTarget ?? "") {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, correlationKey: key)
+        }
     }
 
     private func remoteNotificationCooldownKey(target: String) -> String? {
@@ -2678,6 +2687,10 @@ final class Workspace: Identifiable, ObservableObject {
             .lowercased()
         guard let normalizedHost, !normalizedHost.isEmpty else { return nil }
         return "remote-host:\(normalizedHost)"
+    }
+
+    private func remoteProxyNotificationCooldownKey(target: String) -> String? {
+        remoteNotificationCooldownKey(target: target).map { "\($0):proxy" }
     }
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -3079,7 +3092,6 @@ final class Workspace: Identifiable, ObservableObject {
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
-        agentSessionAutoRetrySettings: AgentSessionAutoRetrySettings = AgentSessionAutoRetrySettings(),
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
@@ -3092,7 +3104,6 @@ final class Workspace: Identifiable, ObservableObject {
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
-        self.agentSessionAutoRetrySettings = agentSessionAutoRetrySettings
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -3792,15 +3803,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
-        terminalPanel.hostedView.onExplicitTerminalInput = { [weak self, weak terminalPanel] in
-            guard let self, let terminalPanel,
-                  self.panels[terminalPanel.id] as? TerminalPanel === terminalPanel else {
-                return
-            }
-            self.agentSessionRetryCoordinator.explicitTerminalInputDidBegin(
-                panelId: terminalPanel.id
-            )
-        }
         terminalPanel.surface.onFontSizeLineageChanged = { [weak self, weak terminalPanel] lineage in
             guard let self, let terminalPanel,
                   self.lastTerminalConfigInheritancePanelId == terminalPanel.id,
@@ -4800,7 +4802,6 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         panelShellActivityStates[panelId] = state
-        agentSessionRetryCoordinator.shellActivityDidChange(panelId: panelId, state: state)
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
@@ -4906,6 +4907,26 @@ final class Workspace: Identifiable, ObservableObject {
             didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
         }
         return didResume
+    }
+
+    @discardableResult
+    func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
+        guard terminalPanel(for: panelId) != nil,
+              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        surfaceResumeBindingsByPanelId[panelId] = binding
+        return true
+    }
+
+    @discardableResult
+    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    }
+
+    func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -5603,6 +5624,7 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        defer { applyPendingRemoteTerminalConnections() }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
@@ -5624,6 +5646,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
         remoteConnectionDetail = nil
+        remoteControllerConnectionState = .disconnected
+        remoteControllerConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
@@ -5655,6 +5679,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteForegroundAuthenticationPhase = nil
         if configuration.transport == .websocket,
            configuration.daemonWebSocketEndpoint == nil {
+            remoteControllerConnectionState = .connected
             remoteConnectionState = .connected
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
@@ -5667,7 +5692,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard shouldAutoConnect else {
             remoteForegroundAuthenticationPhase = foregroundAuthToken.map { .authenticating(token: $0) }
-            remoteConnectionState = foregroundAuthToken == nil ? .disconnected : .connecting
+            let initialState: WorkspaceRemoteConnectionState =
+                foregroundAuthToken == nil ? .disconnected : .connecting
+            remoteControllerConnectionState = initialState
+            remoteConnectionState = initialState
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
             enqueueRemoteSessionTransition(
@@ -5677,6 +5705,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
             return true
         }
+        remoteControllerConnectionState = .connecting
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
@@ -5712,6 +5741,9 @@ final class Workspace: Identifiable, ObservableObject {
         cancelPendingRemoteControlMasterAdoption()
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
+        remoteTerminalSessionStatesBySurfaceId.removeAll()
+        pendingRemoteTerminalConnectionsBySurfaceId.removeAll()
+        remoteTerminalAttemptIDsBySurfaceId.removeAll()
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []
         let clearedRemoteDirectoryTrust = !remoteDirectoryReportPanelIds.isEmpty ||
             (clearConfiguration && !remoteDirectoryTrustRequiredPanelIds.isEmpty)
@@ -5732,6 +5764,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteProxyEndpoint = nil
         remoteHeartbeatCount = 0
         remoteLastHeartbeatAt = nil
+        remoteControllerConnectionState = .disconnected
+        remoteControllerConnectionDetail = disconnectedDetail
         remoteConnectionState = .disconnected
         remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -5812,6 +5846,7 @@ final class Workspace: Identifiable, ObservableObject {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }
+        markRemoteTerminalSessionLaunching(surfaceId: panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         if suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive {
             clearProxyOnlyRemoteSidebarArtifacts()
@@ -5825,6 +5860,7 @@ final class Workspace: Identifiable, ObservableObject {
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         let previousPresentedDirectory = presentedCurrentDirectory
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: panelId) }
+        clearRemoteTerminalSessionPhase(surfaceId: panelId)
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
@@ -6213,6 +6249,9 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
+        if wasTracked, remoteConfiguration?.preserveAfterTerminalExit == true {
+            reconcileRemoteTerminalPresentationAfterSessionEnd()
+        }
         return (true, wasTracked)
     }
 
@@ -6411,9 +6450,63 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
     }
 
-    func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
+    @discardableResult
+    func markRemoteTerminalSessionEnded(
+        surfaceId: UUID,
+        relayPort: Int?,
+        allowUntracked: Bool = false,
+        terminalLifecycleID: UUID? = nil,
+        terminalLifecycleAlreadyValidated: Bool = false,
+        deferPresentationReconciliationUntilDockCommit: Bool = false,
+        recordLifecycleTombstone: Bool = true,
+        livenessExcludingSurfaceId: UUID? = nil
+    ) -> Bool {
+        if let terminalLifecycleID, !terminalLifecycleAlreadyValidated {
+            guard let terminalPanel = panels[surfaceId] as? TerminalPanel,
+                  terminalPanel.surface.terminalLifecycleId == terminalLifecycleID else {
+                return false
+            }
+        }
+        if let relayPort,
+           relayPort > 0,
+           let configuration = remoteConfiguration,
+           configuration.relayPort != relayPort,
+           transferredRemoteCleanupConfigurationsByPanelId[surfaceId]?.relayPort !=
+            relayPort {
+            return false
+        }
+        let recordedLifecycleTombstone: Bool
+        if let terminalLifecycleID {
+            if recordLifecycleTombstone {
+                endedRemoteTerminalLifecycleIDsBySurfaceId[surfaceId] =
+                    terminalLifecycleID
+            } else {
+                endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(
+                    forKey: surfaceId
+                )
+            }
+            remoteTerminalAttemptIDsBySurfaceId.removeValue(forKey: surfaceId)
+            recordedLifecycleTombstone = recordLifecycleTombstone
+        } else {
+            recordedLifecycleTombstone = false
+        }
+        let endedPendingConnection: PendingWorkspaceRemoteTerminalConnection?
+        if let terminalLifecycleID,
+           let pendingConnection = pendingRemoteTerminalConnectionsBySurfaceId[surfaceId],
+           pendingConnection.terminalLifecycleID == terminalLifecycleID {
+            pendingRemoteTerminalConnectionsBySurfaceId.removeValue(forKey: surfaceId)
+            endedPendingConnection = pendingConnection
+            remoteTerminalSessionStatesBySurfaceId[surfaceId] =
+                WorkspaceRemoteTerminalSessionState(
+                    phase: .ended,
+                    authority: pendingConnection.authority,
+                    terminalLifecycleID: terminalLifecycleID
+                )
+        } else {
+            endedPendingConnection = nil
+        }
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
-            return
+            return true
         }
         guard let configuration = remoteConfiguration,
               remoteTerminalSessionEndMatchesCurrentConfiguration(
@@ -6422,7 +6515,7 @@ final class Workspace: Identifiable, ObservableObject {
                 configuration: configuration,
                 allowUntracked: allowUntracked
               ) else {
-            return
+            return endedPendingConnection != nil || recordedLifecycleTombstone
         }
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -6431,12 +6524,21 @@ final class Workspace: Identifiable, ObservableObject {
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
+        clearRemoteTerminalSessionPhase(surfaceId: surfaceId)
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         if activeRemoteTerminalSurfaceIds.isEmpty {
-            guard !preservesRemotePTYSession else { return }
+            guard !preservesRemotePTYSession else { return true }
+            if hasAuthoritativelyConnectedRemoteTerminal(
+                in: DockSplitStore.liveRemoteTerminalStores(
+                    presentationWorkspaceID: id
+                ),
+                excludingSurfaceId: livenessExcludingSurfaceId
+            ) {
+                return true
+            }
             let shouldCleanupControlMaster =
                 configuration.relayPort != nil &&
                 configuration.transport == .ssh &&
@@ -6447,7 +6549,10 @@ final class Workspace: Identifiable, ObservableObject {
             if shouldCleanupControlMaster {
                 requestSSHControlMasterCleanupIfNeeded(configuration: configuration)
             }
+        } else if !deferPresentationReconciliationUntilDockCommit {
+            reconcileRemoteTerminalPresentationAfterSessionEnd()
         }
+        return true
     }
 
     func teardownRemoteConnection() {
@@ -6457,21 +6562,26 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteConnectionStateUpdate(
         _ state: WorkspaceRemoteConnectionState,
         detail: String?,
-        target: String
+        target: String,
+        externalRemoteTerminalDocks: [DockSplitStore] = []
     ) {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
+        let preservesProxyFailureForLiveTerminal =
+            preservesProxyFailureWhileSSHTerminalIsAlive(in: externalRemoteTerminalDocks)
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                (suppressesProxyOnlySidebarErrorForDefaultCloud || preservesProxyFailureWhileSSHTerminalIsAlive) && // #6409 default cloud; otherwise live non-persistent SSH only (#7366/#7823)
-                hasProxyOnlyRemoteSidebarError
+                (
+                    (suppressesProxyOnlySidebarErrorForDefaultCloud && hasProxyOnlyRemoteSidebarError) ||
+                        preservesProxyFailureForLiveTerminal
+                ) // #6409 default cloud; otherwise authoritatively connected non-persistent SSH only (#7366/#7823/#9068)
         let suppressProxyOnlySidebarError =
             suppressesProxyOnlySidebarErrorForDefaultCloud &&
                 (proxyOnlyError || hasProxyOnlyRemoteSidebarError)
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && suppressesProxyOnlySidebarErrorForDefaultCloud {
             effectiveState = .connected
-        } else if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
+        } else if state == .error && proxyOnlyError && preservesProxyFailureForLiveTerminal { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
@@ -6479,6 +6589,8 @@ final class Workspace: Identifiable, ObservableObject {
             effectiveState = state
         }
 
+        remoteControllerConnectionState = state
+        remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
         if state == .connected { _ = reattachPersistentRemotePTYPanels() }
@@ -6556,7 +6668,9 @@ final class Workspace: Identifiable, ObservableObject {
                     title: notificationTitle,
                     subtitle: target,
                     body: trimmedDetail,
-                    cooldownKey: remoteNotificationCooldownKey(target: target),
+                    cooldownKey: proxyOnlyError
+                        ? remoteProxyNotificationCooldownKey(target: target)
+                        : remoteNotificationCooldownKey(target: target),
                     cooldownInterval: Self.remoteNotificationCooldown
                 )
             }
@@ -6564,8 +6678,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if state == .connected {
-            statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-            remoteLastErrorFingerprint = nil
+            clearProxyOnlyRemoteSidebarArtifacts()
         }
     }
 
@@ -8035,6 +8148,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId,
             reason: "terminalRespawn"
         )
+        markRemoteTerminalSessionLaunching(surfaceId: panelId)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
         return replacementPanel
@@ -9419,8 +9533,15 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
-        if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
-            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        let transferredResumeBinding: SurfaceResumeBindingSnapshot? = {
+            if let resumeBinding = detached.resumeBinding,
+               !resumeBinding.isProcessDetected {
+                return resumeBinding
+            }
+            return detached.resolvedManagedAgentResumeBinding
+        }()
+        if let transferredResumeBinding {
+            surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
@@ -9459,6 +9580,13 @@ final class Workspace: Identifiable, ObservableObject {
                 detached.panelId,
                 preserveTrustedRemoteDirectory: detached.directoryIsTrustedRemoteReport
             )
+            restoreRemoteTerminalSessionPhase(
+                detached.remoteTerminalSessionPhase,
+                authority: detached.remoteTerminalAuthority,
+                terminalLifecycleID: detached.remoteTerminalLifecycleID,
+                attemptID: detached.remoteTerminalAttemptID,
+                surfaceId: detached.panelId
+            )
             if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
                 surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: detached.sourceWorkspaceId,
@@ -9469,12 +9597,6 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
         }
-        agentSessionRetryCoordinator.seedTransferredManagedRun(
-            panelId: detached.panelId,
-            shellActivityState: detached.shellActivityState,
-            binding: surfaceResumeBindingsByPanelId[detached.panelId],
-            completedAttempts: detached.agentSessionRetryCompletedAttempts
-        )
         if let cleanupConfiguration = detached.remoteCleanupConfiguration {
             if didAdoptWorkspaceRemoteTracking {
                 transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
@@ -9513,7 +9635,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {
-        guard detached.isRemoteTerminal else { return false }
+        guard detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended else { return false }
         if detached.sourceWorkspaceId == id { return true }
         guard let detachedRelayPort = detached.remoteRelayPort,
               detachedRelayPort > 0,
@@ -12146,11 +12268,6 @@ extension Workspace: BonsplitDelegate {
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
             )
-            let agentSessionRetryCompletedAttempts = agentSessionRetryCoordinator.transferredCompletedAttempts(
-                panelId: panelId,
-                shellActivityState: panelShellActivityStates[panelId],
-                binding: resumeBinding
-            )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             let agentLifecycleRecords = takeAgentLifecycleRecordsForTransfer(
                 panelID: panelId
@@ -12184,10 +12301,17 @@ extension Workspace: BonsplitDelegate {
                 shellActivityState: panelShellActivityStates[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
-                agentSessionRetryCompletedAttempts: agentSessionRetryCompletedAttempts,
+                managedAgentResumeBinding: resumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                },
                 agentRuntime: agentRuntime,
                 agentLifecycleRecords: agentLifecycleRecords,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                remoteTerminalSessionPhase: remoteTerminalSessionStatesBySurfaceId[panelId]?.phase,
+                remoteTerminalAuthority: remoteTerminalSessionStatesBySurfaceId[panelId]?.authority,
+                remoteTerminalLifecycleID: remoteTerminalSessionStatesBySurfaceId[panelId]?
+                    .terminalLifecycleID,
+                remoteTerminalAttemptID: remoteTerminalAttemptIDsBySurfaceId[panelId],
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,
