@@ -72,14 +72,19 @@ public struct WorkspaceListLayoutPreviewView: View {
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let initialWorkspaces: [MobileWorkspacePreview]
+        let initialGroups: [MobileWorkspaceGroupPreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
-            (initialWorkspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+            (initialWorkspaces, initialGroups) = Self.seeded(
+                count: seedCount,
+                groupCount: groupCount
+            )
         } else {
             initialWorkspaces = Self.defaultWorkspaces
-            groups = []
+            initialGroups = []
         }
         self.reorderEnabled = reorderEnabled
+        _groups = State(initialValue: initialGroups)
         let fixtureWorkspaces = reorderEnabled
             ? initialWorkspaces.map { workspace in
                 var workspace = workspace
@@ -121,7 +126,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    private let groups: [MobileWorkspaceGroupPreview]
+    @State private var groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
@@ -315,6 +320,12 @@ public struct WorkspaceListLayoutPreviewView: View {
                     groups: groups
                 )
                 return true
+            } : nil,
+            toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
+                guard let index = groups.firstIndex(where: { $0.id == groupID }) else {
+                    return
+                }
+                groups[index].isCollapsed = isCollapsed
             } : nil,
             filterState: filterState,
             searchText: searchText
