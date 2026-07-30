@@ -63,29 +63,6 @@ final class WorkspaceListScrollEdgeCoordinator {
         }
     }
 
-    /// Returns the portions of the underlapped table covered by the owning
-    /// navigation and tab bars. Measuring each controller's safe layout frame
-    /// in window coordinates avoids relying on the representable's own safe
-    /// area, which SwiftUI intentionally removes for the visual underlap.
-    func contentInsets(for scrollView: UIScrollView) -> UIEdgeInsets {
-        guard #available(iOS 26.0, *), let window = scrollView.window else {
-            return .zero
-        }
-        let scrollFrame = scrollView.convert(scrollView.bounds, to: window)
-        let topSafeFrame = navigationContentController.map {
-            $0.view.convert($0.view.safeAreaLayoutGuide.layoutFrame, to: window)
-        }
-        let bottomSafeFrame = tabContentController.map {
-            $0.view.convert($0.view.safeAreaLayoutGuide.layoutFrame, to: window)
-        }
-        return UIEdgeInsets(
-            top: topSafeFrame.map { max(0, $0.minY - scrollFrame.minY) } ?? 0,
-            left: 0,
-            bottom: bottomSafeFrame.map { max(0, scrollFrame.maxY - $0.maxY) } ?? 0,
-            right: 0
-        )
-    }
-
     /// Clears this coordinator's registrations. A registration held by
     /// another table (same controller, different scroll view) is left intact.
     func unregister() {
@@ -109,7 +86,7 @@ final class WorkspaceListScrollEdgeCoordinator {
         if let waiting = firstWorkspaceTable(
             under: controller.viewIfLoaded, excluding: scrollView
         ) {
-            waiting.setNeedsLayout()
+            waiting.requestScrollEdgeRegistrationUpdate()
         }
     }
 
