@@ -1958,8 +1958,8 @@ impl BoundedOutbound {
     }
 
     fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
-        state.initial.retain(|message| if message.stream.id == stream_id { false } else { true });
-        state.regular.retain(|message| if message.stream.id == stream_id { false } else { true });
+        state.initial.retain(|message| message.stream.id != stream_id);
+        state.regular.retain(|message| message.stream.id != stream_id);
         if let Some(usage) = state.stream_usage.remove(&stream_id) {
             state.regular_bytes = state.regular_bytes.saturating_sub(usage.bytes);
         }
@@ -2273,8 +2273,7 @@ impl ClientRegistry {
             .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         anyhow::ensure!(
             !record.resource_streams.contains_key(stream_id.as_str()),
-            "resource stream {} is already open on this connection",
-            stream_id
+            "resource stream {stream_id} is already open on this connection"
         );
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
@@ -3502,7 +3501,7 @@ fn resource_client_snapshots(
         .control_clients
         .resource_records()
         .iter()
-        .map(|record| resource_client_snapshot(mux, requesting_client, &session_id, record))
+        .map(|record| resource_client_snapshot(mux, requesting_client, session_id, record))
         .collect::<Result<Vec<_>, _>>()?;
     clients.sort_by(|left, right| {
         left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
@@ -6842,6 +6841,19 @@ fn handle_command_with_cancellation(
                     mutation.expected_revision,
                     &workspace_mutation,
                 )?;
+                let projection_fingerprint = json!({
+                    "terminal_id":result.terminal_id,
+                    "workspace_key":key,
+                });
+                mux.commit_full_resource_projection_with_mutation(
+                    &workspace_mutation,
+                    "raw.terminal.create",
+                    &projection_fingerprint,
+                    json!({
+                        "terminal_id":result.terminal_id,
+                        "workspace_key":key,
+                    }),
+                )?;
                 let placement = result.placement;
                 Ok(json!({
                     "surface": placement.surface,
@@ -8209,8 +8221,7 @@ mod tests {
         let (first_writer, first_outbound) = captured_writer();
         let first = mux.control_clients.register(ClientTransport::Unix, first_writer.clone());
         let (second_writer, _) = captured_writer();
-        let second =
-            mux.control_clients.register(ClientTransport::WebSocket, second_writer.clone());
+        let second = mux.control_clients.register(ClientTransport::WebSocket, second_writer);
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
 
@@ -9659,6 +9670,46 @@ mod tests {
                 "create-terminal cols and rows must be supplied together"
             );
         }
+    }
+
+    #[test]
+    fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let command = || Command::CreateTerminal {
+            workspace: Some(workspace),
+            key: None,
+            argv: None,
+            command: None,
+            cwd: None,
+            name: Some("raw terminal".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            terminal_id: Some("00000000000040008000000000000001".to_string()),
+            mutation: MutationRequest {
+                origin: Some("raw-projection-test".to_string()),
+                mutation_id: Some("raw-terminal-create-once".to_string()),
+                expected_generation: None,
+                expected_revision: None,
+            },
+        };
+
+        let first = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        assert_eq!(first["replayed"], false);
+        let first_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(first_snapshot["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["panes"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["terminals"].as_array().unwrap().len(), 1);
+        assert_eq!(first_snapshot["tabs"][0]["content_id"], first_snapshot["terminals"][0]["id"]);
+        let first_revision = first_snapshot["cursor"]["revision"].clone();
+
+        let replay = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        let replayed_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(replayed_snapshot["cursor"]["revision"], first_revision);
+        assert_eq!(replayed_snapshot["terminals"].as_array().unwrap().len(), 1);
+        mux.shutdown();
     }
 
     #[test]

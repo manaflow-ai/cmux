@@ -5,6 +5,8 @@
 //! event are published, so durable order, reply order, and event order are the
 //! same order. Runtime pane/surface ids deliberately never enter this store.
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -27,6 +29,7 @@ mod public_projection_store;
 mod resource_store;
 mod terminal_exit_store;
 
+pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,
@@ -34,9 +37,9 @@ pub use effect_store::{
 use effect_store::{
     create_resource_effect_schema, prune_resource_events, recover_resource_effects,
 };
-pub use public_projection_store::{
-    RegistryAgentProjection, RegistryNotificationProjection, RegistryPublicProjections,
-};
+pub use public_projection_store::RegistryPublicProjections;
+#[cfg(test)]
+pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
@@ -213,6 +216,8 @@ pub struct WorkspaceRegistry {
     session_name: String,
     machine_id: MachinePublicId,
     session_id: SessionPublicId,
+    #[cfg(test)]
+    resource_patch_failures_remaining: Cell<u64>,
     _lease: Option<SessionLease>,
 }
 
@@ -278,6 +283,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
                 tx.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
                     [],
@@ -306,6 +312,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -331,6 +338,7 @@ impl WorkspaceRegistry {
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 tx.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
@@ -409,6 +417,8 @@ impl WorkspaceRegistry {
             session_name,
             machine_id,
             session_id,
+            #[cfg(test)]
+            resource_patch_failures_remaining: Cell::new(0),
             _lease: lease,
         })
     }
@@ -458,6 +468,65 @@ impl WorkspaceRegistry {
             next_numeric_id,
             workspaces,
         })
+    }
+
+    /// Internal workspaces staged by an interrupted correlated creation.
+    ///
+    /// These rows are intentionally absent from the public resource tables
+    /// until the recovered effect can publish its complete topology in one
+    /// revision. The daemon rehydrates them only during startup so terminal
+    /// host adoption can finish that transaction.
+    pub(crate) fn interrupted_resource_workspaces(
+        &self,
+    ) -> anyhow::Result<Vec<(usize, RegistryWorkspace)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT w.position, w.numeric_id, w.workspace_key, w.name, w.group_key,
+                    json_extract(
+                      creation.intent_json,
+                      '$.workspace_reservation.workspace_public_id'
+                    )
+             FROM workspaces w
+             JOIN resource_creation_receipts creation
+               ON json_extract(
+                    creation.intent_json,
+                    '$.workspace_reservation.workspace_key'
+                  ) = w.workspace_key
+             LEFT JOIN resource_workspaces rw
+               ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
+             WHERE w.tombstoned = 0
+               AND rw.public_id IS NULL
+               AND creation.execution_kind = 'effect'
+               AND creation.state = 'executing'
+             ORDER BY w.position ASC, creation.correlation_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let (position, id, key, name, group_key, public_id) = row?;
+                let public_id = public_id.with_context(|| {
+                    format!("interrupted workspace {key} omitted its reserved public id")
+                })?;
+                Ok((
+                    usize::try_from(position).context("staged workspace position is negative")?,
+                    RegistryWorkspace {
+                        id: u64::try_from(id).context("staged workspace id is negative")?,
+                        public_id: WorkspacePublicId::parse(public_id)?,
+                        key,
+                        name,
+                        group_key,
+                    },
+                ))
+            })
+            .collect()
     }
 
     pub fn registry_id(&self) -> &str {
@@ -787,80 +856,11 @@ impl WorkspaceRegistry {
         mutation: &WorkspaceMutation,
         terminals: &[(String, Option<String>)],
     ) -> anyhow::Result<TerminalBatchClose> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        let mut unique = HashSet::with_capacity(terminals.len());
-        for (terminal_id, incarnation) in terminals {
-            validate_terminal_identity("terminal id", terminal_id)?;
-            if let Some(incarnation) = incarnation {
-                validate_terminal_identity("terminal incarnation", incarnation)?;
-            }
-            if !unique.insert(terminal_id.as_str()) {
-                anyhow::bail!("duplicate terminal in batch close: {terminal_id}");
-            }
-        }
-
+        validate_terminal_batch_close(mutation, terminals)?;
         let tx = self.connection.transaction()?;
-        let mut rows = Vec::with_capacity(terminals.len());
-        for (terminal_id, expected_incarnation) in terminals {
-            let terminal = read_terminal(&tx, terminal_id)?.ok_or_else(|| {
-                anyhow::anyhow!("unknown terminal {terminal_id}; it may not have been adopted yet")
-            })?;
-            if let Some(expected) = expected_incarnation
-                && terminal.incarnation.as_deref() != Some(expected)
-            {
-                anyhow::bail!("terminal_incarnation_mismatch");
-            }
-            rows.push(terminal);
-        }
-
-        let mut revision = transaction_terminal_revision(&tx)?;
-        let mut closed = 0usize;
-        for terminal in rows {
-            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
-                continue;
-            }
-            revision = revision
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-            let sqlite_revision = i64::try_from(revision)
-                .context("terminal revision exceeds SQLite integer range")?;
-            let result_json = canonical_json(&serde_json::json!({
-                "terminal_id": terminal.terminal_id,
-                "workspace_key": terminal.workspace_key,
-                "incarnation": terminal.incarnation,
-                "closed": true,
-                "reason": "topology-closed",
-            }))?;
-            tx.execute(
-                "UPDATE terminal_placements
-                 SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-                 WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
-                params![sqlite_revision, terminal.terminal_id],
-            )?;
-            tx.execute(
-                "INSERT INTO terminal_events(
-                   revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-                 ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    sqlite_revision,
-                    terminal.terminal_id,
-                    terminal.workspace_key,
-                    mutation.origin,
-                    mutation.id,
-                    result_json,
-                ],
-            )?;
-            closed += 1;
-        }
-        if closed != 0 {
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
-                [revision.to_string()],
-            )?;
-        }
+        let result = close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
         tx.commit()?;
-        Ok(TerminalBatchClose { revision, closed })
+        Ok(result)
     }
 
     #[cfg(test)]
@@ -1119,17 +1119,22 @@ impl WorkspaceRegistry {
                 self.generation
             );
         }
-        let current = transaction_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != current
-        {
-            anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
+        if let Some(active_workspace) = active_workspace {
+            anyhow::ensure!(
+                workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
+                "active workspace is absent from the desired registry: {active_workspace}"
+            );
         }
-        let revision = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
+        let (revision, _) = commit_workspace_registry_in_transaction(
+            &tx,
+            mutation,
+            &fingerprint,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            &result_json,
+        )?;
         let previous_resource_revision =
             project_resource.then(|| transaction_resource_revision(&tx)).transpose()?;
         let resource_revision = previous_resource_revision
@@ -1144,29 +1149,6 @@ impl WorkspaceRegistry {
                 i64::try_from(revision).context("resource revision exceeds SQLite integer range")
             })
             .transpose()?;
-        for workspace in workspaces {
-            let was_tombstoned = tx
-                .query_row(
-                    "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-                    [&workspace.key],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?;
-            if was_tombstoned == Some(1) {
-                anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key);
-            }
-        }
-        if let Some(active_workspace) = active_workspace {
-            anyhow::ensure!(
-                workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
-                "active workspace is absent from the desired registry: {active_workspace}"
-            );
-        }
-        // Child terminals become durable tombstones in this same transaction,
-        // before their workspace rows are tombstoned. Process termination is a
-        // post-commit effect and can therefore be retried after a daemon crash
-        // without ever letting a frontend resurrect the terminal elsewhere.
-        tombstone_terminals_in_removed_workspaces(&tx, workspaces, mutation)?;
         if let (Some(previous_topology), Some(sqlite_resource_revision)) =
             (previous_topology.as_ref(), sqlite_resource_revision)
         {
@@ -1209,73 +1191,23 @@ impl WorkspaceRegistry {
                 sqlite_resource_revision,
             )?;
         }
-        tx.execute(
-            "UPDATE workspaces SET tombstoned = 1, position = NULL,
-             updated_revision = ?1, deleted_revision = ?1
-             WHERE tombstoned = 0",
-            [sqlite_revision],
-        )?;
-        // Tombstone first to release the partial unique position index, then
-        // upsert the complete desired order in this same transaction.
-        for (position, workspace) in workspaces.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO workspaces(
-                   workspace_key, numeric_id, name, group_key, position, tombstoned,
-                   created_revision, updated_revision, deleted_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
-                 ON CONFLICT(workspace_key) DO UPDATE SET
-                   numeric_id=excluded.numeric_id,
-                   name=excluded.name,
-                   group_key=excluded.group_key,
-                   position=excluded.position,
-                   tombstoned=0,
-                   updated_revision=excluded.updated_revision,
-                   deleted_revision=NULL",
-                params![
-                    workspace.key,
-                    i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
-                    workspace.name,
-                    workspace.group_key,
-                    i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                    sqlite_revision
-                ],
-            )?;
+        if project_resource {
+            if let Some(active_workspace) = active_workspace {
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [active_workspace.as_str()],
+                )?;
+            } else {
+                tx.execute("DELETE FROM meta WHERE key = 'active_workspace_id'", [])?;
+            }
         }
-        if let Some(active_workspace) = active_workspace {
-            tx.execute(
-                "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)
-                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [active_workspace.as_str()],
-            )?;
-        } else {
-            tx.execute("DELETE FROM meta WHERE key = 'active_workspace_id'", [])?;
-        }
-        tx.execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
         if let Some(resource_revision) = resource_revision {
             tx.execute(
                 "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
                 [resource_revision.to_string()],
             )?;
         }
-        tx.execute(
-            "INSERT INTO mutations(
-               origin, mutation_id, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
-        )?;
-        tx.execute(
-            "INSERT INTO workspace_events(
-               revision, kind, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                sqlite_revision,
-                event_kind,
-                workspace_key,
-                mutation.origin,
-                mutation.id,
-                result_json
-            ],
-        )?;
         if let (
             Some(previous_topology),
             Some(previous_resource_revision),
@@ -1614,6 +1546,16 @@ fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Resul
             "SELECT workspace_key, created_revision, updated_revision, deleted_revision
              FROM workspaces
              WHERE workspace_key NOT IN (SELECT workspace_key FROM resource_workspaces)
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM resource_creation_receipts creation
+                 WHERE creation.execution_kind = 'effect'
+                   AND creation.state = 'executing'
+                   AND json_extract(
+                         creation.intent_json,
+                         '$.workspace_reservation.workspace_key'
+                       ) = workspaces.workspace_key
+               )
              ORDER BY created_revision ASC, workspace_key ASC",
         )?;
         statement
@@ -1825,11 +1767,196 @@ fn normalized_workspace_resource_deltas(
     Ok(Value::Array(deltas))
 }
 
+fn validate_terminal_batch_close(
+    mutation: &WorkspaceMutation,
+    terminals: &[(String, Option<String>)],
+) -> anyhow::Result<()> {
+    validate_identifier("mutation id", &mutation.id)?;
+    validate_identifier("mutation origin", &mutation.origin)?;
+    let mut unique = HashSet::with_capacity(terminals.len());
+    for (terminal_id, incarnation) in terminals {
+        validate_terminal_identity("terminal id", terminal_id)?;
+        if let Some(incarnation) = incarnation {
+            validate_terminal_identity("terminal incarnation", incarnation)?;
+        }
+        anyhow::ensure!(
+            unique.insert(terminal_id.as_str()),
+            "duplicate terminal in batch close: {terminal_id}"
+        );
+    }
+    Ok(())
+}
+
+fn close_terminals_in_transaction(
+    transaction: &Transaction<'_>,
+    mutation: &WorkspaceMutation,
+    terminals: &[(String, Option<String>)],
+    reason: &str,
+) -> anyhow::Result<TerminalBatchClose> {
+    let mut rows = Vec::with_capacity(terminals.len());
+    for (terminal_id, expected_incarnation) in terminals {
+        let terminal = read_terminal(transaction, terminal_id)?.ok_or_else(|| {
+            anyhow::anyhow!("unknown terminal {terminal_id}; it may not have been adopted yet")
+        })?;
+        if let Some(expected) = expected_incarnation
+            && terminal.incarnation.as_deref() != Some(expected)
+        {
+            anyhow::bail!("terminal_incarnation_mismatch");
+        }
+        rows.push(terminal);
+    }
+
+    let mut revision = transaction_terminal_revision(transaction)?;
+    let mut closed = 0usize;
+    for terminal in rows {
+        if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+            continue;
+        }
+        revision = revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let result_json = canonical_json(&serde_json::json!({
+            "terminal_id": terminal.terminal_id,
+            "workspace_key": terminal.workspace_key,
+            "incarnation": terminal.incarnation,
+            "closed": true,
+            "reason": reason,
+        }))?;
+        transaction.execute(
+            "UPDATE terminal_placements
+             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+             WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
+            params![sqlite_revision, terminal.terminal_id],
+        )?;
+        transaction.execute(
+            "INSERT INTO terminal_events(
+               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
+             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
+            params![
+                sqlite_revision,
+                terminal.terminal_id,
+                terminal.workspace_key,
+                mutation.origin,
+                mutation.id,
+                result_json,
+            ],
+        )?;
+        closed += 1;
+    }
+    if closed != 0 {
+        transaction.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
+            [revision.to_string()],
+        )?;
+    }
+    Ok(TerminalBatchClose { revision, closed })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_workspace_registry_in_transaction(
+    transaction: &Transaction<'_>,
+    mutation: &WorkspaceMutation,
+    fingerprint: &str,
+    expected_revision: Option<u64>,
+    event_kind: &str,
+    workspace_key: &str,
+    workspaces: &[RegistryWorkspace],
+    result_json: &str,
+) -> anyhow::Result<(u64, TerminalBatchClose)> {
+    validate_identifier("mutation id", &mutation.id)?;
+    validate_identifier("mutation origin", &mutation.origin)?;
+    validate_workspace_key(workspace_key)?;
+    validate_registry(workspaces)?;
+    let current = transaction_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != current
+    {
+        anyhow::bail!("workspace revision conflict: expected {expected}, current {current}");
+    }
+    let revision =
+        current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
+    for workspace in workspaces {
+        let was_tombstoned = transaction
+            .query_row(
+                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
+                [&workspace.key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        anyhow::ensure!(
+            was_tombstoned != Some(1),
+            "tombstoned workspace key cannot be reused: {}",
+            workspace.key
+        );
+    }
+
+    let terminal_batch =
+        tombstone_terminals_in_removed_workspaces(transaction, workspaces, mutation)?;
+    transaction.execute(
+        "UPDATE workspaces SET tombstoned = 1, position = NULL,
+         updated_revision = ?1, deleted_revision = ?1
+         WHERE tombstoned = 0",
+        [sqlite_revision],
+    )?;
+    // Tombstone first to release the partial unique position index, then
+    // upsert the complete desired order in this same transaction.
+    for (position, workspace) in workspaces.iter().enumerate() {
+        transaction.execute(
+            "INSERT INTO workspaces(
+               workspace_key, numeric_id, name, group_key, position, tombstoned,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
+             ON CONFLICT(workspace_key) DO UPDATE SET
+               numeric_id=excluded.numeric_id,
+               name=excluded.name,
+               group_key=excluded.group_key,
+               position=excluded.position,
+               tombstoned=0,
+               updated_revision=excluded.updated_revision,
+               deleted_revision=NULL",
+            params![
+                workspace.key,
+                i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
+                workspace.name,
+                workspace.group_key,
+                i64::try_from(position).context("workspace position exceeds SQLite range")?,
+                sqlite_revision
+            ],
+        )?;
+    }
+    transaction
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'revision'", [revision.to_string()])?;
+    transaction.execute(
+        "INSERT INTO mutations(
+           origin, mutation_id, fingerprint, result_json, committed_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![mutation.origin, mutation.id, fingerprint, result_json, sqlite_revision],
+    )?;
+    transaction.execute(
+        "INSERT INTO workspace_events(
+           revision, kind, workspace_key, origin, mutation_id, result_json
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            sqlite_revision,
+            event_kind,
+            workspace_key,
+            mutation.origin,
+            mutation.id,
+            result_json
+        ],
+    )?;
+    Ok((revision, terminal_batch))
+}
+
 fn tombstone_terminals_in_removed_workspaces(
     transaction: &Transaction<'_>,
     remaining_workspaces: &[RegistryWorkspace],
     mutation: &WorkspaceMutation,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<TerminalBatchClose> {
     let remaining =
         remaining_workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<HashSet<_>>();
     let terminals = {
@@ -1854,10 +1981,14 @@ fn tombstone_terminals_in_removed_workspaces(
         .filter(|(_, workspace_key, _)| !remaining.contains(workspace_key.as_str()))
         .collect::<Vec<_>>();
     if removed.is_empty() {
-        return Ok(());
+        return Ok(TerminalBatchClose {
+            revision: transaction_terminal_revision(transaction)?,
+            closed: 0,
+        });
     }
 
     let mut revision = transaction_terminal_revision(transaction)?;
+    let mut closed = 0usize;
     for (terminal_id, workspace_key, incarnation) in removed {
         revision = revision
             .checked_add(1)
@@ -1891,12 +2022,13 @@ fn tombstone_terminals_in_removed_workspaces(
                 result_json,
             ],
         )?;
+        closed += 1;
     }
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
         [revision.to_string()],
     )?;
-    Ok(())
+    Ok(TerminalBatchClose { revision, closed })
 }
 
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {

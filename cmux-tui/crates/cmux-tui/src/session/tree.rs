@@ -20,6 +20,7 @@ pub struct TreeView {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub struct AmbiguousSurfaceReference;
 
 #[derive(Clone)]
@@ -127,6 +128,7 @@ impl TreeView {
     /// short id shown by the TUI and CLI. A digit-only six-character value
     /// can inhabit both namespaces, so conflicting live matches are rejected
     /// instead of silently routing input to either surface.
+    #[cfg(test)]
     pub fn resolve_surface(
         &self,
         reference: &str,

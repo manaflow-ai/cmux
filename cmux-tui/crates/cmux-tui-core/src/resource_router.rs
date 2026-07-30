@@ -548,15 +548,14 @@ fn validate_operation_constraints(
     fields: &Map<String, Value>,
     supplied: &Map<String, Value>,
 ) -> Result<(), ResourceError> {
-    if matches!(operation, ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun) {
-        if let Some(argv) = fields.get("argv").and_then(Value::as_array) {
-            if argv.first().and_then(Value::as_str).is_none_or(str::is_empty) {
-                return Err(invalid_value(
-                    &format!("{}.argv[0]", operation_name(operation)),
-                    "argv[0] must be non-empty",
-                ));
-            }
-        }
+    if matches!(operation, ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun)
+        && let Some(argv) = fields.get("argv").and_then(Value::as_array)
+        && argv.first().and_then(Value::as_str).is_none_or(str::is_empty)
+    {
+        return Err(invalid_value(
+            &format!("{}.argv[0]", operation_name(operation)),
+            "argv[0] must be non-empty",
+        ));
     }
     if matches!(
         operation,
@@ -607,13 +606,13 @@ fn validate_operation_constraints(
             )?;
         }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
-            if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64) {
-                if !(0.0 < ratio && ratio < 1.0) {
-                    return Err(invalid_value(
-                        &format!("{}.ratio", operation_name(operation)),
-                        "ratio must be greater than zero and less than one",
-                    ));
-                }
+            if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
+                && !(0.0 < ratio && ratio < 1.0)
+            {
+                return Err(invalid_value(
+                    &format!("{}.ratio", operation_name(operation)),
+                    "ratio must be greater than zero and less than one",
+                ));
             }
         }
         ResourceOperation::BrowserInputMouse => validate_browser_mouse(fields)?,
@@ -706,6 +705,7 @@ pub(crate) fn is_resource_protocol_message(message: &str) -> bool {
         .is_some_and(|object| object.contains_key("protocol"))
 }
 
+#[cfg(test)]
 pub(crate) fn handle_resource_message(
     mux: &Arc<Mux>,
     message: &str,
@@ -1213,8 +1213,7 @@ fn execute_notification_effect(
         })?;
     let surface =
         terminal_id.as_ref().and_then(|terminal_id| mux.resource_surface_for_terminal(terminal_id));
-    if terminal_id.is_some() && surface.is_none() {
-        let terminal_id = terminal_id.expect("checked present");
+    if let Some(terminal_id) = terminal_id.as_ref().filter(|_| surface.is_none()) {
         let error = ResourceError::not_found("terminal", terminal_id.as_str());
         let outcome = ResourceEffectOutcome::Failure(error.clone());
         if mux

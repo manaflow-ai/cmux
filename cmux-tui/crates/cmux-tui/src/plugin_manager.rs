@@ -141,8 +141,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
     reject_plugin_flags(options, true, true, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(
-            "usage: cmux sidebar plugin install <git-url> [--name <name>] [--force]"
-                .to_string(),
+            "usage: cmux sidebar plugin install <git-url> [--name <name>] [--force]".to_string(),
         ));
     }
     if positionals[1].is_empty() {

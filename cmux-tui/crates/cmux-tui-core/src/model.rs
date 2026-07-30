@@ -52,14 +52,6 @@ pub(crate) enum LayoutMutationKey {
     Resize { owner: LayoutResizeOwner, transaction: u64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum ProjectedSplitRatioUpdate {
-    NotProjected,
-    Unchanged,
-    Applied,
-    Unrepresentable { width: f32 },
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
     pub before: ScreenLayoutSnapshot,
@@ -370,18 +362,6 @@ impl Node {
         }
     }
 
-    pub(crate) fn set_deepest_ratio(
-        &mut self,
-        target: PaneId,
-        dir: SplitDir,
-        new_ratio: f32,
-    ) -> bool {
-        let Some(split) = self.deepest_split_for_pane(target, dir) else {
-            return false;
-        };
-        self.set_split_ratio(split, new_ratio)
-    }
-
     pub(crate) fn deepest_split_for_pane(&self, target: PaneId, dir: SplitDir) -> Option<SplitId> {
         fn walk(node: &Node, target: PaneId, dir: SplitDir) -> (bool, Option<SplitId>) {
             match node {
@@ -403,6 +383,19 @@ impl Node {
         }
 
         walk(self, target, dir).1
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_deepest_ratio(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        new_ratio: f32,
+    ) -> bool {
+        let Some(split) = self.deepest_split_for_pane(target, dir) else {
+            return false;
+        };
+        self.set_split_ratio(split, new_ratio)
     }
 
     pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
@@ -429,19 +422,6 @@ impl Node {
                 } else {
                     a.split_ratio(target).or_else(|| b.split_ratio(target))
                 }
-            }
-        }
-    }
-
-    fn set_split_ratios(&mut self, ratios: &BTreeMap<SplitId, f32>) {
-        match self {
-            Node::Leaf(_) | Node::Stack { .. } => {}
-            Node::Split { id, ratio, a, b, .. } => {
-                if let Some(updated) = ratios.get(id) {
-                    *ratio = *updated;
-                }
-                a.set_split_ratios(ratios);
-                b.set_split_ratios(ratios);
             }
         }
     }
@@ -578,7 +558,7 @@ mod tests {
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pane {
     pub id: PaneId,
     pub public_id: PanePublicId,
@@ -599,7 +579,7 @@ impl Pane {
 
 /// One split-tree of panes. A workspace can hold many screens; exactly
 /// one is visible at a time (the status bar switches between them).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Screen {
     pub id: ScreenId,
     pub public_id: ScreenPublicId,
@@ -738,10 +718,6 @@ impl Screen {
         !self.layout_columns.is_empty()
     }
 
-    pub(crate) fn is_projected_viewport_split(&self, split: SplitId) -> bool {
-        self.layout_columns.iter().skip(1).any(|column| column.id == split)
-    }
-
     pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
         self.layout_columns.iter_mut().find(|column| column.root.contains(pane))
     }
@@ -805,59 +781,6 @@ impl Screen {
         debug_assert!(self.layout_column_projection_is_consistent());
     }
 
-    pub(crate) fn sync_layout_column_width_projection(&mut self) {
-        let Some(first) = self.layout_columns.first() else {
-            self.viewport_splits.clear();
-            self.viewport_base_width = None;
-            return;
-        };
-        self.viewport_splits.clear();
-        self.viewport_base_width = Some(first.width);
-        let mut ratios = BTreeMap::new();
-        let mut width_before = first.width;
-        for column in self.layout_columns.iter().skip(1) {
-            ratios.insert(column.id, width_before / (width_before + column.width));
-            self.viewport_splits.insert(column.id, column.width);
-            width_before += column.width;
-        }
-        self.root.set_split_ratios(&ratios);
-        debug_assert!(self.layout_column_projection_is_consistent());
-    }
-
-    /// Apply a compatibility split ratio to an authoritative viewport column.
-    ///
-    /// Projected split `i` represents all preceding columns on the left and
-    /// column `i` on the right, so changing its ratio changes that right
-    /// column's frontend-relative width.
-    pub(crate) fn set_projected_viewport_split_ratio(
-        &mut self,
-        split: SplitId,
-        ratio: f32,
-    ) -> ProjectedSplitRatioUpdate {
-        let Some(index) = self
-            .layout_columns
-            .iter()
-            .position(|column| column.id == split)
-            .filter(|index| *index > 0)
-        else {
-            return ProjectedSplitRatioUpdate::NotProjected;
-        };
-        let width_before =
-            self.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
-        let width = width_before * (1.0 - ratio) / ratio;
-        if !width.is_finite()
-            || !(crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return ProjectedSplitRatioUpdate::Unrepresentable { width };
-        }
-        if self.layout_columns[index].width == width {
-            return ProjectedSplitRatioUpdate::Unchanged;
-        }
-        self.layout_columns[index].width = width;
-        self.sync_layout_column_width_projection();
-        ProjectedSplitRatioUpdate::Applied
-    }
-
     pub(crate) fn collapse_single_layout_column(&mut self) {
         if self.layout_columns.len() != 1 {
             self.sync_layout_column_projection();
@@ -904,7 +827,7 @@ impl Screen {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub public_id: WorkspacePublicId,
@@ -925,6 +848,7 @@ impl Workspace {
 
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
+#[derive(Clone)]
 pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,

@@ -1339,7 +1339,7 @@ impl ResourceJournal {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PublicSlotIndexes {
     pub workspaces: HashMap<WorkspacePublicId, crate::WorkspaceId>,
     pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
@@ -1405,15 +1405,15 @@ mod tests {
             (
                 "cursor.gap",
                 json!({
-                    "requested":cursor.clone(),
-                    "current":cursor.clone(),
+                    "requested":cursor,
+                    "current":cursor,
                     "oldest_revision":"2",
                 }),
                 true,
             ),
             (
                 "cursor.invalid",
-                json!({"requested":cursor.clone(),"current":cursor.clone(),"reason":"ahead"}),
+                json!({"requested":cursor,"current":cursor,"reason":"ahead"}),
                 false,
             ),
             (
@@ -1604,7 +1604,7 @@ mod tests {
         .unwrap();
         mutation.validate().unwrap();
 
-        let mut missing_key = mutation.clone();
+        let mut missing_key = mutation;
         missing_key.idempotency_key = None;
         assert_eq!(missing_key.validate().unwrap_err().code, "validation.invalid");
 

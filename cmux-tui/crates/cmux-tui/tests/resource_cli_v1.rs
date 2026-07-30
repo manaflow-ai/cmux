@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
@@ -14,6 +15,7 @@ const PANE_ID: &str = "pane_33333333333333333333333333333333";
 const TAB_ID: &str = "tab_44444444444444444444444444444444";
 const TERMINAL_ID: &str = "term_55555555555555555555555555555555";
 const BROWSER_ID: &str = "browser_66666666666666666666666666666666";
+static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn root_help_is_noun_first_and_does_not_publish_the_old_flat_api() {
@@ -972,7 +974,9 @@ fn stderr(output: &Output) -> String {
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    Path::new("/tmp").join(format!("cmux-resource-cli-{name}-{}-{stamp}", std::process::id()))
+    let sequence = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+    Path::new("/tmp")
+        .join(format!("cmux-resource-cli-{name}-{}-{stamp}-{sequence}", std::process::id()))
 }
 
 fn bin() -> &'static str {

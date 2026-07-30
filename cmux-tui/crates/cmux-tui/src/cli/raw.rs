@@ -70,10 +70,10 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             }
         };
         if value.get("event").is_some() {
-            if matches!(global.output, OutputMode::Json | OutputMode::JsonLines) {
-                if super::wire::print_local_success(&value, global.output) != 0 {
-                    return 3;
-                }
+            if matches!(global.output, OutputMode::Json | OutputMode::JsonLines)
+                && super::wire::print_local_success(&value, global.output) != 0
+            {
+                return 3;
             }
             continue;
         }

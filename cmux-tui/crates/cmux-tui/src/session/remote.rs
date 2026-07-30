@@ -577,22 +577,10 @@ impl RemoteSession {
     }
 
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, true)
-    }
-
-    pub fn connect_for_surface_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, false)
-    }
-
-    fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
-        }
+        Self::connect_stream(stream)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -707,6 +695,7 @@ impl RemoteSession {
         self.capabilities.lock().unwrap().contains(capability)
     }
 
+    #[cfg(test)]
     pub fn supports_surface_subscription_filter(&self) -> bool {
         self.supports_capability(cmux_tui_core::server::SURFACE_SUBSCRIBE_FILTER_CAPABILITY)
     }
@@ -755,6 +744,7 @@ impl RemoteSession {
 
     /// Limit this connection to events that can affect one attached terminal.
     /// Surface IDs are allocated from one, so zero is the unscoped sentinel.
+    #[cfg(test)]
     pub fn scope_events_to_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         debug_assert_ne!(surface, 0);
         if !self.supports_surface_subscription_filter() {

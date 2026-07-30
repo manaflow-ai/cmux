@@ -137,8 +137,7 @@ impl Mux {
                     target.screen.context("destination did not resolve a screen")?;
                 let target_screen_id =
                     target.path.screen.clone().context("destination omitted its screen id")?;
-                let target_pane_id =
-                    target.path.pane.clone().context("destination omitted its pane id")?;
+                let target_pane_id = target.path.pane.context("destination omitted its pane id")?;
 
                 let topology = registry.resource_topology_snapshot()?;
                 let snapshot = registry.snapshot()?;
@@ -173,7 +172,7 @@ impl Mux {
                         state,
                         registry,
                         surface,
-                        source_tab.public_id.clone(),
+                        source_tab.public_id,
                         source_pane_slot,
                         target_pane_slot,
                         index,
@@ -268,11 +267,8 @@ impl Mux {
                     });
                 }
 
-                let source_workspace_id = source
-                    .path
-                    .workspace
-                    .clone()
-                    .context("terminal source omitted its workspace id")?;
+                let source_workspace_id =
+                    source.path.workspace.context("terminal source omitted its workspace id")?;
                 if source_workspace_id != target_workspace_id {
                     let host_id = source_tab
                         .terminal_id
@@ -284,7 +280,7 @@ impl Mux {
                         .into_iter()
                         .find(|terminal| terminal.terminal_id == host_id)
                         .context("terminal has no durable host placement")?;
-                    terminal.workspace_key = target_workspace_key.clone();
+                    terminal.workspace_key = target_workspace_key;
                     changes.push(ResourceChange::UpsertTerminal {
                         public_id: terminal_id.clone(),
                         terminal,
@@ -308,7 +304,7 @@ impl Mux {
                 changes.push(ResourceChange::UpsertWorkspace {
                     workspace: durable_workspace,
                     position: target_workspace_index,
-                    active_screen: Some(target_screen_id.clone()),
+                    active_screen: Some(target_screen_id),
                 });
                 changes.push(ResourceChange::SetActiveWorkspace {
                     workspace_id: Some(target_workspace_id.clone()),
@@ -318,8 +314,8 @@ impl Mux {
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
                 let target_delta_tabs = target_tabs.clone();
-                let source_delta_pane = source_pane.clone();
-                let target_delta_pane = target_pane.clone();
+                let source_delta_pane = source_pane;
+                let target_delta_pane = target_pane;
                 let deltas = move_deltas(
                     &source_delta_pane,
                     &target_delta_pane,
@@ -382,7 +378,7 @@ impl Mux {
                                 .panes
                                 .get_mut(&target_pane_slot)
                                 .expect("destination pane validated before commit");
-                            debug_assert!(target.tabs.capacity() >= target_existing_len + 1);
+                            debug_assert!(target.tabs.capacity() > target_existing_len);
                             target.tabs.insert(new_index, surface);
                             target.active_tab = new_index;
                             state.resource_indexes.tab_pane.insert(surface, target_pane_slot);
@@ -529,8 +525,8 @@ impl Mux {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 live_screens.insert(screen.public_id.clone());
                 let durable =
-                    registry_screen_from_live(&state, &workspace.public_id, screen_index, screen)?;
-                let public_layout = public_layout_from_registry(&durable, &state)?;
+                    registry_screen_from_live(state, &workspace.public_id, screen_index, screen)?;
+                let public_layout = public_layout_from_registry(&durable, state)?;
                 changes.push(ResourceChange::UpsertScreen(durable.clone()));
                 public.push((
                     "screen",
@@ -561,10 +557,8 @@ impl Mux {
                                 .map(|identity| identity.tab_id.clone())
                         })
                     });
-                    let creation_ordinal = before_pane_ordinals
-                        .get(&pane.public_id)
-                        .copied()
-                        .unwrap_or(pane.id);
+                    let creation_ordinal =
+                        before_pane_ordinals.get(&pane.public_id).copied().unwrap_or(pane.id);
                     changes.push(ResourceChange::UpsertPane(RegistryPane {
                         public_id: pane.public_id.clone(),
                         screen_id: screen.public_id.clone(),

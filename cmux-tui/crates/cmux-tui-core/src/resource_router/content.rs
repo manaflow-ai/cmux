@@ -33,6 +33,7 @@ use crate::{Mux, ResourceSelectors, ResourceTarget, Surface, SurfaceKind, Worksp
 const MAX_TERMINAL_MOUSE_BYTES: usize = crate::resource::MAX_MESSAGE_BYTES;
 const WAIT_POLL: Duration = Duration::from_millis(250);
 
+#[cfg(test)]
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -78,36 +79,22 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
         ResourceOperation::TerminalViewportScroll => terminal_viewport_scroll(mux, request),
-        operation
-            if matches!(
-                operation,
-                ResourceOperation::TerminalInputWrite
-                    | ResourceOperation::TerminalInputKeys
-                    | ResourceOperation::TerminalInputMouse
-                    | ResourceOperation::TerminalInputFocus
-                    | ResourceOperation::TerminalHistoryClear
-                    | ResourceOperation::TerminalClose
-            ) =>
-        {
-            terminal_effect(mux, request)
-        }
-        operation
-            if matches!(
-                operation,
-                ResourceOperation::BrowserNavigate
-                    | ResourceOperation::BrowserBack
-                    | ResourceOperation::BrowserForward
-                    | ResourceOperation::BrowserReload
-                    | ResourceOperation::BrowserActivate
-                    | ResourceOperation::BrowserInputKey
-                    | ResourceOperation::BrowserInputText
-                    | ResourceOperation::BrowserInputMouse
-                    | ResourceOperation::BrowserInputWheel
-                    | ResourceOperation::BrowserClose
-            ) =>
-        {
-            browser_effect(mux, request)
-        }
+        ResourceOperation::TerminalInputWrite
+        | ResourceOperation::TerminalInputKeys
+        | ResourceOperation::TerminalInputMouse
+        | ResourceOperation::TerminalInputFocus
+        | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalClose => terminal_effect(mux, request),
+        ResourceOperation::BrowserNavigate
+        | ResourceOperation::BrowserBack
+        | ResourceOperation::BrowserForward
+        | ResourceOperation::BrowserReload
+        | ResourceOperation::BrowserActivate
+        | ResourceOperation::BrowserInputKey
+        | ResourceOperation::BrowserInputText
+        | ResourceOperation::BrowserInputMouse
+        | ResourceOperation::BrowserInputWheel
+        | ResourceOperation::BrowserClose => browser_effect(mux, request),
         operation => Err(ResourceError::operation_failed(
             super::operation_name(operation),
             "content router received an operation it does not own",
@@ -405,13 +392,7 @@ fn execute_terminal_effect(
         "terminal.history.clear" => {
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
-        "terminal.close" => mux
-            .close_surface_for_resource_effect(surface_id)
-            .and_then(|closed| {
-                anyhow::ensure!(closed, "terminal disappeared while it was being closed");
-                Ok(())
-            })
-            .map_err(|error| ActionFailure::Indeterminate(error.to_string())),
+        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -423,7 +404,13 @@ fn execute_terminal_effect(
     }
 
     if prepared.operation == "terminal.close" {
-        return commit_projected_effect(mux, prepared, json!({}));
+        let commit = mux.commit_resource_surface_close_effect(
+            surface_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
     }
 
     let snapshot = match public_session_snapshot(mux) {
@@ -434,7 +421,7 @@ fn execute_terminal_effect(
         Ok(terminal) => terminal,
         Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
     };
-    let changes = upsert_change("terminal", terminal_id.as_str(), terminal.clone());
+    let changes = upsert_change("terminal", terminal_id.as_str(), terminal);
     effects::commit_success(mux, prepared, json!({}), changes)
 }
 
@@ -520,12 +507,7 @@ fn execute_browser_effect(
                         .browser_close_confirmed()
                         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
                 }
-                mux.close_surface_for_resource_effect(surface_id)
-                    .and_then(|closed| {
-                        anyhow::ensure!(closed, "browser disappeared while it was being closed");
-                        Ok(())
-                    })
-                    .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+                Ok(())
             }
             operation => Err(ActionFailure::Known(ResourceError::operation_failed(
                 operation,
@@ -539,7 +521,13 @@ fn execute_browser_effect(
     }
 
     if prepared.operation == "browser.close" {
-        return commit_projected_effect(mux, prepared, json!({}));
+        let commit = mux.commit_resource_surface_close_effect(
+            surface_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
     }
 
     let returns_browser = matches!(
@@ -672,20 +660,6 @@ fn targeted_browser_effect_projection(
         changes: upsert_change("browser", browser_id.as_str(), value.clone()),
         result: if returns_browser { value } else { json!({}) },
     })
-}
-
-fn commit_projected_effect(
-    mux: &Arc<Mux>,
-    prepared: PreparedEffect,
-    value: Value,
-) -> Result<Value, ResourceError> {
-    let commit = mux.commit_full_resource_effect_projection(
-        &prepared.idempotency_key,
-        &prepared.operation,
-        &prepared.fingerprint,
-        value,
-    );
-    finish_projection_commit(mux, prepared, commit)
 }
 
 fn finish_projection_commit(
@@ -1121,6 +1095,7 @@ fn upsert_change(resource: &str, id: &str, value: Value) -> Value {
     }])
 }
 
+#[cfg(test)]
 fn find_upsert_change(changes: &Value, resource: &str, id: &str) -> Option<Value> {
     changes.as_array()?.iter().find_map(|change| {
         (change["kind"] == "upsert"
@@ -1865,15 +1840,11 @@ mod tests {
     #[test]
     fn terminal_reads_match_catalog_shapes_and_preserve_argv_boundaries() {
         {
-            let unreserved =
-                Mux::new_for_test("unreserved-terminal-projection", SurfaceOptions::default());
-            let surface =
-                unreserved.new_workspace(Some("unreserved".into()), Some((12, 4))).unwrap();
-            let error = unreserved
-                .resource_effect_projection()
-                .err()
-                .expect("unreserved terminal projection must fail");
-            assert!(error.to_string().contains("omitted its durable host identity"));
+            let reserved =
+                Mux::new_for_test("ordinary-terminal-projection", SurfaceOptions::default());
+            let surface = reserved.new_workspace(Some("ordinary".into()), Some((12, 4))).unwrap();
+            let projection = reserved.resource_effect_projection().unwrap();
+            assert!(!projection.patch.changes.is_empty());
             surface.kill();
         }
 
@@ -1964,6 +1935,8 @@ mod tests {
         assert_eq!(second["replayed"], true);
         assert_eq!(second["revision"], first["revision"]);
 
+        let before_resource = first["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;
         let closed = dispatch(
             &mux,
             parsed_request("terminal.close", &selectors, json!({}), Some("terminal-close-replay")),
@@ -1971,6 +1944,13 @@ mod tests {
         .unwrap();
         assert_eq!(closed["replayed"], false);
         assert_eq!(public_session_snapshot(&mux).unwrap()["terminals"], json!([]));
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource + 1);
+        assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
+        let (terminal_snapshot, terminal_events) =
+            mux.terminal_registry_events_page(before_terminal).unwrap();
+        assert_eq!(terminal_snapshot.revision, before_terminal + 1);
+        assert_eq!(terminal_events.len(), 1);
+        assert_eq!(terminal_events[0].kind, "terminal-closed");
 
         let replay = dispatch(
             &mux,
@@ -1979,6 +1959,60 @@ mod tests {
         .unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["revision"], closed["revision"]);
+        assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
+    }
+
+    #[test]
+    fn browser_close_commits_the_tab_and_browser_tombstones_once() {
+        let mux = Mux::new_for_test("content-browser-close", SurfaceOptions::default());
+        let session = ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            ..ResourceSelectors::default()
+        };
+        let created = super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.create_browser",
+                &session,
+                json!({"url":"about:blank#atomic-browser-close"}),
+                Some("content-browser-create"),
+            ),
+        )
+        .unwrap();
+        let browser_id = created["value"]["browser_id"].as_str().unwrap().to_string();
+        let selectors = ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            browser: Some(browser_id),
+            ..ResourceSelectors::default()
+        };
+        let before_resource = mux.with_state(|state| state.resource_revision);
+        let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;
+        let request = || {
+            parsed_request(
+                "browser.close",
+                &selectors,
+                json!({}),
+                Some("content-browser-close-effect"),
+            )
+        };
+
+        let closed = dispatch(&mux, request()).unwrap();
+        assert_eq!(closed["replayed"], false);
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource + 1);
+        assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal);
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert!(snapshot["browsers"].as_array().unwrap().is_empty());
+        assert!(snapshot["tabs"].as_array().unwrap().is_empty());
+
+        let replay = dispatch(&mux, request()).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["revision"], closed["revision"]);
+        assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
+        mux.shutdown();
     }
 
     #[test]

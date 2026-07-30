@@ -415,7 +415,9 @@ fn mutation(envelope: &RequestEnvelope) -> Result<WorkspaceMutation, ResourceErr
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Barrier, Mutex, mpsc};
+    use std::time::Duration;
 
     use super::*;
     use crate::SurfaceOptions;
@@ -671,6 +673,137 @@ mod tests {
     }
 
     #[test]
+    fn browser_create_without_a_workspace_publishes_one_complete_batch() {
+        let mux = mux();
+        let request = || {
+            parsed(
+                ResourceOperation::TabCreateBrowser,
+                session_selectors(),
+                json!({"url":"about:blank#single-batch"}),
+                Some("browser-single-batch"),
+            )
+        };
+
+        let created = dispatch(&mux, request()).unwrap();
+        assert_eq!(created["replayed"], false);
+        assert_eq!(created["revision"], "1");
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["session"]["revision"], "1");
+        assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["browsers"].as_array().unwrap().len(), 1);
+        assert_eq!(mux.resource_events_after(0).unwrap().batches.len(), 1);
+
+        let replay = dispatch(&mux, request()).unwrap();
+        assert_eq!(replay["value"], created["value"]);
+        assert_eq!(replay["revision"], created["revision"]);
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(mux.resource_events_after(0).unwrap().batches.len(), 1);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn topology_closes_advance_every_durable_stream_in_one_batch() {
+        for (operation, selector_field) in [
+            (ResourceOperation::WorkspaceClose, "workspace_id"),
+            (ResourceOperation::ScreenClose, "screen_id"),
+            (ResourceOperation::PaneClose, "pane_id"),
+            (ResourceOperation::TabClose, "tab_id"),
+        ] {
+            let mux = mux();
+            let created = terminal_workspace(&mux, &format!("atomic-{selector_field}"));
+            let id = created["value"][selector_field].as_str().unwrap();
+            let selectors = match operation {
+                ResourceOperation::WorkspaceClose => selectors(Some(id), None, None, None),
+                ResourceOperation::ScreenClose => selectors(None, Some(id), None, None),
+                ResourceOperation::PaneClose => selectors(None, None, Some(id), None),
+                ResourceOperation::TabClose => selectors(None, None, None, Some(id)),
+                _ => unreachable!(),
+            };
+            let key = format!("atomic-close-{selector_field}");
+            let before_resource = mux.with_state(|state| state.resource_revision);
+            let before_workspace = mux.with_state(|state| state.workspace_revision);
+            let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;
+            let request = || parsed(operation, selectors.clone(), json!({}), Some(&key));
+
+            let closed = dispatch(&mux, request()).unwrap();
+            assert_eq!(closed["replayed"], false, "{operation:?}");
+            assert_eq!(
+                mux.with_state(|state| state.resource_revision),
+                before_resource + 1,
+                "{operation:?} public revision"
+            );
+            assert_eq!(
+                mux.resource_events_after(before_resource).unwrap().batches.len(),
+                1,
+                "{operation:?} public events"
+            );
+            let expected_workspace =
+                before_workspace + u64::from(operation == ResourceOperation::WorkspaceClose);
+            assert_eq!(
+                mux.with_state(|state| state.workspace_revision),
+                expected_workspace,
+                "{operation:?} workspace revision"
+            );
+            if operation == ResourceOperation::WorkspaceClose {
+                let event = mux
+                    .workspace_registry_event(expected_workspace)
+                    .unwrap()
+                    .expect("workspace close event");
+                assert_eq!(event.kind, "workspace-closed");
+                assert_eq!(event.mutation_id, key);
+            }
+            let (terminal_snapshot, terminal_events) =
+                mux.terminal_registry_events_page(before_terminal).unwrap();
+            assert_eq!(terminal_snapshot.revision, before_terminal + 1, "{operation:?}");
+            assert_eq!(terminal_events.len(), 1, "{operation:?}");
+            assert_eq!(terminal_events[0].kind, "terminal-closed");
+            assert_eq!(terminal_events[0].mutation_id, key);
+
+            let replay = dispatch(&mux, request()).unwrap();
+            assert_eq!(replay["replayed"], true, "{operation:?}");
+            assert_eq!(replay["revision"], closed["revision"], "{operation:?}");
+            assert_eq!(mux.resource_events_after(before_resource).unwrap().batches.len(), 1);
+            assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
+            mux.shutdown();
+        }
+    }
+
+    #[test]
+    fn topology_close_commit_failure_leaves_every_projection_live() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "atomic-close-rollback");
+        let workspace = created["value"]["workspace_id"].as_str().unwrap();
+        let before_resource = mux.with_state(|state| state.resource_revision);
+        let before_workspace = mux.with_state(|state| state.workspace_revision);
+        let before_terminal = mux.terminal_registry_snapshot().unwrap().revision;
+        mux.set_resource_patch_failure_for_test(true);
+
+        let error = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceClose,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                Some("atomic-close-rollback-effect"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "operation.failed");
+        mux.set_resource_patch_failure_for_test(false);
+
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
+        assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal);
+        assert!(mux.resource_events_after(before_resource).unwrap().batches.is_empty());
+        assert!(mux.workspace_registry_event(before_workspace + 1).unwrap().is_none());
+        assert!(mux.terminal_registry_events_page(before_terminal).unwrap().1.is_empty());
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["terminals"].as_array().unwrap().len(), 1);
+        mux.shutdown();
+    }
+
+    #[test]
     fn workspace_get_accepts_direct_id_without_repeating_ancestors() {
         let mux = mux();
         let created = dispatch(
@@ -754,6 +887,145 @@ mod tests {
         let events = mux.resource_events_after(0).unwrap();
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].revision, 1);
+    }
+
+    #[test]
+    fn terminal_creation_retries_one_shot_projection_failure_without_a_second_batch() {
+        let mux = mux();
+        mux.set_resource_patch_failures_remaining_for_test(1);
+        let request = || {
+            parsed(
+                ResourceOperation::WorkspaceCreate,
+                session_selectors(),
+                json!({
+                    "initial_content":"terminal",
+                    "name":"projection retry",
+                    "correlation_key":"projection-retry-correlation",
+                }),
+                Some("projection-retry-attempt"),
+            )
+        };
+
+        let created = dispatch(&mux, request()).unwrap();
+        assert_eq!(created["revision"], "1");
+        assert_eq!(created["replayed"], false);
+        assert_eq!(mux.resource_event_epoch(), 1);
+        let events = mux.resource_events_after(0).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].revision, 1);
+        let replay = dispatch(&mux, request()).unwrap();
+        assert_eq!(replay["value"], created["value"]);
+        assert_eq!(replay["revision"], "1");
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(mux.resource_event_epoch(), 1);
+        assert_eq!(mux.resource_events_after(0).unwrap().batches.len(), 1);
+        assert_eq!(
+            mux.resource_creation_resolution("projection-retry-correlation").unwrap()["state"],
+            "created"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
+    fn concurrent_correlated_creations_serialize_before_their_durable_reservations() {
+        let mux = mux();
+        let reservation_calls = Arc::new(AtomicUsize::new(0));
+        let first_reservation = Arc::new(Barrier::new(2));
+        let release_first = Arc::new(Barrier::new(2));
+        mux.set_resource_terminal_reservation_hook_for_test(Some(Arc::new({
+            let reservation_calls = Arc::clone(&reservation_calls);
+            let first_reservation = Arc::clone(&first_reservation);
+            let release_first = Arc::clone(&release_first);
+            move |_| {
+                if reservation_calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                    first_reservation.wait();
+                    release_first.wait();
+                }
+            }
+        })));
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let first = {
+            let mux = Arc::clone(&mux);
+            let result_tx = result_tx.clone();
+            std::thread::spawn(move || {
+                started_tx.send("first").unwrap();
+                result_tx
+                    .send(dispatch(
+                        &mux,
+                        parsed(
+                            ResourceOperation::WorkspaceCreate,
+                            session_selectors(),
+                            json!({
+                                "initial_content":"terminal",
+                                "name":"concurrent first",
+                                "correlation_key":"concurrent-first-correlation",
+                            }),
+                            Some("concurrent-first-attempt"),
+                        ),
+                    ))
+                    .unwrap();
+            })
+        };
+        assert_eq!(started_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "first");
+        first_reservation.wait();
+
+        let second = {
+            let mux = Arc::clone(&mux);
+            std::thread::spawn(move || {
+                result_tx
+                    .send(dispatch(
+                        &mux,
+                        parsed(
+                            ResourceOperation::WorkspaceCreate,
+                            session_selectors(),
+                            json!({
+                                "initial_content":"terminal",
+                                "name":"concurrent second",
+                                "correlation_key":"concurrent-second-correlation",
+                            }),
+                            Some("concurrent-second-attempt"),
+                        ),
+                    ))
+                    .unwrap();
+            })
+        };
+        assert!(
+            result_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "the second creation completed while the first reservation was staged"
+        );
+        assert_eq!(
+            reservation_calls.load(Ordering::Acquire),
+            1,
+            "the second creation reserved durable identity before the first settled"
+        );
+        release_first.wait();
+
+        let mut revisions = [
+            result_rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap()["revision"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+            result_rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap()["revision"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+        ];
+        first.join().unwrap();
+        second.join().unwrap();
+        revisions.sort_unstable();
+        assert_eq!(revisions, [1, 2]);
+        assert_eq!(reservation_calls.load(Ordering::Acquire), 2);
+        assert_eq!(mux.resource_event_epoch(), 2);
+        assert_eq!(mux.resource_events_after(0).unwrap().batches.len(), 2);
+        for correlation in ["concurrent-first-correlation", "concurrent-second-correlation"] {
+            assert_eq!(mux.resource_creation_resolution(correlation).unwrap()["state"], "created");
+        }
+        mux.set_resource_terminal_reservation_hook_for_test(None);
+        mux.shutdown();
     }
 
     #[test]
@@ -1141,7 +1413,7 @@ mod tests {
             .is_err()
         );
 
-        let mut changed = exported.clone();
+        let mut changed = exported;
         changed["root"]["ratio"] = json!(0.3);
         let apply_request = || {
             parsed(

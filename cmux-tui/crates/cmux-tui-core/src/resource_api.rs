@@ -1023,12 +1023,12 @@ mod tests {
         let column_a = public_id::<SplitPublicId>("split", 9);
         let column_b = public_id::<SplitPublicId>("split", 10);
         let nested = RegistryLayoutNode::Split {
-            split: split_a.clone(),
+            split: split_a,
             direction: "right".into(),
             ratio: 0.4,
             first: Box::new(RegistryLayoutNode::Leaf { pane: pane_a.clone() }),
             second: Box::new(RegistryLayoutNode::Split {
-                split: split_b.clone(),
+                split: split_b,
                 direction: "right".into(),
                 ratio: 0.6,
                 first: Box::new(RegistryLayoutNode::Leaf { pane: pane_b.clone() }),
@@ -1068,7 +1068,7 @@ mod tests {
                 ],
             },
         };
-        let panes = vec![
+        let panes = [
             RegistryPane {
                 public_id: pane_a.clone(),
                 screen_id: screen_id.clone(),

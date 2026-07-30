@@ -2795,8 +2795,7 @@ fn validate_touched_workspace(
             )?;
             if owner.as_deref() != Some(workspace_id) {
                 anyhow::bail!(
-                    "workspace {workspace_id} selects screen {active_screen} owned by {:?}",
-                    owner
+                    "workspace {workspace_id} selects screen {active_screen} owned by {owner:?}"
                 );
             }
         }
@@ -2899,7 +2898,7 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
         Some(active_tab) => {
             let owner = live_resource_field(transaction, "resource_tabs", "pane_id", &active_tab)?;
             if owner.as_deref() != Some(pane_id) {
-                anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {:?}", owner);
+                anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {owner:?}");
             }
         }
         None if !child_tabs.is_empty() => {
@@ -3112,6 +3111,16 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM resource_creation_receipts creation
+                 WHERE creation.execution_kind = 'effect'
+                   AND creation.state = 'executing'
+                   AND json_extract(
+                         creation.intent_json,
+                         '$.workspace_reservation.workspace_key'
+                       ) = w.workspace_key
+               )
              LIMIT 1",
             [],
             |row| row.get::<_, String>(0),
@@ -3183,8 +3192,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
                 )?;
                 if owner.as_deref() != Some(workspace_id.as_str()) {
                     anyhow::bail!(
-                        "workspace {workspace_id} selects screen {screen_id} owned by {:?}",
-                        owner
+                        "workspace {workspace_id} selects screen {screen_id} owned by {owner:?}"
                     );
                 }
             }
@@ -3282,7 +3290,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
                 let owner =
                     live_resource_field(transaction, "resource_tabs", "pane_id", &active_tab)?;
                 if owner.as_deref() != Some(pane_id.as_str()) {
-                    anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {:?}", owner);
+                    anyhow::bail!("pane {pane_id} selects tab {active_tab} owned by {owner:?}");
                 }
             }
             None if !child_tabs.is_empty() => {
@@ -3329,10 +3337,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             )
             .optional()?;
         if identity_kind.as_deref() != Some(content_kind.as_str()) {
-            anyhow::bail!(
-                "tab {tab_id} content {content_id} has identity kind {:?}",
-                identity_kind
-            );
+            anyhow::bail!("tab {tab_id} content {content_id} has identity kind {identity_kind:?}");
         }
     }
 

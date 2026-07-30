@@ -906,6 +906,7 @@ pub enum Action {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) enum ActionExecution {
     SendPrefix,
     NewTab,
@@ -958,12 +959,14 @@ pub(crate) enum ActionExecution {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum ActionClassification {
     Direct,
     Composite,
     PresentationOnly,
 }
 
+#[cfg(test)]
 impl ActionClassification {
     const fn inventory_name(self) -> &'static str {
         match self {
@@ -975,10 +978,12 @@ impl ActionClassification {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum WorkspaceOwnershipSource {
     ActiveWorkspaceSession,
 }
 
+#[cfg(test)]
 impl WorkspaceOwnershipSource {
     const fn inventory_name(self) -> &'static str {
         match self {
@@ -988,11 +993,13 @@ impl WorkspaceOwnershipSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum ActionRouteTarget {
     MuxCommand(&'static str),
     MachineProviderRequest(&'static str),
 }
 
+#[cfg(test)]
 impl ActionRouteTarget {
     const fn inventory_kind(self) -> &'static str {
         match self {
@@ -1009,10 +1016,12 @@ impl ActionRouteTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum UnknownOwnership {
     Reject,
 }
 
+#[cfg(test)]
 impl UnknownOwnership {
     const fn inventory_name(self) -> &'static str {
         match self {
@@ -1022,6 +1031,7 @@ impl UnknownOwnership {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum ActionRoute {
     Static(&'static str),
     WorkspaceOwnership {
@@ -1033,6 +1043,7 @@ enum ActionRoute {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) struct ActionMetadata {
     key: &'static str,
     classification: ActionClassification,
@@ -1040,6 +1051,7 @@ pub(crate) struct ActionMetadata {
     execution: ActionExecution,
 }
 
+#[cfg(test)]
 impl ActionMetadata {
     const fn new(
         key: &'static str,
@@ -1373,6 +1385,7 @@ impl Action {
     /// Compiled source of truth for programmability classification and
     /// execution routing. The specification inventory checker reads this
     /// exhaustive catalog.
+    #[cfg(test)]
     pub(crate) fn metadata(&self) -> ActionMetadata {
         match self {
             Action::SendPrefix => ActionMetadata::new(
@@ -3962,7 +3975,9 @@ mod tests {
             assert!(!definition.label_en.is_empty());
             assert!(!definition.label_ja.is_empty());
             assert_eq!(definition.action.definition(), definition);
-            let metadata_key = definition.action.metadata().key;
+            let metadata = definition.action.metadata();
+            let metadata_key = metadata.key;
+            let _execution = metadata.execution();
             let resolved_metadata_key = match definition.action {
                 Action::SelectTab(index) | Action::SelectScreen(index) => {
                     metadata_key.replace("{number}", &index.get().to_string())

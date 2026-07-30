@@ -518,10 +518,10 @@ impl Client {
                 })
                 .and_then(|()| receive_response_with_budget(active, &id, operation, &budget))
         };
-        if result.as_ref().is_err_and(discard_connection_after) {
-            if let Some(active) = connection.take() {
-                active.close();
-            }
+        if result.as_ref().is_err_and(discard_connection_after)
+            && let Some(active) = connection.take()
+        {
+            active.close();
         }
         result
     }

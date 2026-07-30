@@ -368,12 +368,12 @@ impl UndoLayoutOptions {
                 "confirmation token is required when confirm_close is true".to_string(),
             ));
         }
-        if let Some(token) = &self.confirmation_token {
-            if token.is_empty() || token.len() > 128 {
-                return Err(Error::InvalidArgument(
-                    "confirmation token must contain 1 to 128 UTF-8 bytes".to_string(),
-                ));
-            }
+        if let Some(token) = &self.confirmation_token
+            && (token.is_empty() || token.len() > 128)
+        {
+            return Err(Error::InvalidArgument(
+                "confirmation token must contain 1 to 128 UTF-8 bytes".to_string(),
+            ));
         }
         Ok(())
     }

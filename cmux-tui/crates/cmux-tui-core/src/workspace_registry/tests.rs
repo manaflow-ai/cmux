@@ -35,6 +35,82 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
+fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
+    let root = temp_root("interrupted-workspace-public-id");
+    let key = "018f6e21-7b70-7e70-8000-0000000000aa";
+    let public_id =
+        WorkspacePublicId::parse("ws_018f6e217b707e7080000000000000aa".to_string()).unwrap();
+    let fingerprint = json!({"operation":"workspace.create"});
+    let intent = json!({
+        "workspace_reservation":{
+            "workspace_key":key,
+            "workspace_public_id":public_id,
+        },
+        "terminal_reservation":{
+            "terminal_id":"018f6e217b707e7080000000000000ab",
+        },
+    });
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "interrupted-public-id").unwrap();
+        registry
+            .prepare_resource_creation(
+                "interrupted-public-id-correlation",
+                "interrupted-public-id-attempt",
+                "workspace.create",
+                &fingerprint,
+                &intent,
+                true,
+                None,
+                None,
+            )
+            .unwrap();
+        registry
+            .mark_resource_effect_executing(
+                "interrupted-public-id-attempt",
+                "workspace.create",
+                &fingerprint,
+            )
+            .unwrap();
+        let staged = RegistryWorkspace {
+            id: 1,
+            public_id: public_id.clone(),
+            key: key.to_string(),
+            name: "Reserved workspace".to_string(),
+            group_key: "interrupted-public-id".to_string(),
+        };
+        registry
+            .commit_for_resource_effect(
+                &WorkspaceMutation::new("interrupted-public-id-workspace", "resource-api").unwrap(),
+                &json!({"operation":"workspace.create","workspace_key":key}),
+                None,
+                None,
+                "workspace-added",
+                key,
+                std::slice::from_ref(&staged),
+                Some(&public_id),
+                &json!({"workspace":1,"workspace_id":public_id,"key":key,"index":0}),
+            )
+            .unwrap();
+        let public = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(public.revision, 0);
+        assert!(public.active_screens.is_empty());
+        assert_eq!(public.active_workspace, None);
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "interrupted-public-id").unwrap();
+    let staged = registry.interrupted_resource_workspaces().unwrap();
+    assert_eq!(staged.len(), 1);
+    assert_eq!(staged[0].1.public_id, public_id);
+    assert_eq!(staged[0].1.key, key);
+    let public = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(public.revision, 0);
+    assert!(public.active_screens.is_empty());
+    assert_eq!(public.active_workspace, None);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "legacy-only");
@@ -252,13 +328,13 @@ fn viewport_schema_rejects_missing_duplicate_and_owner_splits() {
     let mut duplicate = valid.clone();
     let fourth = pane_id(4);
     if let RegistryLayoutNode::Split { second, .. } = &mut duplicate.layout {
-        *second = Box::new(RegistryLayoutNode::Split {
+        **second = RegistryLayoutNode::Split {
             split: split_id(4),
             direction: "down".into(),
             ratio: 0.5,
             first: Box::new(RegistryLayoutNode::Leaf { pane: pane_id(3) }),
             second: Box::new(RegistryLayoutNode::Leaf { pane: fourth.clone() }),
-        });
+        };
     }
     duplicate.viewport.columns[1].layout = RegistryLayoutNode::Split {
         split: split_id(1),
@@ -963,7 +1039,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
             &ResourcePatch {
                 changes: vec![
                     ResourceChange::UpsertScreen(RegistryScreen {
-                        public_id: screen.clone(),
+                        public_id: screen,
                         workspace_id: workspace_public_id,
                         position: 0,
                         name: Some("Main".into()),

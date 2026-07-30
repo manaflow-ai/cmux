@@ -188,16 +188,19 @@ impl LayoutMessages {
             .replace("{ratio}", &ratio.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
         self.unsupported_server_command.replace("{command}", command)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
         self.layout_undo_applied
             .replace("{screen}", &screen.to_string())
             .replace("{revision}", &revision.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
         self.layout_undo_confirmation_required
             .replace("{revision}", &revision.to_string())
@@ -252,14 +255,17 @@ pub(crate) struct AttachMessages {
 }
 
 impl AttachMessages {
+    #[cfg(test)]
     pub fn unknown_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }

@@ -45,7 +45,7 @@ impl HeadlessServer {
     fn wait_for_socket(&self) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while Instant::now() < deadline {
-            if self.socket.exists() {
+            if transport::connect(&self.socket).is_ok() {
                 return;
             }
             std::thread::sleep(Duration::from_millis(25));
@@ -665,13 +665,16 @@ fn explicit_attach_registers_a_full_session_tui_client() {
                     std::thread::sleep(Duration::from_millis(50));
                     continue;
                 }
-                assert!(attached.iter().any(|id| id.as_str() == Some(terminal.as_str())));
-                assert!(attached.iter().any(|id| id.as_str() == Some(second_terminal.as_str())));
                 let sizes = client["sizes"].as_array().unwrap();
-                assert!(sizes.iter().any(|size| {
+                if !sizes.iter().any(|size| {
                     size["cols"].as_u64().is_some_and(|cols| cols > 0)
                         && size["rows"].as_u64().is_some_and(|rows| rows > 0)
-                }));
+                }) {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                assert!(attached.iter().any(|id| id.as_str() == Some(terminal.as_str())));
+                assert!(attached.iter().any(|id| id.as_str() == Some(second_terminal.as_str())));
                 return;
             }
         }

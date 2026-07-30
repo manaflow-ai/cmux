@@ -280,6 +280,7 @@ fn pairing_snapshot(
     }))
 }
 
+#[cfg(test)]
 fn pairing_numeric_id(id: &PairingRequestPublicId) -> Result<u64, ResourceError> {
     let payload =
         id.as_str().strip_prefix("pairing_").expect("typed pairing ids have their prefix");
@@ -720,7 +721,7 @@ mod tests {
         let (challenge, response) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
         let id = format!("pairing_{:032x}", challenge.id);
         let mut selected = session_selectors();
-        selected.pairing_request = Some(id.clone());
+        selected.pairing_request = Some(id);
         let resolve_request = || {
             request(
                 ResourceOperation::PairingRequestResolve,

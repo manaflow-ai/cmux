@@ -39,6 +39,21 @@ pub struct ResourceCreationRecovery {
     pub interrupted: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ResourceWorkspaceClose {
+    pub workspace_key: String,
+    pub remaining_workspaces: Vec<RegistryWorkspace>,
+    pub active_workspace: Option<WorkspacePublicId>,
+    pub legacy_result: Value,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResourceCloseCommit {
+    pub resource: ResourcePatchCommit,
+    pub workspace_revision: Option<u64>,
+    pub terminal_batch: TerminalBatchClose,
+}
+
 pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_effect_receipts (
@@ -842,77 +857,105 @@ impl WorkspaceRegistry {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
+        #[cfg(test)]
+        if self.resource_patch_failures_remaining.get() > 0 {
+            self.resource_patch_failures_remaining
+                .set(self.resource_patch_failures_remaining.get() - 1);
+            anyhow::bail!("forced one-shot resource patch failure");
+        }
         let fingerprint = canonical_json(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
         let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
         let deltas_json = canonical_json(deltas)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
-        let (stored_operation, stored_fingerprint, state, _) =
-            read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
-                anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
-            })?;
-        require_effect_identity(
+        let commit = commit_resource_effect_patch_in_transaction(
+            &tx,
+            &generation,
             idempotency_key,
             operation,
             &fingerprint,
-            &stored_operation,
-            &stored_fingerprint,
+            patch,
+            result,
+            &outcome_json,
+            &deltas_json,
         )?;
-        anyhow::ensure!(
-            state == "executing",
-            "resource effect {idempotency_key:?} cannot commit from state {state:?}"
-        );
-
-        let previous_revision = transaction_resource_revision(&tx)?;
-        let revision = previous_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-            [revision.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO resource_events(
-               revision, previous_revision, origin, idempotency_key, deltas_json
-             ) VALUES(?1, ?2, 'resource-api', ?3, ?4)",
-            params![
-                sqlite_revision,
-                i64::try_from(previous_revision)
-                    .context("resource revision exceeds SQLite range")?,
-                idempotency_key,
-                deltas_json,
-            ],
-        )?;
-        prune_resource_events(&tx)?;
-        tx.execute(
-            "UPDATE resource_effect_receipts
-             SET state = 'committed', outcome_json = ?2, committed_revision = ?3
-             WHERE idempotency_key = ?1 AND state = 'executing'",
-            params![idempotency_key, outcome_json, sqlite_revision],
-        )?;
-        let correlated = tx.execute(
-            "UPDATE resource_creation_receipts
-             SET state = 'created', execution_generation = NULL,
-                 created_path_json = ?2, generation = ?3, committed_revision = ?4
-             WHERE idempotency_key = ?1 AND execution_kind = 'effect'
-               AND state = 'executing'",
-            params![idempotency_key, canonical_json(result)?, generation, sqlite_revision],
-        )?;
-        let creation_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
-            [idempotency_key],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            creation_count == 0 || correlated == 1,
-            "correlated resource effect could not enter created state"
-        );
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok(commit)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_resource_patch_failures_remaining(&self, failures: u64) {
+        self.resource_patch_failures_remaining.set(failures);
+    }
+
+    /// Commit every durable side of a topology close before the mux detaches
+    /// the corresponding live surfaces. Legacy workspace and terminal event
+    /// streams advance in this same transaction as the public tombstones and
+    /// effect receipt, so a crash can observe only the complete old or new
+    /// topology.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_resource_close_patch(
+        &mut self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+        terminals: &[(String, Option<String>)],
+        workspace_close: Option<&ResourceWorkspaceClose>,
+    ) -> anyhow::Result<ResourceCloseCommit> {
+        validate_identifier("idempotency key", idempotency_key)?;
+        validate_identifier("resource operation", operation)?;
+        validate_resource_patch(patch)?;
+        let mutation = WorkspaceMutation::new(idempotency_key, "resource-api")?;
+        validate_terminal_batch_close(&mutation, terminals)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let outcome = ResourceEffectOutcome::Success(result.clone());
+        let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
+        let deltas_json = canonical_json(deltas)?;
+        let generation = self.generation.clone();
+        let tx = self.connection.transaction()?;
+
+        let (workspace_revision, terminal_batch) = if let Some(close) = workspace_close {
+            if let Some(active_workspace) = close.active_workspace.as_ref() {
+                anyhow::ensure!(
+                    close
+                        .remaining_workspaces
+                        .iter()
+                        .any(|workspace| &workspace.public_id == active_workspace),
+                    "active workspace is absent from the post-close registry: {active_workspace}"
+                );
+            }
+            let result_json = canonical_json(&close.legacy_result)?;
+            let (revision, terminal_batch) = commit_workspace_registry_in_transaction(
+                &tx,
+                &mutation,
+                &fingerprint,
+                None,
+                "workspace-closed",
+                &close.workspace_key,
+                &close.remaining_workspaces,
+                &result_json,
+            )?;
+            (Some(revision), terminal_batch)
+        } else {
+            (None, close_terminals_in_transaction(&tx, &mutation, terminals, "topology-closed")?)
+        };
+        let resource = commit_resource_effect_patch_in_transaction(
+            &tx,
+            &generation,
+            idempotency_key,
+            operation,
+            &fingerprint,
+            patch,
+            result,
+            &outcome_json,
+            &deltas_json,
+        )?;
+        tx.commit()?;
+        Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }
 
     pub fn mark_resource_effect_indeterminate(
@@ -938,6 +981,83 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_resource_effect_patch_in_transaction(
+    transaction: &Transaction<'_>,
+    generation: &str,
+    idempotency_key: &str,
+    operation: &str,
+    fingerprint: &str,
+    patch: &ResourcePatch,
+    result: &Value,
+    outcome_json: &str,
+    deltas_json: &str,
+) -> anyhow::Result<ResourcePatchCommit> {
+    let (stored_operation, stored_fingerprint, state, _) =
+        read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
+            anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
+        })?;
+    require_effect_identity(
+        idempotency_key,
+        operation,
+        fingerprint,
+        &stored_operation,
+        &stored_fingerprint,
+    )?;
+    anyhow::ensure!(
+        state == "executing",
+        "resource effect {idempotency_key:?} cannot commit from state {state:?}"
+    );
+
+    let previous_revision = transaction_resource_revision(transaction)?;
+    let revision = previous_revision
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+    let sqlite_revision =
+        i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+    apply_resource_patch(transaction, patch, sqlite_revision)?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [revision.to_string()],
+    )?;
+    transaction.execute(
+        "INSERT INTO resource_events(
+           revision, previous_revision, origin, idempotency_key, deltas_json
+         ) VALUES(?1, ?2, 'resource-api', ?3, ?4)",
+        params![
+            sqlite_revision,
+            i64::try_from(previous_revision).context("resource revision exceeds SQLite range")?,
+            idempotency_key,
+            deltas_json,
+        ],
+    )?;
+    prune_resource_events(transaction)?;
+    transaction.execute(
+        "UPDATE resource_effect_receipts
+         SET state = 'committed', outcome_json = ?2, committed_revision = ?3
+         WHERE idempotency_key = ?1 AND state = 'executing'",
+        params![idempotency_key, outcome_json, sqlite_revision],
+    )?;
+    let correlated = transaction.execute(
+        "UPDATE resource_creation_receipts
+         SET state = 'created', execution_generation = NULL,
+             created_path_json = ?2, generation = ?3, committed_revision = ?4
+         WHERE idempotency_key = ?1 AND execution_kind = 'effect'
+           AND state = 'executing'",
+        params![idempotency_key, canonical_json(result)?, generation, sqlite_revision],
+    )?;
+    let creation_count: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
+        [idempotency_key],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        creation_count == 0 || correlated == 1,
+        "correlated resource effect could not enter created state"
+    );
+    Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
 }
 
 struct StoredCreation {

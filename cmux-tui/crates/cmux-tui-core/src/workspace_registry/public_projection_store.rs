@@ -842,7 +842,7 @@ mod tests {
                         }),
                         ResourceChange::TombstoneTab { tab_id: tab },
                         ResourceChange::TombstoneTerminal {
-                            public_id: terminal.clone(),
+                            public_id: terminal,
                             expected_incarnation: None,
                         },
                         ResourceChange::SetTabOrder { pane_id: pane, tab_ids: Vec::new() },
