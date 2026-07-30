@@ -50,6 +50,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// a post-wipe `inFlight` entry.
     private var resetGeneration = 0
 
+    /// Injected clock read for the parked-tombstone eviction stamps.
+    private let now: @Sendable () -> Date
+
+    /// Upper bound on the parked account-wide tombstone set (see
+    /// ``removeExactScopes(_:)``); mirrors the discovery snapshot's 256-binding
+    /// wire cap, far above any realistic count of forgotten pairings.
+    static let parkedTombstoneCap = 256
+
     /// Wrap a local paired-Mac store with a backup transport.
     public init(
         inner: any MobilePairedMacStoring,
@@ -57,7 +65,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         restoreBoundary: PairedMacRestoreBoundary = PairedMacRestoreBoundary(),
         pendingDeleteStore: any PairedMacPendingDeleteStoring = InMemoryPairedMacPendingDeleteStore(),
-        backupTeamStore: any PairedMacBackupTeamStoring = InMemoryPairedMacBackupTeamStore()
+        backupTeamStore: any PairedMacBackupTeamStoring = InMemoryPairedMacBackupTeamStore(),
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.inner = inner
         self.backup = backup
@@ -65,6 +74,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         self.restoreBoundary = restoreBoundary
         self.pendingDeleteStore = pendingDeleteStore
         self.backupTeamStore = backupTeamStore
+        self.now = now
     }
 
     /// Mapping key for one pairing's server-verified backup team. The ROW's
@@ -679,13 +689,43 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         for (account, pairingIDs) in parkedByAccount {
             let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
             var records = await pendingRecords(scope: parkedScope)
-            let before = records.count
-            for pairingID in pairingIDs {
+            // Dedupe by identity, not encoding: re-forgetting a pairing must
+            // not stack a second stamped copy of the same intent.
+            let existing = Set(records.map { raw -> String in
+                let record = PendingDeleteRecord(decoding: raw, scopeTeamID: nil)
+                return "\(record.pairingID)\u{0}\(record.localTeamID ?? "")"
+            })
+            let stamp = Int(now().timeIntervalSince1970)
+            var changed = false
+            for pairingID in pairingIDs where !existing.contains("\(pairingID)\u{0}") {
                 records.insert(
-                    PendingDeleteRecord(pairingID: pairingID, localTeamID: nil).encoded()
+                    PendingDeleteRecord(
+                        pairingID: pairingID,
+                        localTeamID: nil,
+                        stamp: stamp
+                    ).encoded()
                 )
+                changed = true
             }
-            if records.count != before {
+            // Bounded retention: parked intents retire only on revive, so a cap
+            // keeps the persisted set and the per-restore scan bounded. Evict
+            // oldest-first (unstamped legacy records first — they are oldest by
+            // construction); an evicted intent's forget has had the most time
+            // to propagate through restores, and losing it degrades to the
+            // pre-account-wide behavior for that one pairing.
+            if records.count > Self.parkedTombstoneCap {
+                let oldestFirst = records.sorted { lhs, rhs in
+                    let left = PendingDeleteRecord(decoding: lhs, scopeTeamID: nil)
+                    let right = PendingDeleteRecord(decoding: rhs, scopeTeamID: nil)
+                    if left.stamp != right.stamp { return left.stamp < right.stamp }
+                    return lhs < rhs
+                }
+                for raw in oldestFirst.prefix(records.count - Self.parkedTombstoneCap) {
+                    records.remove(raw)
+                }
+                changed = true
+            }
+            if changed {
                 await savePendingRecords(records, scope: parkedScope)
             }
         }
@@ -766,6 +806,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let scope = await nonoptionalScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
+        // Crash recovery must be NETWORK-INDEPENDENT: a parked (account-wide)
+        // tombstone whose local delete never landed replays here, from the
+        // outbox alone, regardless of which team is selected — the restore's
+        // suppression list only runs after a successful backup fetch.
+        let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
+        if parkedScope != scope {
+            await applyPendingLocalDeletes(scope: parkedScope, account: account, teamID: nil)
+        }
         _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
@@ -944,6 +992,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let scope = await nonoptionalScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
+        // Crash recovery must be NETWORK-INDEPENDENT: a parked (account-wide)
+        // tombstone whose local delete never landed replays here, from the
+        // outbox alone, regardless of which team is selected — the restore's
+        // suppression list only runs after a successful backup fetch.
+        let parkedScope = await nonoptionalScopeKey(account: account, teamID: nil)
+        if parkedScope != scope {
+            await applyPendingLocalDeletes(scope: parkedScope, account: account, teamID: nil)
+        }
         _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         if restoredScopes.contains(scope) { return }
 
@@ -1017,13 +1073,29 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     private struct PendingDeleteRecord: Hashable {
         let pairingID: String
         let localTeamID: String?
+        /// Coarse insertion time (epoch seconds), used ONLY to order eviction
+        /// of the bounded parked set; 0 for records that predate stamping.
+        /// Emitted only when non-zero, so routed records' encodings — matched
+        /// by exact string in `clearPendingDelete(_:)` — are unchanged.
+        let stamp: Int
 
         /// `pairingID` alone (a legacy record whose local team equals its
-        /// scope's team), or `pairingID<RS>localTeam` with "" = team-less.
+        /// scope's team), `pairingID<RS>localTeam` with "" = team-less, or
+        /// `pairingID<RS>localTeam<RS>stamp`.
         static let separator: Character = "\u{1E}"
 
+        init(pairingID: String, localTeamID: String?, stamp: Int = 0) {
+            self.pairingID = pairingID
+            self.localTeamID = localTeamID
+            self.stamp = stamp
+        }
+
         func encoded() -> String {
-            "\(pairingID)\(Self.separator)\(localTeamID ?? "")"
+            var encoded = "\(pairingID)\(Self.separator)\(localTeamID ?? "")"
+            if stamp > 0 {
+                encoded += "\(Self.separator)\(stamp)"
+            }
+            return encoded
         }
 
         /// Decode a stored record. A legacy record (no separator) predates the
@@ -1032,7 +1104,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         init(decoding raw: String, scopeTeamID: String?) {
             let parts = raw.split(
                 separator: Self.separator,
-                maxSplits: 1,
+                maxSplits: 2,
                 omittingEmptySubsequences: false
             )
             let identity = MobilePairedMac.pairingIdentity(from: String(parts[0]))
@@ -1040,7 +1112,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 macDeviceID: identity.macDeviceID,
                 instanceTag: identity.instanceTag
             )
-            if parts.count == 2 {
+            stamp = parts.count == 3 ? (Int(parts[2]) ?? 0) : 0
+            if parts.count >= 2 {
                 let team = String(parts[1])
                 localTeamID = team.isEmpty ? nil : team
             } else {
@@ -1048,10 +1121,6 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             }
         }
 
-        init(pairingID: String, localTeamID: String?) {
-            self.pairingID = pairingID
-            self.localTeamID = localTeamID
-        }
     }
 
     /// Where one row's tombstone must go, and the outbox record that carries it.

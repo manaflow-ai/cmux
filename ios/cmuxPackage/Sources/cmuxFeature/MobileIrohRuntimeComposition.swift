@@ -2655,6 +2655,43 @@ extension MobileIrohRuntimeComposition {
         instanceTag: String?,
         expectedAccountID: String
     ) async throws {
+        // Race the WHOLE forget — credential capture, discovery, backpressure
+        // waits, and every revoke — against the deadline. The per-revoke
+        // `now()` checks below only run BETWEEN awaits: a discovery or revoke
+        // suspended on a stalled connection (or a forget queued behind another
+        // holding the backpressure gate) would otherwise keep the row busy
+        // indefinitely with no recovery error. The deadline child cancels the
+        // work child, which cancels its in-flight URLSession requests
+        // cooperatively; already-applied revokes stand, and a retry
+        // re-discovers only what remains.
+        let outcome = try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { throw MobileIrohForgetError.notAuthenticated }
+                try await self.revokeMatchingBindings(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    expectedAccountID: expectedAccountID
+                )
+                return true
+            }
+            group.addTask { [forgetDeadlineSleep] in
+                try? await forgetDeadlineSleep(Self.forgetRevokeDeadlineSeconds)
+                return false
+            }
+            guard let firstFinished = try await group.next() else {
+                throw MobileIrohForgetError.deadlineExceeded
+            }
+            group.cancelAll()
+            return firstFinished
+        }
+        guard outcome else { throw MobileIrohForgetError.deadlineExceeded }
+    }
+
+    private func revokeMatchingBindings(
+        macDeviceID: String,
+        instanceTag: String?,
+        expectedAccountID: String
+    ) async throws {
         guard let auth else { throw MobileIrohForgetError.notAuthenticated }
         // Capture the account identity AND both tokens as one consistent snapshot
         // from a single auth-session generation, so the revoke acts with
@@ -2714,6 +2751,13 @@ extension MobileIrohRuntimeComposition {
     /// worst-case broker timeouts fit comfortably; a healthy broker revokes
     /// dozens of bindings well within it.
     private static let forgetRevokeDeadlineSeconds: TimeInterval = 60
+
+    /// Cancellable sleeper backing the forget deadline race — an intentional
+    /// bounded timeout (cancelled with the race, never a synchronization
+    /// substitute).
+    private let forgetDeadlineSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
 
     /// Throws if the authenticated session that initiated the forget was replaced,
     /// so a revoke can never land on a different session's bindings. Requires both
