@@ -60,6 +60,7 @@ const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
+const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
 
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -302,6 +303,11 @@ pub(crate) struct DaemonShutdownOutcome {
 pub(crate) enum DaemonShutdownStatus {
     Succeeded,
     Failed,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DaemonLifecycleFence {
+    version: u32,
 }
 
 pub struct DaemonRuntimeHandle {
@@ -1753,14 +1759,31 @@ async fn run_daemon(
 ) -> anyhow::Result<()> {
     let setup = async {
         let mut startup_shutdown = shutdown.clone();
+        let auth_state_dir = state_dir.join("auth");
+        let auth_state_preexisting = auth_state_dir
+            .try_exists()
+            .context("could not inspect remote daemon authorization state")?;
+        let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
+            .context("could not verify remote daemon lifecycle fence")?;
         let auth = load_daemon_auth_during_handoff(
-            &state_dir.join("auth"),
+            &auth_state_dir,
             &options.session,
             &mut startup_shutdown,
             DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
         )
         .await?;
-        verify_previous_shutdown_outcome(&state_dir)?;
+        // A missing auth directory proves this is the first daemon for the
+        // state path. Existing unmarked auth state may still have a late write
+        // pending in a pre-lease daemon, so only exact modern evidence can
+        // migrate it below.
+        if !auth_state_preexisting && !lifecycle_fenced {
+            persist_daemon_lifecycle_fence(&state_dir)?;
+            lifecycle_fenced = true;
+        }
+        verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
+        if !lifecycle_fenced {
+            persist_daemon_lifecycle_fence(&state_dir)?;
+        }
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
@@ -1984,33 +2007,51 @@ async fn load_daemon_auth_during_handoff(
     }
 }
 
-fn verify_previous_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
+fn verify_previous_shutdown_outcome(
+    state_dir: &Path,
+    lifecycle_fenced: bool,
+) -> anyhow::Result<()> {
     let previous_runtime = read_runtime_info(state_dir)
         .context("could not verify previous remote daemon lifecycle metadata")?;
     let outcome = read_shutdown_outcome(state_dir)
         .context("could not verify previous remote daemon authorization finalization")?;
-    // Pre-lifecycle daemons did not publish an ID or a shutdown outcome. Their
-    // authorization lease is the only compatible handoff fence. Modern
-    // metadata must prove finalization for that exact daemon instance.
-    if let Some(expected_lifecycle_id) =
-        previous_runtime.as_ref().and_then(|runtime| runtime.lifecycle_id.as_deref())
-    {
-        if expected_lifecycle_id.is_empty() {
-            return Err(anyhow!(
-                "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id"
-            ));
-        }
-        let outcome = outcome.as_ref().ok_or_else(|| {
-            anyhow!(
-                "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome"
-            )
-        })?;
-        if outcome.lifecycle_id != expected_lifecycle_id {
-            return Err(anyhow!(
-                "could not verify previous remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
-            ));
+
+    if let Some(previous_runtime) = &previous_runtime {
+        match previous_runtime.lifecycle_id.as_deref() {
+            Some(expected_lifecycle_id) if !expected_lifecycle_id.is_empty() => {
+                let outcome = outcome.as_ref().ok_or_else(|| {
+                    anyhow!(
+                        "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome"
+                    )
+                })?;
+                if outcome.lifecycle_id != expected_lifecycle_id {
+                    return Err(anyhow!(
+                        "could not verify previous remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
+                    ));
+                }
+            }
+            Some(_) => {
+                return Err(anyhow!(
+                    "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id"
+                ));
+            }
+            None => {
+                return Err(anyhow!(
+                    "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with remote-stop before reconnecting"
+                ));
+            }
         }
     }
+
+    if !lifecycle_fenced && previous_runtime.is_none() {
+        // A stale successful outcome is insufficient: an older daemon can run
+        // after that lifecycle and remove its own runtime metadata before its
+        // final authorization write completes.
+        return Err(anyhow!(
+            "previous remote daemon state has no lifecycle fence; stop the legacy daemon with remote-stop before reconnecting"
+        ));
+    }
+
     match outcome.map(|outcome| outcome.status) {
         None | Some(DaemonShutdownStatus::Succeeded) => Ok(()),
         Some(DaemonShutdownStatus::Failed) => Err(anyhow!(
@@ -2118,6 +2159,42 @@ fn persist_shutdown_outcome(
     result
 }
 
+pub(crate) fn persist_daemon_lifecycle_fence(state_dir: &Path) -> Result<(), IdentityError> {
+    use std::io::Write as _;
+
+    if read_daemon_lifecycle_fence(state_dir)? {
+        return Ok(());
+    }
+    let path = state_dir.join("lifecycle-fence.json");
+    let temporary = state_dir.join(format!(
+        ".lifecycle-fence-{}-{}.json",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let result = (|| {
+        let encoded = serde_json::to_vec_pretty(&DaemonLifecycleFence {
+            version: DAEMON_LIFECYCLE_FENCE_VERSION,
+        })
+        .map_err(IdentityError::Json)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(IdentityError::Io)?;
+        file.write_all(&encoded).map_err(IdentityError::Io)?;
+        file.sync_all().map_err(IdentityError::Io)?;
+        fs::rename(&temporary, path).map_err(IdentityError::Io)?;
+        sync_state_directory(state_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(), IdentityError> {
     let path = state_dir.join("runtime.json");
     let current = match fs::read(&path) {
@@ -2195,6 +2272,21 @@ fn decode_shutdown_outcome(encoded: &[u8]) -> Result<DaemonShutdownOutcome, Iden
         ));
     }
     Ok(outcome)
+}
+
+fn read_daemon_lifecycle_fence(state_dir: &Path) -> Result<bool, IdentityError> {
+    let Some(encoded) = read_optional_file(&state_dir.join("lifecycle-fence.json"))? else {
+        return Ok(false);
+    };
+    let fence: DaemonLifecycleFence =
+        serde_json::from_slice(&encoded).map_err(IdentityError::Json)?;
+    if fence.version != DAEMON_LIFECYCLE_FENCE_VERSION {
+        return Err(IdentityError::Invalid(format!(
+            "remote daemon lifecycle fence version {} is unsupported",
+            fence.version
+        )));
+    }
+    Ok(true)
 }
 
 fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
@@ -2317,6 +2409,7 @@ fn remove_shutdown_recovery_evidence(
         ));
     }
 
+    persist_daemon_lifecycle_fence(state_dir)?;
     if expected_runtime.is_some() {
         fs::remove_file(runtime_path).map_err(IdentityError::Io)?;
         sync_state_directory(state_dir)?;
@@ -2869,16 +2962,93 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn daemon_startup_refuses_unfenced_legacy_state_after_runtime_cleanup() {
+        for case in ["missing-outcome", "stale-success"] {
+            let directory = tempfile::tempdir_in("/tmp").unwrap();
+            let state_root = directory.path().join("state");
+            let session = format!("unfenced-legacy-cleanup-{case}");
+            let (state_dir, _, _) = daemon_paths(&session, Some(&state_root)).unwrap();
+            drop(
+                AuthDatabase::load_or_create(state_dir.join("auth"), &session, true)
+                    .expect("could not seed legacy authorization state"),
+            );
+            if case == "stale-success" {
+                persist_shutdown_outcome(
+                    &state_dir,
+                    &DaemonShutdownOutcome {
+                        version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                        lifecycle_id: "earlier-modern-lifecycle".into(),
+                        status: DaemonShutdownStatus::Succeeded,
+                    },
+                )
+                .unwrap();
+            }
+
+            let result = start_daemon_runtime(
+                directory.path().join("missing-mux.sock"),
+                DaemonRuntimeOptions {
+                    session,
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            );
+            let error = match result {
+                Err(error) => error,
+                Ok(runtime) => {
+                    runtime.shutdown().unwrap();
+                    panic!("{case}: daemon started without a lifecycle fence");
+                }
+            };
+            assert!(error.to_string().contains("lifecycle fence"), "{case}: {error:#}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_migrates_verified_modern_state_to_a_lifecycle_fence() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let state_root = directory.path().join("state");
-        let session = "unfenced-legacy-cleanup";
-        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let session = "migrate-modern-lifecycle";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
         drop(
             AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
-                .expect("could not seed legacy authorization state"),
+                .expect("could not seed authorization state"),
         );
+        persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: session.into(),
+                state_dir: state_dir.clone(),
+                link_socket,
+                admin_socket,
+                daemon_fingerprint: "completed-modern-daemon".into(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some("completed-modern-lifecycle".into()),
+                replaceable_sidecar: true,
+            },
+        )
+        .unwrap();
+        persist_shutdown_outcome(
+            &state_dir,
+            &DaemonShutdownOutcome {
+                version: DAEMON_SHUTDOWN_OUTCOME_VERSION,
+                lifecycle_id: "completed-modern-lifecycle".into(),
+                status: DaemonShutdownStatus::Succeeded,
+            },
+        )
+        .unwrap();
 
-        let result = start_daemon_runtime(
+        let runtime = start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
                 session: session.into(),
@@ -2893,15 +3063,45 @@ mod tests {
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
             },
+        )
+        .expect("verified modern state did not migrate");
+
+        assert!(read_daemon_lifecycle_fence(&state_dir).unwrap());
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_fence_allows_retry_before_runtime_metadata_is_published() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "fenced-startup-retry";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        drop(
+            AuthDatabase::load_or_create(state_dir.join("auth"), session, true)
+                .expect("could not seed authorization state"),
         );
-        let error = match result {
-            Err(error) => error,
-            Ok(runtime) => {
-                runtime.shutdown().unwrap();
-                panic!("daemon started from authorization state without a lifecycle fence");
-            }
-        };
-        assert!(error.to_string().contains("lifecycle fence"), "{error:#}");
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("lifecycle-fenced startup retry was rejected");
+
+        runtime.shutdown().unwrap();
     }
 
     #[cfg(unix)]
@@ -3285,6 +3485,7 @@ mod tests {
             daemon_paths("daemon-handoff-retry", Some(&state_root)).unwrap();
         let auth_state = session_state.join("auth");
         fs::create_dir_all(&auth_state).unwrap();
+        persist_daemon_lifecycle_fence(&session_state).unwrap();
         let lock = OpenOptions::new()
             .read(true)
             .write(true)

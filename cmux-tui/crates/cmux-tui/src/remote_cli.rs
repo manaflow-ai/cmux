@@ -43,7 +43,7 @@ use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
     client_provider_registry, daemon_paths, load_runtime_info, load_shutdown_outcome,
-    start_client_runtime, start_daemon_runtime,
+    persist_daemon_lifecycle_fence, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -1852,10 +1852,12 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         let process_exited =
             peer_exit.has_exited().context("could not observe remote daemon process exit")?;
         if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
-            return match lifecycle_id.as_deref() {
+            match lifecycle_id.as_deref() {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
                 None => Ok(()),
-            };
+            }?;
+            persist_daemon_lifecycle_fence(&state_dir)?;
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -3265,6 +3267,10 @@ mod tests {
         assert!(
             !returned_before_process_exit,
             "remote-stop returned after runtime.json removal but before legacy process exit"
+        );
+        assert!(
+            state_dir.join("lifecycle-fence.json").exists(),
+            "process-fenced legacy shutdown did not publish a lifecycle fence"
         );
     }
 
