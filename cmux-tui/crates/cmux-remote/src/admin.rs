@@ -6,6 +6,8 @@
 use std::fmt;
 use std::future::Future;
 use std::io;
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -226,6 +228,161 @@ pub async fn call_admin(
     let stream = UnixStream::connect(path).await?;
     verify_unix_peer_owner(&stream)?;
     call_admin_over_stream(stream, request).await
+}
+
+/// Calls an owner-authenticated admin socket while retaining a kernel process
+/// observer for the exact peer that accepted the request.
+///
+/// Upgrade handoff uses this for `Shutdown`: legacy daemons can remove their
+/// lifecycle file before their final in-process writes complete, so filesystem
+/// disappearance alone is not a process-exit fence.
+pub async fn call_admin_with_peer_exit(
+    path: impl AsRef<Path>,
+    request: &AdminRequest,
+) -> Result<(AdminResponse, UnixPeerProcessExit), AdminError> {
+    let stream = UnixStream::connect(path).await?;
+    verify_unix_peer_owner(&stream)?;
+    let peer_pid = stream.peer_cred()?.pid().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this platform cannot identify the admin peer process",
+        )
+    })?;
+    let peer_exit = UnixPeerProcessExit::observe(peer_pid).map_err(|error| {
+        io::Error::new(error.kind(), format!("could not observe the admin peer process: {error}"))
+    })?;
+    let response = call_admin_over_stream(stream, request).await?;
+    Ok((response, peer_exit))
+}
+
+/// Kernel-backed exit observation for one exact Unix peer process.
+pub struct UnixPeerProcessExit {
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    descriptor: OwnedFd,
+    exited: bool,
+}
+
+impl UnixPeerProcessExit {
+    #[cfg(target_os = "linux")]
+    fn observe(pid: libc::pid_t) -> io::Result<Self> {
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            // SAFETY: pidfd_open returned a new owned descriptor.
+            descriptor: unsafe { OwnedFd::from_raw_fd(descriptor as libc::c_int) },
+            exited: false,
+        })
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn observe(pid: libc::pid_t) -> io::Result<Self> {
+        let descriptor = unsafe { libc::kqueue() };
+        if descriptor < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: kqueue returned a new owned descriptor.
+        let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+        let change = libc::kevent {
+            ident: pid as libc::uintptr_t,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+            fflags: libc::NOTE_EXIT,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        let registered = unsafe {
+            libc::kevent(
+                descriptor.as_raw_fd(),
+                &raw const change,
+                1,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            )
+        };
+        if registered < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { descriptor, exited: false })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    fn observe(_pid: libc::pid_t) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "kernel process-exit observation is unavailable",
+        ))
+    }
+
+    /// Returns once the observed process has exited, including while it is
+    /// waiting to be reaped by its parent.
+    pub fn has_exited(&mut self) -> io::Result<bool> {
+        if self.exited {
+            return Ok(true);
+        }
+        self.exited = self.poll_exit()?;
+        Ok(self.exited)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn poll_exit(&self) -> io::Result<bool> {
+        let mut descriptor =
+            libc::pollfd { fd: self.descriptor.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        loop {
+            let ready = unsafe { libc::poll(&raw mut descriptor, 1, 0) };
+            if ready > 0 {
+                if descriptor.revents & libc::POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "admin peer process descriptor became invalid",
+                    ));
+                }
+                return Ok(descriptor.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0);
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    #[cfg(target_vendor = "apple")]
+    fn poll_exit(&self) -> io::Result<bool> {
+        let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+        let timeout = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        loop {
+            let ready = unsafe {
+                libc::kevent(
+                    self.descriptor.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    &raw mut event,
+                    1,
+                    &raw const timeout,
+                )
+            };
+            if ready > 0 {
+                return Ok(true);
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+    fn poll_exit(&self) -> io::Result<bool> {
+        Ok(false)
+    }
 }
 
 #[cfg(test)]

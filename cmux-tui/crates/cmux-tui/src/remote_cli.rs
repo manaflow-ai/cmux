@@ -15,7 +15,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_remote::admin::{
-    AdminRequest, AdminResponse, UnixPeerAuthError, call_admin, verify_unix_peer_owner,
+    AdminRequest, AdminResponse, UnixPeerAuthError, call_admin, call_admin_with_peer_exit,
+    verify_unix_peer_owner,
 };
 use cmux_remote::bridge::LocalPortForward;
 use cmux_remote::client::WorkspaceClient;
@@ -1812,13 +1813,16 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let runtime_file = runtime.state_dir.join("runtime.json");
     let link = runtime.link_socket;
     let admin = runtime.admin_socket;
-    let response = tokio_runtime()?.block_on(call_admin(&admin, &AdminRequest::Shutdown))?;
+    let (response, mut peer_exit) =
+        tokio_runtime()?.block_on(call_admin_with_peer_exit(&admin, &AdminRequest::Shutdown))?;
     if !response.ok {
         return Err(anyhow!(response.error.unwrap_or_else(|| "daemon shutdown failed".into())));
     }
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if UnixStream::connect(&link).is_err() && !runtime_file.exists() {
+        let process_exited =
+            peer_exit.has_exited().context("could not observe remote daemon process exit")?;
+        if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
