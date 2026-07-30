@@ -105,8 +105,20 @@ extension CMUXMobileShellStore {
     }
 
     /// The workspace whose terminal list contains `terminalID`, if any.
+    /// Terminal lanes exist only on the foreground connection, so this
+    /// internal convenience scopes by the authoritative foreground pairing
+    /// first: a sibling build's colliding surface id must neither shadow the
+    /// live terminal's row nor nil it out through the ambiguity check below.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+        if let foregroundMacDeviceID,
+           let scoped = workspaceID(
+               forTerminalID: terminalID,
+               macDeviceID: foregroundMacDeviceID,
+               instanceTag: activeMacInstanceTag
+           ) {
+            return scoped
+        }
+        return workspaceID(forTerminalID: terminalID, macDeviceID: nil)
     }
 
     /// The workspace owned by `macDeviceID` whose terminal list contains

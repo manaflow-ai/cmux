@@ -11568,7 +11568,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
         setSelectedWorkspaceID(
             selectedRemoteID.flatMap {
-                rowWorkspaceID(forRemoteWorkspaceID: $0, macDeviceID: foregroundMacDeviceID)
+                rowWorkspaceID(
+                    forRemoteWorkspaceID: $0,
+                    macDeviceID: foregroundMacDeviceID,
+                    instanceTag: activeMacInstanceTag
+                )
             }
             ?? workspaces.first?.id
         )
