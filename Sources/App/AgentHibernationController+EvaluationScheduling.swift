@@ -6,11 +6,6 @@ extension AgentHibernationController {
         case running(id: UUID, task: Task<Void, Never>)
     }
 
-    var evaluationTask: Task<Void, Never>? {
-        guard case let .running(_, task) = evaluationPhase else { return nil }
-        return task
-    }
-
     func scheduleEvaluation(now: Date) {
         startEvaluationIfIdle { [weak self] in
             guard let self,
@@ -41,7 +36,9 @@ extension AgentHibernationController {
     }
 
     func cancelEvaluation() {
-        evaluationTask?.cancel()
+        if case let .running(_, task) = evaluationPhase {
+            task.cancel()
+        }
         evaluationPhase = .idle
     }
 
