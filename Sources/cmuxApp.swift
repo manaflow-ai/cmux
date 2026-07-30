@@ -1061,7 +1061,7 @@ struct cmuxApp: App {
 
             Divider()
 
-            // Numbered workspace selection (9 = last workspace)
+            // Numbered workspace selection (9 = last visible workspace row)
             ForEach(1...9, id: \.self) { number in
                 // `menuShortcut(for:)` already returns `.unbound` when the action
                 // carries a configured `shortcuts.when` clause, so a context-gated
@@ -1070,17 +1070,11 @@ struct cmuxApp: App {
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                        activeTabManager.selectWorkspaceByNumber(number)
                     }
                 } else {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                        activeTabManager.selectWorkspaceByNumber(number)
                     }
                     .keyboardShortcut(
                         KeyEquivalent(Character("\(number)")),

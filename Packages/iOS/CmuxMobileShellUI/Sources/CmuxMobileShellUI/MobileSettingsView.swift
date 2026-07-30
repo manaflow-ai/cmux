@@ -90,7 +90,26 @@ struct MobileSettingsView: View {
                 // reuse of this sheet does not render an empty header.
                 if hasConnectionSection {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if !connectedHostName.isEmpty {
+                        if let connections = store?.liveMacConnections,
+                           !connections.isEmpty {
+                            ForEach(connections) { connection in
+                                LabeledContent(
+                                    connection.displayName,
+                                    value: connection.role == .focused
+                                        ? L10n.string(
+                                            "mobile.settings.connectionFocused",
+                                            defaultValue: "Focused"
+                                        )
+                                        : L10n.string(
+                                            "mobile.settings.connectionReady",
+                                            defaultValue: "Ready"
+                                        )
+                                )
+                                .accessibilityIdentifier(
+                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
+                                )
+                            }
+                        } else if !connectedHostName.isEmpty {
                             LabeledContent(
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName

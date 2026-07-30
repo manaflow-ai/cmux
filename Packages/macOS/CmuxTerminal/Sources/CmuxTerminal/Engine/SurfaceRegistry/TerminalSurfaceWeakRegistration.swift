@@ -10,6 +10,9 @@ final class TerminalSurfaceWeakRegistration {
     var focusPlacement: TerminalSurfaceFocusPlacement
     var previousSweepObjectId: ObjectIdentifier
     var nextSweepObjectId: ObjectIdentifier
+    weak var previousTraversalRegistration: TerminalSurfaceWeakRegistration?
+    var nextTraversalRegistration: TerminalSurfaceWeakRegistration?
+    var isTraversalRegistered = true
 
     init(surface: any TerminalSurfacing, sequence: UInt64) {
         self.surface = surface

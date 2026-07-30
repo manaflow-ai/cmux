@@ -40,3 +40,10 @@ final class InMemoryDeviceIdentityStore: DeviceIdentityStoring, @unchecked Senda
         }
     }
 }
+
+/// Fixed-answer same-device-evidence probe for tests.
+struct StaticEvidenceProbe: SameDeviceEvidenceProbing {
+    private let answer: SameDeviceEvidence
+    init(_ answer: SameDeviceEvidence) { self.answer = answer }
+    func probe() -> SameDeviceEvidence { answer }
+}
