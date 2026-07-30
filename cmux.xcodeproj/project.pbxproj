@@ -105,6 +105,7 @@
 		F65760200000000000000001 /* AgentHibernationTranscriptHookStoreFileMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */; };
 		F65760210000000000000001 /* AgentHibernationTranscriptHookStoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */; };
 		F65760250000000000000001 /* AgentHibernationTranscriptSnapshotRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760250000000000000002 /* AgentHibernationTranscriptSnapshotRaceTests.swift */; };
+		918100000000000000000101 /* AgentHookFailureStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000100 /* AgentHookFailureStage.swift */; };
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
@@ -483,6 +484,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
 		C0D3F1F10000000000000103 /* CLICodexHookTimeoutRegressionTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F10000000000000104 /* CLICodexHookTimeoutRegressionTestSupport.swift */; };
+		918100000000000000000002 /* CLICodexResumeNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000001 /* CLICodexResumeNotificationTests.swift */; };
 		C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */; };
 		C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */; };
 		E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */; };
@@ -561,6 +563,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */ = {isa = PBXBuildFile; productRef = CA53A005CA53A005CA53A005 /* CmuxCanvasUI */; };
 		D4461A487C13945177EEE9A1 /* CMUXCLI+AgentHookCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
+		918100000000000000000011 /* CMUXCLI+AgentHookFailureReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000010 /* CMUXCLI+AgentHookFailureReporting.swift */; };
 		6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */; };
 		89930003AABBCCDDEEFF0001 /* CMUXCLI+AgentHookProcessBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930003AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBinding.swift */; };
 		89930009AABBCCDDEEFF0001 /* CMUXCLI+AgentHookProcessBindingProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930009AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingProbe.swift */; };
@@ -807,11 +810,18 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
 		C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */; };
+		918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000050 /* CodexHookFailureCandidate.swift */; };
+		918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000040 /* CodexHookFailureSummary.swift */; };
+		918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000060 /* CodexHookUserInputCandidate.swift */; };
+		918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000090 /* CodexMonitorOwnerState.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */; };
+		918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */; };
+		918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */; };
+		918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */; };
 		C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */; };
@@ -2684,6 +2694,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F65760200000000000000002 /* AgentHibernationTranscriptHookStoreFileMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreFileMirror.swift"; sourceTree = "<group>"; };
 		F65760210000000000000002 /* AgentHibernationTranscriptHookStoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationTranscriptHookStoreRecord.swift"; sourceTree = "<group>"; };
 		F65760250000000000000002 /* AgentHibernationTranscriptSnapshotRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptSnapshotRaceTests.swift; sourceTree = "<group>"; };
+		918100000000000000000100 /* AgentHookFailureStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookFailureStage.swift; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
@@ -3058,6 +3069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICallerWorkspaceDefaultTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
 		C0D3F1F10000000000000104 /* CLICodexHookTimeoutRegressionTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTestSupport.swift; sourceTree = "<group>"; };
+		918100000000000000000001 /* CLICodexResumeNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexResumeNotificationTests.swift; sourceTree = "<group>"; };
 		C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexWeakEnvironmentRestoreBindingTests.swift; sourceTree = "<group>"; };
 		C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexYoloResumePersistenceTests.swift; sourceTree = "<group>"; };
 		1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
@@ -3125,6 +3137,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 		61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookCatalog.swift"; sourceTree = "<group>"; };
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
+		918100000000000000000010 /* CMUXCLI+AgentHookFailureReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookFailureReporting.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookPayload.swift"; sourceTree = "<group>"; };
 		89930003AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookProcessBinding.swift"; sourceTree = "<group>"; };
 		89930009AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookProcessBindingProbe.swift"; sourceTree = "<group>"; };
@@ -3315,10 +3328,17 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
 		C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCodeModeRolloutIdentityTests.swift; sourceTree = "<group>"; };
+		918100000000000000000050 /* CodexHookFailureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureCandidate.swift; sourceTree = "<group>"; };
+		918100000000000000000040 /* CodexHookFailureSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureSummary.swift; sourceTree = "<group>"; };
+		918100000000000000000060 /* CodexHookUserInputCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookUserInputCandidate.swift; sourceTree = "<group>"; };
+		918100000000000000000090 /* CodexMonitorOwnerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMonitorOwnerState.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DE7101C0DE7101C0DE7101 /* CodexTerminalErrorNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTerminalErrorNotificationTests.swift; sourceTree = "<group>"; };
+		918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptFailureReadResult.swift; sourceTree = "<group>"; };
+		918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorStopReplay.swift; sourceTree = "<group>"; };
+		918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptSubagentSignals.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteEmojiTitleSearchTests.swift; sourceTree = "<group>"; };
 		C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteFocusRestoreCoordinator.swift; sourceTree = "<group>"; };
@@ -6923,6 +6943,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */,
 				89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */,
 				61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */,
+				918100000000000000000010 /* CMUXCLI+AgentHookFailureReporting.swift */,
+				918100000000000000000020 /* CodexTranscriptMonitorStopReplay.swift */,
+				918100000000000000000040 /* CodexHookFailureSummary.swift */,
+				918100000000000000000050 /* CodexHookFailureCandidate.swift */,
+				918100000000000000000060 /* CodexHookUserInputCandidate.swift */,
+				918100000000000000000070 /* CodexTranscriptSubagentSignals.swift */,
+				918100000000000000000080 /* CodexTranscriptFailureReadResult.swift */,
+				918100000000000000000090 /* CodexMonitorOwnerState.swift */,
+				918100000000000000000100 /* AgentHookFailureStage.swift */,
 				7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */,
 				DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */,
 				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
@@ -7567,6 +7596,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */,
 				C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */,
 				C0D3F1F10000000000000104 /* CLICodexHookTimeoutRegressionTestSupport.swift */,
+				918100000000000000000001 /* CLICodexResumeNotificationTests.swift */,
 				C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */,
 				A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */,
 				A5D41212A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift */,
@@ -9721,6 +9751,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
@@ -9734,6 +9765,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				D4461A487C13945177EEE9A1 /* CMUXCLI+AgentHookCatalog.swift in Sources */,
 				B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
+				918100000000000000000011 /* CMUXCLI+AgentHookFailureReporting.swift in Sources */,
 				6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */,
 				89930003AABBCCDDEEFF0001 /* CMUXCLI+AgentHookProcessBinding.swift in Sources */,
 				89930009AABBCCDDEEFF0001 /* CMUXCLI+AgentHookProcessBindingProbe.swift in Sources */,
@@ -9811,7 +9843,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
+				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
+				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
+				918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
+				918100000000000000000081 /* CodexTranscriptFailureReadResult.swift in Sources */,
+				918100000000000000000021 /* CodexTranscriptMonitorStopReplay.swift in Sources */,
+				918100000000000000000071 /* CodexTranscriptSubagentSignals.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C51A73B20000000000000002 /* IOSScreenshotCommandResultBox.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -10035,6 +10074,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
 				C0D3F1F10000000000000103 /* CLICodexHookTimeoutRegressionTestSupport.swift in Sources */,
+				918100000000000000000002 /* CLICodexResumeNotificationTests.swift in Sources */,
 				C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */,
 				C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */,
 					E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
