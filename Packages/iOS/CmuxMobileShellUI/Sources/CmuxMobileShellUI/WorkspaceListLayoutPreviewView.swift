@@ -323,6 +323,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 selectFixtureWorkspace(id)
             },
             createWorkspace: {},
+            createWorkspaceInGroup: reorderEnabled ? { _ in } : nil,
+            createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
                 await MainActor.run {
@@ -371,6 +373,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                 return true
             } : nil,
             renameWorkspaceGroup: reorderEnabled ? { _, _ in } : nil,
+            setGroupPinned: reorderEnabled ? { _, _ in } : nil,
+            ungroupWorkspaceGroup: reorderEnabled ? { _ in } : nil,
+            deleteWorkspaceGroup: reorderEnabled ? { _ in } : nil,
             filterState: filterState,
             searchText: searchText
         )
