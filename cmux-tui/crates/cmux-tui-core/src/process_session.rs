@@ -2001,30 +2001,15 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn session_scan_skips_inaccessible_foreign_processes_but_not_leaders() {
+    fn session_scan_does_not_assume_an_inaccessible_pid_is_foreign() {
         let sessions = HashSet::from([41]);
-        let snapshot = scan_sessions_with(
-            &sessions,
-            None,
-            || Ok(vec![73, 41]),
-            |pid| {
-                if pid == 73 {
-                    Err(io::Error::from_raw_os_error(libc::EACCES))
-                } else {
-                    Ok(Some(41))
-                }
-            },
-        )
-        .expect("an inaccessible foreign process aborted the session scan");
-        assert_eq!(snapshot.get(&41), Some(&vec![41]));
-
         let error = scan_sessions_with(
             &sessions,
             None,
-            || Ok(vec![41]),
+            || Ok(vec![73]),
             |_| Err(io::Error::from_raw_os_error(libc::EACCES)),
         )
-        .expect_err("an inaccessible session leader was silently skipped");
+        .expect_err("unknown session membership was silently treated as foreign");
         assert_eq!(error.raw_os_error(), Some(libc::EACCES));
     }
 
