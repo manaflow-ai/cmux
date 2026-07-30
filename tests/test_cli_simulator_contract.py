@@ -181,6 +181,7 @@ def assert_invalid(
     fake_home: Path,
     state: RecordingState,
     arguments: list[str],
+    expected_stderr: str | None = None,
 ) -> None:
     start = state.count()
     proc = run_cli(cli_path, socket_path, fake_home, arguments)
@@ -190,6 +191,11 @@ def assert_invalid(
         raise AssertionError(
             f"simulator {' '.join(arguments)} crashed with signal {-proc.returncode}\n"
             f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
+        )
+    if expected_stderr is not None and expected_stderr not in proc.stderr:
+        raise AssertionError(
+            f"simulator {' '.join(arguments)} stderr was {proc.stderr!r}, "
+            f"expected it to contain {expected_stderr!r}"
         )
     requests = state.requests_since(start)
     if requests:
@@ -238,6 +244,12 @@ def check_ui_automation(
             "pre_delay_milliseconds": 50,
             "post_delay_milliseconds": 100,
         },
+    )
+    assert_request(
+        cli_path, socket_path, fake_home, state,
+        ["tap", "--label", "Search", "--role", "TextField"],
+        "simulator.tap",
+        {"label": "Search", "role": "text-field"},
     )
     assert_request(
         cli_path, socket_path, fake_home, state,
@@ -341,10 +353,17 @@ def check_ui_automation(
     assert_invalid(
         cli_path, socket_path, fake_home, state,
         ["swipe", "--ref", "e1_4", "up", "--duration", "0"],
+        "Invalid arguments for simulator swipe",
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,
         ["swipe", "--ref", "e1_4", "up", "--duration", "1e20"],
+        "Invalid arguments for simulator swipe",
+    )
+    assert_invalid(
+        cli_path, socket_path, fake_home, state,
+        ["drag", "--ref", "e1_5", "diagonal"],
+        "Invalid arguments for simulator drag",
     )
     assert_invalid(
         cli_path, socket_path, fake_home, state,

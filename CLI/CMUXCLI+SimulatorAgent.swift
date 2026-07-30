@@ -114,7 +114,9 @@ extension CMUXCLI {
                 if let identifier = arguments.accessibilityIdentifier {
                     params["identifier"] = identifier
                 }
-                if let role = arguments.accessibilityRole { params["role"] = role }
+                if let role = arguments.accessibilityRole {
+                    params["role"] = simulatorUIRoleName(role)
+                }
                 return request("simulator.tap", params)
             }
             try requireSimulatorUIOptions(arguments, subcommand: subcommand)
@@ -169,6 +171,7 @@ extension CMUXCLI {
             )
             return try simulatorUISemanticGestureRequest(
                 arguments,
+                subcommand: subcommand,
                 method: "simulator.drag",
                 refKey: "element_ref",
                 defaultDistance: 0.35
@@ -339,6 +342,7 @@ extension CMUXCLI {
                 )
                 return try simulatorUISemanticGestureRequest(
                     arguments,
+                    subcommand: subcommand,
                     method: "simulator.swipe",
                     refKey: "within_element_ref",
                     defaultDistance: 1
@@ -555,19 +559,20 @@ extension CMUXCLI {
 
     private func simulatorUISemanticGestureRequest(
         _ arguments: SimulatorArguments,
+        subcommand: String,
         method: String,
         refKey: String,
         defaultDistance: Double
     ) throws -> SimulatorAgentRequest {
         guard let elementRef = arguments.elementRef,
               !arguments.readsStandardInput, arguments.file == nil else {
-            throw simulatorArgumentsError(method)
+            throw simulatorArgumentsError(subcommand)
         }
         let direction = arguments.option("direction") ?? arguments.positionals.first
         guard arguments.positionals.count <= 1,
               let direction,
               ["up", "down", "left", "right"].contains(direction.lowercased()) else {
-            throw simulatorArgumentsError(method)
+            throw simulatorArgumentsError(subcommand)
         }
         let duration = try simulatorUIMilliseconds(
             arguments.option("duration"),
@@ -575,7 +580,7 @@ extension CMUXCLI {
             defaultValue: 300
         )
         guard duration > 0 else {
-            throw simulatorArgumentsError(method)
+            throw simulatorArgumentsError(subcommand)
         }
         var params: [String: Any] = [
             refKey: elementRef,
