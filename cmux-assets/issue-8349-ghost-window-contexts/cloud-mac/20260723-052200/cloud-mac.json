@@ -1,0 +1,8 @@
+{
+  "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/30006595159",
+  "mode": "shell-only",
+  "result": "cancelled",
+  "video": null,
+  "video_unavailable_reason": "The shell-only lease never became visible through the local Tailscale peer list, and GUI verification was not requested for the focused unit-test run.",
+  "replacement_verification_url": "https://github.com/manaflow-ai/cmux/actions/runs/30007379475"
+}
