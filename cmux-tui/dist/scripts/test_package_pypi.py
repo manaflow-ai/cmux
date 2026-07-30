@@ -20,6 +20,12 @@ def launcher_command(version: str, argv0: str) -> str:
 
 
 class LauncherCommandTests(unittest.TestCase):
+    def test_launcher_remains_compatible_with_python_3_8(self) -> None:
+        files = wheel_bytes("1.2.3", "test-platform", b"binary")
+        source = next(data for name, data, _ in files if name == "cmux_tui/_main.py")
+
+        self.assertNotIn(b".removeprefix(", source)
+
     def test_uv_cache_restarts_the_same_version(self) -> None:
         self.assertEqual(
             launcher_command(
