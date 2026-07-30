@@ -1354,10 +1354,7 @@ fn packaged_launcher_name_is_used_in_upgrade_instructions() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("cmux server stop"), "{stderr}");
-    assert!(
-        stderr.contains(&format!("then run `cmux ping --socket {}` again", socket.display())),
-        "{stderr}"
-    );
+    assert!(stderr.contains("then rerun the previous command using `cmux`."), "{stderr}");
     server.join().unwrap();
     let _ = fs::remove_file(&socket);
     let _ = fs::remove_dir_all(&dir);
