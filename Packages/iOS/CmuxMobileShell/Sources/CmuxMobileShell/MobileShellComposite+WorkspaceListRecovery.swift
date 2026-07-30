@@ -127,8 +127,11 @@ extension MobileShellComposite {
             return
         }
         if listStatus == .connected {
-            if let macDeviceID = workspaceListConnectedRefreshTargetMacDeviceID(),
-               await switchToMac(macDeviceID: macDeviceID) {
+            if let target = workspaceListConnectedRefreshTarget(),
+               await switchToMac(
+                   macDeviceID: target.macDeviceID,
+                   instanceTag: target.instanceTag
+               ) {
                 await refreshWorkspaces()
                 return
             }
@@ -166,10 +169,18 @@ extension MobileShellComposite {
     /// but the foreground RPC slot is disconnected, e.g. after deleting the old
     /// foreground computer while secondary Mac rows remain visible.
     func workspaceListConnectedRefreshTargetMacDeviceID() -> String? {
+        workspaceListConnectedRefreshTarget()?.macDeviceID
+    }
+
+    /// Pairing-exact variant: rows carry their build's tag, and sibling builds
+    /// of one Mac are distinct targets, so ambiguity fails closed.
+    func workspaceListConnectedRefreshTarget() -> (macDeviceID: String, instanceTag: String?)? {
         let connectionStatusesByMacDeviceID = macConnectionStatuses
         let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
 
-        func connectedMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
+        func connectedTarget(
+            from workspace: MobileWorkspacePreview?
+        ) -> (macDeviceID: String, instanceTag: String?)? {
             guard let workspace,
                   let macDeviceID = workspace.macDeviceID,
                   (workspace.macConnectionStatus ?? connectionStatusesByMacDeviceID[macDeviceID]) == .connected,
@@ -178,19 +189,22 @@ extension MobileShellComposite {
             else {
                 return nil
             }
-            return macDeviceID
+            return (macDeviceID, workspace.macInstanceTag)
         }
 
-        if let selected = connectedMacDeviceID(from: explicitlySelectedWorkspace) {
+        if let selected = connectedTarget(from: explicitlySelectedWorkspace) {
             return selected
         }
-        var candidates: [String] = []
-        var seen: Set<String> = []
+        var candidates: [(macDeviceID: String, instanceTag: String?)] = []
+        var seen: Set<MacPairingKey> = []
         for workspace in workspaces {
-            guard let macDeviceID = connectedMacDeviceID(from: workspace),
-                  !seen.contains(macDeviceID) else { continue }
-            seen.insert(macDeviceID)
-            candidates.append(macDeviceID)
+            guard let target = connectedTarget(from: workspace) else { continue }
+            let key = MacPairingKey(
+                macDeviceID: target.macDeviceID,
+                instanceTag: target.instanceTag
+            )
+            guard seen.insert(key).inserted else { continue }
+            candidates.append(target)
         }
         return candidates.count == 1 ? candidates[0] : nil
     }

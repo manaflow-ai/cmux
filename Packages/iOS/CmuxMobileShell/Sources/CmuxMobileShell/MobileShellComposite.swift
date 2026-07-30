@@ -6281,6 +6281,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 derived.first {
                     $0.rpcWorkspaceID == previous.rpcWorkspaceID
                         && $0.macDeviceID == previous.macDeviceID
+                        && macInstanceTagAuthority.sameStoredAuthority(
+                            $0.macInstanceTag,
+                            previous.macInstanceTag
+                        )
                 }
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id

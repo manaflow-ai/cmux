@@ -135,7 +135,7 @@ extension CMUXMobileShellStore {
         macDeviceID: String?,
         instanceTag: String?
     ) -> MobileWorkspacePreview.ID? {
-        let matches = workspaces.filter { workspace in
+        func matches(_ workspace: MobileWorkspacePreview) -> Bool {
             if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
                 return false
             }
@@ -145,13 +145,30 @@ extension CMUXMobileShellStore {
             }
             return workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
         }
+        // Exact pairing lookups are unambiguous and sit on per-frame terminal
+        // paths (viewport, replay, scroll): return at the first hit with no
+        // allocation.
+        if let instanceTag, !instanceTag.isEmpty {
+            return workspaces.first(where: matches)?.id
+        }
         // Sibling builds can reuse Mac-local surface ids; a tag-less lookup
         // that matches two builds of one device fails closed rather than
         // deep-linking into the wrong instance.
-        if instanceTag == nil,
-           MobileShellComposite.matchesSpanSiblingBuilds(matches) {
-            return nil
+        var firstMatchID: MobileWorkspacePreview.ID?
+        var owners: Set<MacPairingKey> = []
+        var ownerDevices: Set<String> = []
+        for workspace in workspaces where matches(workspace) {
+            if firstMatchID == nil { firstMatchID = workspace.id }
+            guard let owner = workspace.macDeviceID else { continue }
+            let key = MacPairingKey(
+                macDeviceID: owner,
+                instanceTag: workspace.macInstanceTag
+            )
+            if owners.insert(key).inserted,
+               !ownerDevices.insert(key.canonicalMacDeviceID).inserted {
+                return nil
+            }
         }
-        return matches.first?.id
+        return firstMatchID
     }
 }
