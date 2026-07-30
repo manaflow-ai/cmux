@@ -112,22 +112,23 @@ struct CmxIrohClientSessionPoolPathEvictionTests {
         let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
             .makeTransport(for: fixture.request)
         try await transport.connect()
+        let pathChanges = await pool.selectedPathChanges()
+        var pathIterator = pathChanges.makeAsyncIterator()
+        _ = await pathIterator.next()
 
         await connection.setObservedSelectedPath(.unavailable)
+        _ = await pathIterator.next()
         #expect(await clock.waitForSleeper())
 
         // The path recovers while the grace window is still pending; releasing
         // the window afterwards must not evict the healthy session.
         await connection.setObservedSelectedPath(.relay(url: "https://relay.example"))
-        let recovered = await pollUntilTrue {
-            await pool.selectedObservedPath() == .relay(url: "https://relay.example")
-        }
-        #expect(recovered)
+        _ = await pathIterator.next()
         await clock.release()
 
-        // Give a mistaken eviction every chance to land before asserting.
-        await Task.yield()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // The path-change signal publishes only after the pool synchronously
+        // cancels and removes the pending eviction. Once cancelled, releasing
+        // its test clock cannot pass the task's cancellation guard.
         #expect(await connection.observedCloseCallCount() == 0)
         #expect(await pool.selectedObservedPath() == .relay(url: "https://relay.example"))
     }
