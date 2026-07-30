@@ -6,14 +6,29 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesNativeSoftScrollEdgeEffectsAndExplicitInsets() {
+    @Test func workspaceTableUsesNativeBarSizedScrollEdgeEffectsAndExplicitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
 
         #expect(tableView.topEdgeEffect.style == .soft)
-        #expect(tableView.bottomEdgeEffect.style == .soft)
+        #expect(
+            tableView.bottomEdgeEffect.style == .automatic,
+            "UIKit must size the automatic bottom effect to the tab bar instead of applying a full soft fade."
+        )
         #expect(tableView.contentInsetAdjustmentBehavior == .never)
+    }
+
+    @Test func workspaceTableAddsNoGestureRecognizers() {
+        let stockTable = UITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        let workspaceTable = makeTableView()
+
+        #expect(
+            gestureRecognizerTypes(in: workspaceTable)
+                == gestureRecognizerTypes(in: stockTable)
+        )
     }
 
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
@@ -115,6 +130,12 @@ import UIKit
         WorkspaceListUITableView(
             frame: CGRect(x: 0, y: 0, width: 390, height: 844)
         )
+    }
+
+    private func gestureRecognizerTypes(in tableView: UITableView) -> [String] {
+        (tableView.gestureRecognizers ?? [])
+            .map { String(reflecting: type(of: $0)) }
+            .sorted()
     }
 
     private func configuration(
