@@ -1,0 +1,23 @@
+{
+  "task": "issue-8349-ghost-window-contexts",
+  "recorded_at": "2026-07-21T02:41:00Z",
+  "tailnet_dns_suffix": "tail137216.ts.net",
+  "attempts": [
+    {
+      "run_id": 29794366397,
+      "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/29794366397",
+      "expected_host": "cmux-loader-29794366397",
+      "result": "local watcher timed out during the runner queue; the host never appeared in local Tailscale status or DNS after the job reached its external-control hold"
+    },
+    {
+      "run_id": 29795627346,
+      "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/29795627346",
+      "expected_host": "cmux-loader-29795627346",
+      "result": "the job reached its external-control hold, but the host never appeared in local Tailscale status or DNS; the lease was cancelled"
+    }
+  ],
+  "gui_video": {
+    "available": false,
+    "reason": "Neither leased Mac became reachable over Tailscale/SSH, so CUA bootstrap, GUI interaction, and full-screen recording could not start."
+  }
+}
