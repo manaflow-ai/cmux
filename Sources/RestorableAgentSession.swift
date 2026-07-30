@@ -426,15 +426,17 @@ enum AgentResumeCommandBuilder {
         case .claude:
             shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         case .codex:
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         default:
-            shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+            shellCommand = sanitizedCommandParts
+                .map(TerminalStartupShellQuoting.singleQuoted)
+                .joined(separator: " ")
         }
         guard includeWorkingDirectoryPrefix else { return shellCommand }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)

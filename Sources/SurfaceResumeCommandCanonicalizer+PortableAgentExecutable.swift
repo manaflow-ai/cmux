@@ -62,15 +62,12 @@ extension SurfaceResumeBindingSnapshot {
             repairPortableAgentExecutable: repairPortableAgentExecutable,
             includeWorkingDirectoryPrefix: false
         ) else { return nil }
-        let launcherWorkingDirectory = isAgentHookBinding
-            ? (restoringWorkingDirectory ?? cwd)
-            : nil
         guard let scriptInput = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
         ).writeInvocationInput(
             command: inlineInput,
-            workingDirectory: launcherWorkingDirectory
+            workingDirectory: restoringWorkingDirectory ?? cwd
         ) else {
             return nil
         }

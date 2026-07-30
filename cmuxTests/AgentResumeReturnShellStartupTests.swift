@@ -180,38 +180,40 @@ struct AgentResumeReturnShellStartupTests {
         #expect(!fileManager.fileExists(atPath: inaccessibleOutput.path))
     }
 
-    @Test("pre-change binding with an outside cwd prefix still resumes")
+    @Test("pre-change hook and CLI bindings with an outside cwd prefix still resume")
     func legacyOutsideScriptWorkingDirectoryPrefixStillResumes() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-9200-legacy-\(UUID().uuidString)", isDirectory: true)
         let workingDirectory = root.appendingPathComponent("legacy project", isDirectory: true)
-        let output = root.appendingPathComponent("legacy.txt", isDirectory: false)
         try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
         let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory.path)
-        let quotedOutput = TerminalStartupShellQuoting.singleQuoted(output.path)
-        let encoded = try JSONSerialization.data(withJSONObject: [
-            "kind": "codex",
-            "command": "cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ] && pwd > \(quotedOutput)",
-            "cwd": workingDirectory.path,
-            "source": "agent-hook",
-            "autoResume": true,
-        ])
-        let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: encoded)
-        let input = try #require(binding.startupInputWithLauncherScript(
-            fileManager: fileManager,
-            temporaryDirectory: root
-        ))
+        for source in ["agent-hook", "cli"] {
+            let output = root.appendingPathComponent("\(source).txt", isDirectory: false)
+            let quotedOutput = TerminalStartupShellQuoting.singleQuoted(output.path)
+            let encoded = try JSONSerialization.data(withJSONObject: [
+                "kind": "codex",
+                "command": "cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ] && pwd > \(quotedOutput)",
+                "cwd": workingDirectory.path,
+                "source": source,
+                "autoResume": true,
+            ])
+            let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: encoded)
+            let input = try #require(binding.startupInputWithLauncherScript(
+                fileManager: fileManager,
+                temporaryDirectory: root
+            ))
 
-        try expectLauncherInvocation(input)
-        let result = try runShellInput(input, currentDirectory: root)
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(
-            String(decoding: try Data(contentsOf: output), as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines) == workingDirectory.path
-        )
+            try expectLauncherInvocation(input)
+            let result = try runShellInput(input, currentDirectory: root)
+            #expect(result.status == 0, Comment(rawValue: "\(source): \(result.stderr)"))
+            #expect(
+                String(decoding: try Data(contentsOf: output), as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines) == workingDirectory.path
+            )
+        }
     }
 
     @Test("auto-resume returns to the normally initialized login shell")

@@ -19,6 +19,8 @@ struct OneShotTerminalLauncherStore {
 
     private let directoryName = "cmux-r"
     private let scriptTTL: TimeInterval = 24 * 60 * 60
+    private let pruneInterval: TimeInterval = 5 * 60
+    private let pruneMarkerName = ".last-prune"
 
     init(
         fileManager: FileManager = .default,
@@ -80,7 +82,8 @@ struct OneShotTerminalLauncherStore {
         }
     }
 
-    /// Returns history-hidden post-start input containing one zsh launcher invocation.
+    /// Returns post-start input whose leading space opts into the shell's
+    /// history-ignore-space behavior.
     func writeInvocationInput(
         command: String,
         workingDirectory: String?
@@ -110,6 +113,14 @@ struct OneShotTerminalLauncherStore {
     }
 
     private func pruneOldLaunchers(in directoryURL: URL) {
+        let markerURL = directoryURL.appendingPathComponent(pruneMarkerName, isDirectory: false)
+        if let attributes = try? fileManager.attributesOfItem(atPath: markerURL.path),
+           let lastPrunedAt = attributes[.modificationDate] as? Date {
+            let elapsed = currentDate.timeIntervalSince(lastPrunedAt)
+            if elapsed >= 0, elapsed < pruneInterval {
+                return
+            }
+        }
         guard let URLs = try? fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -125,6 +136,18 @@ struct OneShotTerminalLauncherStore {
                 continue
             }
             try? fileManager.removeItem(at: scriptURL)
+        }
+        do {
+            try "".write(to: markerURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes(
+                [
+                    .posixPermissions: 0o600,
+                    .modificationDate: currentDate,
+                ],
+                ofItemAtPath: markerURL.path
+            )
+        } catch {
+            logger.error("Failed to record one-shot launcher pruning: \(error.localizedDescription, privacy: .public)")
         }
     }
 
