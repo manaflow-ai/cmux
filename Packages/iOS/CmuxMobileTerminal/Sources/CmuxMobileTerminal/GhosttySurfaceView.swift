@@ -186,6 +186,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingVerifiedReplayViewportAnchorCapture: PendingVerifiedReplayViewportAnchorCapture?
     var pendingVerifiedReplayViewportAnchorRestore: PendingVerifiedReplayViewportAnchorRestore?
     var pendingCopyableTextRead: PendingCopyableTextRead?
+    var pendingVerifiedReplayPresentation: PendingVerifiedReplayPresentation?
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingVerifiedReplayViewportAnchorCapture != nil
@@ -1719,9 +1720,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
-        // User-driven movement reveals the chip; this is guard-only work per
-        // frame (the linger is armed by the gesture-end callbacks).
-        noteArtifactChipScrollActivity()
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
@@ -2474,13 +2472,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
-        // Block-based observers stay registered (and their closures retained
-        // by NotificationCenter) until explicitly removed; dropping the token
-        // array alone would leak a registration per surface remount.
-        for token in artifactChipAccessibilityObserverTokens {
-            NotificationCenter.default.removeObserver(token)
-        }
-        artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
     }
 
@@ -4052,28 +4043,6 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         recenterScrollMechanicsViewIfNeeded()
     }
 
-    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        guard scrollView === scrollMechanicsView else { return }
-        // Reveal on touch-down and hold the chip (no linger) while the finger
-        // is down; the end/deceleration callbacks arm the fade-out. Recorded
-        // even before any chip content mounts (see noteArtifactChipScrollActivity).
-        revealArtifactChipForScroll()
-    }
-
-    public func scrollViewDidEndDragging(
-        _ scrollView: UIScrollView,
-        willDecelerate decelerate: Bool
-    ) {
-        guard scrollView === scrollMechanicsView, !decelerate,
-              artifactChipScrollRevealed else { return }
-        armArtifactChipRevealLinger()
-    }
-
-    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === scrollMechanicsView,
-              artifactChipScrollRevealed else { return }
-        armArtifactChipRevealLinger()
-    }
 }
 
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.

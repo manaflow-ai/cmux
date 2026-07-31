@@ -119,6 +119,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceMoveCapability = "workspace.move.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
+    static let taskCreateCapability = "workspace.task_create.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
@@ -341,6 +342,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    public internal(set) var notificationFeedItems: [MobileNotificationFeedItem] = [] {
+        didSet {
+            notificationFeedUnreadCount = notificationFeedItems.lazy.filter { !$0.isRead }.count
+        }
+    }
+    public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
+    public private(set) var notificationFeedUnreadCount: Int = 0
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -784,7 +792,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var agentSyncEngine: AgentSyncEngine? = nil
     @ObservationIgnored var agentGUIConnectionGeneration: UUID? = nil
     @ObservationIgnored var agentGUIConnectionEventRelay: AgentGUIConnectionEventRelay? = nil
-    var remoteClient: MobileCoreRPCClient? {
+    package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
@@ -3138,117 +3146,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
-    /// Promote the live read-only secondary connection for `macID` to the
-    /// foreground by REUSING its client — no re-dial. Returns `false` (so the
-    /// caller re-dials) when no live secondary exists or it no longer responds.
-    ///
-    /// This is the fix for "Mac offline" on a reachable Mac: re-dialing the
-    /// foreground (refreshFromBackup route re-derivation + offline preflight +
-    /// `connect()` pairing-generation race) has several independent failure points,
-    /// any of which strands the user even though a working client to that exact Mac
-    /// already sits in `secondaryMacSubscriptions`. Reusing it makes that failure
-    /// unrepresentable for an already-aggregated Mac.
-    private func promoteSecondaryToForeground(_ macID: String, switchAttemptID: UUID) async -> Bool {
-        guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID],
-              let pairedMacStore,
-              let activeWriteScope = await currentScopeSnapshot(),
-              let current = try? await pairedMacStore.loadAll(
-                  stackUserID: activeWriteScope.userID,
-                  teamID: activeWriteScope.teamID
-              ).first(where: { $0.macDeviceID == macID }),
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
-                  current.instanceTag,
-                  sub.storedInstanceTag
-              ) else {
-            secondaryMacSubscriptions[macID]?.cancel()
-            secondaryMacSubscriptions[macID] = nil
-            return false
-        }
-        // Probe the live client so we only promote a connection that responds NOW
-        // (the read-only stream can have silently dropped); on failure, re-dial.
-        guard let previews = await fetchSecondaryWorkspaces(on: sub.client, macDeviceID: macID),
-              secondaryMacSubscriptions[macID] === sub,
-              isCurrentMacSwitchAttempt(switchAttemptID),
-              let refreshed = try? await pairedMacStore.loadAll(
-                  stackUserID: activeWriteScope.userID,
-                  teamID: activeWriteScope.teamID
-              ).first(where: { $0.macDeviceID == macID }),
-              secondaryMacSubscriptions[macID] === sub,
-              MobileMacInstanceTagAuthority.sameStoredAuthority(
-                  refreshed.instanceTag,
-                  sub.storedInstanceTag
-              ),
-              activeWriteScope.generation == secondaryAggregationScopeGeneration,
-              isCurrentMacSwitchAttempt(switchAttemptID) else {
-            if secondaryMacSubscriptions[macID] === sub {
-                sub.cancel()
-                secondaryMacSubscriptions[macID] = nil
-            }
-            return false
-        }
-        mobileShellLog.info("promote: reusing authenticated secondary client mac=\(macID, privacy: .public)")
-        // Take a fresh connection generation so the foreground machinery (polling,
-        // event listener, in-flight request guards) treats this client as current.
-        let generation = UUID()
-        connectionAttemptGeneration = generation
-        connectionGeneration = generation
-        cancelRemoteOperationTasks() // stop the OLD foreground's polling/tasks
-        // Capture the OLD foreground key before the id flips so its now-stale
-        // snapshot can be dropped from the aggregate after the swap.
-        let previousForegroundKey = foregroundMacKey
-        // Take ownership of the live client; do NOT disconnect it.
-        secondaryMacSubscriptions[macID] = nil
-        sub.detachKeepingClient()
-        let displayName = workspacesByMac[macID]?.displayName
-        activeTicket = sub.ticket
-        activeRoute = sub.route
-        activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
-        connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
-        replaceRemoteClient(with: sub.client)
-        foregroundMacDeviceID = macID
-        supportedHostCapabilities = sub.supportedHostCapabilities
-        refreshMacUpdateHint(
-            capabilities: sub.supportedHostCapabilities,
-            statusMacAppVersion: nil,
-            macDeviceID: macID
-        )
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
-            displayName: displayName,
-            workspaces: previews,
-            status: .connected,
-            actionCapabilities: sub.actionCapabilities
-        )
-        // The previous foreground's live client was just replaced; drop its stale
-        // rows (re-added as a secondary by scheduleSecondaryAggregation below).
-        dropStalePreviousForeground(previousForegroundKey)
-        connectionState = .connected
-        markMacConnectionHealthy()
-        installAgentGUIEngine(client: sub.client, generation: generation)
-        // Tear down the OLD foreground's terminal event listener before starting a
-        // fresh one. `cancelRemoteOperationTasks()` above does NOT clear
-        // `terminalEventListenerTask`/`terminalEventListenerID`, and
-        // `startTerminalRefreshPolling()` no-ops while a listener task is still
-        // installed — so without this the promoted client would never get its
-        // terminal/workspace/notification push stream and output would stall until
-        // some other path restarted it. The stop+start mirrors `restartEventStream`;
-        // the old listener's `== listenerID` defer guard keeps its async teardown
-        // from clobbering the new listener/watchdog.
-        stopTerminalRefreshPolling()
-        startTerminalRefreshPolling()
-        syncSelectedTerminalForWorkspace()
-        enqueueActivePairedMacWrite(
-            macDeviceID: macID,
-            instanceTag: activeMacInstanceTag,
-            scope: activeWriteScope,
-            reloadAfterWrite: false
-        )
-        // Re-aggregate so the PREVIOUS foreground Mac comes back as a secondary.
-        scheduleSecondaryAggregation()
-        return true
-    }
-
     /// Switch the foreground connection to another paired Mac.
     @discardableResult
     public func switchToMac(

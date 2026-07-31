@@ -162,7 +162,6 @@ extension GhosttySurfaceView {
                     }
                     if restored {
                         self.needsDraw = true
-                        self.scheduleVisibleArtifactCountUpdate()
                     }
                     self.completePendingVerifiedReplayViewportAnchorRestore(
                         id: operationID,

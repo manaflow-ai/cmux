@@ -68,14 +68,104 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            if case .networkChange = trigger {
-                agentSyncEngine?.noteNetworkPathChanged()
+        if let accountID = identityProvider?.currentUserID {
+            switch trigger {
+            case .manual, .networkChange, .foreground:
+                clearTransientAutomaticReconnectBackoff(accountID: accountID)
+            case .presencePush:
+                guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
+                    return
+                }
+            case .liveness, .eventStreamEnded, .subscriptionStartFailed,
+                 .transportWriteTimedOut, .automaticBackoffExpired:
+                break
             }
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
+        }
+        if case .networkChange = trigger {
+            agentSyncEngine?.noteNetworkPathChanged()
+        }
+        beginConnectionRecovery(
+            trigger: trigger,
+            expectedClient: remoteClient,
+            probeCurrentConnection: connectionState == .connected && remoteClient != nil,
+            resyncAfterHealthy: true
+        )
+        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+            scheduleSecondaryAggregation()
+        }
+    }
+
+    /// A definitive event-stream failure bypasses same-client resubscription.
+    /// Once the exact session is proven dead, rebuilding its listener only hides
+    /// the failure behind the transport's reconnect behavior and leaves the
+    /// shell owner stale. Instead, transition the one lifecycle owner to a fresh
+    /// authenticated stored-Mac dial.
+    func recoverDeadConnection(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        guard remoteClient === expectedClient, connectionState == .connected else { return }
+
+        if connectionRecoveryOwner.isRedialingOrValidating {
+            let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
+                || connectionRecoveryOwner.activeAttempt?.sourceConnectionGeneration != connectionGeneration
+            guard replacementIsInstalled else { return }
+            guard failConnectionRecoveryReplacement(failure: .connectionClosed) else { return }
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            applyConnectionRecoveryOwnerState()
+            return
+        }
+
+        let superseding = connectionRecoveryOwner.supersedeProbeWithRedial(
+            trigger: trigger.description,
+            sourceConnectionGeneration: connectionGeneration
+        )
+        startConnectionRecovery(
+            trigger: trigger,
+            expectedClient: expectedClient,
+            probeCurrentConnection: false,
+            resyncAfterHealthy: false,
+            preclaimedAttempt: superseding
+        )
+    }
+
+    private func beginConnectionRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?,
+        probeCurrentConnection: Bool,
+        resyncAfterHealthy: Bool
+    ) {
+        startConnectionRecovery(
+            trigger: trigger,
+            expectedClient: expectedClient,
+            probeCurrentConnection: probeCurrentConnection,
+            resyncAfterHealthy: resyncAfterHealthy,
+            preclaimedAttempt: nil
+        )
+    }
+
+    private func startConnectionRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?,
+        probeCurrentConnection: Bool,
+        resyncAfterHealthy: Bool,
+        preclaimedAttempt: MobileConnectionRecoveryOwner.Attempt?
+    ) {
+        guard pairedMacStore != nil else {
+            guard connectionState == .connected else { return }
+            // Preview/legacy clients can have a live RPC shell without durable
+            // pairing state. Liveness and network-path changes can rebuild that
+            // listener on the existing client, but a definitively ended stream
+            // cannot safely invent a redial route and must remain unavailable.
+            switch trigger {
+            case .liveness, .networkChange:
+                markMacConnectionReconnecting()
+                resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
+            case .manual, .presencePush, .foreground, .eventStreamEnded,
+                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired:
+                markMacConnectionUnavailableIfNoStore()
             }
             return
         }
