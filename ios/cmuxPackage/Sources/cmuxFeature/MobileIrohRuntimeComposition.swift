@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
-import CmuxMobileRPC
+public import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileTransport
 import CryptoKit
@@ -686,6 +686,16 @@ public final class MobileIrohRuntimeComposition:
         await prepareForConnection()
         let runtime = try await runtimeForDial()
         return try await runtime.serverEventByteStream(for: request)
+    }
+
+    /// Credential-free path health for the live iroh session
+    /// (docs/transport-plane.md D3). Never dials or activates: an inactive
+    /// or absent runtime answers `.unknown` so the shell keeps legacy
+    /// escalation behavior instead of misreading "not activated yet" as a
+    /// dead path.
+    public func selectedPathHealth() async -> MobileTransportPathHealth {
+        guard let runtime else { return .unknown }
+        return await runtime.hasUsableSelectedPath() ? .healthy : .noPath
     }
 
     private func runtimeForDial() async throws -> CmxIrohClientRuntime {

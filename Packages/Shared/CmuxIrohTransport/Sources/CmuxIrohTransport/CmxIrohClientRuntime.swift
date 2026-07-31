@@ -292,6 +292,16 @@ public actor CmxIrohClientRuntime {
         await sessionPool.selectedPathChanges()
     }
 
+    /// Whether the pool's selected session currently reports a usable path
+    /// (direct, private network, or relay), regardless of relay-policy
+    /// attribution. Unlike ``selectedTransportPath(relayPolicy:)``, a relay
+    /// outside the current verified policy still counts as usable: this is
+    /// a health signal (docs/transport-plane.md D3), not a settings label.
+    /// `false` also covers "no pooled session".
+    public func hasUsableSelectedPath() async -> Bool {
+        await sessionPool.selectedObservedPath() != .unavailable
+    }
+
     /// Binds the endpoint, registers it, and installs exact discovery and relay policy.
     ///
     /// - Throws: A bind, broker, signature, fleet, or local-binding validation error.

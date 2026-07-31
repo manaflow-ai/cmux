@@ -488,7 +488,8 @@ extension ReconnectRouteSelectionTests {
 
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
-        heldConnectAttempts: Set<Int> = []
+        heldConnectAttempts: Set<Int> = [],
+        pathHealth: MobileTransportPathHealthProvider? = nil
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -519,7 +520,8 @@ extension ReconnectRouteSelectionTests {
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
+                supportedRouteKinds: [.iroh, .tailscale],
+                transportPathHealthProvider: pathHealth
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
@@ -724,5 +726,75 @@ private actor BlockingSecondFetchBackup: PairedMacBackingUp {
         let waiters = releaseWaiters
         releaseWaiters = []
         for waiter in waiters { waiter.resume() }
+    }
+}
+
+// MARK: - Transport-health gate (docs/transport-plane.md D2/D3)
+
+@MainActor
+extension ReconnectRouteSelectionTests {
+    /// I1: dead-stream evidence on a session whose transport path is healthy
+    /// repairs the stream in place instead of tearing down the connection.
+    @Test func eventStreamEndedOnHealthyIrohPathRepairsInPlace() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .healthy })
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: firstClient)
+
+        // The repair re-asserts the event subscription on the SAME client.
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+        let settled = try await pollUntil {
+            fixture.store.connectionState == .connected
+                && fixture.store.remoteClient === firstClient
+        }
+        #expect(settled)
+        // Exactly one dial ever happened: the original connect, no redial.
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
+
+    /// A dead transport path escalates the same evidence to a real redial.
+    @Test func eventStreamEndedOnDeadIrohPathRedials() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .noPath })
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: firstClient)
+
+        let recovered = try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient && fixture.store.connectionState == .connected
+        }
+        #expect(recovered)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    /// D2: a presence push while the connection is healthy reconciles to
+    /// nothing; it must not probe, dial, or restart anything.
+    @Test func presencePushOnHealthyPathIsANoOp() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .healthy })
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+        let subscribesBefore = await fixture.router.count(of: "mobile.events.subscribe")
+
+        fixture.store.recoverMobileConnection(trigger: .presencePush)
+
+        // Bounded settle for the async policy hop; deterministic sleep is
+        // fine in tests.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(fixture.store.remoteClient === firstClient)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+        #expect(await fixture.router.count(of: "mobile.events.subscribe") == subscribesBefore)
+        #expect(!fixture.store.isRecoveringConnection)
     }
 }

@@ -1954,6 +1954,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
+
+    /// Consecutive in-place stream repairs (policy ``MobileConnectionPolicyAction/resubscribe``)
+    /// on the current connection without the data plane proving healthy
+    /// again. Bounds the D2 repair ladder so repeated suspect evidence
+    /// escalates to a probe instead of looping; reset by
+    /// ``markMacConnectionHealthy()`` and
+    /// ``recordSuccessfulTerminalSubscription()``.
+    var connectionRepairAttemptCount = 0
     var lastReconnectStackUserID: String?
 
     enum RecoveryTrigger: CustomStringConvertible {
@@ -1997,6 +2005,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
+            }
+        }
+
+        /// The trigger's place in the transport-plane evidence taxonomy
+        /// (docs/transport-plane.md D2), consumed by
+        /// ``MobileConnectionPolicy`` when a path-health provider is wired.
+        var connectionEvidence: MobileConnectionEvidence {
+            switch self {
+            case .networkChange: return .networkPathChanged
+            case .manual: return .manualRetry
+            case .presencePush: return .presenceRoutePush
+            case .foreground: return .foreground
+            case .liveness: return .livenessSilence
+            case .eventStreamEnded: return .eventStreamEnded
+            case .subscriptionStartFailed: return .subscriptionStartFailed
+            case .transportWriteTimedOut: return .rpcWriteTimedOut
+            case .automaticBackoffExpired: return .backoffExpired
             }
         }
     }
@@ -9116,6 +9141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        connectionRepairAttemptCount = 0
     }
 
     func markMacConnectionReconnecting() {
