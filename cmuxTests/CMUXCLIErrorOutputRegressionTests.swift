@@ -436,6 +436,56 @@ import Testing
         )
     }
 
+    @Test func testRestoreWaitsForControlSocketDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = UUID().uuidString.lowercased()
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-startup-\(UUID().uuidString.prefix(8)).sock"
+        unlink(socketPath)
+        var responder: UnixSocketResponder?
+        defer { responder?.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket",
+                socketPath,
+                "restore",
+                "custom",
+                checkpointID,
+            ],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
+                usleep(100_000)
+                responder = try? UnixSocketResponder(path: socketPath, response: response)
+            }
+        )
+
+        let responder = try #require(responder)
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(responder.receivedRequests.count, 1)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -1819,7 +1869,8 @@ import Testing
         arguments: [String],
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
@@ -1836,6 +1887,7 @@ import Testing
         } catch {
             return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
         }
+        afterLaunch?()
 
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {

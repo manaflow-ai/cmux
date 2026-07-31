@@ -247,6 +247,42 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(launch.initialInput.contains("config set") == false)
     }
 
+    @Test("compatibility-shell preparation refreshes local legacy Hermes bindings")
+    func compatibilityShellPreparationRefreshesLocalLegacyHermesBindings() {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            },
+            resolvingDefaultCodexModel: { _ in "gpt-5" }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "cd /repo && hermes --provider openai-codex run",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: true
+        )
+
+        let compatibilityBinding = service.bindingForCompatibilityShellRestore(binding)
+
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.provider 'codex' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.api_mode 'responses' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.default 'gpt-5' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains("hermes --provider 'codex' run"))
+    }
+
     @Test("remote reconnect waits when restored terminals can authenticate")
     func remoteReconnectWaitsWhenTerminalsAuthenticate() {
         let service = makeService()

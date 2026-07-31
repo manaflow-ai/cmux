@@ -125,6 +125,11 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return .input(input)
     }
 
+    /// Returns the binding used only when a legacy shell command must be restored.
+    public func bindingForCompatibilityShellRestore(_ binding: Binding) -> Binding {
+        binding
+    }
+
     /// Applies stored approval state and returns the binding allowed to run.
     public func approvedSurfaceResumeBinding(
         _ resumeBinding: Binding?,
