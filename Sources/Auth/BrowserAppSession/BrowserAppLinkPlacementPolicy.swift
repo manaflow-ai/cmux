@@ -5,11 +5,21 @@ import WebKit
 /// Keeps authenticated placement and isolated recovery ordering identical
 /// across Workspace and Dock browser hosts.
 @MainActor
-enum BrowserAppLinkPlacementPolicy {
+final class BrowserAppLinkPlacementPolicy {
     typealias RequestPlacement = (URLRequest, WKWebsiteDataStore) -> Bool
     typealias URLPlacement = (URL, WKWebsiteDataStore) -> Bool
 
-    static func openNavigation(
+    private let openInSystemBrowser: (URL) -> Bool
+
+    init(
+        openInSystemBrowser: @escaping (URL) -> Bool = {
+            NSWorkspace.shared.open($0)
+        }
+    ) {
+        self.openInSystemBrowser = openInSystemBrowser
+    }
+
+    func openNavigation(
         _ navigation: BrowserAppSessionNavigation,
         openInPreferredPane: RequestPlacement,
         openHorizontalSplit: RequestPlacement,
@@ -27,12 +37,11 @@ enum BrowserAppLinkPlacementPolicy {
         )
     }
 
-    static func recover(
+    func recover(
         _ destinationURL: URL,
         openInPreferredPane: URLPlacement,
         openHorizontalSplit: URLPlacement,
-        openInSourcePane: URLPlacement,
-        openInSystemBrowser: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        openInSourcePane: URLPlacement
     ) -> Bool {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         return openInPreferredPane(

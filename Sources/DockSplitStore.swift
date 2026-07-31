@@ -34,6 +34,7 @@ final class DockSplitStore: BonsplitDelegate {
     private var visibleUIHostIds: Set<UUID> = []
     @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()
     @ObservationIgnored let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
+    @ObservationIgnored let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings

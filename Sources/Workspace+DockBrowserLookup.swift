@@ -186,7 +186,7 @@ extension DockSplitStore {
               let sourcePane = paneId(forPanelId: sourcePanel.id) else {
             return false
         }
-        return BrowserAppLinkPlacementPolicy.openNavigation(
+        return appLinkPlacementPolicy.openNavigation(
             navigation,
             openInPreferredPane: { request, websiteDataStore in
                 guard let targetPane = BrowserRightSidePaneResolver()
@@ -241,7 +241,7 @@ extension DockSplitStore {
         let sourcePane = currentBrowserPanel(sourcePanel)
             ? paneId(forPanelId: sourcePanel.id)
             : nil
-        return BrowserAppLinkPlacementPolicy.recover(
+        return appLinkPlacementPolicy.recover(
             destinationURL,
             openInPreferredPane: { url, websiteDataStore in
                 guard let sourcePane,

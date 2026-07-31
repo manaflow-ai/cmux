@@ -242,7 +242,7 @@ struct BrowserWebContentProcessTests {
         )
         var placements: [String] = []
 
-        let opened = BrowserAppLinkPlacementPolicy.openNavigation(
+        let opened = BrowserAppLinkPlacementPolicy().openNavigation(
             navigation,
             openInPreferredPane: { _, store in
                 placements.append("preferred")
@@ -270,7 +270,12 @@ struct BrowserWebContentProcessTests {
         var placements: [String] = []
         var openedSystemBrowser = false
 
-        let opened = BrowserAppLinkPlacementPolicy.recover(
+        let opened = BrowserAppLinkPlacementPolicy(
+            openInSystemBrowser: { _ in
+                openedSystemBrowser = true
+                return true
+            }
+        ).recover(
             destinationURL,
             openInPreferredPane: { _, store in
                 placements.append("preferred")
@@ -285,10 +290,6 @@ struct BrowserWebContentProcessTests {
             openInSourcePane: { _, store in
                 placements.append("source")
                 #expect(!store.isPersistent)
-                return true
-            },
-            openInSystemBrowser: { _ in
-                openedSystemBrowser = true
                 return true
             }
         )

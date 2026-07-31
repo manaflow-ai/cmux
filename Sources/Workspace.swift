@@ -2091,6 +2091,7 @@ final class Workspace: Identifiable, ObservableObject {
     var taskCreateOperationID: UUID?
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
     let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
+    let appLinkPlacementPolicy = BrowserAppLinkPlacementPolicy()
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -3960,7 +3961,7 @@ final class Workspace: Identifiable, ObservableObject {
         from sourcePanel: BrowserPanel
     ) -> Bool {
         guard currentBrowserPanel(sourcePanel) else { return false }
-        return BrowserAppLinkPlacementPolicy.openNavigation(
+        return appLinkPlacementPolicy.openNavigation(
             navigation,
             openInPreferredPane: { request, websiteDataStore in
                 guard let targetPane = self.preferredRightSideTargetPane(
@@ -4015,7 +4016,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ destinationURL: URL,
         from sourcePanel: BrowserPanel
     ) -> Bool {
-        BrowserAppLinkPlacementPolicy.recover(
+        appLinkPlacementPolicy.recover(
             destinationURL,
             openInPreferredPane: { url, websiteDataStore in
                 guard let targetPane = self.preferredRightSideTargetPane(
