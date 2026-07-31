@@ -1812,6 +1812,23 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
 
+        let lifecycle_id = uuid::Uuid::new_v4().to_string();
+        persist_runtime_info(
+            &state_dir,
+            &DaemonRuntimeInfo {
+                session: options.session.clone(),
+                state_dir: state_dir.clone(),
+                link_socket: link_socket.clone(),
+                admin_socket: admin_socket.clone(),
+                daemon_fingerprint: auth.identity().fingerprint(),
+                routes: Vec::new(),
+                direct_websocket: None,
+                iroh_node_id: None,
+                lifecycle_id: Some(lifecycle_id.clone()),
+                replaceable_sidecar: options.replaceable_sidecar,
+            },
+        )?;
+        let transport_setup: anyhow::Result<_> = async {
         #[cfg(test)]
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
         let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
@@ -1924,7 +1941,6 @@ async fn run_daemon(
         // host's filesystem path as the default route for mobile clients.
         push_unique_route(&mut routes, unix_route);
 
-        let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let admin = serve_admin_with_shutdown(
             daemon,
             &admin_socket,
@@ -1946,14 +1962,31 @@ async fn run_daemon(
             replaceable_sidecar: options.replaceable_sidecar,
         };
         persist_runtime_info(&state_dir, &info)?;
+        Ok((unix, websocket, relays, iroh, admin, info))
+        }
+        .await;
+        let (unix, websocket, relays, iroh, admin, info) = match transport_setup {
+            Ok(transports) => transports,
+            Err(error) => {
+                return finalize_daemon_authorization(
+                    auth,
+                    state_dir,
+                    lifecycle_id,
+                    vec![error],
+                )
+                .await;
+            }
+        };
         #[cfg(test)]
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
-        ready.send(Ok(info)).map_err(|_| anyhow!("daemon owner stopped during startup"))?;
-
-        let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
-        services.run_with_shutdown(clients, shutdown).await;
-
         let mut shutdown_failures = Vec::new();
+        if ready.send(Ok(info)).is_ok() {
+            let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
+            services.run_with_shutdown(clients, shutdown).await;
+        } else {
+            shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
+        }
+
         admin.shutdown().await;
         if let Some(listener) = iroh
             && let Err(error) = listener.shutdown().await
@@ -1971,22 +2004,13 @@ async fn run_daemon(
                 .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
         }
         unix.shutdown().await;
-        let cleanup_state_dir = state_dir.clone();
-        let authorization_finalization = auth.shutdown_with_cleanup(move |finalization| {
-            #[cfg(test)]
-            pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
-            let status = if finalization.is_ok() {
-                DaemonShutdownStatus::Succeeded
-            } else {
-                DaemonShutdownStatus::Failed
-            };
-            finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
-        });
-        let shutdown_result =
-            finish_daemon_shutdown(shutdown_failures, authorization_finalization).await;
-        #[cfg(test)]
-        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
-        shutdown_result
+        finalize_daemon_authorization(
+            auth,
+            state_dir,
+            lifecycle_id,
+            shutdown_failures,
+        )
+        .await
     }
     .await;
 
@@ -2105,6 +2129,29 @@ async fn finish_daemon_shutdown(
     combine_shutdown_failures(transport_failures)
 }
 
+async fn finalize_daemon_authorization(
+    auth: Arc<AuthDatabase>,
+    state_dir: PathBuf,
+    lifecycle_id: String,
+    transport_failures: Vec<anyhow::Error>,
+) -> anyhow::Result<()> {
+    let cleanup_state_dir = state_dir.clone();
+    let authorization_finalization = auth.shutdown_with_cleanup(move |finalization| {
+        #[cfg(test)]
+        pause_daemon_cleanup(&cleanup_state_dir, DaemonCleanupPausePhase::BeforeAuthRelease);
+        let status = if finalization.is_ok() {
+            DaemonShutdownStatus::Succeeded
+        } else {
+            DaemonShutdownStatus::Failed
+        };
+        finalize_daemon_lifecycle(&cleanup_state_dir, &lifecycle_id, status)
+    });
+    let result = finish_daemon_shutdown(transport_failures, authorization_finalization).await;
+    #[cfg(test)]
+    pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::AfterAuthShutdown);
+    result
+}
+
 fn push_unique_route(routes: &mut Vec<String>, route: String) {
     if !routes.iter().any(|existing| existing == &route) {
         routes.push(route);
@@ -2116,6 +2163,8 @@ async fn shutdown_relay(registration: RelayDaemonRegistration) {
 }
 
 fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::Result<()> {
+    use std::io::Write as _;
+
     let mut persisted = info.clone();
     persisted.routes.clear();
     for route in &info.routes {
@@ -2125,15 +2174,28 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
     }
 
     let path = state_dir.join("runtime.json");
-    let temporary = state_dir.join(format!(".runtime-{}.json", std::process::id()));
-    fs::write(&temporary, serde_json::to_vec_pretty(&persisted)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+    let temporary =
+        state_dir.join(format!(".runtime-{}-{}.json", std::process::id(), uuid::Uuid::new_v4()));
+    let result: anyhow::Result<()> = (|| {
+        let encoded = serde_json::to_vec_pretty(&persisted)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&encoded)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &path)?;
+        sync_state_directory(state_dir)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
     }
-    fs::rename(temporary, path)?;
-    Ok(())
+    result
 }
 
 fn finalize_daemon_lifecycle(
