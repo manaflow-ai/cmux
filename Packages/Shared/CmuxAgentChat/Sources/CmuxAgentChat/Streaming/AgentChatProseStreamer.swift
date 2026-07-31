@@ -144,13 +144,16 @@ public final class AgentChatProseStreamer {
     public func authoritativeProseArrived(_ token: TurnToken) {
         guard let turn = turns[token.sessionID],
               turn.generation == token.generation else { return }
+        let hadPreview = turn.lastEmitted != nil
         if !turn.settled {
             unregisterUnsettledTurn(sessionID: token.sessionID, surfaceID: turn.surfaceID)
         }
         turns[token.sessionID]?.settled = true
         turns[token.sessionID]?.lastEmitted = nil
         removePendingWork(sessionID: token.sessionID, turn: turn)
-        clearPreview(sessionID: token.sessionID)
+        if hadPreview {
+            clearPreview(sessionID: token.sessionID)
+        }
     }
 
     /// Ends streaming for a session: cancels the loop and clears the preview.
@@ -164,7 +167,9 @@ public final class AgentChatProseStreamer {
         if let turn {
             removePendingWork(sessionID: sessionID, turn: turn)
         }
-        if wasActive { clearPreview(sessionID: sessionID) }
+        if wasActive, turn?.lastEmitted != nil {
+            clearPreview(sessionID: sessionID)
+        }
     }
 
     /// Tears down every active stream (app teardown / subscriber loss).

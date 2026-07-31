@@ -6,17 +6,39 @@ import XCTest
 @MainActor
 final class AgentChatProseStreamerTests: XCTestCase {
     private actor SnapshotGate {
+        private enum PendingResult {
+            case rows([String]?)
+        }
+
         private var continuation: CheckedContinuation<[String]?, Never>?
+        private var pendingResult: PendingResult?
+        private var waitCount = 0
 
         func waitForRows() async -> [String]? {
+            waitCount += 1
+            if let pendingResult {
+                self.pendingResult = nil
+                switch pendingResult {
+                case .rows(let rows):
+                    return rows
+                }
+            }
             await withCheckedContinuation { continuation in
                 self.continuation = continuation
             }
         }
 
         func resume(rows: [String]?) {
-            continuation?.resume(returning: rows)
-            continuation = nil
+            if let continuation {
+                continuation.resume(returning: rows)
+                self.continuation = nil
+            } else {
+                pendingResult = .rows(rows)
+            }
+        }
+
+        func snapshotCount() -> Int {
+            waitCount
         }
     }
 
@@ -68,10 +90,8 @@ final class AgentChatProseStreamerTests: XCTestCase {
     func testCoalescesSurfaceChangesToNewestSnapshot() async throws {
         let surfaceID = UUID()
         let sessionID = "session-coalesces-newest-screen"
-        let firstText = "Older partial answer."
         let newestText = "Newest partial answer."
-        var rows = Self.codexRows(answer: firstText)
-        var snapshotCount = 0
+        let snapshotGate = SnapshotGate()
         var emittedFrames: [ChatSessionEventFrame] = []
         let emittedFrame = expectation(description: "latest coalesced preview emitted")
         var didFulfillEmittedFrame = false
@@ -85,8 +105,7 @@ final class AgentChatProseStreamerTests: XCTestCase {
             },
             snapshot: { requestedSurfaceID in
                 guard requestedSurfaceID == surfaceID else { return nil }
-                snapshotCount += 1
-                return rows
+                return await snapshotGate.waitForRows()
             },
             hasSubscribers: { true },
             now: { Date(timeIntervalSince1970: 1_711_111_111) }
@@ -94,11 +113,12 @@ final class AgentChatProseStreamerTests: XCTestCase {
 
         streamer.turnStarted(sessionID: sessionID, surfaceID: surfaceID, agentKind: .codex)
         streamer.surfaceDidChange(surfaceID)
-        rows = Self.codexRows(answer: newestText)
         streamer.surfaceDidChange(surfaceID)
+        await snapshotGate.resume(rows: Self.codexRows(answer: newestText))
 
         await fulfillment(of: [emittedFrame], timeout: 1.0)
 
+        let snapshotCount = await snapshotGate.snapshotCount()
         XCTAssertEqual(snapshotCount, 1)
         guard case .streamingProse(let message?) = emittedFrames.first?.event,
               case .prose(let prose) = message.kind else {
@@ -288,10 +308,7 @@ final class AgentChatProseStreamerTests: XCTestCase {
 
         streamer.authoritativeProseArrived(reboundToken)
         XCTAssertFalse(streamer.hasActiveUnsettledTurns)
-        XCTAssertEqual(emittedFrames.count, 1)
-        guard case .streamingProse(nil) = emittedFrames.first?.event else {
-            return XCTFail("Expected the matching rebound token to clear the preview")
-        }
+        XCTAssertTrue(emittedFrames.isEmpty)
         streamer.turnEnded(sessionID: sessionID)
     }
 
