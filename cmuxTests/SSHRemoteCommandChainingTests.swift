@@ -202,9 +202,9 @@ struct SSHRemoteCommandChainingTests {
 
     @Test
     func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
-        let cases: [(options: [String], expectedCommandFragment: String?)] = [
-            (["RemoteCommand=printf restored-command"], "'RemoteCommand=printf restored-command'"),
-            (["RemoteCommand=none"], "RemoteCommand=none"),
+        let cases: [(options: [String], expectedConfiguredCommand: String?)] = [
+            (["RemoteCommand=printf restored-command"], "printf restored-command"),
+            (["RemoteCommand=none"], nil),
             ([], nil),
         ]
 
@@ -226,14 +226,31 @@ struct SSHRemoteCommandChainingTests {
                 )
             )
             let startupCommand = try #require(restored.terminalStartupCommand)
+            let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+                remoteRelayPort: 64_123,
+                shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                configuredRemoteCommand: testCase.expectedConfiguredCommand,
+                bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+                bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+                bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
+                    .bundledShellIntegrationScript(named: "fish/config.fish"),
+                terminalProfile: .shell
+            )
+            let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
 
             #expect(restored.sshOptions == testCase.options)
-            #expect(startupCommand.hasPrefix("/usr/bin/ssh "), "\(startupCommand)")
-            if let expectedCommandFragment = testCase.expectedCommandFragment {
-                #expect(startupCommand.contains(expectedCommandFragment), "\(startupCommand)")
-            } else {
-                #expect(!startupCommand.localizedCaseInsensitiveContains("RemoteCommand"), "\(startupCommand)")
-            }
+            #expect(restored.configuredRemoteCommand == testCase.expectedConfiguredCommand)
+            #expect(
+                startupCommand.hasPrefix("/bin/sh -c "),
+                "Restored SSH launches must retain the local lifecycle wrapper"
+            )
+            #expect(startupCommand.contains("rpc workspace.remote.terminal_session_launching"))
+            #expect(
+                startupCommand.contains(expectedBootstrapBase64),
+                "The staged remote bootstrap must retain the saved RemoteCommand intent"
+            )
         }
     }
 

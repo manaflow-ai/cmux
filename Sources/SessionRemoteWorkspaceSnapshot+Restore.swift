@@ -58,6 +58,10 @@ extension SessionRemoteWorkspaceSnapshot {
         let fallbackSSHOptions = preserveSSHOptions
             ? Self.normalizedSSHOptions(preservedOptions)
             : preservedOptions
+        let effectiveConfiguredRemoteCommand = Self.effectiveConfiguredRemoteCommand(
+            explicit: configuredRemoteCommand,
+            sshOptions: fallbackSSHOptions
+        )
         let managedCloudVMID = normalizedManagedCloudVMID
             ?? Self.legacyDefaultFreestyleVMID(destination: normalizedDestination, skipDaemonBootstrap: skipDaemonBootstrap)
         let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
@@ -120,7 +124,7 @@ extension SessionRemoteWorkspaceSnapshot {
             ? normalizedRelayPort.map {
                 SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
                     relayPort: $0,
-                    configuredRemoteCommand: configuredRemoteCommand
+                    configuredRemoteCommand: effectiveConfiguredRemoteCommand
                 )
             }
             : nil
@@ -156,7 +160,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
-                    configuredRemoteCommand: configuredRemoteCommand
+                    configuredRemoteCommand: effectiveConfiguredRemoteCommand
                 )
                 if restoreOrdinarySSHRelayNamespace,
                    let remoteRelayPort = normalizedRelayPort {
@@ -165,7 +169,7 @@ extension SessionRemoteWorkspaceSnapshot {
                         port: normalizedPort,
                         sshOptions: restoredSSHOptions,
                         terminalProfile: restoredTerminalProfile,
-                        configuredRemoteCommand: configuredRemoteCommand,
+                        configuredRemoteCommand: effectiveConfiguredRemoteCommand,
                         remoteRelayPort: remoteRelayPort
                     )
                 }
@@ -180,7 +184,7 @@ extension SessionRemoteWorkspaceSnapshot {
                         port: normalizedPort,
                         sshOptions: restoredSSHOptions,
                         terminalProfile: restoredTerminalProfile,
-                        configuredRemoteCommand: configuredRemoteCommand,
+                        configuredRemoteCommand: effectiveConfiguredRemoteCommand,
                         remoteRelayPort: remoteRelayPort
                     )
                 } else {
@@ -191,11 +195,12 @@ extension SessionRemoteWorkspaceSnapshot {
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
+                    configuredRemoteCommand: effectiveConfiguredRemoteCommand,
                     remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
                     sshFallbackCommand: sshFallbackCommand
                 )
             }(),
-            configuredRemoteCommand: configuredRemoteCommand,
+            configuredRemoteCommand: effectiveConfiguredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
@@ -218,6 +223,30 @@ extension SessionRemoteWorkspaceSnapshot {
         return (UUID().uuidString + UUID().uuidString)
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
+    }
+
+    /// Migrates pre-`configuredRemoteCommand` snapshots that stored the command only as an SSH option.
+    private static func effectiveConfiguredRemoteCommand(
+        explicit: String?,
+        sshOptions: [String]
+    ) -> String? {
+        if explicit != nil {
+            return normalizedConfiguredRemoteCommand(explicit)
+        }
+        let legacyOption = SSHAgentSocketResolver().optionValue(
+            named: "RemoteCommand",
+            in: sshOptions
+        )
+        return normalizedConfiguredRemoteCommand(legacyOption)
+    }
+
+    private static func normalizedConfiguredRemoteCommand(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              value.caseInsensitiveCompare("none") != .orderedSame else {
+            return nil
+        }
+        return value
     }
 
     private func sshReconnectCommand(
@@ -366,6 +395,7 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String],
         terminalProfile: WorkspaceRemoteTerminalProfile,
+        configuredRemoteCommand: String?,
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {

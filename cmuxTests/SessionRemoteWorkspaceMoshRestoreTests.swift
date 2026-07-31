@@ -207,6 +207,44 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.terminalStartupCommand?.contains(expectedBootstrapBase64) == true)
     }
 
+    @Test("legacy Mosh relay snapshots recover RemoteCommand from SSH options")
+    func legacyMoshRelayRecoversConfiguredRemoteCommand() throws {
+        let configuredRemoteCommand = #"cd "/srv/legacy project" && exec fish"#
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            destination: "dev@example.com",
+            sshOptions: ["RemoteCommand=\(configuredRemoteCommand)"],
+            preserveAfterTerminalExit: true,
+            relayPort: 52_000,
+            persistentDaemonSlot: "slot"
+        )
+
+        let configuration = try #require(
+            snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux.sock")
+        )
+        let startupCommand = try #require(configuration.terminalStartupCommand)
+        let expectedBootstrap = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 52_000,
+            shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+            configuredRemoteCommand: configuredRemoteCommand,
+            bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh"),
+            bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "cmux-bash-integration.bash"),
+            bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder
+                .bundledShellIntegrationScript(named: "fish/config.fish")
+        )
+        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.configuredRemoteCommand == configuredRemoteCommand)
+        #expect(
+            startupCommand.contains(expectedBootstrapBase64),
+            "The Mosh relay bootstrap must retain the legacy RemoteCommand intent"
+        )
+    }
+
     @Test("Mosh restore without a relay preserves the configured remote command")
     func moshWithoutRelayPreservesConfiguredRemoteCommand() throws {
         let configuredRemoteCommand = "printf configured-mosh-command"
