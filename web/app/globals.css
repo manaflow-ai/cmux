@@ -10,6 +10,8 @@
   --link-underline: #c9c9c9;
   --code-bg: #f5f5f5;
   --cmux-product-blue: #0088ff;
+  --cmux-product-blue-on-background: #0073d9;
+  --cmux-product-blue-on-foreground: #0088ff;
 }
 
 .dark {
@@ -20,6 +22,8 @@
   --link-underline: #666666;
   --code-bg: #171717;
   --cmux-product-blue: #0091ff;
+  --cmux-product-blue-on-background: #0091ff;
+  --cmux-product-blue-on-foreground: #006dc1;
 }
 
 @theme inline {

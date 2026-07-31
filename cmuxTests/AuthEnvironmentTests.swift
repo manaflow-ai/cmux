@@ -332,6 +332,8 @@ struct AuthEnvironmentTests {
         #expect(values["background"] == "#112233")
         #expect(values["foreground"] == "#DDEEFF")
         #expect(values["accent"] == "#0091FF")
+        #expect(values["accent_on_background"] == theme.accentOnBackground)
+        #expect(values["accent_on_foreground"] == theme.accentOnForeground)
         #expect(values["cmux_app"] == "1")
     }
 
@@ -354,6 +356,10 @@ struct AuthEnvironmentTests {
         #expect(lightSnapshot.background == "#F0F0F0")
         #expect(lightSnapshot.foreground == "#101010")
         #expect(lightSnapshot.accent == "#0088FF")
+        #expect(darkSnapshot.accentOnBackground == "#0091FF")
+        #expect(darkSnapshot.accentOnForeground != darkSnapshot.accent)
+        #expect(lightSnapshot.accentOnBackground != lightSnapshot.accent)
+        #expect(lightSnapshot.accentOnForeground == "#0088FF")
     }
 
     @Test("app web theme JavaScript updates every shared theme variable")
@@ -370,6 +376,8 @@ struct AuthEnvironmentTests {
         #expect(script.contains("--ghostty-background"))
         #expect(script.contains("--ghostty-foreground"))
         #expect(script.contains("--cmux-product-blue"))
+        #expect(script.contains("--cmux-product-blue-on-background"))
+        #expect(script.contains("--cmux-product-blue-on-foreground"))
         #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pricing")))
         #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
         #expect(!AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/pricing")))

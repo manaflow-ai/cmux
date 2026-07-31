@@ -13,6 +13,8 @@ struct AppWebThemeSnapshot: Equatable {
         let background: String
         let foreground: String
         let accent: String
+        let accentOnBackground: String
+        let accentOnForeground: String
     }
 
     static func current(notification: Notification? = nil) -> AppWebThemeSnapshot {
@@ -41,12 +43,22 @@ struct AppWebThemeSnapshot: Equatable {
         )
     }
 
+    var accentOnBackground: String {
+        contrastAdjustedAccent(on: background)
+    }
+
+    var accentOnForeground: String {
+        contrastAdjustedAccent(on: foreground)
+    }
+
     var queryItems: [URLQueryItem] {
         [
             URLQueryItem(name: "appearance", value: appearance),
             URLQueryItem(name: "background", value: background),
             URLQueryItem(name: "foreground", value: foreground),
             URLQueryItem(name: "accent", value: accent),
+            URLQueryItem(name: "accent_on_background", value: accentOnBackground),
+            URLQueryItem(name: "accent_on_foreground", value: accentOnForeground),
         ]
     }
 
@@ -55,7 +67,9 @@ struct AppWebThemeSnapshot: Equatable {
             appearance: appearance,
             background: background,
             foreground: foreground,
-            accent: accent
+            accent: accent,
+            accentOnBackground: accentOnBackground,
+            accentOnForeground: accentOnForeground
         )
         guard let data = try? JSONEncoder().encode(payload),
               let json = String(data: data, encoding: .utf8) else {
@@ -69,6 +83,8 @@ struct AppWebThemeSnapshot: Equatable {
           root.style.setProperty('--ghostty-background', theme.background);
           root.style.setProperty('--ghostty-foreground', theme.foreground);
           root.style.setProperty('--cmux-product-blue', theme.accent);
+          root.style.setProperty('--cmux-product-blue-on-background', theme.accentOnBackground);
+          root.style.setProperty('--cmux-product-blue-on-foreground', theme.accentOnForeground);
           root.style.backgroundColor = theme.background;
           root.style.colorScheme = theme.appearance;
           root.dataset.cmuxAppThemeAppearance = theme.appearance;
@@ -86,6 +102,17 @@ struct AppWebThemeSnapshot: Equatable {
           return true;
         })()
         """
+    }
+
+    private func contrastAdjustedAccent(on backgroundHex: String) -> String {
+        guard let accentColor = NSColor(hex: accent),
+              let backgroundColor = NSColor(hex: backgroundHex) else {
+            return accent
+        }
+        return cmuxContrastAdjustedAccentNSColor(
+            accentColor,
+            on: backgroundColor
+        ).hexString()
     }
 
     static func supports(url: URL?) -> Bool {

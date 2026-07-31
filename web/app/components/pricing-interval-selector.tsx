@@ -103,7 +103,10 @@ export function PricingIntervalSelector({
         <span
           className="ml-1.5 text-xs font-medium"
           style={{
-            color: "var(--cmux-product-blue, #0088ff)",
+            color:
+              interval === "year"
+                ? "var(--cmux-product-blue-on-foreground, var(--cmux-product-blue, #0088ff))"
+                : "var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))",
           }}
         >
           {savingsLabel}

@@ -379,6 +379,42 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         assertColor(foreground, equals: NSColor.white.withAlphaComponent(0.75))
     }
 
+    func testContrastAdjustedAccentKeepsReadableCmuxBlue() throws {
+        let accent = try XCTUnwrap(NSColor(hex: "#0088FF"))
+        let background = try XCTUnwrap(NSColor(hex: "#171717"))
+        let adjusted = cmuxContrastAdjustedAccentNSColor(accent, on: background)
+
+        assertColor(adjusted, equals: accent)
+    }
+
+    func testContrastAdjustedAccentDarkensAgainstLightTheme() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#FDF6E3"))
+        let adjusted = cmuxContrastAdjustedAccentNSColor(
+            try XCTUnwrap(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        XCTAssertEqual(adjusted.hexString(), "#0071D5")
+        XCTAssertGreaterThanOrEqual(
+            cmuxContrastRatio(foreground: adjusted, background: background),
+            4.5
+        )
+    }
+
+    func testContrastAdjustedAccentLightensAgainstDarkSelectedButton() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#4A4543"))
+        let adjusted = cmuxContrastAdjustedAccentNSColor(
+            try XCTUnwrap(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        XCTAssertEqual(adjusted.hexString(), "#6BB9FF")
+        XCTAssertGreaterThanOrEqual(
+            cmuxContrastRatio(foreground: adjusted, background: background),
+            4.5
+        )
+    }
+
     func testTitlebarControlForegroundContrastsWithLightTerminalBackground() throws {
         let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
         let snapshot = makeWindowAppearanceSnapshot(background: background)

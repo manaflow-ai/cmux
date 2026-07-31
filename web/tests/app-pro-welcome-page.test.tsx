@@ -52,5 +52,7 @@ describe("app pro welcome page", () => {
     expect(html).toContain("--ghostty-background:#112233");
     expect(html).toContain("--ghostty-foreground:#ddeeff");
     expect(html).toContain("--cmux-product-blue:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
   });
 });
