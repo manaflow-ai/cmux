@@ -3038,6 +3038,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: .terminalPortalDidBecomePresentable
+        )) { notification in
+            guard let hostedView = notification.object as? GhosttySurfaceScrollView else { return }
+            noteTerminalPortalPresentedIfReady(hostedView)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: .workspaceSwitchPresentationDidBecomeReady,
             object: tabManager.workspaceSwitchCoordinator
         )) { _ in
@@ -3842,12 +3849,17 @@ struct ContentView: View {
     }
 
     private func noteTerminalPortalPresentedIfReady(_ hostedView: GhosttySurfaceScrollView) {
-        guard Self.terminalPortalIsPresented(hostedView),
-              let surfaceID = hostedView.surfaceView.terminalSurface?.id else {
+        guard let surface = hostedView.surfaceView.terminalSurface,
+              surface.tabId == tabManager.selectedTabId else {
             return
         }
+        if let owningWindow = observedWindow ?? tabManager.window,
+           hostedView.window !== owningWindow {
+            return
+        }
+        guard Self.terminalPortalIsPresented(hostedView) else { return }
         tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
-            surfaceID: surfaceID,
+            surfaceID: surface.id,
             renderedFrameSequence: hostedView.surfaceView.renderedFrameSequence
         )
         completeWorkspaceHandoffIfReady(reason: "portal_presented")
