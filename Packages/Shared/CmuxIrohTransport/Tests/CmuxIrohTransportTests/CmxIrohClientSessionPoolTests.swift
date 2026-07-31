@@ -608,6 +608,7 @@ struct CmxIrohClientSessionPoolTests {
             clock.now().timeIntervalSince(wakeStartedAt) <= 3,
             "wake validation must not consume the 30s retry ladder"
         )
+        await clock.waitUntilSleeping()
         await clock.releaseAll()
         #expect(await waitForConnectionClose(firstConnection))
         let postGraceSession = try await pool.session(for: fixture.request)
@@ -649,6 +650,7 @@ struct CmxIrohClientSessionPoolTests {
 
         #expect(await firstConnection.observedCloseCallCount() == 0)
         #expect(await endpoint.observedDialCount() == 1)
+        await clock.waitUntilSleeping()
         await clock.releaseAll()
         #expect(await waitForConnectionClose(firstConnection))
 
@@ -1104,11 +1106,22 @@ private func waitForDialCount(
 private actor HoldingWakeValidationClock: CmxIrohRelayClock {
     private static let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var sleeperObservers: [CheckedContinuation<Void, Never>] = []
 
     nonisolated func now() -> Date { Self.fixedNow }
 
     func sleep(until _: Date) async throws {
-        await withCheckedContinuation { waiters.append($0) }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+            let observers = sleeperObservers
+            sleeperObservers = []
+            for observer in observers { observer.resume() }
+        }
+    }
+
+    func waitUntilSleeping() async {
+        if !waiters.isEmpty { return }
+        await withCheckedContinuation { sleeperObservers.append($0) }
     }
 
     func releaseAll() {
