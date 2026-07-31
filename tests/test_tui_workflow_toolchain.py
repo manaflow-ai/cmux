@@ -21,9 +21,12 @@ BROWSER_RUNTIME_PIDFD_TESTS = {
     "wedged_browser_navigate_does_not_block_same_socket_connection",
 }
 CMUX_TUI_CORE_VALGRIND_INCOMPATIBLE_TESTS = {
+    "browser::tests::ordinary_repaint_preserves_captured_drag_motion",
+    "browser::tests::server_shutdown_bounds_external_target_confirmation",
     "mux::tests::bulk_surface_close_uses_one_shared_termination_deadline",
     "mux::tests::ordinary_browser_close_terminates_the_owner_staged_during_removal",
     "mux::tests::shutdown_fanout_does_not_claim_another_batch_after_the_deadline",
+    "mux::tests::surface_creation_fence_has_a_bounded_wait",
     "mux::tests::terminal_adoption_rescan_uses_one_registry_snapshot",
     "server::tests::clear_history_does_not_block_unrelated_surface_input_on_one_connection",
 }
