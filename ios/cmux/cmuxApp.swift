@@ -2,11 +2,17 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import SwiftUI
 import cmuxFeature
 #if DEBUG
 import CmuxIrohReleaseGateSupport
 #endif
+
+private let cmuxAppConnectivityLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "connectivity"
+)
 
 @main
 struct cmuxApp: App {
@@ -32,11 +38,17 @@ struct cmuxApp: App {
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        let connectivityInvalidationBaseURL = PresenceClient
+        let connectivityInvalidationServiceURL = PresenceClient
             .resolvedServiceBaseURL(
                 isDevelopmentAuthChannel: auth.authEnvironment == .development
             )
+        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
             .flatMap { URL(string: $0) }
+        if connectivityInvalidationBaseURL == nil {
+            cmuxAppConnectivityLog.error(
+                "Connectivity invalidation disabled: presence service URL unavailable"
+            )
+        }
         iroh.configure(
             auth: auth.coordinator,
             connectivityInvalidationBaseURL: connectivityInvalidationBaseURL

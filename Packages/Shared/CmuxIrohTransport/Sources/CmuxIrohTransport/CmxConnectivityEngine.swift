@@ -567,9 +567,6 @@ public actor CmxConnectivityEngine {
         }
         phase = .active
         publishSnapshot()
-        if endpoint.runtimeGeneration != expectedGeneration {
-            return endpoint
-        }
         return endpoint
     }
 
@@ -618,6 +615,10 @@ public actor CmxConnectivityEngine {
         case .active:
             do {
                 try await installEndpoint(endpoint)
+                if phase == .failed {
+                    phase = .starting
+                    publishSnapshot()
+                }
                 do {
                     try await reconcileRoutes()
                 } catch {

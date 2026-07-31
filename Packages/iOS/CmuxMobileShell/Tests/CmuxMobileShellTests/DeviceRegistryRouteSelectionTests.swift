@@ -608,6 +608,26 @@ import Testing
         #expect(springboardRelaunch.read() == .found(seeded))
     }
 
+    @Test func blankSimulatorSeedMintsOnceAndSurvivesRelaunch() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let firstLaunch = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: " \n "
+        )
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: firstLaunch,
+            defaults: defaults,
+            evidence: StaticEvidenceProbe(.absent)
+        )
+        let springboardRelaunch = SimulatorDeviceIdentityStore(defaults: defaults)
+
+        #expect(resolved != nil)
+        #expect(springboardRelaunch.read() == .found(resolved!))
+    }
+
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

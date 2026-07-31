@@ -200,7 +200,8 @@ public actor CmxIrohHostRuntime {
             try await connectivityEngine.start()
             try requireCurrent(revision)
             let endpointSnapshot = await connectivityEngine.snapshot()
-            guard let endpointID = endpointSnapshot.localIdentity else {
+            guard let endpointID = endpointSnapshot.localIdentity,
+                  endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
 

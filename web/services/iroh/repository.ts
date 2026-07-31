@@ -617,8 +617,10 @@ function makeLiveRepository(): IrohRepositoryShape {
           ))
           .limit(IROH_RETENTION_BATCH_SIZE)
           .for("update");
+        let routeChanged = false;
         for (const binding of bindings) {
           const retained = retainedStoredHints(binding.pathHints, input.now);
+          routeChanged ||= retained.length !== binding.pathHints.length;
           await tx
             .update(irohEndpointBindings)
             .set({
@@ -628,7 +630,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             })
             .where(eq(irohEndpointBindings.id, binding.id));
         }
-        if (bindings.length > 0) {
+        if (routeChanged) {
           await advanceRouteRevision(tx, input.userId, input.now);
         }
 

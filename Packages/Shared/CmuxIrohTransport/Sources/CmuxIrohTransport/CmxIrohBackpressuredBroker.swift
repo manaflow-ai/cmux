@@ -46,13 +46,8 @@ public struct CmxIrohBackpressuredClientBroker:
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse {
         try await gate.perform(accountID: accountID, operation: .discovery) {
-            if let authority = broker as? any CmxConnectivityAuthorityServing {
-                return try await authority.syncConnectivity(
-                    knownRevision: knownRevision
-                )
-            }
-            return CmxConnectivitySyncResponse(
-                legacySnapshot: try await broker.discover(),
+            try await CmxAuthoritativeDiscoveryResolver.sync(
+                broker: broker,
                 knownRevision: knownRevision
             )
         }
@@ -132,13 +127,8 @@ public struct CmxIrohBackpressuredHostBroker:
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse {
         try await gate.perform(accountID: accountID, operation: .discovery) {
-            if let authority = broker as? any CmxConnectivityAuthorityServing {
-                return try await authority.syncConnectivity(
-                    knownRevision: knownRevision
-                )
-            }
-            return CmxConnectivitySyncResponse(
-                legacySnapshot: try await broker.discover(),
+            try await CmxAuthoritativeDiscoveryResolver.sync(
+                broker: broker,
                 knownRevision: knownRevision
             )
         }

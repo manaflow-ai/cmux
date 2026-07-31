@@ -18,13 +18,7 @@ public struct CmxConnectivityDeferredTransportFactory:
     public func makeTransport(
         for route: CmxAttachRoute
     ) throws -> any CmxByteTransport {
-        try route.validate()
-        guard route.kind == .iroh else {
-            throw CmxIrohByteTransportError.unsupportedRouteKind(route.kind)
-        }
-        guard case .peer = route.endpoint else {
-            throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
-        }
+        try validatePeerRoute(route)
         throw CmxIrohByteTransportError.missingPeerIntent
     }
 
@@ -32,13 +26,7 @@ public struct CmxConnectivityDeferredTransportFactory:
         for request: CmxByteTransportRequest
     ) throws -> any CmxByteTransport {
         let route = request.route
-        try route.validate()
-        guard route.kind == .iroh else {
-            throw CmxIrohByteTransportError.unsupportedRouteKind(route.kind)
-        }
-        guard case .peer = route.endpoint else {
-            throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
-        }
+        try validatePeerRoute(route)
         guard request.authorizationMode == .transportAdmission,
               request.expectedPeerDeviceID?.isEmpty == false else {
             throw CmxIrohByteTransportError.missingPeerIntent
@@ -47,5 +35,15 @@ public struct CmxConnectivityDeferredTransportFactory:
             request: request,
             provider: provider
         )
+    }
+
+    private func validatePeerRoute(_ route: CmxAttachRoute) throws {
+        try route.validate()
+        guard route.kind == .iroh else {
+            throw CmxIrohByteTransportError.unsupportedRouteKind(route.kind)
+        }
+        guard case .peer = route.endpoint else {
+            throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
+        }
     }
 }

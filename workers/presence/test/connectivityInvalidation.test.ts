@@ -50,6 +50,7 @@ describe("isConnectivityPublisherAuthorized", () => {
     expect(await isConnectivityPublisherAuthorized(request(), secret)).toBe(false);
     expect(await isConnectivityPublisherAuthorized(request(secret), undefined)).toBe(false);
     expect(await isConnectivityPublisherAuthorized(request("short"), "short")).toBe(false);
+    expect(await isConnectivityPublisherAuthorized(request(`${secret}extra`), secret)).toBe(false);
   });
 });
 

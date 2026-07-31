@@ -186,24 +186,12 @@ extension CmxIrohClientRuntime {
     }
 
     func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
-        guard let authority = broker as? any CmxConnectivityAuthorityServing else {
-            let discovery = try await broker.discover()
-            authoritativeDiscovery = discovery
-            return discovery
-        }
-        let knownRevision = authoritativeDiscovery?.revision
-        let response = try await authority.syncConnectivity(
-            knownRevision: knownRevision
+        let discovery = try await CmxAuthoritativeDiscoveryResolver.resolve(
+            broker: broker,
+            cached: authoritativeDiscovery
         )
-        if let snapshot = response.snapshot {
-            authoritativeDiscovery = snapshot
-            return snapshot
-        }
-        guard let authoritativeDiscovery,
-              authoritativeDiscovery.revision == response.revision else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        return authoritativeDiscovery
+        authoritativeDiscovery = discovery
+        return discovery
     }
 
     func prefetchAuthoritativeDiscovery() async throws -> CmxIrohDiscoveryResponse {

@@ -21,7 +21,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
 
     let localEndpointIdentity: @Sendable () async throws -> CmxIrohPeerIdentity
     let broker: any CmxIrohRegistryServing
-    let authority: (any CmxConnectivityAuthorityServing)?
     var localBindingExpectation: CmxIrohLocalBindingExpectation
     var managedRelayURLs: Set<String>
     var allowedRouteRelayURLs: Set<String>
@@ -57,7 +56,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             return await endpoint.identity()
         }
         self.broker = broker
-        authority = broker as? any CmxConnectivityAuthorityServing
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
@@ -94,7 +92,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             return await endpoint.identity()
         }
         self.broker = broker
-        authority = broker as? any CmxConnectivityAuthorityServing
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
@@ -127,7 +124,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     ) {
         self.localEndpointIdentity = localEndpointIdentity
         self.broker = broker
-        authority = broker as? any CmxConnectivityAuthorityServing
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.allowedRouteRelayURLs = allowedRouteRelayURLs ?? managedRelayURLs
@@ -309,23 +305,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private func refreshAuthoritativeDiscovery() async throws
         -> CmxIrohDiscoveryResponse
     {
-        guard let authority else {
-            let discovery = try await broker.discover()
-            authoritativeDiscovery = discovery
-            return discovery
-        }
-        let response = try await authority.syncConnectivity(
-            knownRevision: authoritativeDiscovery?.revision
+        let discovery = try await CmxAuthoritativeDiscoveryResolver.resolve(
+            broker: broker,
+            cached: authoritativeDiscovery
         )
-        if let snapshot = response.snapshot {
-            authoritativeDiscovery = snapshot
-            return snapshot
-        }
-        guard let authoritativeDiscovery,
-              authoritativeDiscovery.revision == response.revision else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        return authoritativeDiscovery
+        authoritativeDiscovery = discovery
+        return discovery
     }
 
     private func context(
