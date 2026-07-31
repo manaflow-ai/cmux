@@ -6,11 +6,205 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { NewlineFrameBuffer } from "../src/internal/newline-frame-buffer.js";
-import { NodeClient, sessionId } from "../src/node.js";
+import {
+  Client,
+  CmuxAbortError,
+  CmuxTimeoutError,
+  NodeClient,
+  sessionId,
+  type Transport,
+  workspaceId,
+} from "../src/node.js";
 import { UnixSocketTransport } from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
 
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
+const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
+
+interface DelayedUnixFixture {
+  readonly transport: UnixSocketTransport;
+  readonly received: string[];
+  release(): Promise<void>;
+  close(): Promise<void>;
+}
+
+async function delayedUnixFixture(): Promise<DelayedUnixFixture> {
+  const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-delayed-"));
+  const socketPath = join(directory, "session.sock");
+  const received: string[] = [];
+  let peer: Socket | undefined;
+  const server = createServer((socket) => {
+    peer = socket;
+    socket.setEncoding("utf8");
+    let buffered = "";
+    socket.on("data", (chunk: string) => {
+      buffered += chunk;
+      for (;;) {
+        const newline = buffered.indexOf("\n");
+        if (newline < 0) return;
+        received.push(buffered.slice(0, newline));
+        buffered = buffered.slice(newline + 1);
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  const transport = new UnixSocketTransport(socketPath);
+  const socket = (transport as unknown as { readonly socket: Socket }).socket;
+  const connectListener = socket.listeners("connect").at(-1) as
+    | (() => void)
+    | undefined;
+  assert.ok(connectListener);
+  socket.removeListener("connect", connectListener);
+  const physicallyConnected = new Promise<void>((resolve) => {
+    socket.once("connect", resolve);
+  });
+  let released = false;
+  return {
+    transport,
+    received,
+    async release() {
+      if (released) return;
+      released = true;
+      await physicallyConnected;
+      connectListener.call(socket);
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    },
+    async close() {
+      transport.close();
+      peer?.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error ? reject(error) : resolve())
+      );
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+test("Unix resource transport drops a read that expires before connect", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new Client({ transport: fixture.transport, timeoutMs: 10 });
+  try {
+    const ping = client.session(RESOURCE_SESSION).ping();
+    await assert.rejects(() => ping, CmuxTimeoutError);
+    await fixture.release();
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    client.close();
+    await fixture.close();
+  }
+});
+
+test("Unix resource transport keeps a queued mutation timeout determinate", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new Client({
+    transport: fixture.transport,
+    randomHex128: () => "c".repeat(32),
+  });
+  try {
+    const renaming = client
+      .session(RESOURCE_SESSION)
+      .workspace(RESOURCE_WORKSPACE)
+      .rename("queued", { timeoutMs: 10 });
+    const failure = await renaming.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await fixture.release();
+    assert.ok(failure instanceof CmuxTimeoutError);
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    client.close();
+    await fixture.close();
+  }
+});
+
+test("Unix resource transport keeps a queued mutation abort determinate", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new Client({
+    transport: fixture.transport,
+    randomHex128: () => "d".repeat(32),
+  });
+  const controller = new AbortController();
+  try {
+    const renaming = client
+      .session(RESOURCE_SESSION)
+      .workspace(RESOURCE_WORKSPACE)
+      .rename("queued", { signal: controller.signal });
+    controller.abort();
+    const failure = await renaming.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await fixture.release();
+    assert.ok(failure instanceof CmuxAbortError);
+    assert.deepEqual(fixture.received, []);
+  } finally {
+    client.close();
+    await fixture.close();
+  }
+});
+
+test("Unix cancellable connect queue preserves FIFO around removed frames", async () => {
+  const fixture = await delayedUnixFixture();
+  const dispatched: string[] = [];
+  const transport: Transport = fixture.transport;
+  try {
+    assert.ok(transport.sendCancellable);
+    transport.sendCancellable("first", () => dispatched.push("first"));
+    const cancelSecond = transport.sendCancellable(
+      "second",
+      () => dispatched.push("second"),
+    );
+    transport.sendCancellable("third", () => dispatched.push("third"));
+    cancelSecond();
+
+    await fixture.release();
+    assert.deepEqual(dispatched, ["first", "third"]);
+    assert.deepEqual(fixture.received, ["first", "third"]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix connect flush keeps reentrant sends behind queued frames", async () => {
+  const fixture = await delayedUnixFixture();
+  const transport: Transport = fixture.transport;
+  try {
+    assert.ok(transport.sendCancellable);
+    transport.sendCancellable("first", () => transport.send("reentrant"));
+    transport.send("second");
+
+    await fixture.release();
+    assert.deepEqual(fixture.received, ["first", "second", "reentrant"]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix connect failure discards queued cancellable frames", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-refused-"));
+  const socketPath = join(directory, "missing.sock");
+  const transport = new UnixSocketTransport(socketPath);
+  const cancellableTransport: Transport = transport;
+  let dispatched = false;
+  try {
+    assert.ok(cancellableTransport.sendCancellable);
+    cancellableTransport.sendCancellable("queued", () => {
+      dispatched = true;
+    });
+    const error = new Promise<Error>((resolve) => transport.onError(resolve));
+    const closed = new Promise<void>((resolve) => transport.onClose(resolve));
+    assert.match((await error).message, /cannot connect to session socket/);
+    await closed;
+    assert.equal(dispatched, false);
+  } finally {
+    transport.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("Unix transport preserves JSON-lines request and response framing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-"));
