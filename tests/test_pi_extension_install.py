@@ -14,7 +14,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
+from claude_teams_test_utils import (
+    FOCUSED_SURFACE_ID,
+    FOCUSED_WORKSPACE_ID,
+    install_pi_extension,
+    resolve_cmux_cli,
+)
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -84,6 +89,47 @@ def main() -> int:
 
         if "@earendil-works/pi-coding-agent" not in extension_text:
             print("FAIL: generated Pi extension does not import the current Pi package")
+            return 1
+
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n"
+            "// stale managed fixture using synchronous hook dispatch\n"
+            'import { spawnSync } from "node:child_process";\n',
+            encoding="utf-8",
+        )
+        refresh_env = os.environ.copy()
+        refresh_env["PI_CODING_AGENT_DIR"] = str(config_dir)
+        refresh_env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
+        refresh_env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+        subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(root / "missing-pi-refresh.sock"),
+                "hooks",
+                "pi",
+                "session-start",
+                "--workspace",
+                FOCUSED_WORKSPACE_ID,
+                "--surface",
+                FOCUSED_SURFACE_ID,
+            ],
+            input=json.dumps(
+                {
+                    "session_id": "pi-managed-extension-refresh",
+                    "cwd": str(root),
+                    "hook_event_name": "SessionStart",
+                    "event": "SessionStart",
+                }
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if extension_path.read_text(encoding="utf-8") != extension_text:
+            print("FAIL: Pi session-start did not refresh the stale cmux-managed extension")
             return 1
 
         bin_dir = root / "bin"
