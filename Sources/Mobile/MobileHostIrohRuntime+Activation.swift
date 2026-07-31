@@ -372,6 +372,14 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
+            handleResolvedBinding: { [weak self] binding in
+                await self?.recordResolvedBinding(
+                    binding,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
+                )
+            },
             handleDeactivation: { [weak self] _ in
                 await self?.handleActiveRuntimeDeactivation(
                     revision: revision,
@@ -495,6 +503,19 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
+        MobileHostService.shared.updateIrohBinding(binding)
+    }
+
+    private func recordResolvedBinding(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
         MobileHostService.shared.updateIrohBinding(binding)
     }
 
