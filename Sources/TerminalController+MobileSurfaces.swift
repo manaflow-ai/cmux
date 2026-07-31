@@ -30,6 +30,10 @@ extension TerminalController {
             return .todo
         case .cloudVMLoading:
             return .cloudVMLoading
+        case .simulator:
+            // Open wire vocabulary: phones without a native renderer show the
+            // fallback card for this kind (design: unknown kinds stay cards).
+            return MobileSurfaceKind(rawValue: "simulator")
         }
     }
 
