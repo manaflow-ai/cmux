@@ -95,6 +95,8 @@ class IOSPRDemoWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("--expected-bundle-id \"$IOS_BETA_BUNDLE_ID\"", PUBLISH)
         self.assertIn("--expected-display-name \"$IOS_BETA_DISPLAY_NAME\"", PUBLISH)
         self.assertIn("--expected-marketing-version \"$MARKETING_VERSION\"", PUBLISH)
+        self.assertIn("asc_download_profile.py --name \"cmux DEV Distribution\"", PUBLISH)
+        self.assertNotIn("IOS_DEV_PROVISIONING_PROFILE_BASE64", PUBLISH)
         self.assertIn("com.apple.developer.usernotifications.time-sensitive", PUBLISH)
 
     def test_publisher_sets_provenance_notes_and_internal_group(self) -> None:

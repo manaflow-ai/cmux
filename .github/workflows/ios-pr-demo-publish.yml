@@ -371,17 +371,11 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Install cmux DEV provisioning profile
-        env:
-          PROFILE_BASE64: ${{ secrets.IOS_DEV_PROVISIONING_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
-          if [[ -z "$PROFILE_BASE64" ]]; then
-            echo "Missing IOS_DEV_PROVISIONING_PROFILE_BASE64" >&2
-            exit 1
-          fi
           profile_path="$RUNNER_TEMP/cmux-dev.mobileprovision"
           profile_plist="$RUNNER_TEMP/cmux-dev-profile.plist"
-          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile_path"
+          python3 ./ios/scripts/asc_download_profile.py --name "cmux DEV Distribution" | base64 --decode > "$profile_path"
           security cms -D -i "$profile_path" > "$profile_plist"
           app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
           aps_environment="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist")"

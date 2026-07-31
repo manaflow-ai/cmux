@@ -160,7 +160,8 @@ Only open PRs from `manaflow-ai/cmux` targeting `main` are accepted. The actor
 and triggering actor must have write, maintain, or admin permission. Fork PRs,
 closed or merged PRs, and PRs whose head changed while queued fail before
 signing. The publisher uses the `ios-pr-demo` GitHub environment and its
-`IOS_DEV_PROVISIONING_PROFILE_BASE64` secret.
+App Store Connect credentials to fetch the `cmux DEV Distribution`
+provisioning profile by name before signing.
 
 ## App Store production lane
 
