@@ -2295,7 +2295,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(leftBottomDeckGroup.exists)
         XCTAssertTrue(testsDeckGroup.exists)
         XCTAssertTrue(serverDeckGroup.exists)
-        XCTAssertTrue(
+        XCTAssertFalse(
             app.descendants(matching: .any)[
                 "MobileSurfaceDeckPaneNumber-preview-pane-left-top"
             ].exists

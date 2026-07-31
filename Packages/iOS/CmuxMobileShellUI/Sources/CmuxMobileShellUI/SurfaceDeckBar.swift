@@ -94,19 +94,6 @@ struct SurfaceDeckBar: View, Equatable {
 
     private func paneGroup(_ group: SurfaceDeckValue.PaneGroup) -> some View {
         HStack(spacing: 2) {
-            Text(group.number, format: .number)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(terminalTheme.terminalChromeForegroundColor.opacity(0.8))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule().fill(terminalTheme.terminalChromeForegroundColor.opacity(0.10))
-                )
-                .accessibilityLabel(
-                    paneAccessibilityLabel(number: group.number, totalCount: group.totalCount)
-                )
-                .accessibilityIdentifier("MobileSurfaceDeckPaneNumber-\(group.id)")
-
             ForEach(group.chips) { chip in
                 surfaceChip(chip, paneNumber: group.number, paneCount: group.totalCount)
             }
