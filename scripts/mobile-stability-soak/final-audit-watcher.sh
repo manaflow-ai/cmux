@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: scripts/mobile-stability-soak/final-audit-watcher.sh <soak-root> [--required-seconds N]
+Usage: scripts/mobile-stability-soak/final-audit-watcher.sh <soak-root> [--required-seconds N] [--tag TAG]
 
 Polls audit.json until the soak reaches passed/failed. On completion or failure,
 runs final-audit.py and writes final-audit.json plus final-audit.log in the soak root.
@@ -18,11 +18,16 @@ fi
 root="$1"
 shift
 required_seconds=43200
+tag="${CMUX_TAG:-swmob}"
 
 while (( $# > 0 )); do
   case "$1" in
     --required-seconds)
       required_seconds="${2:-}"
+      shift 2
+      ;;
+    --tag)
+      tag="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -46,7 +51,7 @@ mkdir -p "$root"
 run_final_audit() {
   local tmp
   tmp="$(mktemp "$root/final-audit.XXXXXX")"
-  if "$script_dir/final-audit.py" "$root" --required-seconds "$required_seconds" >"$tmp" 2>"$final_log"; then
+  if "$script_dir/final-audit.py" "$root" --required-seconds "$required_seconds" --tag "$tag" >"$tmp" 2>"$final_log"; then
     mv "$tmp" "$final_json"
     exit 0
   else

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -77,11 +79,26 @@ def diagnostic_files(root: Path) -> list[str]:
     return sorted(str(path) for path in diagnostics.rglob("*") if path.is_file())
 
 
+def process_command_matches(label: str, command: str, *, tag: str) -> bool:
+    if label == "mac":
+        expected = (
+            f"cmux-{tag}/Build/Products/Debug/"
+            f"cmux DEV {tag}.app/Contents/MacOS/cmux DEV"
+        )
+        return expected in command
+    if label in {"iphone", "ipad"}:
+        return "cmux.app/cmux" in command
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
     parser.add_argument("--required-seconds", type=float, default=43200)
+    parser.add_argument("--tag", default=os.environ.get("CMUX_TAG", "swmob"))
     args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.tag):
+        parser.error("--tag must contain only letters, digits, dot, underscore, or hyphen")
 
     root = args.root
     audit = load_json(root / "audit.json")
@@ -128,9 +145,7 @@ def main() -> int:
         if not pid or command is None:
             failures.append(f"{label}.pid {pid} is not live")
             continue
-        if label == "mac" and "cmux DEV swmob.app/Contents/MacOS/cmux DEV" not in command:
-            failures.append(f"{label}.pid {pid} does not look like tagged macOS cmux")
-        if label in {"iphone", "ipad"} and "cmux.app/cmux" not in command:
+        if not process_command_matches(label, command, tag=args.tag):
             failures.append(f"{label}.pid {pid} does not look like cmux")
 
     payload = {
