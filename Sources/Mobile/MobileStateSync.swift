@@ -84,6 +84,42 @@ final class MobileStateSyncHost {
         }
     }
 
+    /// Zero-record delta markers at each collection's current head, emitted to
+    /// ONE connection after its queue shed `mobile.sync.delta` events under
+    /// backpressure (``MobileHostShedRepairPlanner``). `from_rev == to_rev ==
+    /// headRev`, so a client that missed nothing ignores the marker as stale,
+    /// while one whose cursor is behind sees `from_rev` past it, reports a
+    /// gap, and repairs with its normal cursor fetch. No rows travel; the
+    /// collection that shed is unknown at this layer, so both markers go (the
+    /// spare one is a few bytes and a guaranteed no-op).
+    func shedRepairMarkerPayloads() -> [[String: Any]] {
+        let coder = MobileSyncFrameCoder()
+        let workspacesMarker = MobileSyncDeltaEvent<WorkspaceSyncRecord>(
+            epoch: store.epoch,
+            collection: .workspaces,
+            fromRev: store.workspaces.headRev,
+            toRev: store.workspaces.headRev,
+            records: [],
+            removedIDs: []
+        )
+        let groupsMarker = MobileSyncDeltaEvent<GroupSyncRecord>(
+            epoch: store.epoch,
+            collection: .groups,
+            fromRev: store.groups.headRev,
+            toRev: store.groups.headRev,
+            records: [],
+            removedIDs: []
+        )
+        var payloads: [[String: Any]] = []
+        if let workspaces = try? coder.jsonObject(from: workspacesMarker) {
+            payloads.append(workspaces)
+        }
+        if let groups = try? coder.jsonObject(from: groupsMarker) {
+            payloads.append(groups)
+        }
+        return payloads
+    }
+
     private func emit<Record: MobileSyncRecord>(
         collection: MobileSyncCollectionID,
         change: MobileSyncCollectionChange<Record>
