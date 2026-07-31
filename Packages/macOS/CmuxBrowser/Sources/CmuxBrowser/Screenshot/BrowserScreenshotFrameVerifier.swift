@@ -191,6 +191,7 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
         }
 
         var mismatches: [Probe] = []
+        var mismatchCells: Set<Int> = []
         for probe in stableProbes.prefix(maximumProbeCount) {
             guard probe.foreground.distance(from: probe.background) >= minimumForegroundContrast,
                   pixelsAreUniform(
@@ -198,6 +199,10 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
                       viewportSize: after.viewportSize,
                       pixels: pixels
                   ) else {
+                continue
+            }
+            let cell = evidenceCell(for: probe.rect, viewportSize: after.viewportSize)
+            guard mismatchCells.insert(cell).inserted else {
                 continue
             }
             mismatches.append(probe)
@@ -266,6 +271,13 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
             }
         }
         return referenceColor != nil
+    }
+
+    /// Maps a probe to one of sixteen viewport cells for independent mismatch evidence.
+    private func evidenceCell(for rect: NSRect, viewportSize: NSSize) -> Int {
+        let column = min(3, max(0, Int(rect.midX / viewportSize.width * 4)))
+        let row = min(3, max(0, Int(rect.midY / viewportSize.height * 4)))
+        return row * 4 + column
     }
 
     /// Returns whether a size is finite and nonempty.

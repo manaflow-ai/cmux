@@ -362,6 +362,29 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierRequiresBlankEvidenceFromDistinctViewportCells() {
+        let original = textProbeSet()
+        let sameCellProbe = BrowserScreenshotFrameVerifier.Probe(
+            identifier: "nearby-balance",
+            text: "Available",
+            rect: NSRect(x: 12, y: 14, width: 10, height: 12),
+            foreground: .white,
+            background: .black
+        )
+        let probes = BrowserScreenshotFrameVerifier.ProbeSet(
+            viewportSize: original.viewportSize,
+            probes: [original.probes[0], sameCellProbe]
+        )
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
     func verifierReportsEveryBlankProbe() {
         let original = textProbeSet()
         let third = BrowserScreenshotFrameVerifier.Probe(
@@ -445,6 +468,44 @@ struct BrowserScreenshotCropTests {
         #expect(top.red < 0.1)
         #expect(bottom.red > 0.9)
         #expect(bottom.blue < 0.1)
+    }
+
+    @Test
+    func bitmapPixelSourceFallsBackFromUnsupportedLargestRepresentation() throws {
+        let supported = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 10,
+            pixelsHigh: 10,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let unsupported = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 20,
+            pixelsHigh: 20,
+            bitsPerSample: 16,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        supported.size = NSSize(width: 10, height: 10)
+        unsupported.size = NSSize(width: 20, height: 20)
+        let image = NSImage(size: unsupported.size)
+        image.addRepresentation(supported)
+        image.addRepresentation(unsupported)
+
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+
+        #expect(source.pixelSize.width > 0)
+        #expect(source.pixelSize.height > 0)
     }
 
     private func textProbeSet(

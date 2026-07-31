@@ -16,28 +16,46 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
     /// - Parameter image: Snapshot image to normalize for direct pixel access.
     /// - Returns: `nil` when the image has no supported 8-bit packed RGB(A) representation.
     public init?(image: NSImage) {
-        let candidate = image.representations
+        let candidates = image.representations
             .compactMap { $0 as? NSBitmapImageRep }
-            .max {
-                $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh
+            .sorted {
+                Double($0.pixelsWide) * Double($0.pixelsHigh)
+                    > Double($1.pixelsWide) * Double($1.pixelsHigh)
             }
-        if let candidate {
-            self.bitmap = candidate
+        let selectedBitmap: NSBitmapImageRep
+        if let candidate = candidates.first, Self.supportsDirectAccess(candidate) {
+            selectedBitmap = candidate
         } else {
             var proposedRect = NSRect(origin: .zero, size: image.size)
-            guard let cgImage = image.cgImage(
+            let normalizedBitmap = image.cgImage(
                 forProposedRect: &proposedRect,
                 context: nil,
                 hints: nil
-            ) else {
+            ).map(NSBitmapImageRep.init(cgImage:))
+            if let normalizedBitmap,
+               Self.supportsDirectAccess(normalizedBitmap) {
+                selectedBitmap = normalizedBitmap
+            } else if let candidate = candidates.first(where: Self.supportsDirectAccess) {
+                selectedBitmap = candidate
+            } else {
                 return nil
             }
-            self.bitmap = NSBitmapImageRep(cgImage: cgImage)
         }
-        guard bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0 else {
+        self.bitmap = selectedBitmap
+        let samplesPerPixel = selectedBitmap.samplesPerPixel
+        guard let bitmapData = selectedBitmap.bitmapData else {
             return nil
         }
-        let samplesPerPixel = bitmap.samplesPerPixel
+        self.pixelSize = NSSize(
+            width: selectedBitmap.pixelsWide,
+            height: selectedBitmap.pixelsHigh
+        )
+        self.bytesPerPixel = samplesPerPixel
+        self.bitmapData = bitmapData
+    }
+
+    /// Returns whether a bitmap supports direct packed RGB(A) byte access.
+    private static func supportsDirectAccess(_ bitmap: NSBitmapImageRep) -> Bool {
         let unsupportedFormat: NSBitmapImageRep.Format = [
             .alphaFirst,
             .floatingPointSamples,
@@ -46,19 +64,17 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             .sixteenBitBigEndian,
             .thirtyTwoBitBigEndian,
         ]
-        guard bitmap.bitsPerSample == 8,
-              !bitmap.isPlanar,
-              bitmap.colorSpace.colorSpaceModel == .rgb,
-              samplesPerPixel == 3 || (samplesPerPixel == 4 && bitmap.hasAlpha),
-              bitmap.bitsPerPixel == samplesPerPixel * 8,
-              bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel,
-              bitmap.bitmapFormat.intersection(unsupportedFormat).isEmpty,
-              let bitmapData = bitmap.bitmapData else {
-            return nil
-        }
-        self.pixelSize = NSSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
-        self.bytesPerPixel = samplesPerPixel
-        self.bitmapData = bitmapData
+        let samplesPerPixel = bitmap.samplesPerPixel
+        return bitmap.pixelsWide > 0
+            && bitmap.pixelsHigh > 0
+            && bitmap.bitsPerSample == 8
+            && !bitmap.isPlanar
+            && bitmap.colorSpace.colorSpaceModel == .rgb
+            && (samplesPerPixel == 3 || (samplesPerPixel == 4 && bitmap.hasAlpha))
+            && bitmap.bitsPerPixel == samplesPerPixel * 8
+            && bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel
+            && bitmap.bitmapFormat.intersection(unsupportedFormat).isEmpty
+            && bitmap.bitmapData != nil
     }
 
     /// Reads one top-left-origin pixel directly from the bitmap byte plane.

@@ -285,8 +285,10 @@ final class BrowserScreenshotDOMProbeCollector {
           // elementFromPoint intentionally ignores pointer-events:none layers,
           // even though they still paint. Treat pages too large to audit, and
           // text covered by any painted pointerless box, as inconclusive.
+          const maximumAuditedElements = 500;
+          const maximumPointerlessPaintedBoxes = 64;
           const overlayElements = document.body.querySelectorAll("*");
-          if (overlayElements.length > 2000) {
+          if (overlayElements.length > maximumAuditedElements) {
             return { viewportWidth, viewportHeight, probes: [] };
           }
           const pointerlessPaintedBoxes = [];
@@ -321,6 +323,9 @@ final class BrowserScreenshotDOMProbeCollector {
               continue;
             }
             pointerlessPaintedBoxes.push({ element, rect });
+            if (pointerlessPaintedBoxes.length > maximumPointerlessPaintedBoxes) {
+              return { viewportWidth, viewportHeight, probes: [] };
+            }
           }
           const hasPointerlessPaintAt = (element, x, y) => (
             pointerlessPaintedBoxes.some(({ element: overlay, rect }) => (
@@ -360,6 +365,8 @@ final class BrowserScreenshotDOMProbeCollector {
                 || style.filter !== "none"
                 || (style.backdropFilter && style.backdropFilter !== "none")
                 || style.mixBlendMode !== "normal"
+                || style.backgroundClip === "text"
+                || style.webkitBackgroundClip === "text"
               ) {
                 return true;
               }
@@ -486,7 +493,9 @@ final class BrowserScreenshotDOMProbeCollector {
             if (hasPointerlessPaintAt(element, centerX, centerY)) continue;
 
             const background = solidBackground(element);
-            const rawForeground = parseColor(style.color);
+            // WebKit's text-fill color is inherited and reflects the actual
+            // glyph fill. A transparent gradient/clipped fill is inconclusive.
+            const rawForeground = parseColor(style.webkitTextFillColor || style.color);
             if (!background || !rawForeground || rawForeground.alpha < 0.35) continue;
             const foreground = composite(rawForeground, background);
             if (!foreground || contrast(foreground, background) < 3) continue;
@@ -518,13 +527,6 @@ final class BrowserScreenshotDOMProbeCollector {
             occupiedCells.add(key);
             probes.push(candidate);
             if (probes.length === 12) break;
-          }
-          if (probes.length < 12) {
-            for (const candidate of candidates) {
-              if (probes.includes(candidate)) continue;
-              probes.push(candidate);
-              if (probes.length === 12) break;
-            }
           }
 
           return {
