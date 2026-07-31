@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import WebKit
 extension Notification.Name {
+    static let terminalPortalDidBecomePresentable = Notification.Name("cmux.terminalPortalDidBecomePresentable")
     static let workspaceSwitchPresentationDidBecomeReady =
         Notification.Name("cmux.workspaceSwitchPresentationDidBecomeReady")
 }

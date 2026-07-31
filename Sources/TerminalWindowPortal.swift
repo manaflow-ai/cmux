@@ -696,6 +696,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
+    private var presentedHostedIds: Set<ObjectIdentifier> = []
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
     /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
     /// mask; adoption clears it (see bind) and detach restores this saved
@@ -1419,6 +1420,7 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        presentedHostedIds.remove(hostedId)
 #if DEBUG
         lastPortalTargetByHostedId.removeValue(forKey: hostedId)
 #endif
@@ -1847,8 +1849,10 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
+            presentedHostedIds.remove(hostedId)
             return
         }
+        defer { updatePresentationState(for: hostedId, hostedView: hostedView) }
         guard let anchorView = entry.anchorView, let window else {
             if entry.visibleInUI {
                 let shouldPreserveVisibleOnTransient = !hostedView.isHidden &&
@@ -2204,6 +2208,31 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
         ensureDividerOverlayOnTop()
+    }
+
+    private func updatePresentationState(
+        for hostedId: ObjectIdentifier,
+        hostedView: GhosttySurfaceScrollView
+    ) {
+        let isPresented =
+            entriesByHostedId[hostedId]?.visibleInUI == true &&
+            !hostedView.isHidden &&
+            hostedView.window === window &&
+            hostedView.superview === hostView &&
+            hostedView.bounds.width > Self.tinyHideThreshold &&
+            hostedView.bounds.height > Self.tinyHideThreshold
+        guard isPresented else {
+            presentedHostedIds.remove(hostedId)
+            return
+        }
+        guard presentedHostedIds.insert(hostedId).inserted else { return }
+        Task { @MainActor [weak hostedView] in
+            guard let hostedView else { return }
+            NotificationCenter.default.post(
+                name: .terminalPortalDidBecomePresentable,
+                object: hostedView
+            )
+        }
     }
 
     private func pruneDeadEntries() {
