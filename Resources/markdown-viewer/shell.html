@@ -1011,21 +1011,21 @@ html { scroll-behavior: smooth; }
   function normalizedCodespanText(token) {
     // Invalid boundaries mean marked's token contract changed. Never fall back
     // to token.text here: a future version may supply either raw or pre-escaped
-    // text. Throwing routes the whole document through the existing escaped
-    // render-error fallback instead of risking HTML injection.
+    // text. Returning raw source keeps the failure visible and span-local; the
+    // renderer still escapes it before inserting it into HTML.
     if (!token || typeof token.raw !== 'string') {
-      throw new Error('marked codespan token is missing raw source');
+      return '[invalid code span]';
     }
     var openingDelimiter = token.raw.match(/^`+/);
     if (!openingDelimiter) {
-      throw new Error('marked codespan token is missing an opening delimiter');
+      return token.raw;
     }
     var delimiter = openingDelimiter[0];
     if (
       token.raw.length < delimiter.length * 2 ||
       token.raw.slice(-delimiter.length) !== delimiter
     ) {
-      throw new Error('marked codespan token has mismatched delimiters');
+      return token.raw;
     }
 
     // Own codespan normalization here instead of relying on marked's token.text,

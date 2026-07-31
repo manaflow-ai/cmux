@@ -74,6 +74,41 @@ final class MarkdownCodespanRenderingTests {
         }
     }
 
+    @Test
+    func malformedCodespanTokensRemainSpanLocalAndEscaped() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let result = try await webView.evaluateJavaScript(
+                """
+                window.marked.use({
+                  walkTokens: function(token) {
+                    if (token.type === 'codespan' && token.text === 'cmux-malformed-codespan') {
+                      token.raw = '<img src=x onerror=alert(1)>';
+                      token.text = token.raw;
+                    }
+                  }
+                });
+                window.__cmuxRenderMarkdown('Before `cmux-malformed-codespan` after.');
+                var content = document.querySelector('#content');
+                var paragraph = content.querySelector('p');
+                var code = paragraph.querySelector('code');
+                ({
+                  paragraphText: paragraph.textContent,
+                  codeText: code.textContent,
+                  codeChildElementCount: code.children.length,
+                  documentImageCount: content.querySelectorAll('img').length,
+                  hasRenderError: content.textContent.indexOf('markdown render error:') !== -1
+                });
+                """
+            )
+            let raw = try #require(result as? [String: Any])
+            #expect(raw["paragraphText"] as? String == "Before <img src=x onerror=alert(1)> after.")
+            #expect(raw["codeText"] as? String == "<img src=x onerror=alert(1)>")
+            #expect((raw["codeChildElementCount"] as? NSNumber)?.intValue == 0)
+            #expect((raw["documentImageCount"] as? NSNumber)?.intValue == 0)
+            #expect(raw["hasRenderError"] as? Bool == false)
+        }
+    }
+
     private func withLoadedMarkdownShell<T>(
         _ body: (WKWebView) async throws -> T
     ) async throws -> T {
