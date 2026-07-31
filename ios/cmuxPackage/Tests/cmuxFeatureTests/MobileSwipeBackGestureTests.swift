@@ -5,20 +5,14 @@ import UIKit
 @testable import CmuxMobileBrowser
 @testable import CmuxMobileShellUI
 
-/// Regression coverage for issue #6634: the left-edge swipe-back must return to
-/// the workspace list even when a terminal or browser surface is on screen.
+/// Regression coverage for the compact workspace's left-edge swipe-back. The
+/// gesture must return to the workspace list without also driving a surface pan.
 ///
 /// The full end-to-end gesture coexistence is a UIKit-runtime behavior that only
 /// a driven UI test could exercise, and `cmuxUITests` is skipped on the
-/// pull-request simulator lane. These tests instead lock the two code-level
-/// decisions the fix turns on:
-///   1. the navigation pop gesture recognizes simultaneously with the pushed
-///      surface's own scroll/pan recognizers (the terminal's full-bounds
-///      scroll-mechanics `UIScrollView`, the browser's `WKWebView` scroll view),
-///      which UIKit's default coexistence rule provided until we replaced the
-///      pop gesture's delegate; and
-///   2. the browser's web view does not install its own competing left-edge
-///      back-swipe.
+/// pull-request simulator lane. These tests lock the navigation gesture policy,
+/// while `cmuxUITests.testEdgeSwipeBackDoesNotScrollTerminal` drives the complete
+/// gesture and observes terminal scroll delivery.
 @MainActor
 @Suite("iOS swipe-back over terminal/browser surfaces")
 struct MobileSwipeBackGestureTests {
@@ -79,18 +73,25 @@ struct MobileSwipeBackGestureTests {
         #expect(hosted.host.gestureRecognizerShouldBegin(hosted.popGesture) == true)
     }
 
-    /// Replacing the pop gesture's delegate dropped UIKit's built-in rule that
-    /// lets the edge swipe-back coexist with scroll views, so the swipe died over
-    /// the terminal and browser. The delegate must allow the pop gesture to
-    /// recognize simultaneously with a surface's pan/scroll recognizer.
-    @Test("pop gesture coexists with surface scroll/pan recognizers")
-    func popGestureRecognizesSimultaneouslyWithSurfaceGestures() throws {
+    /// A surface pan must wait for the system edge recognizer to fail. An
+    /// off-edge touch fails the edge recognizer and scrolls normally; an edge
+    /// touch lets navigation own the gesture without dual recognition.
+    @Test("pop gesture takes precedence over surface pan recognizers")
+    func popGestureTakesPrecedenceOverSurfacePans() throws {
         let hosted = try #require(makeHostedNavigation())
         let surfacePan = UIPanGestureRecognizer()
+        let delegate = try #require(hosted.popGesture.delegate)
+
         #expect(
             hosted.host.gestureRecognizer(
                 hosted.popGesture,
                 shouldRecognizeSimultaneouslyWith: surfacePan
+            ) == false
+        )
+        #expect(
+            delegate.gestureRecognizer?(
+                hosted.popGesture,
+                shouldBeRequiredToFailBy: surfacePan
             ) == true
         )
     }
