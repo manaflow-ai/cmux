@@ -1298,7 +1298,8 @@ enum TextBoxSubmit {
 
     static func atomicPromptSubmission(
         for events: [DispatchEvent],
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        surface: TerminalSurface
     ) -> TextBoxAtomicPromptSubmission? {
         guard events.count == 2,
               case .pasteText(let text) = events[0],
@@ -1320,7 +1321,8 @@ enum TextBoxSubmit {
             hookConfirmsHumanInput:
                 TextBoxAgentDetection.supportsActiveAgentPrefixes(
                     context: terminalAgentContext
-                )
+                ),
+            surface: surface
         )
     }
 
@@ -1540,7 +1542,7 @@ private final class TextBoxSubmitEventRunner {
     private let surface: TextBoxSubmitSurfaceControlling
     private let surfaceKey: ObjectIdentifier
     private let usesPasteboard: Bool
-    private let atomicPromptTransaction: AtomicPromptTransaction?
+    private let atomicPromptSubmission: TextBoxAtomicPromptSubmission?
     private var onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
     private var index = 0
     private var claudeImageTokenBaseline = 0
@@ -1569,23 +1571,17 @@ private final class TextBoxSubmitEventRunner {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
     }
 
-    /// Couples the compound request to the concrete surface that can honor it.
-    private struct AtomicPromptTransaction {
-        let submission: TextBoxAtomicPromptSubmission
-        let surface: TerminalSurface
-    }
-
     private struct PendingRun {
         let events: [TextBoxSubmit.DispatchEvent]
         let surface: TextBoxSubmitSurfaceControlling
         let onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
         let usesPasteboard: Bool
-        let atomicPromptTransaction: AtomicPromptTransaction?
+        let atomicPromptSubmission: TextBoxAtomicPromptSubmission?
 
         init(
             events: [TextBoxSubmit.DispatchEvent],
             surface: TextBoxSubmitSurfaceControlling,
-            atomicPromptTransaction: AtomicPromptTransaction?,
+            atomicPromptSubmission: TextBoxAtomicPromptSubmission?,
             onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
         ) {
             self.events = events
@@ -1595,7 +1591,7 @@ private final class TextBoxSubmitEventRunner {
                 if case .pasteFilePath = event { return true }
                 return false
             }
-            self.atomicPromptTransaction = atomicPromptTransaction
+            self.atomicPromptSubmission = atomicPromptSubmission
         }
     }
 
@@ -1604,14 +1600,14 @@ private final class TextBoxSubmitEventRunner {
         surface: TextBoxSubmitSurfaceControlling,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?,
         usesPasteboard: Bool,
-        atomicPromptTransaction: AtomicPromptTransaction?
+        atomicPromptSubmission: TextBoxAtomicPromptSubmission?
     ) {
         self.events = events
         self.surface = surface
         self.surfaceKey = ObjectIdentifier(surface)
         self.onComplete = onComplete
         self.usesPasteboard = usesPasteboard
-        self.atomicPromptTransaction = atomicPromptTransaction
+        self.atomicPromptSubmission = atomicPromptSubmission
     }
 
     static func run(
@@ -1622,7 +1618,7 @@ private final class TextBoxSubmitEventRunner {
         let pendingRun = PendingRun(
             events: events,
             surface: surface,
-            atomicPromptTransaction: nil,
+            atomicPromptSubmission: nil,
             onComplete: onComplete
         )
         enqueueOrStart(pendingRun)
@@ -1634,16 +1630,15 @@ private final class TextBoxSubmitEventRunner {
         terminalAgentContext: String,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)? = nil
     ) {
-        let transaction = TextBoxSubmit.atomicPromptSubmission(
+        let submission = TextBoxSubmit.atomicPromptSubmission(
             for: events,
-            terminalAgentContext: terminalAgentContext
-        ).map {
-            AtomicPromptTransaction(submission: $0, surface: surface)
-        }
+            terminalAgentContext: terminalAgentContext,
+            surface: surface
+        )
         let pendingRun = PendingRun(
             events: events,
             surface: surface,
-            atomicPromptTransaction: transaction,
+            atomicPromptSubmission: submission,
             onComplete: onComplete
         )
         enqueueOrStart(pendingRun)
@@ -1669,7 +1664,7 @@ private final class TextBoxSubmitEventRunner {
             surface: pendingRun.surface,
             onComplete: pendingRun.onComplete,
             usesPasteboard: pendingRun.usesPasteboard,
-            atomicPromptTransaction: pendingRun.atomicPromptTransaction
+            atomicPromptSubmission: pendingRun.atomicPromptSubmission
         )
         active[runner.id] = runner
         activeRunIDBySurface[runner.surfaceKey] = runner.id
@@ -1690,18 +1685,17 @@ private final class TextBoxSubmitEventRunner {
     private func processNext() {
         removeObservers()
 
-        if index == 0, let atomicPromptTransaction {
+        if index == 0, let atomicPromptSubmission {
             index = events.count
-            let submission = atomicPromptTransaction.submission
-            guard atomicPromptTransaction.surface.sendPromptSubmission(
-                      submission.text,
-                      submitKey: submission.submitKey,
+            guard atomicPromptSubmission.surface.sendPromptSubmission(
+                      atomicPromptSubmission.text,
+                      submitKey: atomicPromptSubmission.submitKey,
                       rejectIfHumanComposerBusy:
-                          submission.rejectIfHumanComposerBusy,
+                          atomicPromptSubmission.rejectIfHumanComposerBusy,
                       hookRecordingSource:
-                          submission.hookRecordingSource,
+                          atomicPromptSubmission.hookRecordingSource,
                       hookConfirmsHumanInput:
-                          submission.hookConfirmsHumanInput
+                          atomicPromptSubmission.hookConfirmsHumanInput
                   ).accepted else {
                 fail(.terminalWriteRejected)
                 return

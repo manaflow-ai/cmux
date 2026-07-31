@@ -114,6 +114,28 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func preBindingHumanInputRejectsGuardedAgentSubmission() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.surface.releaseSurfaceForTesting()
+        let agentScope = "agentPIDKey:codex.session"
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.synchronizePromptInputAgentScope(agentScope)
+
+        let result = panel.sendPromptSubmissionResult(
+            "supervisor message",
+            submitKey: "return",
+            agentInputScope: agentScope,
+            rejectIfHumanComposerBusy: true,
+            hookRecordingSource: "workspace.agent_submit"
+        )
+
+        #expect(result == .composerBusy)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
     @Test func simpleTextBoxSubmissionUsesOneCompoundTerminalItem() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }

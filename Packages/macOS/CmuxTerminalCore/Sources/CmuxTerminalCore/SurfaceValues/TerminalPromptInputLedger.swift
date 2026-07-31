@@ -12,13 +12,21 @@ public struct TerminalPromptInputLedger: Sendable {
     /// Creates an empty ledger with no human input or pending boundaries.
     public init() {}
 
-    /// Starts a fresh ownership epoch when the active agent changes.
+    /// Aligns provisional input ownership with the active agent process.
     ///
-    /// Physical input from a shell or a previous agent cannot describe the
-    /// current agent's composer. Clearing it at the binding transition avoids
-    /// both false busy rejections and stale hook boundaries.
+    /// Human input can reach the terminal before the process identity becomes
+    /// available. The initial binding adopts that human evidence while
+    /// discarding unowned app submissions. Replacing or removing an already
+    /// bound process starts a fresh epoch so one agent cannot inherit another
+    /// agent's composer state.
     public mutating func synchronizeAgentScope(_ scope: String?) {
         guard agentScope != scope else { return }
+        if agentScope == nil, scope != nil {
+            agentScope = scope
+            humanInputEpoch &+= 1
+            removeNonHumanBoundaries()
+            return
+        }
         agentScope = scope
         humanInputEpoch &+= 1
         humanInputGeneration = 0
@@ -35,11 +43,6 @@ public struct TerminalPromptInputLedger: Sendable {
     /// The single agent-process identity that owns the current composer epoch.
     public var currentAgentScope: String? {
         agentScope
-    }
-
-    /// Whether physical terminal input belongs to an active agent composer.
-    public var hasAgentScope: Bool {
-        agentScope != nil
     }
 
     /// Records one human terminal input event.
@@ -208,6 +211,13 @@ public struct TerminalPromptInputLedger: Sendable {
         pendingBoundaries.removeAll {
             if case .human = $0 { return true }
             return false
+        }
+    }
+
+    private mutating func removeNonHumanBoundaries() {
+        pendingBoundaries.removeAll {
+            if case .human = $0 { return false }
+            return true
         }
     }
 

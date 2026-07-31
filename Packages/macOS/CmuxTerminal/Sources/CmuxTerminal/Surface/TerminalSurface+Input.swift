@@ -15,12 +15,6 @@ extension TerminalSurface {
         promptInputLedger.currentAgentScope
     }
 
-    /// Whether keystrokes need agent-composer ownership tracking.
-    @MainActor
-    public var hasPromptInputAgentScope: Bool {
-        promptInputLedger.hasAgentScope
-    }
-
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     public func didReceiveExplicitInput() {
@@ -43,8 +37,9 @@ extension TerminalSurface {
 
     /// Aligns composer ownership with the currently bound agent process.
     ///
-    /// A changed scope starts a fresh ledger epoch so shell input and a prior
-    /// agent's hooks cannot make the current agent appear composer-busy.
+    /// The initial binding adopts provisional human input. Replacing or
+    /// removing a bound agent starts a fresh ledger epoch so a prior agent's
+    /// hooks cannot affect the current composer.
     @MainActor
     public func synchronizePromptInputAgentScope(_ scope: String?) {
         promptInputLedger.synchronizeAgentScope(scope)

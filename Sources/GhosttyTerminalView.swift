@@ -4549,8 +4549,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
-        if let terminalSurface,
-           terminalSurface.hasPromptInputAgentScope {
+        if let terminalSurface {
             terminalSurface.recordHumanPromptInput(.unknown)
         }
         return true
@@ -5850,8 +5849,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
             if handled {
-                if let terminalSurface,
-                   terminalSurface.hasPromptInputAgentScope {
+                if let terminalSurface {
                     // Ghostty bindings are agent/config-specific. Even Ctrl-C
                     // or Escape may mutate a composer, so only a structured
                     // submit hook or process-identity change can clear this.
@@ -5968,11 +5966,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // entry left by an earlier suppressed repeat for the same physical key.
         imeConsumedKeyUps.remove(event.keyCode)
 
-        // Shells do not own an agent composer, so keep their typing path free
-        // of ownership bookkeeping. Record only after app and IME handling
-        // commit this key to Ghostty's forwarding path.
-        if let terminalSurface,
-           terminalSurface.hasPromptInputAgentScope {
+        // Record only after app and IME handling commit this key to Ghostty's
+        // forwarding path. Input can precede agent process binding, so the
+        // ledger owns provisional human evidence until the scope is known.
+        if let terminalSurface {
             terminalSurface.recordHumanPromptInput(
                 humanPromptInputMutation(for: event)
             )
@@ -7871,15 +7868,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            if let terminalSurface,
-               terminalSurface.hasPromptInputAgentScope {
+            if let terminalSurface {
                 terminalSurface.recordHumanPromptInput(.unknown)
             }
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
-            if let terminalSurface,
-               terminalSurface.hasPromptInputAgentScope {
+            if let terminalSurface {
                 terminalSurface.recordHumanPromptInput(.unknown)
             }
             let plan = TerminalImageTransferPlanner.plan(
@@ -12188,8 +12183,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        if let terminalSurface,
-           terminalSurface.hasPromptInputAgentScope {
+        if let terminalSurface {
             terminalSurface.recordHumanPromptInput(.unknown)
         }
         terminalSurface?.didReceiveExplicitInput()

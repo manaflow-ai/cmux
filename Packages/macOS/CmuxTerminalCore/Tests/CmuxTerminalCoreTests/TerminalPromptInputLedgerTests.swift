@@ -155,7 +155,7 @@ import Testing
         )
     }
 
-    @Test func newAgentScopeDiscardsPreviousAgentRecordsAndInput() {
+    @Test func initialAgentScopeAdoptsHumanInputButDiscardsAppRecords() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)
         ledger.recordProgrammaticSubmission(
@@ -164,6 +164,38 @@ import Testing
         )
 
         ledger.synchronizeAgentScope("agentPIDKey:codex.session")
+
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "old prompt")
+                == .unmatched
+        )
+    }
+
+    @Test func initialAgentScopeRetainsHumanBoundaryForHookRecovery() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        ledger.synchronizeAgentScope("agentPIDKey:codex.session")
+
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "pre-binding prompt") == .human
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func changedAgentScopeDiscardsPreviousAgentRecordsAndInput() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agentPIDKey:first.session")
+        ledger.recordHumanInput(.unknown)
+        ledger.recordProgrammaticSubmission(
+            message: "old prompt",
+            source: "workspace.agent_submit"
+        )
+
+        ledger.synchronizeAgentScope("agentPIDKey:second.session")
 
         #expect(!ledger.hasUnconfirmedHumanInput)
         #expect(
