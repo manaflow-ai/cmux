@@ -429,6 +429,59 @@ import Testing
         await store.remoteClient?.disconnect()
     }
 
+    @Test func signOutRetiresPendingRouteBeforeHeldRPCResolves() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.holdWorkspaceListRequest(number: 1)
+        let factory = SupersededTransportFactory(router: router)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "pairing-sign-out-pending-\(UUID().uuidString)"
+            )!
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults
+                .pairingCompatibilityVersion,
+            routes: [try loopbackRoute(id: "live", port: 51001)],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+
+        let connect = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+        let transport = try #require(factory.createdTransports().first)
+
+        store.signOut()
+        let retirement = await MobileShellComposite.raceAgainstDeadline(
+            nanoseconds: 5_000_000_000
+        ) {
+            await transport.waitUntilCloseStarted()
+            return true
+        }
+
+        #expect(retirement.value == true)
+        #expect(store.remoteClient == nil)
+        await router.releaseAllHeld()
+        _ = await retirement.abandoned?.value
+        _ = await connect.value
+        #expect(store.connectionState == .disconnected)
+        #expect(store.remoteClient == nil)
+        #expect(factory.createdTransports().count == 1)
+    }
+
     @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

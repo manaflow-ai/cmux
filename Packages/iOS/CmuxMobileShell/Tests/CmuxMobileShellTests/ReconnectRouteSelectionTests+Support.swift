@@ -40,6 +40,9 @@ final class SupersededTransportFactory: CmxByteTransportFactory, @unchecked Send
 actor SupersededTrackingTransport: CmxByteTransport {
     private let base: LivenessTransport
     private var closeCount = 0
+    private var closeStarted = false
+    private var closeWaiters:
+        [UUID: CheckedContinuation<Void, Never>] = [:]
 
     init(router: LivenessHostRouter) {
         base = LivenessTransport(router: router)
@@ -59,10 +62,38 @@ actor SupersededTrackingTransport: CmxByteTransport {
 
     func close() async {
         closeCount += 1
+        closeStarted = true
+        let waiters = Array(closeWaiters.values)
+        closeWaiters = [:]
+        for waiter in waiters {
+            waiter.resume()
+        }
         await base.close()
     }
 
     func observedCloseCount() -> Int { closeCount }
+
+    func waitUntilCloseStarted() async {
+        guard !closeStarted else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if closeStarted {
+                    continuation.resume()
+                } else {
+                    closeWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelCloseWaiter(waiterID)
+            }
+        }
+    }
+
+    private func cancelCloseWaiter(_ waiterID: UUID) {
+        closeWaiters.removeValue(forKey: waiterID)?.resume()
+    }
 }
 
 enum RouteRecordingTransportError: Error {

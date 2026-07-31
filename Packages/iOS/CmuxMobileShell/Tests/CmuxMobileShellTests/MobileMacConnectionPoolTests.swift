@@ -4857,6 +4857,9 @@ import Testing
         let initialWorkspaceRequests = await router.count(
             of: "workspace.list"
         )
+        let initialSubscriptionRequests = await router.count(
+            of: "mobile.events.subscribe"
+        )
 
         let redial = Task { @MainActor in
             try await shell.connect(
@@ -4870,8 +4873,25 @@ import Testing
             of: "workspace.list",
             atLeast: initialWorkspaceRequests + 1
         ))
+
+        // The replacement's subscription starts only after its client has been
+        // adopted and the connect task has published `.connected`. Wait on that
+        // exact lifecycle event while the old physical close remains blocked;
+        // the five-second deadline is only a deadlock safety bound.
+        let subscriptionStarted = await router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: initialSubscriptionRequests + 1,
+            timeoutNanoseconds: 5_000_000_000,
+            recordIssueOnTimeout: false
+        )
+        #expect(subscriptionStarted)
+        guard subscriptionStarted else {
+            await closeGate.release()
+            _ = try? await redial.value
+            return
+        }
         let completion = await MobileShellComposite.raceAgainstDeadline(
-            nanoseconds: 200_000_000
+            nanoseconds: 5_000_000_000
         ) {
             do {
                 _ = try await redial.value
@@ -4880,11 +4900,12 @@ import Testing
                 return false
             }
         }
-
         #expect(completion.value == true)
+        #expect(!(await closeGate.isReleasedForTesting()))
         #expect(shell.connectionState == .connected)
         #expect(shell.remoteClient !== originalClient)
         await closeGate.release()
+        _ = await completion.abandoned?.value
         _ = try? await redial.value
     }
 
