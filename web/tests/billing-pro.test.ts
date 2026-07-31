@@ -12,6 +12,8 @@ import {
   AccountDeletionUserMutationInProgressError,
   type AccountDeletionUserMutationLease,
 } from "../services/account/deletionLock";
+import { AccountMetadataUserUnavailableError } from
+  "../services/account/metadataMutation";
 import type {
   FreshProMetadataUserMutation,
   ProMetadataJson,
@@ -293,6 +295,36 @@ describe("resolveProPlanStatus", () => {
       metadataChanged: false,
     });
     expect(user.updates).toEqual([]);
+  });
+
+  test("still resolves the Stripe plan when the fresh Stack user disappears", async () => {
+    const user = metadataUser({}, "user-disappeared");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: async () => {
+          throw new AccountMetadataUserUnavailableError("user-disappeared");
+        },
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      metadataChanged: false,
+    });
+  });
+
+  test("does not hide unexpected metadata reconciliation failures", async () => {
+    const user = metadataUser({}, "user-database-error");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: async () => {
+          throw new Error("metadata database unavailable");
+        },
+      }),
+    ).rejects.toThrow("metadata database unavailable");
   });
 });
 

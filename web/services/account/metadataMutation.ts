@@ -12,6 +12,13 @@ export type AccountMetadataUserLoader<User extends AccountMetadataUser> = {
   getUser(userId: string): Promise<User | null>;
 };
 
+export class AccountMetadataUserUnavailableError extends Error {
+  constructor(readonly userId: string) {
+    super("Stack user disappeared during account metadata mutation");
+    this.name = "AccountMetadataUserUnavailableError";
+  }
+}
+
 /**
  * Serializes Stack metadata writers with account deletion and reloads the user
  * only after the durable lease is held. Callers therefore never write a whole
@@ -35,7 +42,7 @@ export async function withFreshAccountMetadataUser<
     async (lease) => {
       const user = await input.loader.getUser(input.userId);
       if (!user || user.id !== input.userId) {
-        throw new Error("Stack user disappeared during account metadata mutation");
+        throw new AccountMetadataUserUnavailableError(input.userId);
       }
       return await input.operation(user, lease);
     },

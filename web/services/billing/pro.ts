@@ -14,9 +14,13 @@ import {
   getStackServerApp,
   isStackConfigured,
 } from "../../app/lib/stack";
-import type { AccountDeletionUserMutationLease } from
-  "../account/deletionLock";
 import {
+  AccountDeletionMutationBlockedError,
+  AccountDeletionUserMutationInProgressError,
+  type AccountDeletionUserMutationLease,
+} from "../account/deletionLock";
+import {
+  AccountMetadataUserUnavailableError,
   type AccountMetadataUserLoader,
   withFreshAccountMetadataUser,
 } from
@@ -126,9 +130,10 @@ export async function reconcileProPlanMetadata(
     : false;
   if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   if (!user.id) return false;
-  return await (options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser)(
+  return await reconcileProMetadataIfAvailable(
     user.id,
-    (freshUser, lease) => reconcileFreshProMetadata(freshUser, isPro, lease),
+    isPro,
+    options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
   );
 }
 
@@ -152,11 +157,10 @@ export async function resolveProPlanStatus(
     !hasManualVmPlanOverride &&
     isPro !== (metadataPlanId === PRO_PLAN_ID)
   ) {
-    metadataChanged = await (
-      options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser
-    )(
+    metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      (freshUser, lease) => reconcileFreshProMetadata(freshUser, isPro, lease),
+      isPro,
+      options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
 
@@ -168,6 +172,28 @@ export async function resolveProPlanStatus(
     hasManualVmPlanOverride,
     metadataChanged,
   };
+}
+
+async function reconcileProMetadataIfAvailable(
+  userId: string,
+  isPro: boolean,
+  withFreshMetadataUser: FreshProMetadataUserMutation,
+): Promise<boolean> {
+  try {
+    return await withFreshMetadataUser(
+      userId,
+      (freshUser, lease) => reconcileFreshProMetadata(freshUser, isPro, lease),
+    );
+  } catch (error) {
+    if (
+      error instanceof AccountDeletionMutationBlockedError ||
+      error instanceof AccountDeletionUserMutationInProgressError ||
+      error instanceof AccountMetadataUserUnavailableError
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function reconcileFreshProMetadata(
