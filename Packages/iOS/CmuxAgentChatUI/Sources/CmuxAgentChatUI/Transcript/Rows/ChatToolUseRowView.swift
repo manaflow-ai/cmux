@@ -2,83 +2,67 @@ import CmuxAgentChat
 import SwiftUI
 
 /// A compact tool-invocation row: tool icon, one-line summary, and a status
-/// glyph. Tap expands the full input and result inside a hairline card.
+/// glyph.
 public struct ChatToolUseRowView: View {
     private let toolUse: ChatToolUse
     private let rowID: String
-    private let isExpanded: Bool
-    private let actions: ChatRowActions
-
-    @Environment(\.chatTheme) private var theme
-
-    private static let collapsedInputLineCap = 12
-    private static let expandedOutputLineCap = 16
+    private let onShowDetail: () -> Void
 
     /// Creates a tool-use row.
     ///
     /// - Parameters:
     ///   - toolUse: The invocation payload.
-    ///   - rowID: The row's stable identity, for expansion toggling.
-    ///   - isExpanded: Whether the detail card is showing.
-    ///   - actions: Row action bundle.
-    public init(toolUse: ChatToolUse, rowID: String, isExpanded: Bool, actions: ChatRowActions) {
+    ///   - rowID: The row's stable identity, for UI automation.
+    ///   - onShowDetail: Opens the full tool input/output in a detail sheet.
+    public init(toolUse: ChatToolUse, rowID: String, onShowDetail: @escaping () -> Void = {}) {
         self.toolUse = toolUse
         self.rowID = rowID
-        self.isExpanded = isExpanded
-        self.actions = actions
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                actions.toggleExpanded(rowID)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: symbolName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(toolUse.summary)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    statusGlyph
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
+        Button(action: onShowDetail) {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(toolUse.summary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                statusGlyph
+                detailGlyph
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityValue(
-                isExpanded
-                    ? String(
-                        localized: "chat.row.expanded.accessibility",
-                        defaultValue: "Expanded",
-                        bundle: .module
-                    )
-                    : String(
-                        localized: "chat.row.collapsed.accessibility",
-                        defaultValue: "Collapsed",
-                        bundle: .module
-                    )
-            )
-            .accessibilityHint(
-                isExpanded
-                    ? String(
-                        localized: "chat.row.collapse.hint",
-                        defaultValue: "Double tap to collapse",
-                        bundle: .module
-                    )
-                    : String(
-                        localized: "chat.row.expand.hint",
-                        defaultValue: "Double tap to expand",
-                        bundle: .module
-                    )
-            )
-            if isExpanded {
-                detailCard
-            }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("ChatToolUseToggle-\(rowID)")
+        .accessibilityLabel(toolUseAccessibilityLabel)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
+        )
+    }
+
+    private var toolUseAccessibilityLabel: String {
+        "\(toolUse.summary), \(statusAccessibilityLabel)"
+    }
+
+    private var statusAccessibilityLabel: String {
+        switch toolUse.status {
+        case .running:
+            return String(localized: "chat.tool.running.accessibility", defaultValue: "Running", bundle: .module)
+        case .succeeded:
+            return String(localized: "chat.tool.succeeded.accessibility", defaultValue: "Succeeded", bundle: .module)
+        case .failed:
+            return String(localized: "chat.tool.failed.accessibility", defaultValue: "Failed", bundle: .module)
+        }
     }
 
     /// SF symbol for the tool, keyed off its machine name.
@@ -91,6 +75,13 @@ public struct ChatToolUseRowView: View {
         if name.contains("webfetch") || name.contains("websearch") { return "globe" }
         if name.contains("task") || name.contains("agent") { return "person.2" }
         return "gearshape"
+    }
+
+    private var detailGlyph: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -121,40 +112,6 @@ public struct ChatToolUseRowView: View {
                         bundle: .module
                     )
                 )
-        }
-    }
-
-    private var detailCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let input = toolUse.inputDetail, !input.isEmpty {
-                clampedText(input, lineCap: Self.collapsedInputLineCap)
             }
-            if let output = toolUse.output, !output.isEmpty {
-                clampedText(output, lineCap: Self.expandedOutputLineCap)
-            }
-        }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(theme.hairline, lineWidth: 0.5)
-        )
-    }
-
-    /// Renders `text` capped at `lineCap` lines, appending a truncation
-    /// note when lines were dropped.
-    @ViewBuilder
-    private func clampedText(_ text: String, lineCap: Int) -> some View {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        Text(lines.prefix(lineCap).joined(separator: "\n"))
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(theme.terminalCardText)
-            .textSelection(.enabled)
-        if lines.count > lineCap {
-            Text(String(localized: "chat.tool.truncated", defaultValue: "⋯ truncated", bundle: .module))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-        }
     }
 }

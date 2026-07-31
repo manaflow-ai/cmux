@@ -15,6 +15,13 @@ public import GhosttyKit
 /// that touch the native surface. Implementations guard their tables with a
 /// lock instead of actor isolation for exactly that reason.
 public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
+    /// Monotonically increasing revision of the registered surface topology.
+    ///
+    /// Consumers that cache per-surface state can compare this value before
+    /// enumerating ``allSurfaces()`` instead of rescanning on every terminal
+    /// output event.
+    var topologyGeneration: UInt64 { get }
+
     /// Registers a live surface and records its focus placement.
     func register(_ surface: any TerminalSurfacing)
 
@@ -37,6 +44,11 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     /// Whether the surface with the given id is placed in the right-sidebar
     /// dock.
     func isRightSidebarDockSurface(id: UUID) -> Bool
+
+    /// Re-records the focus placement for a live surface that moved between the
+    /// workspace area and the right-sidebar dock. No-op when the id is not
+    /// currently registered.
+    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement)
 
     /// All live registered surfaces, ordered by id for stable iteration.
     func allSurfaces() -> [any TerminalSurfacing]

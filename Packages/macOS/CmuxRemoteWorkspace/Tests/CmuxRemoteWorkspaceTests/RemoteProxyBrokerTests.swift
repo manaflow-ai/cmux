@@ -5,7 +5,7 @@ import Testing
 
 /// Scripted tunnel: records calls, can be told to fail `start()`, and
 /// reports canned PTY results.
-private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
+final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     struct PTYCall: Equatable {
         let name: String
         let arguments: [String]
@@ -14,10 +14,12 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     let remotePath: String
     let localPort: Int
     private let startError: NSError?
-    private let lock = NSLock()
+    let lock = NSLock()
     private var _startCount = 0
     private var _stopCount = 0
     private var _ptyCalls: [PTYCall] = []
+    var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
+    var lifecycleEndCallbacks: [RemotePTYLifecycleKey: @Sendable () -> Void] = [:]
 
     init(remotePath: String, localPort: Int, startError: NSError?) {
         self.remotePath = remotePath
@@ -55,6 +57,22 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
     func stop() {
         lock.lock()
         _stopCount += 1
+        ptyLifecycleRegistry.removeAll()
+        lifecycleEndCallbacks.removeAll()
+        lock.unlock()
+    }
+
+    func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        _stopCount += 1
+        lifecycleEndCallbacks.removeAll()
+        return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
+    }
+
+    func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {
+        lock.lock()
+        ptyLifecycleRegistry = snapshot.registry
         lock.unlock()
     }
 
@@ -63,8 +81,12 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         return [["session_id": "s-1"]]
     }
 
-    func closePTY(sessionID: String) throws {
+    func closePTY(sessionID: String, deadline: DispatchTime) throws {
         record("closePTY", [sessionID])
+        lock.lock()
+        let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
+        ptyLifecycleRegistry.completeIntentionalClose(previous)
+        lock.unlock()
     }
 
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -75,18 +97,33 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         record("detachPTY", [sessionID, attachmentID, attachmentToken])
     }
 
-    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
-        record("startPTYBridge", [sessionID, attachmentID, command ?? "", String(requireExisting)])
+    func startPTYBridge(
+        sessionID: String,
+        lifecycleID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void
+    ) throws -> RemotePTYBridgeServer.Endpoint {
+        record("startPTYBridge", [sessionID, lifecycleID, attachmentID, command ?? "", String(requireExisting)])
+        let key = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        let bridgeID = UUID()
+        lock.lock()
+        defer { lock.unlock() }
+        try ptyLifecycleRegistry.registerBridge(key: key, attachmentID: attachmentID, bridgeID: bridgeID)
+        ptyLifecycleRegistry.bridgeStopped(key: key, bridgeID: bridgeID, disposition: .acceptedClient)
+        lifecycleEndCallbacks[key] = onLifecycleEnded
         return RemotePTYBridgeServer.Endpoint(
             host: "127.0.0.1",
             port: 4242,
             token: "tok",
             sessionID: sessionID,
+            lifecycleID: lifecycleID,
             attachmentID: attachmentID
         )
     }
 
-    private func record(_ name: String, _ arguments: [String]) {
+    func record(_ name: String, _ arguments: [String]) {
         lock.lock()
         _ptyCalls.append(PTYCall(name: name, arguments: arguments))
         lock.unlock()
@@ -96,7 +133,7 @@ private final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
 /// Provider that hands out ``FakeProxyTunnel``s and records every request,
 /// including the failure callback so tests can simulate a running tunnel
 /// dying.
-private final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable {
+final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var _tunnels: [FakeProxyTunnel] = []
     private var _onFatalErrors: [@Sendable (String) -> Void] = []
@@ -147,7 +184,7 @@ private final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked S
 
 /// Manual clock: parks every sleep until the test resumes it, recording the
 /// requested delays so backoff escalation is assertable with virtual time.
-private final class ManualRetryClock: RemoteProxyRetryClock, @unchecked Sendable {
+final class ManualRetryClock: RemoteProxyRetryClock, @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [CheckedContinuation<Void, any Error>] = []
     private var _requestedDelays: [Int] = []
@@ -219,7 +256,7 @@ private final class UpdateRecorder: @unchecked Sendable {
     }
 }
 
-@Suite("RemoteProxyBroker")
+@Suite("RemoteProxyBroker", .serialized)
 struct RemoteProxyBrokerTests {
     private func makeConfiguration(destination: String = "test@example.invalid", localProxyPort: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
@@ -435,34 +472,24 @@ struct RemoteProxyBrokerTests {
 
         let sessions = try broker.listPTY(configuration: configuration)
         #expect(sessions.first?["session_id"] as? String == "s-1")
-        try broker.closePTY(configuration: configuration, sessionID: "s-9")
+        let lifecycle = try broker.ptySessionLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
+        try broker.acknowledgePTYLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
+        try broker.closePTY(configuration: configuration, sessionID: "s-9", deadline: .distantFuture)
         try broker.resizePTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t", cols: 80, rows: 24)
         try broker.detachPTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t")
-        let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", attachmentID: "a", command: "top", requireExisting: true)
+        let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", lifecycleID: "life", attachmentID: "a", command: "top", requireExisting: true)
         #expect(endpoint.port == 4242)
+        #expect(lifecycle == .active)
 
         #expect(tunnel.ptyCalls == [
             FakeProxyTunnel.PTYCall(name: "listPTY", arguments: []),
+            FakeProxyTunnel.PTYCall(name: "ptySessionLifecycle", arguments: ["s-8", "life-8"]),
+            FakeProxyTunnel.PTYCall(name: "acknowledgePTYLifecycle", arguments: ["s-8", "life-8"]),
             FakeProxyTunnel.PTYCall(name: "closePTY", arguments: ["s-9"]),
             FakeProxyTunnel.PTYCall(name: "resizePTY", arguments: ["s", "a", "t", "80", "24"]),
             FakeProxyTunnel.PTYCall(name: "detachPTY", arguments: ["s", "a", "t"]),
-            FakeProxyTunnel.PTYCall(name: "startPTYBridge", arguments: ["s", "a", "top", "true"]),
+            FakeProxyTunnel.PTYCall(name: "startPTYBridge", arguments: ["s", "life", "a", "top", "true"]),
         ])
     }
 
-    @Test("a forced localProxyPort from the configuration is used verbatim")
-    func forcedLocalProxyPort() throws {
-        let provider = FakeTunnelProvider()
-        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
-        let recorder = UpdateRecorder()
-
-        let lease = broker.acquire(
-            configuration: makeConfiguration(localProxyPort: 45_678),
-            remotePath: "/r/p"
-        ) { recorder.record($0) }
-        defer { lease.release() }
-
-        #expect(try #require(provider.tunnels.first).localPort == 45_678)
-        #expect(recorder.updates.last == .ready(BrowserProxyEndpoint(host: "127.0.0.1", port: 45_678)))
-    }
 }

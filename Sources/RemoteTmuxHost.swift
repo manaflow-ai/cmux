@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -7,7 +8,28 @@ import Foundation
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
+/// The ssh binary every remote-tmux spawn uses. DEBUG builds honor
+/// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
+/// shim that strips the ssh framing and execs the remote command locally —
+/// the full mirror stack then runs hermetically (no sshd, no network).
 struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+    /// The ssh executable used when the caller doesn't inject one (the
+    /// connection and transport inits both take `sshExecutablePath`).
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` because the
+    /// sizing UI tests exercise the REAL app process, and a launch
+    /// environment variable is the only injection channel that crosses the
+    /// XCUITest process boundary — the same seam `CMUX_SOCKET_PATH` uses.
+    static func defaultSSHExecutablePath() -> String {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "/usr/bin/ssh"
+    }
+
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
@@ -181,7 +203,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
-        var args = [
+        // Every ssh-tmux invocation supplies its own remote command (`true`,
+        // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
+        // host-configured RemoteCommand is in effect (issue #7246).
+        var args = SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",
@@ -220,14 +246,29 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// TOFU prompt), and ssh's default `ask` already prompts to confirm a new
     /// fingerprint on this controlling tty.
     ///
-    /// `-f` makes ssh go to background **after authentication** (just before the
-    /// remote `true`): the password / host-key / MFA prompt and any auth error
-    /// ("Permission denied") still appear on the controlling tty first, and the
-    /// CLI's foreground ssh exits promptly — but the persistent ControlMaster that
-    /// `ControlPersist` leaves running then has its standard fds detached, so it no
-    /// longer holds the terminal's pty open. Without `-f` the backgrounded master
-    /// keeps the terminal's stdout/stderr, freezing window/app close until the
-    /// master gives up (~`ServerAliveInterval`×`ServerAliveCountMax` seconds).
+    /// Critically, this opens the master in the **foreground** (no `-f`): ssh
+    /// authenticates, opens the master, runs the remote `true`, and exits only once
+    /// the control socket has served that session. So by the time the CLI's
+    /// foreground ssh returns, the master is provably *serving* — the post-auth
+    /// retry rides it deterministically, with no `ssh -O check` readiness poll.
+    ///
+    /// `-f` (background-after-auth) is deliberately NOT used: it returns before the
+    /// backgrounded master binds its control socket, racing the immediate retry. The
+    /// historical worry that a foreground master would keep the terminal's
+    /// stdout/stderr and freeze window/app close does not apply: when `ControlPersist`
+    /// backgrounds the master, OpenSSH's `control_persist_detach()` redirects the
+    /// master's std fds to `/dev/null` (`stdfd_devnull(1, 1, …)` in `ssh.c`, identical
+    /// across OpenSSH 9.6/9.8/9.9/10.2 — the versions macOS 14/15/26 ship), and forces
+    /// that detach independent of `-f`. So the foreground ssh exits cleanly and the
+    /// detached master never pins the tty.
+    ///
+    /// `-n` is kept explicitly: `-f` *implied* `-n` (stdin from `/dev/null`), and
+    /// dropping `-f` would otherwise leave the controlling terminal as the remote
+    /// command's stdin. With the trivial `true` that's usually harmless, but a host
+    /// `ForceCommand` / forced wrapper, or noninteractive shell startup that reads
+    /// stdin, could consume the user's terminal input or block. `-n` preserves the
+    /// stdin-null behavior without backgrounding; auth prompts are unaffected (ssh
+    /// reads them from the controlling tty, not stdin).
     ///
     /// - Parameter sshExecutablePath: the local `ssh` binary the CLI will exec.
     /// - Parameter controlPersistSeconds: idle lifetime of the opened master.
@@ -235,18 +276,33 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   end-of-options guard precedes the destination so a dash-prefixed
     ///   destination can never be parsed as an ssh option.
     func interactiveAuthInvocation(
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) -> [String] {
         [sshExecutablePath]
             + sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: false)
-            + ["-o", "BatchMode=no", "-f", "-T", "--", destination, "true"]
+            + ["-o", "BatchMode=no", "-n", "-T", "--", destination, "true"]
     }
 
     /// Single-quotes a value for safe interpolation into a `/bin/sh` command.
     static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
+    /// Builds a remote shell command that resolves `tmux` before executing it.
+    ///
+    /// OpenSSH runs remote commands under the account's shell, but not as an
+    /// interactive/login shell. On macOS that often means zsh starts with only
+    /// `/usr/bin:/bin:/usr/sbin:/sbin`, so Homebrew's `tmux` is invisible even
+    /// though it works in the user's normal terminal. Resolve the binary in a
+    /// tiny `/bin/sh` wrapper, then `exec` it with the original arguments so both
+    /// one-shot probes and `tmux -CC` use the same path behavior.
+    static func tmuxRemoteCommand(arguments: [String]) -> String {
+        RemoteTmuxCommandBuilder(arguments: arguments).remoteShellCommand
+    }
+
+    /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
+    static let tmuxNotFoundSentinel = RemoteTmuxCommandBuilder.notFoundSentinel
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not
@@ -290,10 +346,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let quotedName = Self.shellSingleQuoted(sessionName)
-        let remoteCommand = createIfMissing
-            ? "tmux -CC new-session -A -s \(quotedName)"
-            : "tmux -CC attach-session -t \(quotedName)"
+        let remoteCommand = Self.tmuxRemoteCommand(arguments: createIfMissing
+            ? ["-CC", "new-session", "-A", "-s", sessionName]
+            : ["-CC", "attach-session", "-t", sessionName])
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }

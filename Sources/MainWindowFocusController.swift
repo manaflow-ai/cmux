@@ -61,7 +61,17 @@ final class MainWindowFocusController {
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
             syncBonsplitTabShortcutHintEligibility()
+            publishRightSidebarOwnsInputFocus()
         }
+    }
+
+    /// Mirror the exclusive focus intent into `FileExplorerState` so the view
+    /// layer can make main-pane vs right-sidebar (Dock) focus mutually exclusive.
+    private func publishRightSidebarOwnsInputFocus() {
+        let ownsFocus: Bool
+        if case .rightSidebar = intent { ownsFocus = true } else { ownsFocus = false }
+        guard let fileExplorerState, fileExplorerState.rightSidebarOwnsInputFocus != ownsFocus else { return }
+        fileExplorerState.rightSidebarOwnsInputFocus = ownsFocus
     }
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0
@@ -554,14 +564,7 @@ final class MainWindowFocusController {
               let workspace = tabManager.selectedWorkspace else {
             return false
         }
-        let terminalPanel: TerminalPanel? = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
-                return terminalPanel
-            }
-            return workspace.focusedTerminalPanel
-        }()
-        guard let terminalPanel else { return false }
+        guard let terminalPanel = workspace.focusedTerminalInputTarget()?.panel else { return false }
         rightSidebarFocusState = .inactive
         intent = .mainPanel(workspaceId: workspace.id, panelId: terminalPanel.id)
         publishFeedFocusSnapshot()
@@ -748,14 +751,8 @@ final class MainWindowFocusController {
               let workspace = tabManager.selectedWorkspace else {
             return
         }
-        let terminalPanel: TerminalPanel? = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
-                return terminalPanel
-            }
-            return workspace.focusedTerminalPanel
-        }()
-        terminalPanel?.hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: reason)
+        workspace.focusedTerminalInputTarget()?.panel.hostedView
+            .yieldTerminalSurfaceFocusForForeignResponder(reason: reason)
     }
 
     private func isFeedKeyboardIntentActive() -> Bool {
@@ -811,7 +808,7 @@ final class MainWindowFocusController {
     }
 
     private func terminalFocusRequest(for responder: NSResponder?) -> TerminalFocusRequest? {
-        guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
+        guard let ghosttyView = responder.cmuxTerminalFocusOwningGhosttyView(),
               let workspaceId = ghosttyView.tabId,
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil

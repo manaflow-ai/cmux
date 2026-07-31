@@ -9,19 +9,16 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a stateless `Sendable` value, not an `actor`, because it has no mutable
-/// shared state for an actor to protect — every read is a pure function of the
-/// `directory` argument. The reads do blocking filesystem work (walking to the
-/// repository, parsing the git `index`/`config`), and are plain `nonisolated async`
-/// methods (a struct's `async` methods are nonisolated): a `nonisolated async`
-/// function runs on the global concurrent executor, not the caller's actor
-/// (SE-0338), so `await git.workspaceMetadata(...)` from the main actor offloads
-/// the work off the main thread *and* lets reads for independent repositories run
-/// in parallel. An `actor` would instead funnel every read through one serial
-/// executor and, since these methods never suspend internally, run them strictly
-/// sequentially — a bottleneck for concurrent per-workspace reads, protecting
-/// nothing. (If this ever gains an in-memory cache, promote it to an `actor`
-/// then — the mutable state would justify the serialization.)
+/// It is a `Sendable` value facade over blocking filesystem reads plus a small
+/// actor-isolated tracked-change cache. The reads do blocking filesystem work
+/// (walking to the repository, parsing the git `index`/`config`), and are plain
+/// `nonisolated async` methods (a struct's `async` methods are nonisolated): a
+/// `nonisolated async` function runs on the global concurrent executor, not the
+/// caller's actor (SE-0338), so `await git.workspaceMetadata(...)` from the main
+/// actor offloads the work off the main thread *and* lets reads for independent
+/// repositories run in parallel. The cache is an actor because it is mutable
+/// shared state, but it is only consulted through the watcher-generation API;
+/// direct reads without a watcher generation always do a conservative scan.
 ///
 /// - Important: If the package ever adopts the `NonisolatedNonsendingByDefault`
 ///   upcoming feature, a bare `nonisolated async` method flips to running on the
@@ -34,8 +31,22 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
+    let fileStatusReader: any GitFileStatusReading
+    private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
+
     /// Creates a git-metadata service.
-    public init() {}
+    public init() {
+        self.fileStatusReader = SystemGitFileStatusReader()
+        self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+    }
+
+    init(
+        fileStatusReader: any GitFileStatusReading,
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+    ) {
+        self.fileStatusReader = fileStatusReader
+        self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+    }
 
     /// Reads a point-in-time git snapshot for `directory`.
     ///
@@ -47,10 +58,32 @@ public struct GitMetadataService: Sendable {
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    /// Reads a point-in-time git snapshot for `directory`, allowing callers
+    /// with a repository filesystem-event generation token to enable
+    /// tracked-change reuse when no relevant event has arrived.
+    ///
+    /// - Parameters:
+    ///   - directory: An absolute path to inspect.
+    ///   - trackedPathEventGeneration: A caller-owned, namespaced generation
+    ///     that changes whenever the watched repository paths report a
+    ///     filesystem event. Pass `nil` when no watcher is active; the read
+    ///     then avoids reuse.
+    /// - Returns: The git metadata for the enclosing repository, or
+    ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    public nonisolated func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        let trackedChanges = Self.gitTrackedChangesSnapshot(repository: repository)
+        let trackedChanges = await gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: Self.gitBranchName(repository: repository),
@@ -59,6 +92,35 @@ public struct GitMetadataService: Sendable {
             indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: Self.gitHeadSignature(repository: repository)
         )
+    }
+
+    nonisolated func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitTrackedChangesSnapshot {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let trackedPathEventGeneration,
+              let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
+            return gitTrackedChangesSnapshot(repository: repository)
+        }
+
+        let indexStatSignature = indexStatus.indexStatSignature
+        if let snapshot = await trackedChangesSnapshotCache.snapshot(
+            repository: repository,
+            indexStatSignature: indexStatSignature,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        ) {
+            return snapshot
+        }
+
+        let snapshot = gitTrackedChangesSnapshot(repository: repository)
+        await trackedChangesSnapshotCache.store(
+            snapshot,
+            repository: repository,
+            indexStatSignature: indexStatSignature,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
+        return snapshot
     }
 
     /// The set of existing filesystem paths whose changes can alter the metadata
@@ -92,6 +154,23 @@ public struct GitMetadataService: Sendable {
             return []
         }
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
+    }
+
+    /// Reads the checked-out branch state for the repository enclosing
+    /// `directory`.
+    ///
+    /// Distinguishes a detached (or non-branch) checkout from a repository
+    /// whose `HEAD` is missing or malformed, so callers can treat the latter
+    /// as unverified rather than trusting a stale projection.
+    ///
+    /// - Parameter directory: An absolute path to inspect.
+    /// - Returns: The ``GitCheckedOutBranch`` for the enclosing repository, or
+    ///   ``GitCheckedOutBranch/notARepository`` when there is none.
+    public nonisolated func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
+            return .notARepository
+        }
+        return Self.gitCheckedOutBranch(repository: repository)
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling

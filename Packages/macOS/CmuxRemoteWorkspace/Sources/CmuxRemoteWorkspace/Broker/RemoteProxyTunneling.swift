@@ -1,3 +1,4 @@
+public import Dispatch
 internal import Foundation
 
 /// The proxy-tunnel operations ``RemoteProxyBroker`` drives on each
@@ -22,12 +23,31 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Stops the listener, sessions, PTY bridges, and RPC transport.
     func stop()
 
+    /// Stops one replaceable runtime while preserving its logical PTY lifecycle.
+    func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot
+
+    /// Restores logical PTY lifecycle before a replacement tunnel starts.
+    func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot)
+
     /// Lists the daemon's persistent PTY sessions (raw JSON objects, wire
     /// shape pinned).
     func listPTY() throws -> [[String: Any]]
 
-    /// Closes a persistent PTY session on the daemon.
-    func closePTY(sessionID: String) throws
+    /// Closes a persistent PTY session on the daemon before `deadline`.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - deadline: Monotonic deadline shared with the originating cleanup call.
+    func closePTY(sessionID: String, deadline: DispatchTime) throws
+
+    /// Returns the shared lifecycle for one logical PTY attach generation.
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle
+
+    /// Retires one logical PTY attach generation after CLI reconciliation.
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String)
+
+    /// Retires the generation only when this tunnel owns it.
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool
 
     /// Resizes a PTY attachment.
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws
@@ -37,5 +57,12 @@ public protocol RemoteProxyTunneling: AnyObject {
 
     /// Starts a single-use loopback PTY bridge server for a terminal attach
     /// and returns its endpoint.
-    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint
+    func startPTYBridge(
+        sessionID: String,
+        lifecycleID: String,
+        attachmentID: String,
+        command: String?,
+        requireExisting: Bool,
+        onLifecycleEnded: @escaping @Sendable () -> Void
+    ) throws -> RemotePTYBridgeServer.Endpoint
 }

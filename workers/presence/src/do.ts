@@ -21,6 +21,7 @@ import {
   buildSnapshot,
   checkDeviceOwner,
   checkPresenceCaps,
+  checkSubscriberAdmission,
   expireInstances,
   HEARTBEAT_INTERVAL_MS,
   MAX_DEVICES_PER_TEAM,
@@ -29,11 +30,14 @@ import {
   OFFLINE_TIMEOUT_MS,
   resolveSubscribeDeadline,
   routesEqual,
+  shouldDeliverNudge,
   shouldPrune,
   type HeartbeatInput,
+  type NudgeEvent,
   type PresenceEvent,
   type PresenceInstance,
 } from "./core";
+import { parseDeviceScope, type NudgeInput } from "./validate";
 import { parseHello, type SyncServerFrame } from "./sync";
 import {
   gcTombstones,
@@ -50,18 +54,24 @@ import {
   ownersFromList,
   reconcileDeviceRecords,
   reconcileSingleDevice,
+  sanitizeDeviceSyncFrame,
   type DeviceRecord,
 } from "./syncDevices";
 import {
   applyBackupOps,
   listBackupSnapshot,
+  normalizeClientScope,
   pairedMacsCollection,
+  PairedMacBackupApplyError,
   PAIRED_MACS_COLLECTION,
+  PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   relabelDelta,
   relabelSnapshot,
+  sanitizePairedMacSyncFrame,
   type PairedMacBackupOp,
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -70,8 +80,6 @@ const INSTANCE_PREFIX = "inst:";
  * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
 const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
-/** Combined WebSocket + SSE subscriber cap per team. */
-const MAX_SUBSCRIBERS_PER_TEAM = 64;
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
  * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
@@ -106,6 +114,12 @@ interface WsAttachment {
    * for an old client/worker that did not forward it; such a socket simply does
    * not get served `pairedMacs`. Persisted so it survives DO hibernation. */
   userId?: string;
+  /** Device-scoped (directed) subscription: set from a validated
+   * `?deviceScope=<deviceId>` at subscribe time after an owner check. The
+   * socket receives ONLY `nudge` frames for that device — no snapshot, no
+   * presence broadcast, no sync — so a host can hold a quiet wake-up channel.
+   * Persisted so it survives DO hibernation. */
+  deviceScope?: string;
 }
 
 /** Whether a socket has subscribed to a given sync collection. A legacy
@@ -135,6 +149,19 @@ function wsUserId(ws: WebSocket): string | null {
   try {
     const attachment = ws.deserializeAttachment() as WsAttachment | null;
     return typeof attachment?.userId === "string" && attachment.userId ? attachment.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The device id a directed socket is scoped to, or null for a normal
+ * presence/sync subscriber. */
+function wsDeviceScope(ws: WebSocket): string | null {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return typeof attachment?.deviceScope === "string" && attachment.deviceScope
+      ? attachment.deviceScope
+      : null;
   } catch {
     return null;
   }
@@ -321,37 +348,119 @@ export class TeamPresence extends DurableObject {
   /** Back up a user's saved-host (paired-Mac) list. Called only by the worker
    * after it verifies the token, so `userId` is trusted, exactly like
    * `heartbeat`. Writes into the per-user physical `pairedMacs:<userId>`
-   * collection (so one team member never sees another's saved hosts) and
-   * broadcasts the resulting deltas — relabeled to the logical `pairedMacs`
-   * name — to that user's subscribed sockets so a second signed-in device
-   * updates live. Returns the number of records changed (no-op upserts of an
-   * unchanged payload are not counted and broadcast nothing). */
+   * collection (so one team member never sees another's saved hosts). Unscoped
+   * writes broadcast relabeled deltas to that user's `pairedMacs` subscribers.
+   * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
+   * scoped clients restore/push through the scoped HTTP backup API until scoped
+   * WebSocket subscriptions exist. Returns the number of records changed (no-op
+   * upserts of an unchanged payload are not counted) plus the verified team the
+   * ops were stored under, echoed so the phone can persist which per-team DO a
+   * record's backup lives in and route its later delete tombstone there. */
   async backupPairedMacs(
     teamId: string,
     userId: string,
     ops: readonly PairedMacBackupOp[],
-  ): Promise<{ ok: true; changed: number }> {
+    clientScope?: string | null,
+  ): Promise<
+    { ok: true; changed: number; teamId: string } | { ok: false; error: string; status: number }
+  > {
     await this.rememberTeamId(teamId);
-    const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now());
-    for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    let deltas;
+    try {
+      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+    } catch (error) {
+      if (error instanceof PairedMacBackupApplyError) {
+        return { ok: false, error: error.code, status: 409 };
+      }
+      throw error;
+    }
+    if (!normalizeClientScope(clientScope)) {
+      for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    }
     // A delete creates a tombstone the alarm GCs, but an idle team (no presence
     // instances or subscribers) may never schedule an alarm otherwise, so a
     // create/delete churn would grow DO storage without bound. Schedule the
     // next tombstone-GC deadline for this user's collection now.
-    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId));
+    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId, clientScope));
     if (gcTime !== null) await this.ensureAlarmAt(gcTime);
-    return { ok: true, changed: deltas.length };
+    return { ok: true, changed: deltas.length, teamId };
   }
 
   /** Read a user's backed-up saved-host list (the GET restore path). Called only
    * by the worker after it verifies the token, so `userId` is trusted. Returns
-   * live records plus retained delete tombstones for the per-user collection. */
+   * live records plus retained delete tombstones for the per-user collection,
+   * and echoes the verified team the collection was read from so the phone can
+   * persist where each restored record's backup lives. */
   async listPairedMacs(
     teamId: string,
     userId: string,
-  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
+    clientScope?: string | null,
+  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[]; teamId: string }> {
     await this.rememberTeamId(teamId);
-    return await listBackupSnapshot(this.syncStorage(), userId);
+    // A tagged scope is authoritative from its first read. An unscoped record
+    // cannot prove which Mac app tag produced its routes, so falling back across
+    // that boundary could reconnect one iOS build to another app instance.
+    const snapshot = await listBackupSnapshot(this.syncStorage(), userId, clientScope);
+    return { records: snapshot.records, deletedMacDeviceIDs: snapshot.deletedMacDeviceIDs, teamId };
+  }
+
+  /** Deliver a directed wake-up to `deviceId`'s device-scoped subscribers.
+   * Called only by the worker after it verifies the token, so `userId` is
+   * trusted, exactly like `heartbeat`. The caller must be the device's pinned
+   * owner; an unpinned device has never heartbeated here and has nothing to
+   * wake. `delivered: 0` is success, not failure: the device may be offline,
+   * and a nudge only accelerates a re-check its next scheduled round trip
+   * would run anyway.
+   *
+   * Authorization deliberately reuses the presence owner pin, including its
+   * documented first-authenticated-writer residual (see checkDeviceOwner):
+   * this service must stay available without a synchronous registry
+   * dependency, and the registry does not yet issue verifiable device
+   * credentials. A team member who squats an unclaimed device id can
+   * therefore hold the pin and starve the real Mac's directed channel — but
+   * the blast radius is bounded to losing the ACCELERATION: the Mac falls
+   * back to exactly the pre-nudge cadence (renewal timer and network
+   * observers), never to a correctness failure. Replacing the pin with
+   * registry-anchored device credentials is tracked with the same planned
+   * key-pinning phase checkDeviceOwner references. */
+  async nudge(
+    teamId: string,
+    userId: string,
+    input: NudgeInput,
+  ): Promise<{ ok: true; delivered: number } | { ok: false; error: string; status: number }> {
+    await this.rememberTeamId(teamId);
+    const pinned = await this.ctx.storage.get<string>(ownerKey(input.deviceId));
+    if (pinned === undefined) return { ok: false, error: "device_unknown", status: 404 };
+    const owner = checkDeviceOwner(pinned, userId);
+    if (!owner.ok) return { ok: false, error: owner.error, status: 403 };
+    const now = Date.now();
+    const event: NudgeEvent = {
+      type: "nudge",
+      deviceId: input.deviceId,
+      ...(input.tag ? { tag: input.tag } : {}),
+      kind: input.kind,
+      at: now,
+    };
+    const json = JSON.stringify(event);
+    let delivered = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      // Owner-only, device-scoped, unexpired — the full rationale (including
+      // why ownership is revalidated at delivery, not just subscribe) lives on
+      // shouldDeliverNudge in core.ts, where the decision is tested.
+      const view = {
+        deviceScope: wsDeviceScope(ws),
+        userId: wsUserId(ws),
+        expiresAt: wsExpiresAt(ws),
+      };
+      if (!shouldDeliverNudge(view, input.deviceId, pinned, now)) continue;
+      try {
+        ws.send(json);
+        delivered += 1;
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+    return { ok: true, delivered };
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -379,9 +488,16 @@ export class TeamPresence extends DurableObject {
       );
     }
 
-    if (this.subscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
+    // `?deviceScope=<deviceId>` turns the stream into a directed nudge channel
+    // for that one device: WS-only, no snapshot, no presence broadcast, only
+    // `nudge` frames. Ownership mirrors heartbeat: the subscriber must be the
+    // device's pinned owner. An UNPINNED device is allowed (the Mac subscribes
+    // at startup, possibly before its first heartbeat pins it) but the pin is
+    // NOT written here — only a heartbeat may claim a device.
+    const deviceScope = parseDeviceScope(new URL(request.url).searchParams.get("deviceScope"));
+    if (deviceScope.scope === "invalid") {
+      return new Response(JSON.stringify({ error: "invalid_device_scope" }), {
+        status: 400,
         headers: { "content-type": "application/json" },
       });
     }
@@ -391,6 +507,59 @@ export class TeamPresence extends DurableObject {
     // Absent for an old worker that does not forward it (the socket then never
     // gets served `pairedMacs`).
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
+
+    // Split admission pools: every enabled Mac holds a directed socket, so
+    // counting those against the presence pool would let a Mac fleet 429 the
+    // phones; the per-user slice keeps one member (who may subscribe to
+    // UNPINNED device ids) from parking sockets until co-members' wake-up
+    // channels 429 (see checkSubscriberAdmission in core.ts, where this is
+    // tested).
+    const counts = this.subscriberCounts(userId);
+    const admission = checkSubscriberAdmission({
+      directed: deviceScope.scope === "device",
+      directedCount: counts.directed,
+      userDirectedCount: counts.userDirected,
+      presenceCount: counts.presence,
+    });
+    if (!admission.ok) {
+      return new Response(JSON.stringify({ error: admission.error }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (deviceScope.scope === "device") {
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return new Response(JSON.stringify({ error: "device_scope_requires_websocket" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (!userId) {
+        return new Response(JSON.stringify({ error: "device_scope_requires_user" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const pinned = await this.ctx.storage.get<string>(ownerKey(deviceScope.deviceId));
+      const owner = checkDeviceOwner(pinned, userId);
+      if (!owner.ok) {
+        return new Response(JSON.stringify({ error: owner.error }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const pair = new WebSocketPair();
+      const client = pair[0];
+      const server = pair[1];
+      this.ctx.acceptWebSocket(server);
+      server.serializeAttachment({
+        expiresAt,
+        userId,
+        deviceScope: deviceScope.deviceId,
+      } satisfies WsAttachment);
+      await this.ensureAlarmAt(expiresAt);
+      return new Response(null, { status: 101, webSocket: client });
+    }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const pair = new WebSocketPair();
@@ -438,6 +607,8 @@ export class TeamPresence extends DurableObject {
   // backward-compatible with the one-way presence transport.
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (wsExpiresAt(ws) <= Date.now()) return;
+    // Directed nudge channels are push-only: no sync, no inbound protocol.
+    if (wsDeviceScope(ws) !== null) return;
     // Bound the inbound message BEFORE parsing: this is client-controlled input
     // on the live presence DO, so an unbounded JSON.parse would be a
     // resource-exhaustion vector. A well-formed `sync.hello` is tiny (a handful
@@ -510,9 +681,11 @@ export class TeamPresence extends DurableObject {
           epoch ?? 0,
         );
         if (resolved.mode === "snapshot") {
-          for (const page of resolved.pages) this.sendSync(ws, page);
+          for (const page of resolved.pages) {
+            this.sendSync(ws, sanitizeDeviceSyncFrame(page));
+          }
         } else if (resolved.delta !== null) {
-          this.sendSync(ws, resolved.delta);
+          this.sendSync(ws, sanitizeDeviceSyncFrame(resolved.delta));
         }
         continue;
       }
@@ -534,9 +707,11 @@ export class TeamPresence extends DurableObject {
         epoch ?? 0,
       );
       if (resolved.mode === "snapshot") {
-        for (const page of resolved.pages) this.sendSync(ws, relabelSnapshot(page));
+        for (const page of resolved.pages) {
+          this.sendSync(ws, relabelSnapshot(sanitizePairedMacSyncFrame(page)));
+        }
       } else if (resolved.delta !== null) {
-        this.sendSync(ws, relabelDelta(resolved.delta));
+        this.sendSync(ws, relabelDelta(sanitizePairedMacSyncFrame(resolved.delta)));
       }
     }
     // Mark this socket as sync-subscribed so future delta broadcasts reach it.
@@ -573,9 +748,12 @@ export class TeamPresence extends DurableObject {
    * client whose presence decoder throws on unknown message types. WS only; SSE
    * is presence-only for now. */
   private broadcastSync(frame: SyncServerFrame): void {
-    const collection = frame.collection;
+    const published = frame.collection === DEVICES_COLLECTION
+      ? sanitizeDeviceSyncFrame(frame as SyncServerFrame<DeviceRecord>)
+      : frame;
+    const collection = published.collection;
     const now = Date.now();
-    const json = JSON.stringify(frame);
+    const json = JSON.stringify(published);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
       if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
@@ -594,9 +772,12 @@ export class TeamPresence extends DurableObject {
    * another user's backup. The connection user id is pinned from the verified
    * `x-presence-user-id` at subscribe time, never from client input. */
   private broadcastSyncToUser(userId: string, frame: SyncServerFrame): void {
-    const collection = frame.collection;
+    const published = frame.collection === PAIRED_MACS_COLLECTION
+      ? sanitizePairedMacSyncFrame(frame as SyncServerFrame<PairedMacBackupRecord>)
+      : frame;
+    const collection = published.collection;
     const now = Date.now();
-    const json = JSON.stringify(frame);
+    const json = JSON.stringify(published);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
       if (wsUserId(ws) !== userId) continue; // not this user's socket
@@ -648,18 +829,17 @@ export class TeamPresence extends DurableObject {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
-      // Each Stack user's paired-Mac backup is its OWN physical collection
-      // (`pairedMacs:<userId>`), so GC every one that currently holds tombstones;
-      // otherwise an authenticated client churning create/delete grows
-      // `synced:`/`synctomb:` storage without bound (the live-record cap resets on
-      // delete). Fold each collection's next-GC deadline into the alarm schedule.
-      for (const collection of await listTombstonedCollections(
-        this.syncStorage(),
-        `${PAIRED_MACS_COLLECTION}:`,
-      )) {
-        await gcTombstones(this.syncStorage(), collection, now);
-        const next = await nextTombstoneGcTime(this.syncStorage(), collection);
-        if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+      // Each Stack user's paired-Mac backup is its OWN physical collection,
+      // including build-scoped variants. GC every collection that currently holds
+      // tombstones; otherwise authenticated create/delete churn grows
+      // `synced:`/`synctomb:` storage without bound. Fold each collection's next
+      // GC deadline into the alarm schedule.
+      for (const prefix of PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES) {
+        for (const collection of await listTombstonedCollections(this.syncStorage(), prefix)) {
+          await gcTombstones(this.syncStorage(), collection, now);
+          const next = await nextTombstoneGcTime(this.syncStorage(), collection);
+          if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+        }
       }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
@@ -675,12 +855,16 @@ export class TeamPresence extends DurableObject {
   // ---- Internals ----
 
   private heartbeatOk(teamId: string, instance: PresenceInstance): HeartbeatResponse {
+    const routes = sanitizePublishedRoutes(instance.routes);
     return {
       ok: true,
       teamId,
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       offlineTimeoutMs: OFFLINE_TIMEOUT_MS,
-      instance,
+      instance: {
+        ...instance,
+        ...(routes !== undefined ? { routes } : {}),
+      },
     };
   }
 
@@ -718,8 +902,24 @@ export class TeamPresence extends DurableObject {
     }
   }
 
-  private subscriberCount(): number {
-    return this.ctx.getWebSockets().length + this.sseSubscribers.size;
+  /** Connected subscribers split by pool: directed (device-scoped nudge)
+   * WebSockets vs presence/sync consumers (plain WebSockets + SSE), plus how
+   * many of the directed sockets `userId` already holds. */
+  private subscriberCounts(
+    userId: string | undefined,
+  ): { directed: number; userDirected: number; presence: number } {
+    let directed = 0;
+    let userDirected = 0;
+    let presence = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsDeviceScope(ws) !== null) {
+        directed += 1;
+        if (userId !== undefined && wsUserId(ws) === userId) userDirected += 1;
+      } else {
+        presence += 1;
+      }
+    }
+    return { directed, userDirected, presence: presence + this.sseSubscribers.size };
   }
 
   private nextSubscriberDeadline(): number | null {
@@ -766,6 +966,8 @@ export class TeamPresence extends DurableObject {
     for (const event of events) {
       const json = JSON.stringify(event);
       for (const ws of this.ctx.getWebSockets()) {
+        // Directed nudge channels never receive presence events.
+        if (wsDeviceScope(ws) !== null) continue;
         // Deadline enforced at delivery too, so an expired subscriber never
         // receives data even if the closing alarm has not fired yet.
         if (wsExpiresAt(ws) <= now) {

@@ -11,6 +11,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let serviceBaseURL: String
     private let tokenSource: PresenceTokenSource
     private let teamIDProvider: @Sendable () async -> String?
+    private let clientScopeProvider: @Sendable () async -> String?
     private let session: URLSession
     private let requestTimeout: TimeInterval
 
@@ -19,12 +20,14 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
+        clientScopeProvider: @escaping @Sendable () async -> String? = { nil },
         session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 5
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
+        self.clientScopeProvider = clientScopeProvider
         self.session = session
         self.requestTimeout = requestTimeout
     }
@@ -66,9 +69,68 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Upload backup mutations only if auth still belongs to the captured account.
     @discardableResult
-    public func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
-        guard !ops.isEmpty else { return true }
-        let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
+    public func upload(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> Bool {
+        await upload(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: Date()
+        )
+    }
+
+    func upload(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?,
+        routeDisclosureDate: Date
+    ) async -> Bool {
+        await uploadReportingResolvedTeam(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: routeDisclosureDate
+        ).succeeded
+    }
+
+    /// The presence worker echoes the verified team it stored the ops under.
+    private struct UploadResponseBody: Decodable {
+        let teamId: String?
+    }
+
+    /// Upload backup mutations and report the server-verified team they were
+    /// stored under (`nil` on failure or when the worker predates the echo).
+    public func uploadReportingResolvedTeam(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> PairedMacBackupUploadOutcome {
+        await uploadReportingResolvedTeam(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: Date()
+        )
+    }
+
+    func uploadReportingResolvedTeam(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?,
+        routeDisclosureDate: Date
+    ) async -> PairedMacBackupUploadOutcome {
+        guard !ops.isEmpty else {
+            return PairedMacBackupUploadOutcome(succeeded: true, resolvedTeamID: nil)
+        }
+        let body = PairedMacBackupRequestBody(ops: ops.map {
+            PairedMacBackupOpWire(
+                op: $0,
+                routeDisclosureDate: routeDisclosureDate
+            )
+        })
         guard let data = try? JSONEncoder().encode(body),
               let request = await makeRequest(
                 method: "POST",
@@ -76,18 +138,24 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
                 teamID: teamID,
                 expectedUserID: expectedUserID
               ) else {
-            return false
+            return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
         }
         do {
-            let (_, response) = try await session.data(for: request)
+            let (responseData, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pairedMacBackupLog.warning("paired-mac backup upload failed: HTTP \(http.statusCode)")
-                return false
+                return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
             }
-            return true
+            let echoedTeamID = (try? JSONDecoder().decode(UploadResponseBody.self, from: responseData))?
+                .teamId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return PairedMacBackupUploadOutcome(
+                succeeded: true,
+                resolvedTeamID: (echoedTeamID?.isEmpty ?? true) ? nil : echoedTeamID
+            )
         } catch {
             pairedMacBackupLog.warning("paired-mac backup upload error: \(String(describing: error), privacy: .public)")
-            return false
+            return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
         }
     }
 
@@ -134,6 +202,11 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
     }
 
+    public func clientScope() async -> String? {
+        let trimmed = await clientScopeProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func makeRequest(
         method: String,
         body: Data?,
@@ -150,6 +223,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+        if let scope = await clientScope() {
+            request.setValue(scope, forHTTPHeaderField: "X-Cmux-Client-Scope")
         }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

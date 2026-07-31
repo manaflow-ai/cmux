@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method (e.g. UpdatePillUITests or UpdatePillUITests/testSomething)"
+        description: "Test class or class/method; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
         required: true
       test_timeout:
         description: "Per-test timeout in seconds"
@@ -20,12 +20,12 @@ on:
         required: false
         default: "20"
       record_video:
-        description: Record the virtual display during tests
+        description: Record the virtual display during UI tests
         required: false
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows the MACOS_RUNNER_15 repo variable, default Blacksmith; pick warp-/depot-macos-* to override)"
+        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-* choices use isolated VMs)"
         required: false
         default: "auto"
         type: choice
@@ -37,6 +37,9 @@ on:
           - warp-macos-15-arm64-6x
           - depot-macos-latest
           - depot-macos-14
+          - tart-canary
+          - tart-dual
+          - tart-small
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
@@ -68,6 +71,25 @@ jobs:
               ;;
           esac
 
+      - name: Validate Tart canary identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
+        env:
+          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_CONTEXT_NAME" in
+            tart-cmux-*) ;;
+            *)
+              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+              exit 1
+              ;;
+          esac
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -89,6 +111,64 @@ jobs:
       - name: Capture SHA
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize test filter
+        id: filter
+        env:
+          TEST_FILTER_INPUT: ${{ inputs.test_filter }}
+          RECORD_VIDEO_INPUT: ${{ inputs.record_video }}
+        run: |
+          set -euo pipefail
+          raw_filter="$TEST_FILTER_INPUT"
+          if [ -z "$raw_filter" ]; then
+            echo "::error::test_filter must not be empty"
+            exit 1
+          fi
+
+          case "$raw_filter" in
+            cmuxTests/*)
+              test_target="cmuxTests"
+              normalized_filter="${raw_filter#cmuxTests/}"
+              ;;
+            cmuxUITests/*)
+              test_target="cmuxUITests"
+              normalized_filter="${raw_filter#cmuxUITests/}"
+              ;;
+            *)
+              # Back-compat: bare Class or Class/method continues to target UI tests.
+              test_target="cmuxUITests"
+              normalized_filter="$raw_filter"
+              ;;
+          esac
+
+          if [ -z "$normalized_filter" ]; then
+            echo "::error::test_filter '$raw_filter' is missing a class or class/method after '$test_target/'"
+            exit 1
+          fi
+
+          case "$normalized_filter" in
+            /*|*//*)
+              echo "::error::test_filter '$raw_filter' is not a valid class or class/method selector"
+              exit 1
+              ;;
+          esac
+
+          test_selector="$test_target/$normalized_filter"
+          record_video_effective="false"
+          if [ "$test_target" = "cmuxUITests" ] && [ "$RECORD_VIDEO_INPUT" = "true" ]; then
+            record_video_effective="true"
+          fi
+
+          {
+            echo "target=$test_target"
+            echo "filter=$normalized_filter"
+            echo "selector=$test_selector"
+            echo "record_video=$record_video_effective"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Requested filter: $raw_filter"
+          echo "Resolved target: $test_target"
+          echo "Resolved selector: $test_selector"
 
       - name: Select Xcode
         run: |
@@ -132,13 +212,13 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Install Bun for Feed sidebar tests
-        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
+        if: ${{ steps.filter.outputs.target == 'cmuxUITests' && (steps.filter.outputs.filter == 'FeedSidebarUITests' || startsWith(steps.filter.outputs.filter, 'FeedSidebarUITests/')) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
       - name: Create virtual display
-        if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
+        if: ${{ steps.filter.outputs.target == 'cmuxUITests' && steps.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -179,8 +259,15 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
+      - name: Install tmux
+        run: |
+          if ! command -v tmux >/dev/null 2>&1; then
+            brew install --quiet tmux
+          fi
+          tmux -V
+
       - name: Install ffmpeg
-        if: ${{ inputs.record_video }}
+        if: ${{ steps.filter.outputs.record_video == 'true' }}
         run: |
           brew install --quiet ffmpeg
           FFMPEG_PATH=$(which ffmpeg)
@@ -189,7 +276,7 @@ jobs:
           echo "FFMPEG_PATH=$FFMPEG_PATH" >> "$GITHUB_ENV"
 
       - name: Grant TCC screen recording permission
-        if: ${{ inputs.record_video }}
+        if: ${{ steps.filter.outputs.record_video == 'true' }}
         run: |
           FFMPEG_BIN="${FFMPEG_PATH:-/opt/homebrew/bin/ffmpeg}"
 
@@ -221,8 +308,13 @@ jobs:
             defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" 2>&1 || echo "  (failed)"
           fi
 
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -241,9 +333,16 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
-              exit 0
+              # Guard against a stale/poisoned Swift-package cache: resolve can
+              # report success without binary artifacts materialized.
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+                exit 0
+              fi
+              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
+              rm -rf "$SOURCE_PACKAGES_DIR"
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -253,19 +352,26 @@ jobs:
             sleep $((attempt * 5))
           done
 
-      - name: Run UI tests
+      - name: Run selected tests
         id: tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          TEST_TARGET: ${{ steps.filter.outputs.target }}
+          TEST_SELECTOR: ${{ steps.filter.outputs.selector }}
+          NORMALIZED_FILTER: ${{ steps.filter.outputs.filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
-          RECORD_VIDEO: ${{ inputs.record_video }}
+          RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          # App-host crash recovery must not stall on interactive backtraces
+          # (mirrors ci.yml's tests job hardening).
+          SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+          CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          ONLY_TESTING="-only-testing:cmuxUITests/$TEST_FILTER"
+          ONLY_TESTING="-only-testing:$TEST_SELECTOR"
           DISPLAY_ENV_PREFIX=()
 
-          if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+          if [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
             HELPER_PATH="/tmp/create-virtual-display"
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
 
@@ -282,28 +388,40 @@ jobs:
           # The display churn regression creates its own virtual display above,
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
-            DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
-            echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
-
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
-
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+            # A persistent AVFoundation capture session prevents
+            # XCUIApplication from foregrounding a macOS app on both Warp and
+            # Tart. Capture independent JPEG frames instead, then assemble
+            # them after XCTest exits. No recorder owns the display while the
+            # app is activating.
+            GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+            if [ -z "$GUI_USER" ] || [ "$GUI_USER" = "root" ]; then
+              echo "::error::No logged-in GUI user is available for screen recording"
+              exit 1
+            fi
+            GUI_UID="$(id -u "$GUI_USER")"
+            FRAME_DIR=/tmp/test-recording-frames
+            rm -rf "$FRAME_DIR"
+            mkdir -p "$FRAME_DIR"
+            (
+              frame=0
+              while true; do
+                output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"
+                sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /usr/sbin/screencapture -x -t jpg -D 1 "$output" || exit 1
+                frame=$((frame + 1))
+                sleep 0.5
+              done
+            ) </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
             sleep 2
 
-            if kill -0 "$RECORD_PID" 2>/dev/null; then
-              echo "Recording started (PID $RECORD_PID)"
+            if kill -0 "$RECORD_PID" 2>/dev/null && [ -s "$FRAME_DIR/frame-000000.jpg" ]; then
+              echo "Frame capture started (PID $RECORD_PID)"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              echo "::error::screen frame capture failed to start"
+              cat /tmp/screencapture.log
+              exit 1
             fi
           fi
 
@@ -315,6 +433,7 @@ jobs:
             "LOGNAME=${LOGNAME:-$USER}"
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
+            "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-$PWD}"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
@@ -323,37 +442,56 @@ jobs:
           fi
 
           RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")
-          CURRENT_USER="$(id -un)"
-          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
-          if [ -n "$GUI_USER" ] && [ "$GUI_USER" != "root" ] && GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)"; then
-            echo "Console GUI user: $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
-            if command -v automationmodetool >/dev/null 2>&1; then
-              sudo -n automationmodetool enable-automationmode-without-authentication \
-                || echo "::warning::Could not enable Automation Mode"
-            fi
+          if [ "$TEST_TARGET" = "cmuxUITests" ]; then
+            CURRENT_USER="$(id -un)"
+            GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+            if [ -n "$GUI_USER" ] && [ "$GUI_USER" != "root" ] && GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)"; then
+              echo "Console GUI user: $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+              if command -v automationmodetool >/dev/null 2>&1; then
+                sudo -n automationmodetool enable-automationmode-without-authentication \
+                  || echo "::warning::Could not enable Automation Mode"
+              fi
 
-            if sudo -n true 2>/dev/null; then
-              RUN_XCODEBUILD=(
-                sudo -n launchctl asuser "$GUI_UID"
-                sudo -n -H -u "$GUI_USER" /usr/bin/env "${XCODEBUILD_ENV[@]}"
-              )
-              echo "Running xcodebuild in console user's GUI bootstrap"
+              if sudo -n true 2>/dev/null; then
+                RUN_XCODEBUILD=(
+                  sudo -n launchctl asuser "$GUI_UID"
+                  sudo -n -H -u "$GUI_USER" /usr/bin/env "${XCODEBUILD_ENV[@]}"
+                )
+                echo "Running xcodebuild in console user's GUI bootstrap"
+              else
+                echo "::warning::Passwordless sudo unavailable; running xcodebuild in current bootstrap"
+              fi
             else
-              echo "::warning::Passwordless sudo unavailable; running xcodebuild in current bootstrap"
+              echo "::warning::No non-root console GUI user found; running xcodebuild in current bootstrap"
             fi
-          else
-            echo "::warning::No non-root console GUI user found; running xcodebuild in current bootstrap"
           fi
 
-          XCODEBUILD_CMD=(
-            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
-            -disableAutomaticPackageResolution
-            -destination "platform=macOS"
-            -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            "$ONLY_TESTING"
-            test
-          )
+          if [ "$TEST_TARGET" = "cmuxTests" ]; then
+            XCODEBUILD_CMD=(
+              scripts/ci/run-in-console-session.sh
+              scripts/ci/run-app-host-xcodebuild.sh
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH"
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
+              -disableAutomaticPackageResolution
+              -destination "platform=macOS"
+              -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
+              "$ONLY_TESTING"
+              CMUX_SKIP_ZIG_BUILD=1
+              test
+            )
+          else
+            XCODEBUILD_CMD=(
+              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH"
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
+              -disableAutomaticPackageResolution
+              -destination "platform=macOS"
+              -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
+              "$ONLY_TESTING"
+              test
+            )
+          fi
 
           set +e
           # Stream xcodebuild output into the live job log (and a file for the
@@ -372,6 +510,52 @@ jobs:
             echo "EOFSUM"
           } >> "$GITHUB_OUTPUT"
 
+          EXECUTED_TESTS=$(python3 - /tmp/xcodebuild-e2e.log <<'PY'
+          import re
+          import sys
+
+          log_path = sys.argv[1]
+          with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+              text = handle.read()
+
+          # XCTest summaries ("Executed N tests") and Swift Testing run summaries
+          # ("Test run with N tests ...") are independent per-framework counts in
+          # one xcodebuild invocation; a filter can select a suite living in either.
+          xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
+          swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
+          counts = []
+          if xctest:
+              counts.append(xctest[-1])
+          if swift_testing:
+              counts.append(swift_testing[-1])
+          if counts:
+              print(max(counts))
+          PY
+          )
+
+          if [ -z "$EXECUTED_TESTS" ]; then
+            echo "::error::Could not determine executed test count for $TEST_SELECTOR from xcodebuild output"
+            echo "test_result=failed" >> "$GITHUB_OUTPUT"
+            {
+              echo "test_output<<EOFOUT"
+              echo "$OUTPUT" | tail -200
+              echo "EOFOUT"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Executed tests for $TEST_SELECTOR: $EXECUTED_TESTS"
+          if [ "$EXECUTED_TESTS" -eq 0 ]; then
+            echo "::error::test_filter '$TEST_FILTER' resolved to target '$TEST_TARGET' selector '$TEST_SELECTOR' but xcodebuild executed 0 tests"
+            echo "test_result=failed" >> "$GITHUB_OUTPUT"
+            {
+              echo "test_output<<EOFOUT"
+              echo "$OUTPUT" | tail -200
+              echo "EOFOUT"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
           if [ "$EXIT_CODE" -eq 0 ]; then
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
           else
@@ -386,10 +570,12 @@ jobs:
           fi
 
       - name: Stop recording and trim
-        if: ${{ always() && inputs.record_video && env.RECORD_PID != '' }}
+        if: ${{ always() && steps.filter.outputs.record_video == 'true' && env.RECORD_PID != '' }}
         run: |
-          # Stop ffmpeg cleanly
-          kill -INT "$RECORD_PID" 2>/dev/null || true
+          # Stop frame capture, then assemble the independent images into a
+          # video. This avoids holding an AVFoundation display session while
+          # XCTest foregrounds and relaunches the app.
+          kill -TERM "$RECORD_PID" 2>/dev/null || true
           for i in $(seq 1 15); do
             if ! kill -0 "$RECORD_PID" 2>/dev/null; then
               echo "Recording stopped after ${i}s"
@@ -399,8 +585,20 @@ jobs:
           done
           kill -9 "$RECORD_PID" 2>/dev/null || true
 
+          FRAME_COUNT="$(find /tmp/test-recording-frames -type f -name 'frame-*.jpg' 2>/dev/null | wc -l | tr -d ' ')"
+          echo "Captured frames: ${FRAME_COUNT:-0}"
+          if [ "${FRAME_COUNT:-0}" -eq 0 ]; then
+            echo "No recording frames"
+            cat /tmp/screencapture.log 2>/dev/null || true
+            exit 1
+          fi
+
+          ffmpeg -y -framerate 2 -i /tmp/test-recording-frames/frame-%06d.jpg \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+            /tmp/test-recording-raw.mp4 2>/dev/null
+
           echo "=== raw recording ==="
-          ls -lh /tmp/test-recording-raw.mp4 2>/dev/null || { echo "No recording file"; exit 0; }
+          ls -lh /tmp/test-recording-raw.mp4
 
           # Trim: detect first non-black frame and cut from there
           BLACK_END=$(ffmpeg -i /tmp/test-recording-raw.mp4 \
@@ -427,7 +625,7 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
-        if: ${{ always() && inputs.record_video }}
+        if: ${{ always() && steps.filter.outputs.record_video == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
@@ -444,7 +642,7 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
-          RECORD_VIDEO: ${{ inputs.record_video }}
+          RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
         run: |
           set -euo pipefail
 
@@ -498,3 +696,21 @@ jobs:
 
           echo "Issue posted: $ISSUE_URL"
           echo "::notice title=Test Result Issue::$ISSUE_URL"
+
+      - name: Clean owned DerivedData
+        if: always()
+        run: |
+          set -euo pipefail
+          derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          case "$derived_data_path" in
+            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+              rm -rf -- "$derived_data_path"
+              ;;
+            "")
+              echo "DerivedData was not prepared; nothing to clean"
+              ;;
+            *)
+              echo "::error::refusing to remove unowned DerivedData path: $derived_data_path"
+              exit 1
+              ;;
+          esac

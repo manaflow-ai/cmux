@@ -11,6 +11,7 @@ public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
+    @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
 
     /// The user's in-progress port edit, or `nil` when the field should track
@@ -45,6 +46,10 @@ public struct MobileSection: View {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
+        _artifactFolderAccess = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.mobile.artifactFolderAccess
+        ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
@@ -78,6 +83,8 @@ public struct MobileSection: View {
                 boundPortStatusRow
                 SettingsCardDivider()
                 displayNameRow
+                SettingsCardDivider()
+                artifactFolderAccessRow
                 if iOSPairingHost.current {
                     SettingsCardDivider()
                     diagnostics
@@ -96,6 +103,7 @@ public struct MobileSection: View {
             iOSPairingHost,
             port,
             displayName,
+            artifactFolderAccess,
             status,
         ]
         models.forEach { $0.startObserving() }
@@ -107,7 +115,10 @@ public struct MobileSection: View {
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
             String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
-            subtitle: String(localized: "settings.mobile.pairDevice.subtitle", defaultValue: "Show a QR code to pair your iPhone or iPad with this Mac.")
+            subtitle: String(
+                localized: "settings.mobile.pairDevice.subtitle",
+                defaultValue: "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            )
         ) {
             Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
                 hostActions.openMobilePairingWindow()
@@ -275,6 +286,52 @@ public struct MobileSection: View {
             )
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("SettingsMobilePairingDisplayNameField")
+        }
+    }
+
+    @ViewBuilder
+    private var artifactFolderAccessRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("mobile.artifactFolderAccess"),
+            String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
+            subtitle: artifactFolderAccessSubtitle
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { artifactFolderAccess.current },
+                    set: { artifactFolderAccess.set($0) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.subtree",
+                    defaultValue: "Entire Subtree"
+                ))
+                .tag(MobileArtifactFolderAccess.subtree)
+                Text(String(
+                    localized: "settings.mobile.artifactFolderAccess.oneLevel",
+                    defaultValue: "One Level"
+                ))
+                .tag(MobileArtifactFolderAccess.oneLevel)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("SettingsMobileArtifactFolderAccessPicker")
+        }
+    }
+
+    private var artifactFolderAccessSubtitle: String {
+        switch artifactFolderAccess.current {
+        case .subtree:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
+                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
+            )
+        case .oneLevel:
+            String(
+                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
+                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
+            )
         }
     }
 

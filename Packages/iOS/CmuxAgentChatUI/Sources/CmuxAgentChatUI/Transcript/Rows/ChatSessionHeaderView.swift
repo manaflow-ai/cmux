@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import SwiftUI
 
 /// The compact toolbar-principal header: a leading state indicator beside a
@@ -14,6 +15,7 @@ public struct ChatSessionHeaderView: View {
     private let isConnected: Bool
     private let titleOverride: String?
     private let subtitle: String?
+    private let style: Style
 
     /// Creates a session header.
     ///
@@ -32,18 +34,41 @@ public struct ChatSessionHeaderView: View {
         agentState: ChatAgentState,
         isConnected: Bool,
         titleOverride: String? = nil,
-        subtitle: String? = nil
+        subtitle: String? = nil,
+        style: Style = .regular
     ) {
         self.descriptor = descriptor
         self.agentState = agentState
         self.isConnected = isConnected
         self.titleOverride = titleOverride
         self.subtitle = subtitle
+        self.style = style
     }
 
     public var body: some View {
         HStack(spacing: 6) {
-            ChatStateIndicatorView(state: agentState, isConnected: isConnected)
+            ChatStateIndicatorView(state: agentState, isConnected: isConnected, size: indicatorSize)
+            titleStack
+        }
+        .padding(.horizontal, horizontalContentPadding)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
+    }
+
+    private var title: String {
+        titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName
+    }
+
+    private var subtitleLine: String? {
+        guard let subtitle, !subtitle.isEmpty else { return nil }
+        return subtitle
+    }
+
+    @ViewBuilder
+    private var titleStack: some View {
+        switch style {
+        case .regular:
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.headline)
@@ -57,19 +82,27 @@ public struct ChatSessionHeaderView: View {
                         .truncationMode(.tail)
                 }
             }
+        case .toolbarCompact:
+            MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(accessibilityValue)
     }
 
-    private var title: String {
-        titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName
+    private var indicatorSize: CGFloat {
+        switch style {
+        case .regular:
+            return 11
+        case .toolbarCompact:
+            return 10
+        }
     }
 
-    private var subtitleLine: String? {
-        guard let subtitle, !subtitle.isEmpty else { return nil }
-        return subtitle
+    private var horizontalContentPadding: CGFloat {
+        switch style {
+        case .regular:
+            return 0
+        case .toolbarCompact:
+            return MobileCompactToolbarTitleStack.horizontalContentPadding
+        }
     }
 
     /// VoiceOver reads the names; the live state is the accessibility value.
@@ -124,12 +157,11 @@ public struct ChatSessionHeaderView: View {
 struct ChatStateIndicatorView: View {
     let state: ChatAgentState
     let isConnected: Bool
+    let size: CGFloat
 
     @State private var pulseDimmed = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let size: CGFloat = 11
 
     private var isWorking: Bool {
         if case .working = state { return true }
@@ -143,7 +175,7 @@ struct ChatStateIndicatorView: View {
 
     var body: some View {
         glyph
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
             .saturation(isConnected ? 1 : 0)
             .opacity(opacity)
             .animation(
@@ -174,7 +206,7 @@ struct ChatStateIndicatorView: View {
             Circle().fill(Color.secondary)
         case .needsInput:
             Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: Self.size, weight: .bold))
+                .font(.system(size: size, weight: .bold))
                 .foregroundStyle(.white, .orange)
         case .ended:
             Circle().stroke(Color.secondary, lineWidth: 1.3)

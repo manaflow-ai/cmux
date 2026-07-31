@@ -15,6 +15,8 @@ import Foundation
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
 struct RemoteTmuxControlStreamParser {
+    static let defaultMaximumCommandBlockBytes = 16_777_216
+
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
@@ -25,7 +27,7 @@ struct RemoteTmuxControlStreamParser {
 
     init(
         maxBufferedLineBytes: Int = 1_048_576,
-        maxCommandBlockBytes: Int = 16_777_216
+        maxCommandBlockBytes: Int = Self.defaultMaximumCommandBlockBytes
     ) {
         self.maxBufferedLineBytes = max(1, maxBufferedLineBytes)
         self.maxCommandBlockBytes = max(1, maxCommandBlockBytes)
@@ -78,7 +80,8 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        // Empty command-block rows are pane content; only empty notifications vanish.
+        if bytes.isEmpty, !inBlock { return prefixMessages }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
@@ -222,7 +225,14 @@ struct RemoteTmuxControlStreamParser {
         if line.hasPrefix("%layout-change ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),
                   let layout = Self.field(line, 2) else { return .unparsed(line) }
-            return .layoutChange(windowId: id, layout: layout)
+            // Field 3 is the VISIBLE layout (single-pane while zoomed), field 4
+            // the window flags; zoom is derived per event from `Z` in the flags
+            // (never latched — tmux auto-unzooms on its own).
+            let visible = Self.field(line, 3)
+            let zoomed = Self.field(line, 4)?.contains("Z") ?? false
+            return .layoutChange(
+                windowId: id, layout: layout, visibleLayout: visible, zoomed: zoomed
+            )
         }
         if line.hasPrefix("%window-pane-changed ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),

@@ -42,10 +42,27 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// so opening a workspace attaches the right Mac. `nil` when connected to a
     /// Mac old enough not to report it, or before the owning Mac is known.
     public var macDeviceID: String?
+    /// The owning Mac's user-facing display name, stamped during aggregation for
+    /// per-Mac labels such as the workspace-list picker. `nil` when the Mac has
+    /// not reported a name yet.
+    public var macDisplayName: String?
     /// The Mac window that owns this workspace, when reported by the paired Mac.
     public var windowID: String?
     /// The workspace's user-facing display name.
     public var name: String
+    /// The workspace's custom description, when one was set on the Mac.
+    /// Kept separate from ``previewText`` so durable workspace context and live
+    /// terminal activity can render together instead of replacing each other.
+    public var customDescription: String?
+    /// True when ``customDescription`` is only the mobile-safe prefix of a
+    /// longer Mac-authored durable description.
+    public var customDescriptionIsTruncated: Bool
+    /// The workspace's custom `#RRGGBB` accent color, when one was set on the Mac.
+    /// This is workspace identity and must not be confused with
+    /// ``machineCustomColor``, which colors the owning Mac's avatar.
+    public var customColorHex: String?
+    /// The workspace's last reported current directory on its owning Mac.
+    public var currentDirectory: String?
     /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
     /// top of the mobile list.
     public var isPinned: Bool
@@ -78,6 +95,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// id). Not part of the Mac's reported data, so it has a default and is set by
     /// derivation, not the decoders.
     public var machineColorIndex: Int? = nil
+    /// The app-instance tag of the Mac pairing that reported this row
+    /// ("default", "nightly", a dev tag), stamped from the connection's pairing
+    /// during ingest/derivation, never decoded from the wire. `nil` for rows
+    /// from a legacy untagged pairing or outside a per-Mac derivation.
+    public var macInstanceTag: String? = nil
     /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
     /// during aggregation so the workspace avatar matches the computer's color.
     /// `nil` = use ``machineColorIndex`` (the automatic color).
@@ -112,8 +134,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public init(
         id: ID,
         macDeviceID: String? = nil,
+        macDisplayName: String? = nil,
         windowID: String? = nil,
         name: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
+        currentDirectory: String? = nil,
         isPinned: Bool = false,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
         previewText: String? = nil,
@@ -125,8 +152,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.id = id
         self.remoteWorkspaceID = nil
         self.macDeviceID = macDeviceID
+        self.macDisplayName = macDisplayName
         self.windowID = windowID
         self.name = name
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
+        self.currentDirectory = currentDirectory
         self.isPinned = isPinned
         self.groupID = groupID
         self.previewText = previewText

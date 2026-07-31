@@ -1,14 +1,22 @@
+public import CMUXMobileCore
+internal import CmuxMobileSupport
 public import Foundation
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
 /// mobile-sync RPC transport.
-public enum MobileShellConnectionError: LocalizedError {
+public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProviding {
     /// The server returned a response that could not be parsed.
     case invalidResponse
     /// The persistent transport closed.
     case connectionClosed
     /// A request exceeded its timeout deadline.
     case requestTimedOut
+    /// A request timed out while its frame was blocked in the transport write.
+    case transportWriteTimedOut
+    /// Two earlier route cleanups are still physically unresolved. New dials
+    /// remain blocked to cap retained transports until cleanup finishes or the
+    /// app process restarts.
+    case routeCleanupBlocked
     /// A manual host did not advertise a secure route.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
@@ -28,8 +36,16 @@ public enum MobileShellConnectionError: LocalizedError {
             return "Invalid mobile sync response"
         case .connectionClosed:
             return "Mobile sync connection closed"
-        case .requestTimedOut:
-            return "Mobile sync request timed out"
+        case .requestTimedOut, .transportWriteTimedOut:
+            return L10n.string(
+                "mobile.connection.requestTimedOut",
+                defaultValue: "Mobile sync request timed out"
+            )
+        case .routeCleanupBlocked:
+            return L10n.string(
+                "mobile.connection.routeCleanupBlocked",
+                defaultValue: "Connection cleanup is stuck. Restart cmux on this device before reconnecting."
+            )
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"
         case .attachTicketExpired:
@@ -40,6 +56,27 @@ public enum MobileShellConnectionError: LocalizedError {
             return message
         case let .rpcError(_, message):
             return message
+        }
+    }
+
+    public var diagnosticFailureKind: DiagnosticFailureKind {
+        switch self {
+        case .invalidResponse, .rpcError:
+            .protocolViolation
+        case .connectionClosed:
+            .connectionClosed
+        case .requestTimedOut, .transportWriteTimedOut:
+            .timedOut
+        case .routeCleanupBlocked:
+            .admissionDenied
+        case .insecureManualRoute:
+            .unsupportedRoute
+        case .attachTicketExpired:
+            .credentialUnavailable
+        case .authorizationFailed:
+            .authorizationFailed
+        case .accountMismatch:
+            .accountMismatch
         }
     }
 }

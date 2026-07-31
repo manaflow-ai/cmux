@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -17,6 +18,7 @@ const getUser = mock(async () => ({
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 const { DELETE, POST } = await import("../app/api/device-tokens/route");
@@ -37,11 +39,82 @@ afterAll(async () => {
   await sql?.end();
 });
 
+beforeEach(async () => {
+  if (!sql) return;
+  await sql`truncate device_tokens, account_deletion_tombstones restart identity cascade`;
+  getUser.mockClear();
+});
+
 describe("device token route", () => {
+  dbTest("blocks registration while account deletion is in progress", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash("push-user-1")}, ${"push-user-1"}, 'pending')
+    `;
+
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: "b".repeat(64),
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
+    const [stored] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_tokens where user_id = 'push-user-1'
+    `;
+    expect(stored.total).toBe(0);
+  });
+
+  dbTest("allows registration after a pending account deletion lease expires", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (
+        ${accountDeletionUserHash("push-user-1")},
+        ${"push-user-1"},
+        'pending',
+        now() - interval '20 minutes'
+      )
+    `;
+
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: "b".repeat(64),
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const [stored] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_tokens where user_id = 'push-user-1'
+    `;
+    expect(stored.total).toBe(1);
+  });
+
   dbTest("serializes registration cap enforcement per user", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate device_tokens restart identity cascade`;
-    getUser.mockClear();
 
     const responses = await Promise.all(
       Array.from({ length: 12 }, (_, index) =>
@@ -73,7 +146,6 @@ describe("device token route", () => {
 
   dbTest("canonicalizes token casing for register and delete", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate device_tokens restart identity cascade`;
 
     const token = "a".repeat(64);
     const headers = {

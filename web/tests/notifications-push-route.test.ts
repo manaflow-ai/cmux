@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -9,6 +9,13 @@ const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
   (typeof envKeys)[number],
   string | undefined
 >;
+// Capture real implementations BY VALUE: bun's mock.module can mutate an
+// already-loaded namespace in place, so calling through a captured namespace
+// object at delegation time can recurse into the mock itself.
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.VERCEL = "1";
@@ -24,10 +31,12 @@ const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
+let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 mock.module("@vercel/firewall", () => ({
@@ -35,13 +44,22 @@ mock.module("@vercel/firewall", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb,
-  closeCloudDbForTests: async () => {},
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: (() =>
+    useStubDb
+      ? (cloudDb() as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
 
+beforeAll(() => {
+  useStubDb = true;
+});
+
 afterAll(() => {
+  useStubDb = false;
   for (const key of envKeys) {
     const value = originalEnv[key];
     if (typeof value === "undefined") {
@@ -53,6 +71,14 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  // Re-assert the env each test rather than relying only on the module-top-level
+  // assignment. bun runs every test file in one process, and other suites
+  // (e.g. vm-route-auth) capture+restore process.env.VERCEL, so depending on
+  // file load order they can delete VERCEL before these tests run — which made
+  // the route skip rate-limiting and flaked this suite in CI.
+  process.env.SKIP_ENV_VALIDATION = "1";
+  process.env.VERCEL = "1";
+  process.env.CMUX_PUSH_RATE_LIMIT_ID = "cmux-push-test";
   getUser.mockClear();
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });

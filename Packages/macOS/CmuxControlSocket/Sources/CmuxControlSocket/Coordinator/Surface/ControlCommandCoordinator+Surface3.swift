@@ -1,8 +1,8 @@
 internal import Foundation
 
 /// The surface-domain resume (`surface.resume.*`) and reporting
-/// (`surface.report_tty` / `report_shell_state` / `ports_kick`) bodies, plus the
-/// shared resume-binding payload helper, split out of
+/// (`surface.report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`)
+/// bodies, plus the shared resume-binding payload helper, split out of
 /// `ControlCommandCoordinator+Surface.swift` to keep each file under the 500-line
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
@@ -11,11 +11,12 @@ extension ControlCommandCoordinator {
 
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
-    /// `surface_id` / `tab_id` is present-but-non-null yet does not resolve.
+    /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
+    /// does not resolve.
     private func surfaceResumeTargetValidationError(
         _ params: [String: JSONValue]
     ) -> ControlCallResult? {
-        for key in ["window_id", "workspace_id", "surface_id", "tab_id"] where hasNonNull(params, key) {
+        for key in ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"] where hasNonNull(params, key) {
             if uuid(params, key) == nil {
                 return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
             }
@@ -45,6 +46,17 @@ extension ControlCommandCoordinator {
         }
 
         let source = publicResumeSource(params)
+        let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
+        if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surfaceSplitOff.error.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -54,7 +66,9 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
-            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false
+            autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -66,11 +80,10 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// The legacy resume-target selector: `surface_id ?? tab_id` ONLY — the
-    /// `terminal_id` alias that general routing honors was never part of the
-    /// resume-target precedence (origin `v2ResolveSurfaceResumeTarget`).
+    /// The explicit resume-target selector. `terminal_id` is accepted as the
+    /// public terminal alias for `surface_id`, matching general socket routing.
     private func surfaceResumeExplicitTargetID(_ params: [String: JSONValue]) -> UUID? {
-        uuid(params, "surface_id") ?? uuid(params, "tab_id")
+        uuid(params, "surface_id") ?? uuid(params, "terminal_id") ?? uuid(params, "tab_id")
     }
 
     // MARK: - resume.get
@@ -100,15 +113,36 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let agentSessionEnded: Bool
+        switch params["agent_session_ended"] {
+        case .none:
+            agentSessionEnded = false
+        case .some(.bool(let value)):
+            agentSessionEnded = value
+        case .some:
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().agentSessionEndedMustBeBoolean,
+                data: nil
+            )
+        }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
             explicitTargetID: surfaceResumeExplicitTargetID(params),
             hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
-            expectedSource: optionalTrimmedRawString(params, "source")
+            expectedSource: optionalTrimmedRawString(params, "source"),
+            agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
+    }
+
+    /// The localized surface-resume strings supplied by the app bundle.
+    private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: ""
+        )
     }
 
     /// Shapes the shared `surface.resume.*` result.
@@ -122,6 +156,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Surface not found", data: nil)
         case .emptyResumeCommand:
             return .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+        case .approvalPending(let message):
+            return .err(
+                code: "busy",
+                message: message,
+                data: .object(["retryable": .bool(true)])
+            )
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
@@ -142,8 +182,9 @@ extension ControlCommandCoordinator {
 
     /// The byte-faithful twin of `v2SurfaceResumeBindingPayload`: a `null` binding
     /// becomes JSON `null`, else the resume-binding object. Shared by `surface.list`
-    /// rows and the resume results.
-    func surfaceResumeBindingPayload(_ binding: ControlSurfaceResumeBinding?) -> JSONValue {
+    /// rows and the resume results. `nonisolated`: pure value mapping, used by
+    /// the worker-lane `surface.list` body's off-main payload shaping.
+    nonisolated func surfaceResumeBindingPayload(_ binding: ControlSurfaceResumeBinding?) -> JSONValue {
         guard let binding else { return .null }
         let environment: JSONValue = binding.environment.map { env in
             .object(env.mapValues { .string($0) })
@@ -159,6 +200,10 @@ extension ControlCommandCoordinator {
             "auto_resume": .bool(binding.autoResume),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
+            "execution_location": .string(binding.executionLocationRawValue),
+            "remote_workspace_id": orNull(binding.remoteWorkspaceID?.uuidString),
+            "remote_surface_id": orNull(binding.remoteSurfaceID?.uuidString),
+            "remote_pty_session_id": orNull(binding.remotePTYSessionID),
             "updated_at": .double(binding.updatedAt),
         ])
     }
@@ -205,6 +250,58 @@ extension ControlCommandCoordinator {
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
                 "tty_name": .string(ttyName),
+            ]))
+        }
+    }
+
+    // MARK: - report_pwd
+
+    /// `surface.report_pwd` — record a surface's current working directory.
+    func surfaceReportPWD(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        // Accept compatibility aliases, but require one exact cwd value.
+        let candidatePaths = ["path", "directory", "cwd"]
+            .compactMap { rawString(params, $0) }
+            .filter { $0.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil }
+        guard let path = candidatePaths.first else {
+            return .err(code: "invalid_params", message: "Missing path", data: nil)
+        }
+        guard candidatePaths.allSatisfy({ $0 == path }) else {
+            return .err(code: "invalid_params", message: "Conflicting path parameters", data: nil)
+        }
+
+        let resolution = context?.controlSurfaceReportPWD(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID,
+            path: path
+        ) ?? .workspaceNotFound
+        let requestedSurfaceData = surfaceReportSurfaceFields(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID
+        )
+        switch resolution {
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: .object(requestedSurfaceData))
+        case .surfaceNotFound:
+            return .err(code: "not_found", message: "Surface not found", data: .object(requestedSurfaceData))
+        case .pending:
+            var payload = requestedSurfaceData
+            payload["path"] = .string(path)
+            payload["pending"] = .bool(true)
+            return .ok(.object(payload))
+        case .recorded(let surfaceID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "path": .string(path),
             ]))
         }
     }
@@ -309,7 +406,7 @@ extension ControlCommandCoordinator {
 
     /// The shared workspace/requested-surface field block the report/kick payloads
     /// echo (the legacy `v2OrNull` requested-surface shape).
-    private func surfaceReportSurfaceFields(
+    func surfaceReportSurfaceFields(
         workspaceID: UUID,
         requestedSurfaceID: UUID?
     ) -> [String: JSONValue] {

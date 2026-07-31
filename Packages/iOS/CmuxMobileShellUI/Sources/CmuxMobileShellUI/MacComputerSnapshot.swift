@@ -1,9 +1,11 @@
+import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
 
 /// Immutable per-computer snapshot for the Computers screen.
 struct MacComputerSnapshot: Equatable, Identifiable {
     let deviceId: String
+    let instanceTag: String?
     let title: String
     let platform: String
     /// The Mac's distinct color index.
@@ -24,6 +26,17 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer contributes.
     let workspaceCount: Int
+    /// Stored paired-Mac ids represented by this visible row.
+    let aliasIDs: [String]
+    /// Whether a fresher row with the same computer name exists and this row is
+    /// not online: almost always a stale pairing record from an older dev-build
+    /// device id (pre-shared-device-id, cmux PR
+    /// https://github.com/manaflow-ai/cmux/pull/6772), kept so the user can
+    /// still reconnect or remove it. Labeled so several identically named
+    /// entries stop looking interchangeable.
+    var isOlderDuplicate: Bool = false
 
-    var id: String { deviceId }
+    var id: String {
+        MobilePairedMac.pairingID(macDeviceID: deviceId, instanceTag: instanceTag)
+    }
 }

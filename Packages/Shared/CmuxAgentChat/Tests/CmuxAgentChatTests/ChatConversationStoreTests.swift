@@ -177,6 +177,19 @@ struct ChatConversationStoreTests {
         (0..<count).map { prose(seq: $0) }
     }
 
+    /// A live streaming-preview message: agent prose with a stable synthetic id
+    /// and a high seq so it sorts after the committed window, matching what the
+    /// host's prose streamer emits.
+    private static func streamingMessage(text: String) -> ChatMessage {
+        ChatMessage(
+            id: "stream:session-1",
+            seq: Int.max - 1,
+            role: .agent,
+            timestamp: baseTime.addingTimeInterval(1000),
+            kind: .prose(ChatProse(text: text))
+        )
+    }
+
     private static func makeStore(
         source: any ChatEventSource,
         lastReadSeq: Int? = nil,
@@ -294,6 +307,64 @@ struct ChatConversationStoreTests {
         let snaps = Self.snapshots(store.rows)
         #expect(snaps.count == 1)
         #expect(snaps.first?.message.id == original.id)
+    }
+
+    @Test("streaming prose renders as a trailing bubble and clears on nil")
+    func streamingProseRendersAndClears() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        let preview = Self.streamingMessage(text: "partial answer")
+        await source.emit(.streamingProse(preview))
+        #expect(
+            await TestPoller.waitUntil {
+                Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+        await source.emit(.streamingProse(nil))
+        #expect(
+            await TestPoller.waitUntil {
+                !Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+    }
+
+    @Test("authoritative agent prose supersedes the live preview without a duplicate")
+    func authoritativeProseSupersedesPreview() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await TestPoller.waitUntil { store.isConnected })
+        let preview = Self.streamingMessage(text: "The sky is blue")
+        await source.emit(.streamingProse(preview))
+        #expect(
+            await TestPoller.waitUntil {
+                Self.snapshots(store.rows).contains { $0.message.id == preview.id }
+            }
+        )
+        // The committed transcript line lands; the preview must vanish and only
+        // the real message remains (no duplicate bubble).
+        let committed = Self.prose(seq: 0, role: .agent, text: "The sky is blue")
+        await source.emit(.appended([committed]))
+        #expect(
+            await TestPoller.waitUntil {
+                let snaps = Self.snapshots(store.rows)
+                return snaps.contains { $0.message.id == committed.id }
+                    && !snaps.contains { $0.message.id == preview.id }
+            }
+        )
+        let proseTexts = Self.snapshots(store.rows)
+            .filter { $0.message.role == .agent }
+            .compactMap { snapshot -> String? in
+                if case .prose(let prose) = snapshot.message.kind { return prose.text }
+                return nil
+        }
+        #expect(proseTexts == ["The sky is blue"])
     }
 
     @Test("stateChanged event updates agentState")
@@ -537,6 +608,40 @@ struct ChatConversationStoreTests {
         runTask.cancel()
         await runTask.value
         #expect(store.isConnected == false)
+    }
+
+    @Test("idle descriptor snapshot flushes a queued send")
+    func idleDescriptorSnapshotFlushesQueuedSend() async {
+        let source = SilentSendEventSource()
+        let workingDescriptor = ChatSessionDescriptor(
+            id: "session-1",
+            agentKind: .claude,
+            title: "Test",
+            state: .working(since: Self.baseTime),
+            version: 1
+        )
+        let store = ChatConversationStore(
+            descriptor: workingDescriptor,
+            source: source,
+            now: { Self.baseTime }
+        )
+
+        await store.send(text: "queued from snapshot")
+        #expect(Self.pendingItems(store.rows).first?.delivery == .queued)
+
+        store.applyDescriptorSnapshot(
+            ChatSessionDescriptor(
+                id: "session-1",
+                agentKind: .claude,
+                title: "Test",
+                state: .idle,
+                version: 2
+            )
+        )
+
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).first?.delivery == .delivered
+        })
     }
 
     @Test("a live replay overlapping a long history page does not duplicate rows")
@@ -863,8 +968,8 @@ struct ChatConversationStoreTests {
         let source = TruncatedHeadEventSource(newest: newest)
         let store = Self.makeStore(source: source)
         let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
         #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+        runTask.cancel(); await runTask.value
         #expect(store.hasMoreHistory)
         #expect(store.historyTruncatedAtHead == false)
 

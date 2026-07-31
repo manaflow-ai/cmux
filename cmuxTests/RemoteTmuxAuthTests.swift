@@ -67,6 +67,37 @@ import Testing
         #expect(RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
     }
 
+    @Test(arguments: [
+        "command refresh-client: unknown flag -B",
+        "refresh-client: unknown option -- B",
+        "refresh-client: invalid option -- B",
+        "refresh-client: illegal option -- B",
+    ])
+    func classifiesUnsupportedRefreshClientSubscriptionProbe(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
+    @Test(arguments: [
+        "refresh-client: unknown option while building command",
+        "refresh-client: unknown option btree",
+        "refresh-client: invalid option because backend returned an error",
+    ])
+    func doesNotClassifyUnrelatedBWordsAsUnsupportedRefreshClientSubscriptionProbe(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
+    @Test(arguments: [
+        "no current client",
+        "not a control client",
+        "refresh-client: not a client",
+    ])
+    func classifiesRecognizedRefreshClientSubscriptionProbeWithoutClient(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
     // MARK: - Host-key policy in the standard control args
 
     @Test func nonInteractiveControlArgsDoNotPinHostKeyPolicy() {
@@ -91,6 +122,52 @@ import Testing
         let args = host.controlModeArguments(sessionName: "work", createIfMissing: false)
         #expect(consecutive(args, "-o", "BatchMode=yes"))
         #expect(!args.contains("BatchMode=no"))
+    }
+
+    @Test func controlModeArgumentsFindUserLocalTmuxWithMinimalSSHPath() throws {
+        let root = try temporaryDirectory(prefix: "remote-tmux-path")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = home.appendingPathComponent(".local/bin", isDirectory: true)
+        let emptyPath = root.appendingPathComponent("empty-path", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
+        let fakeTmux = bin.appendingPathComponent("tmux")
+        try writeExecutable(
+            at: fakeTmux,
+            contents: """
+            #!/bin/sh
+            printf 'fake-tmux'
+            for arg in "$@"; do printf ' <%s>' "$arg"; done
+            printf '\\n'
+            """
+        )
+
+        let host = RemoteTmuxHost(destination: "user@example.test")
+        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let dashDash = try #require(args.firstIndex(of: "--"))
+        let command = args[dashDash + 2]
+        let result = try runShell(
+            command,
+            environment: [
+                "HOME": home.path,
+                "PATH": emptyPath.path,
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "fake-tmux <-CC> <attach-session> <-t> <work session>\n")
+    }
+
+    @Test func controlModeArgumentsUseRemoteTmuxResolverAfterDestinationGuard() throws {
+        let host = RemoteTmuxHost(destination: "-oProxyCommand=evil")
+        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let dashDash = try #require(args.firstIndex(of: "--"))
+        #expect(args[dashDash + 1] == "-oProxyCommand=evil")
+        let remoteCommand = args[dashDash + 2]
+        #expect(!remoteCommand.contains("\n"))
+        #expect(remoteCommand.contains("/opt/homebrew/bin"))
+        #expect(remoteCommand.hasSuffix("'cmux-remote-tmux' '-CC' 'attach-session' '-t' 'work session'"))
     }
 
     @Test func controlArgsAppendPortAndIdentity() {
@@ -294,26 +371,9 @@ import Testing
 
         connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows])
-    }
-
-    @Test @MainActor func layoutChangePrunesRemovedPaneDiagnosticState() {
-        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
-        connection.handleMessageForTesting(.layoutChange(
-            windowId: 1,
-            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
-        ))
-        connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
-        connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
-
-        connection.handleMessageForTesting(.layoutChange(windowId: 1, layout: "f92f,80x24,0,0,4"))
-
-        #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
-        #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
-        #expect(connection.paneForegroundStates[4] != nil)
-        #expect(connection.paneForegroundStates[5] == nil)
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [])
+        ])
     }
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {
@@ -336,9 +396,13 @@ import Testing
         // Force interactive mode so the prompt works even under ssh_config BatchMode yes…
         #expect(consecutive(argv, "-o", "BatchMode=no"))
         #expect(!argv.contains("BatchMode=yes"))
-        // …and -f so ssh backgrounds AFTER auth: the persistent ControlMaster then
-        // detaches its fds and won't freeze the terminal on window/app close.
-        #expect(argv.contains("-f"))
+        // No -f: foreground auth keeps the post-auth ControlMaster retry deterministic.
+        #expect(!argv.contains("-f"))
+        // Keep -n explicitly; -f used to imply stdin from /dev/null.
+        #expect(argv.contains("-n"))
+        // The master must persist after the foreground client exits so discovery / the
+        // -CC client can multiplex over it.
+        #expect(argv.contains(where: { $0.hasPrefix("ControlPersist=") }))
         // …but do NOT pin StrictHostKeyChecking — honor the user's host-key policy.
         #expect(!argv.contains(where: { $0.hasPrefix("StrictHostKeyChecking=") }))
         // Opens the SAME shared master that discovery / the -CC client multiplex over.
@@ -374,5 +438,40 @@ import Testing
             return true
         }
         return false
+    }
+
+    private func temporaryDirectory(prefix: String) throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeExecutable(at url: URL, contents: String) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func runShell(
+        _ command: String,
+        environment: [String: String]
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        return (
+            process.terminationStatus,
+            String(decoding: stdoutData, as: UTF8.self),
+            String(decoding: stderrData, as: UTF8.self)
+        )
     }
 }

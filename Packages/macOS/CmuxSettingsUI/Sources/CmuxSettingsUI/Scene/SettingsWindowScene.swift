@@ -1,36 +1,15 @@
 import CmuxSettings
 import SwiftUI
 
-/// The settings window SwiftUI `Scene`.
+/// Root view of the settings window, hosted in an AppKit-owned
+/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
+/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
+/// silently no-op and strand the open path).
 ///
 /// Composes a single tall `ScrollView` of stacked sections — the
 /// legacy in-app layout — with a left sidebar that scrolls to a
-/// section's anchor on click. This mirrors what cmux's settings
-/// window has historically looked like; using a `NavigationSplitView`
-/// with one-pane-at-a-time selection was a previous (now reverted)
-/// architecture choice.
-@MainActor
-public struct SettingsWindowScene: Scene {
-    private let runtime: SettingsRuntime
-
-    public init(runtime: SettingsRuntime) {
-        self.runtime = runtime
-    }
-
-    public var body: some Scene {
-        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: "cmux.settings") {
-            SettingsWindowRoot(runtime: runtime)
-                .settingsRuntime(runtime)
-        }
-        .defaultSize(width: 980, height: 680)
-        .windowResizability(.contentMinSize)
-        .commands { SidebarCommands() }
-    }
-}
-
-/// Root view of the settings window. Owns the search query, the
-/// scroll proxy, and the section anchors. Renders sidebar + tall
-/// scrolling content side-by-side.
+/// section's anchor on click. Owns the search query, the scroll
+/// proxy, and the section anchors.
 @MainActor
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
@@ -50,8 +29,10 @@ public struct SettingsWindowRoot: View {
     // because under search the user can click an individual setting
     // hit and we still want the section pane to follow, but two
     // sibling hits inside one section must each be selectable.
-    @SceneStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
+    // there is no SwiftUI scene to store into (cmux issue #7777).
+    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
+    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -135,6 +116,12 @@ public struct SettingsWindowRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
             applyNavigationRequest(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
+            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
+            // reach the split view; the host app routes its sidebar-toggle
+            // menu command here when the Settings window is key.
+            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
             // section row whenever the search text is cleared, so
@@ -146,6 +133,7 @@ public struct SettingsWindowRoot: View {
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
+    public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
 
     /// Legacy `SettingsRootView.onReceive` only updates the selection
     /// state (sidebar entry + section pane) in response to an external
@@ -454,8 +442,14 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
+        SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
+            .id(anchorID(for: .sleepyMode))
+
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
+
+        IrohNetworkingSection(hostActions: hostActions)
+            .id(anchorID(for: .networking))
 
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
@@ -470,13 +464,13 @@ public struct SettingsWindowRoot: View {
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
-
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
             secretStore: secretStore,
             catalog: catalog,
-            errorLog: runtime.errorLog
+            errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .automation))
 
@@ -491,13 +485,13 @@ public struct SettingsWindowRoot: View {
         GlobalHotkeySection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
+            catalog: catalog, errorLog: runtime.errorLog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .globalHotkey))
 
         KeyboardShortcutsSection(
-            jsonStore: jsonStore,
+            jsonStore: jsonStore, userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: runtime.errorLog,
             hostActions: hostActions
@@ -518,7 +512,8 @@ public struct SettingsWindowRoot: View {
         ResetSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .reset))
     }

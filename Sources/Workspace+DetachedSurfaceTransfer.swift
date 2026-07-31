@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar
@@ -7,13 +8,23 @@ import CmuxSidebar
 extension Workspace {
     struct DetachedAgentRuntimeState {
         let panelId: UUID
-        let statusEntries: [String: SidebarStatusEntry]
-        let agentPIDs: [String: pid_t]
-        let agentPIDKeys: Set<String>
+        var statusEntries: [String: SidebarStatusEntry]
+        var agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        var agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
+        var agentPIDKeys: Set<String>
+        /// Active lifecycle values follow a live panel into and out of a Dock,
+        /// alongside its structured PID ownership.
+        var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
     }
 
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
+        /// Workspace whose restore context must rebuild this panel after relaunch.
+        /// Unlike `sourceWorkspaceId`, this survives moves between Dock containers.
+        let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -23,6 +34,8 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryIsTrustedRemoteReport: Bool
+        let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
@@ -31,16 +44,39 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
+        let shellActivityState: PanelShellActivityState?
+        let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
-        let agentRuntime: DetachedAgentRuntimeState?
+        /// Authoritative hook identity when `resumeBinding` is an effective
+        /// process-detected binding.
+        let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
+        var agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
+        var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
+        var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
+        var remoteTerminalLifecycleID: UUID? = nil
+        var remoteTerminalAttemptID: UUID? = nil
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
+        var sessionRestoreWorkspaceId: UUID {
+            sessionRestoreSourceWorkspaceId ?? sourceWorkspaceId
+        }
+
+        var resolvedManagedAgentResumeBinding: SurfaceResumeBindingSnapshot? {
+            managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            } ?? resumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
+        }
+
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
+                sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
@@ -50,6 +86,8 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
+                directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
@@ -58,9 +96,17 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
+                managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
+                remoteTerminalSessionPhase: remoteTerminalSessionPhase,
+                remoteTerminalAuthority: remoteTerminalAuthority,
+                remoteTerminalLifecycleID: remoteTerminalLifecycleID,
+                remoteTerminalAttemptID: remoteTerminalAttemptID,
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration

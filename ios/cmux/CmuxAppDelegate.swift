@@ -8,7 +8,7 @@ import cmuxFeature
 /// foreground presentation + taps. All push policy lives in
 /// ``MobilePushCoordinator``, constructed at the app composition root and
 /// injected here by `cmuxApp`.
-final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UNUserNotificationCenterDelegate {
     /// The app-root push coordinator, injected by `cmuxApp` at launch.
     @MainActor var pushCoordinator: MobilePushCoordinator?
     /// The app-root analytics emitter, injected by `cmuxApp` at launch.
@@ -92,7 +92,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         await pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
             surfaceId: ids.surfaceId,
-            macDeviceId: ids.macDeviceId
+            macDeviceId: ids.macDeviceId,
+            retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
         )
         await pushCoordinator?.handleDismiss(
             notificationId: Self.notificationID(from: request),
@@ -108,13 +109,18 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     /// grants the background wake — strictly budgeted, a handful per hour at
     /// best — we also remove the matching delivered banners. Anything iOS
     /// defers is healed by the reconcile sweep on the next app open/attach.
-    func application(
+    nonisolated func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
         let dismissedIds = Self.dismissedIDs(from: userInfo)
         guard !dismissedIds.isEmpty else { return .noData }
-        await pushCoordinator?.handleRemoteDismiss(ids: dismissedIds)
+        return await handleRemoteDismiss(ids: dismissedIds)
+    }
+
+    @MainActor
+    private func handleRemoteDismiss(ids: [String]) async -> UIBackgroundFetchResult {
+        await pushCoordinator?.handleRemoteDismiss(ids: ids)
         return .newData
     }
 
@@ -140,12 +146,13 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     private nonisolated static func cmuxIDs(
         from userInfo: [AnyHashable: Any]
-    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil) }
+    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?, retargetsToLiveSurfaceOwner: Bool) {
+        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil, true) }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
-            cmux["macDeviceId"] as? String
+            cmux["macDeviceId"] as? String,
+            cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }
 

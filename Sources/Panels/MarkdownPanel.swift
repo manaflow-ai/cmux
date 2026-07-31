@@ -15,6 +15,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 @MainActor
 final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
 
     /// Absolute path to the markdown file being displayed.
@@ -265,6 +266,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         }
+    }
+
+    /// Re-reads the file without discarding an unsaved TextEdit buffer.
+    func reloadFromDisk() {
+        loadFileContent(replacingDirtyContent: false)
     }
 
     func attachTextView(_ textView: NSTextView) {
