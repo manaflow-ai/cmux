@@ -1070,7 +1070,7 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
         ) -> Bool {
             guard gestureRecognizer === navigationController?.interactivePopGestureRecognizer,
                   otherGestureRecognizer is UIPanGestureRecognizer,
-                  let navigationView = gestureRecognizer.view,
+                  let navigationView = navigationController?.view,
                   let otherView = otherGestureRecognizer.view else {
                 return false
             }

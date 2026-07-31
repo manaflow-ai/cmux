@@ -86,6 +86,7 @@ struct MobileSwipeBackGestureTests {
         let unrelatedScrollView = UIScrollView()
         let unrelatedPan = unrelatedScrollView.panGestureRecognizer
         let delegate = try #require(hosted.popGesture.delegate)
+        #expect(surfaceScrollView.isDescendant(of: hosted.nav.view))
 
         #expect(
             (
