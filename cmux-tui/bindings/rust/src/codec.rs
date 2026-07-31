@@ -217,8 +217,7 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
     let address_length =
         offset_of!(libc::sockaddr_un, sun_path).saturating_add(path.len()).saturating_add(1);
     #[cfg(any(
-        target_os = "macos",
-        target_os = "ios",
+        target_vendor = "apple",
         target_os = "freebsd",
         target_os = "netbsd",
         target_os = "openbsd",
@@ -236,6 +235,13 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
     let descriptor = unsafe { OwnedFd::from_raw_fd(raw_descriptor) };
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ))]
+    set_no_sigpipe(descriptor.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
     if creation.needs_cloexec_fcntl {
         let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
         if descriptor_flags < 0
@@ -292,39 +298,70 @@ struct SocketCreationPlan {
     needs_cloexec_fcntl: bool,
 }
 
-fn socket_creation_plan(_atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreationPlan {
-    SocketCreationPlan { socket_type: libc::SOCK_STREAM, needs_cloexec_fcntl: true }
+fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreationPlan {
+    match atomic_cloexec_flag {
+        Some(flag) => {
+            SocketCreationPlan { socket_type: libc::SOCK_STREAM | flag, needs_cloexec_fcntl: false }
+        }
+        None => SocketCreationPlan { socket_type: libc::SOCK_STREAM, needs_cloexec_fcntl: true },
+    }
 }
 
+#[cfg(any(
+    target_os = "android",
+    target_os = "cygwin",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "hurd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "nto",
+    target_os = "openbsd",
+    target_os = "solaris",
+))]
+const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = Some(libc::SOCK_CLOEXEC);
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "cygwin",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "hurd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "nto",
+    target_os = "openbsd",
+    target_os = "solaris",
+)))]
+const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = None;
+
 fn platform_socket_creation_plan() -> SocketCreationPlan {
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "hurd",
-        target_os = "illumos",
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-    ))]
+    socket_creation_plan(PLATFORM_ATOMIC_CLOEXEC_FLAG)
+}
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+))]
+fn set_no_sigpipe(descriptor: libc::c_int) -> std::io::Result<()> {
+    let enabled: libc::c_int = 1;
+    if unsafe {
+        libc::setsockopt(
+            descriptor,
+            libc::SOL_SOCKET,
+            libc::SO_NOSIGPIPE,
+            (&raw const enabled).cast(),
+            size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    } < 0
     {
-        socket_creation_plan(Some(libc::SOCK_CLOEXEC))
+        return Err(std::io::Error::last_os_error());
     }
-    #[cfg(not(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "hurd",
-        target_os = "illumos",
-        target_os = "linux",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-    )))]
-    {
-        socket_creation_plan(None)
-    }
+    Ok(())
 }
 
 fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
@@ -503,14 +540,10 @@ mod tests {
     }
 
     #[cfg(any(
+        target_vendor = "apple",
         target_os = "dragonfly",
         target_os = "freebsd",
-        target_os = "ios",
-        target_os = "macos",
         target_os = "netbsd",
-        target_os = "tvos",
-        target_os = "visionos",
-        target_os = "watchos",
     ))]
     #[test]
     fn connector_disables_sigpipe_on_supported_sockets() {
@@ -533,5 +566,30 @@ mod tests {
         );
         assert_eq!(length as usize, size_of::<libc::c_int>());
         assert_eq!(enabled, 1);
+    }
+
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ))]
+    #[test]
+    fn sigpipe_setup_reports_invalid_descriptors() {
+        let error = set_no_sigpipe(-1).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EBADF));
+    }
+
+    #[test]
+    fn connector_restores_blocking_mode_and_sets_close_on_exec() {
+        let (path, listener) = listening_socket("descriptor-flags");
+        let stream = connect_unix_with_timeout(&path.0, Duration::from_secs(1)).unwrap();
+        let (_peer, _) = listener.accept().unwrap();
+        let descriptor_flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFD) };
+        assert!(descriptor_flags >= 0);
+        assert_ne!(descriptor_flags & libc::FD_CLOEXEC, 0);
+        let status_flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFL) };
+        assert!(status_flags >= 0);
+        assert_eq!(status_flags & libc::O_NONBLOCK, 0);
     }
 }
