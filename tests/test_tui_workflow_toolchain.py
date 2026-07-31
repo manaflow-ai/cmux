@@ -20,6 +20,13 @@ BROWSER_RUNTIME_PIDFD_TESTS = {
     "stalled_external_browser_nudges_target_once_before_interaction",
     "wedged_browser_navigate_does_not_block_same_socket_connection",
 }
+CMUX_TUI_CORE_VALGRIND_INCOMPATIBLE_TESTS = {
+    "mux::tests::bulk_surface_close_uses_one_shared_termination_deadline",
+    "mux::tests::ordinary_browser_close_terminates_the_owner_staged_during_removal",
+    "mux::tests::shutdown_fanout_does_not_claim_another_batch_after_the_deadline",
+    "mux::tests::terminal_adoption_rescan_uses_one_registry_snapshot",
+    "server::tests::clear_history_does_not_block_unrelated_surface_input_on_one_connection",
+}
 
 
 def job_block(workflow: str, job: str) -> str:
@@ -61,6 +68,9 @@ def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
     assert {
         test_name for scope, test_name in entries if scope == "browser_runtime"
     } == BROWSER_RUNTIME_PIDFD_TESTS
+    assert CMUX_TUI_CORE_VALGRIND_INCOMPATIBLE_TESTS <= {
+        test_name for scope, test_name in entries if scope == "cmux_tui_core"
+    }
 
     valgrind_job = job_block(WORKFLOW.read_text(), "valgrind-leak-check")
     assert "Skipping pidfd-dependent test binary" not in valgrind_job
