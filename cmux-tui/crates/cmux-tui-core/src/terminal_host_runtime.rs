@@ -321,6 +321,7 @@ mod unix {
     const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
+    const HOST_CLIENT_EXIT_DRAIN: Duration = Duration::from_secs(1);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
     const HOST_LAUNCH_CANCEL_POLL: Duration = Duration::from_millis(25);
@@ -2528,6 +2529,7 @@ mod unix {
         size: Mutex<(u16, u16)>,
         viewer_sizes: Mutex<HashMap<u64, (u16, u16)>>,
         taps: Mutex<HashMap<u64, HostTap>>,
+        taps_changed: Condvar,
         broadcast_lock: Mutex<()>,
         sequence: AtomicU64,
         next_client: AtomicU64,
@@ -2703,7 +2705,9 @@ mod unix {
         }
 
         fn remove_client(&self, client: u64) {
-            self.taps.lock().unwrap().remove(&client);
+            if self.taps.lock().unwrap().remove(&client).is_some() {
+                self.taps_changed.notify_all();
+            }
             let _ = mutate_viewer_sizes(
                 &self.viewer_sizes,
                 |viewer_sizes| {
@@ -3037,10 +3041,31 @@ mod unix {
                 &self.exit_published,
             ) {
                 self.dead.store(true, Ordering::Release);
-                // Wake the blocking listener poll so host service cleanup
-                // follows terminal exit without periodic timer retries.
-                let _ = self.service_exit_waker.lock().unwrap().write_all(&[1]);
                 self.broadcast(MessageKind::Exit, Vec::new());
+                // Wake the blocking listener poll so host service cleanup
+                // follows exit publication without periodic timer retries.
+                let _ = self.service_exit_waker.lock().unwrap().write_all(&[1]);
+            }
+        }
+
+        fn drain_clients_after_exit(&self) {
+            let deadline = Instant::now() + HOST_CLIENT_EXIT_DRAIN;
+            let mut taps = self.taps.lock().unwrap();
+            while !taps.is_empty() {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let (next, timeout) = self.taps_changed.wait_timeout(taps, deadline - now).unwrap();
+                taps = next;
+                if timeout.timed_out() && !taps.is_empty() {
+                    break;
+                }
+            }
+            let stalled = taps.values().cloned().collect::<Vec<_>>();
+            drop(taps);
+            for tap in stalled {
+                tap.close();
             }
         }
 
@@ -3406,6 +3431,7 @@ mod unix {
                 Err(error) => return Err(error.into()),
             }
         }
+        shared.drain_clients_after_exit();
         drop(guard);
         Ok(())
     }
@@ -3501,6 +3527,7 @@ mod unix {
             size: Mutex::new((launch.cols, launch.rows)),
             viewer_sizes: Mutex::new(HashMap::new()),
             taps: Mutex::new(HashMap::new()),
+            taps_changed: Condvar::new(),
             broadcast_lock: Mutex::new(()),
             sequence: AtomicU64::new(0),
             next_client: AtomicU64::new(1),

@@ -588,19 +588,17 @@ fn explicit_terminate_reaps_background_jobs_in_separate_pty_process_groups() {
 fn exit_follows_all_final_pty_bytes_on_the_live_stream() {
     let harness = RecoveryHarness::start("exit-after-final-bytes");
     let timeout_scale = test_timeout_scale();
-    // Instrumentation slows this test's socket consumer more than its native
-    // terminal-host producer. Keep the native 20,000-line race intact while
-    // preventing the instrumented reader itself from becoming a lagging client.
-    let drain_lines = 20_000_u32.div_ceil(timeout_scale.saturating_mul(timeout_scale));
+    // Keep enough bytes in flight for the PTY reader to finish after the child,
+    // but emit them in large writes so this exit-ordering test cannot trip the
+    // independent 256-frame slow-client guard under scheduler contention.
+    let drain_chunks = 16_u32.div_ceil(timeout_scale.saturating_mul(timeout_scale));
     let script = format!(
         concat!(
-            "IFS= read -r trigger; i=0; ",
-            "while [ \"$i\" -lt {} ]; do ",
-            "printf 'drain-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' \"$i\"; ",
-            "i=$((i + 1)); done; ",
+            "IFS= read -r trigger; ",
+            "dd if=/dev/zero bs=65536 count={} 2>/dev/null; ",
             "printf 'FINAL-PTY-BYTE-MARKER\\n'",
         ),
-        drain_lines,
+        drain_chunks,
     );
     request(
         &harness.socket,
