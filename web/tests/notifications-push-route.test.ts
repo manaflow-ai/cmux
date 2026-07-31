@@ -368,6 +368,89 @@ describe("notifications push route", () => {
       .toEqual(["b".repeat(64)]);
   });
 
+  dbTest("reuses the persisted event expiration when the client omitted it", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    scriptedSendOutcomes = [
+      [{
+        deviceToken: "a".repeat(64),
+        status: 503,
+        reason: "ServiceUnavailable",
+        prune: false,
+      }],
+      [{
+        deviceToken: "a".repeat(64),
+        status: 200,
+        prune: false,
+      }],
+    ];
+    const correlationId = "c622f143-bbdb-4ec5-a1fd-fd3e8e541417";
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+        }),
+      },
+    );
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await sql`
+      update notification_send_events
+      set
+        expires_at = date_trunc('second', now()) + interval '30 seconds',
+        lease_until = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    const [stored] = await sql<{ expiration: number }[]>`
+      select extract(epoch from expires_at)::int as expiration
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    const retryPayload = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[1]?.[2] as {
+        expirationEpochSeconds: number;
+      }
+    );
+    expect(retryPayload.expirationEpochSeconds).toBe(stored?.expiration);
+  });
+
   dbTest("freezes recipients and terminally resolves a device removed before retry", async () => {
     if (!sql) throw new Error("test database not initialized");
     useStubDb = false;
