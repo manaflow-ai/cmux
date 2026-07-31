@@ -258412,6 +258412,57 @@
         }
       }
     },
+    "settings.networking.diagnostics.failure.brokerRateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broker Rate Limited"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカーのレート制限"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.brokerServerFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broker Server Failure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカーサーバーエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.policyMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy Mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーの不一致"
+          }
+        }
+      }
+    },
     "settings.networking.diagnostics.failure.unknown": {
       "extractionState": "manual",
       "localizations": {

@@ -600,6 +600,21 @@ private struct IrohDiagnosticsReportRows: View {
             )
         case .some(.cancelled):
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
+        case .some(.brokerRateLimited):
+            String(
+                localized: "settings.networking.diagnostics.failure.brokerRateLimited",
+                defaultValue: "Broker Rate Limited"
+            )
+        case .some(.brokerServerFailure):
+            String(
+                localized: "settings.networking.diagnostics.failure.brokerServerFailure",
+                defaultValue: "Broker Server Failure"
+            )
+        case .some(.policyMismatch):
+            String(
+                localized: "settings.networking.diagnostics.failure.policyMismatch",
+                defaultValue: "Policy Mismatch"
+            )
         case .some(.unknown):
             String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
         }
