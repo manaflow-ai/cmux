@@ -11708,9 +11708,10 @@ mod tests {
             }
         }));
         *mux.browser_tab_after_spawn.lock().unwrap() = Some(Arc::new({
-            let mux = mux.clone();
+            let mux = Arc::downgrade(&mux);
             let runtime = runtime.clone();
             move |surface| {
+                let mux = mux.upgrade().expect("test mux remained alive through browser spawn");
                 surface.as_browser().unwrap().install_shutdown_session_for_test(
                     runtime.clone(),
                     "target-race",
