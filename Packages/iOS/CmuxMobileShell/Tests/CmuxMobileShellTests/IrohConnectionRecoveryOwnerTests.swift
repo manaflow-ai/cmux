@@ -415,7 +415,11 @@ extension ReconnectRouteSelectionTests {
             sourceConnectionGeneration: generation,
             probing: false
         ))
-        store.lastSuccessfulTerminalSubscriptionGeneration = generation
+        store.lastSuccessfulTerminalSubscription =
+            MobileTerminalSubscriptionValidation(
+                connectionGeneration: generation,
+                listenerID: nil
+            )
 
         store.settleSuccessfulConnectionRecovery(
             attempt,

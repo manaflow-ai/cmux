@@ -320,7 +320,8 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         connectionGeneration: UUID
     ) -> Bool {
-        if lastSuccessfulTerminalSubscriptionGeneration == connectionGeneration {
+        if lastSuccessfulTerminalSubscription?.connectionGeneration
+            == connectionGeneration {
             return completeConnectionRecovery(attempt)
         }
         return connectionRecoveryOwner.transitionToValidation(
@@ -384,8 +385,12 @@ extension MobileShellComposite {
         ))
     }
 
-    func recordSuccessfulTerminalSubscription() {
-        lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+    func recordSuccessfulTerminalSubscription(listenerID: UUID? = nil) {
+        lastSuccessfulTerminalSubscription =
+            MobileTerminalSubscriptionValidation(
+                connectionGeneration: connectionGeneration,
+                listenerID: listenerID
+            )
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()

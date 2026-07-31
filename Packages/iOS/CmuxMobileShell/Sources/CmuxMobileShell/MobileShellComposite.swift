@@ -845,9 +845,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
     /// Subscription success is the final validation edge for a replacement
-    /// connection. This generation record closes the race where the ack arrives
-    /// before the stored-Mac redial task returns from `connect`.
-    var lastSuccessfulTerminalSubscriptionGeneration: UUID?
+    /// connection or listener. This snapshot closes the race where an old
+    /// acknowledgement arrives after a newer listener has taken ownership.
+    var lastSuccessfulTerminalSubscription: MobileTerminalSubscriptionValidation?
     /// The focused client whose terminal subscribe/reassert operations are
     /// fenced while its final unsubscribe is prepared. Existing wire requests
     /// drain before unsubscribe; new ones cannot start.
@@ -9225,6 +9225,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macConnectionStatus = .unavailable
             return
         }
+        let subscriptionIsValidated =
+            terminalEventListenerID.map { listenerID in
+                lastSuccessfulTerminalSubscription
+                    == MobileTerminalSubscriptionValidation(
+                        connectionGeneration: connectionGeneration,
+                        listenerID: listenerID
+                    )
+            } ?? false
+        let requiresSubscriptionValidation =
+            runtime?.supportsServerPushEvents == true
+                || terminalEventListenerID != nil
+        guard !requiresSubscriptionValidation
+                || subscriptionIsValidated else {
+            macConnectionStatus = .reconnecting
+            connectionRecoveryFailed = false
+            return
+        }
         macConnectionStatus = .connected
         isRecoveringConnection = false
         connectionRecoveryFailed = false
@@ -10181,6 +10198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
+        markMacConnectionHealthy()
         // Arm the liveness watchdog for this subscription generation. Done only
         // inside the push-events path (after the guard above) so scripted
         // transport tests, which set `supportsServerPushEvents = false`, never
@@ -10365,7 +10383,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // cross-actor readiness hop can admit a cancellation or newer
             // listener, and a stale acknowledgement must never mutate that
             // replacement connection after it resumes.
-            self.recordSuccessfulTerminalSubscription()
+            self.recordSuccessfulTerminalSubscription(listenerID: listenerID)
             self.markMacConnectionHealthy()
             didSubscribe = true
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
