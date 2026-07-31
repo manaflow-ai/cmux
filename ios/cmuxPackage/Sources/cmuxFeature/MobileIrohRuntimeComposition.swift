@@ -729,6 +729,17 @@ public final class MobileIrohRuntimeComposition:
         return try await runtime.serverEventByteStream(for: request)
     }
 
+    /// Reads already-observed path health for the request's exact admitted Mac.
+    ///
+    /// This performs no broker request, dial, or liveness probe. A missing or
+    /// superseded runtime reports `unknown`, preserving legacy recovery policy.
+    public func currentSelectedPathHealth(
+        for request: CmxByteTransportRequest
+    ) async -> CmxIrohSelectedPathHealth {
+        guard let runtime else { return .unknown }
+        return await runtime.currentSelectedPathHealth(for: request)
+    }
+
     private func runtimeForDial() async throws -> CmxIrohClientRuntime {
         while true {
             if let runtime { return runtime }

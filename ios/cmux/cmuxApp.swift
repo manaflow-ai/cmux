@@ -92,6 +92,16 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            transportPathHealthProvider: { request in
+                switch await iroh.currentSelectedPathHealth(for: request) {
+                case .healthy:
+                    return .healthy
+                case .noPath:
+                    return .noPath
+                case .unknown:
+                    return .unknown
+                }
             }
         )
 
