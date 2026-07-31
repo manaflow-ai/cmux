@@ -192,6 +192,7 @@ export class ResourceProtocol {
       throw new TypeError(`${operation.name} does not accept an idempotency key`);
     }
     let value: unknown;
+    let dispatchStarted = false;
     try {
       value = await this.sendRequest(
         operation.name,
@@ -203,6 +204,9 @@ export class ResourceProtocol {
         undefined,
         undefined,
         validateAbandonedResult,
+        () => {
+          dispatchStarted = true;
+        },
       );
     } catch (error) {
       if (
@@ -211,6 +215,7 @@ export class ResourceProtocol {
         && !(error instanceof ResourceError)
         && !(error instanceof CmuxProtocolError)
         && !(error instanceof TypeError)
+        && dispatchStarted
       ) {
         throw new MutationTransportUncertainError(
           operation.name,
@@ -386,6 +391,7 @@ export class ResourceProtocol {
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
     validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.requestCleanups.size === 0) {
       return this.sendRequestNow(
@@ -398,6 +404,7 @@ export class ResourceProtocol {
         onSendError,
         onResourceError,
         validateAbandonedResult,
+        onDispatchStarted,
       );
     }
     return this.sendRequestAfterCleanup(
@@ -410,6 +417,7 @@ export class ResourceProtocol {
       onSendError,
       onResourceError,
       validateAbandonedResult,
+      onDispatchStarted,
     );
   }
 
@@ -423,6 +431,7 @@ export class ResourceProtocol {
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
     validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.closed) {
       throw this.failure ?? new CmuxConnectionError("closed");
@@ -457,6 +466,7 @@ export class ResourceProtocol {
       onSendError,
       onResourceError,
       validateAbandonedResult,
+      onDispatchStarted,
     );
   }
 
@@ -470,6 +480,7 @@ export class ResourceProtocol {
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
     validateAbandonedResult?: (value: unknown) => unknown,
+    onDispatchStarted?: () => void,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
@@ -579,6 +590,7 @@ export class ResourceProtocol {
               json,
               () => {
                 dispatchStarted = true;
+                onDispatchStarted?.();
                 onDispatched?.();
               },
             );
@@ -589,6 +601,7 @@ export class ResourceProtocol {
             }
           } else {
             dispatchStarted = true;
+            onDispatchStarted?.();
             this.transport.send(json);
             onDispatched?.();
           }

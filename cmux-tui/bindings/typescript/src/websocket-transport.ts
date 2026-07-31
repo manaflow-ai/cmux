@@ -306,10 +306,23 @@ export class WebSocketTransport implements Transport {
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
+    let callbackThrew = false;
+    let callbackError: unknown;
+    const invoke = (callback: () => void) => {
+      try {
+        callback();
+      } catch (error) {
+        if (!callbackThrew) {
+          callbackThrew = true;
+          callbackError = error;
+        }
+      }
+    };
     if (event?.code === 1008 && event.reason === "authentication failed") {
-      this.onAuthenticationRejected?.();
+      if (this.onAuthenticationRejected) invoke(this.onAuthenticationRejected);
     }
-    for (const handler of this.closes) handler();
+    for (const handler of this.closes) invoke(handler);
+    if (callbackThrew) throw callbackError;
   }
 }
 
