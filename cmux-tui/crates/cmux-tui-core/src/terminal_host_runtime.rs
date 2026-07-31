@@ -3218,6 +3218,22 @@ mod unix {
         }
     }
 
+    impl Drop for HostLivenessLease {
+        fn drop(&mut self) {
+            loop {
+                // SAFETY: this valid descriptor owns the advisory lock. An
+                // explicit unlock also releases the shared open-file
+                // description inherited by a child between fork and exec.
+                if unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) } == 0 {
+                    break;
+                }
+                if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                    break;
+                }
+            }
+        }
+    }
+
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
