@@ -119,6 +119,7 @@ struct NotificationsPage: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .accessibilityIdentifier("notificationsPage.forwardToPhone")
             if forwardToPhone {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker(
