@@ -145,7 +145,7 @@ public struct TerminalPromptInputLedger: Sendable {
     ///
     /// App-owned records match by message rather than position. An unmatched
     /// hook may confirm the leading run of human boundaries only when no
-    /// earlier app-owned record could own it. This retires submit-capable
+    /// pending app-owned record could own it. This retires submit-capable
     /// Returns that produced no hook while preserving any input after the
     /// latest boundary.
     @discardableResult
@@ -185,22 +185,7 @@ public struct TerminalPromptInputLedger: Sendable {
         // their hook. Preserve hook ordering without wedging human ownership:
         // an unmatched hook consumes one older programmatic boundary, but never
         // a human boundary in the same call.
-        if let first = pendingBoundaries.first,
-           case .programmatic(
-               _,
-               _,
-               _
-           ) = first {
-            pendingBoundaries.removeFirst()
-            return .unmatched
-        }
-        if let first = pendingBoundaries.first,
-           case .retiredProgrammatic(let count) = first {
-            if count == 1 {
-                pendingBoundaries.removeFirst()
-            } else {
-                pendingBoundaries[0] = .retiredProgrammatic(count: count - 1)
-            }
+        if consumeEarliestProgrammaticBoundary() {
             return .unmatched
         }
         var latestHumanGeneration: UInt64?
@@ -217,6 +202,34 @@ public struct TerminalPromptInputLedger: Sendable {
             latestHumanGeneration
         )
         return .human
+    }
+
+    /// Retires one possible app-owned hook before unmatched attribution may
+    /// consume a human boundary, even when that app record sits behind it.
+    private mutating func consumeEarliestProgrammaticBoundary() -> Bool {
+        guard let index = pendingBoundaries.firstIndex(where: {
+            switch $0 {
+            case .programmatic, .retiredProgrammatic:
+                return true
+            case .human:
+                return false
+            }
+        }) else {
+            return false
+        }
+        guard case .retiredProgrammatic(let count) =
+                pendingBoundaries[index] else {
+            pendingBoundaries.remove(at: index)
+            return true
+        }
+        if count == 1 {
+            pendingBoundaries.remove(at: index)
+        } else {
+            pendingBoundaries[index] = .retiredProgrammatic(
+                count: count - 1
+            )
+        }
+        return true
     }
 
     private mutating func appendHumanBoundary(generation: UInt64) {

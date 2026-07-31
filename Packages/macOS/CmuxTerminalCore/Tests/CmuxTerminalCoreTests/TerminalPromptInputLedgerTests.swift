@@ -126,6 +126,27 @@ import Testing
         #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func rewrittenAppHookBehindHumanBoundaryCannotConfirmHumanInput() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+        ledger.recordProgrammaticSubmission(
+            message: "programmatic prompt",
+            source: "workspace.prompt_submit",
+            confirmsHumanInputSnapshot: ledger.humanInputSnapshot
+        )
+
+        #expect(
+            ledger.confirmSubmission(message: "rewritten app prompt")
+                == .unmatched
+        )
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "human prompt") == .human
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
     @Test func nilProgrammaticHookDoesNotConsumeHumanBoundaryInSameCall() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordProgrammaticSubmission(
