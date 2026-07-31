@@ -4,6 +4,7 @@ public struct TerminalPromptInputLedger: Sendable {
     private static let maximumPendingBoundaries = 64
 
     private var agentScope: String?
+    private var humanInputEpoch: UInt64 = 0
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
     private var pendingBoundaries: [TerminalPromptSubmissionBoundary] = []
@@ -19,6 +20,7 @@ public struct TerminalPromptInputLedger: Sendable {
     public mutating func synchronizeAgentScope(_ scope: String?) {
         guard agentScope != scope else { return }
         agentScope = scope
+        humanInputEpoch &+= 1
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
         pendingBoundaries.removeAll(keepingCapacity: false)
@@ -56,6 +58,7 @@ public struct TerminalPromptInputLedger: Sendable {
             // A wrap cannot preserve generation ordering. Keep the current
             // composer fail-closed, but allow a later boundary and hook to
             // establish a new recoverable epoch.
+            humanInputEpoch &+= 1
             humanInputGeneration = 1
             confirmedHumanInputGeneration = 0
             removeHumanBoundaries()
@@ -68,10 +71,13 @@ public struct TerminalPromptInputLedger: Sendable {
         }
     }
 
-    /// Captures the physical-input ownership generation at an app action's
-    /// admission boundary.
-    public var humanInputGenerationSnapshot: UInt64 {
-        humanInputGeneration
+    /// Captures the physical-input ownership epoch and generation at an app
+    /// action's admission boundary.
+    public var humanInputSnapshot: HumanInputSnapshot {
+        HumanInputSnapshot(
+            epoch: humanInputEpoch,
+            generation: humanInputGeneration
+        )
     }
 
     /// Records an accepted app-owned prompt for later message-matched hook
@@ -84,7 +90,7 @@ public struct TerminalPromptInputLedger: Sendable {
     public mutating func recordProgrammaticSubmission(
         message: String,
         source: String?,
-        confirmsHumanInputGeneration: UInt64? = nil
+        confirmsHumanInputSnapshot: HumanInputSnapshot? = nil
     ) {
         guard let source,
               let messageSignature = messageSignature(message) else {
@@ -109,7 +115,7 @@ public struct TerminalPromptInputLedger: Sendable {
         pendingBoundaries.append(.programmatic(
             messageSignature: messageSignature,
             source: source,
-            confirmsHumanInputGeneration: confirmsHumanInputGeneration
+            confirmsHumanInputSnapshot: confirmsHumanInputSnapshot
         ))
     }
 
@@ -137,14 +143,15 @@ public struct TerminalPromptInputLedger: Sendable {
                 guard case .programmatic(
                     _,
                     let source,
-                    let confirmsHumanInputGeneration
+                    let confirmsHumanInputSnapshot
                 ) = pendingBoundaries.remove(at: index) else {
                     return .unmatched
                 }
-                if let confirmsHumanInputGeneration {
+                if let confirmsHumanInputSnapshot,
+                   confirmsHumanInputSnapshot.epoch == humanInputEpoch {
                     confirmedHumanInputGeneration = max(
                         confirmedHumanInputGeneration,
-                        confirmsHumanInputGeneration
+                        confirmsHumanInputSnapshot.generation
                     )
                 }
                 return .programmatic(source: source)

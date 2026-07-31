@@ -44,12 +44,16 @@ import GhosttyKit
                 text: data,
                 submitKey: key,
                 hookRecordingSource: "workspace.agent_submit",
-                hookConfirmedHumanInputGeneration: nil
+                hookConfirmedHumanInputSnapshot: nil
             ).estimatedBytes == 11
         )
     }
 
-    @Test func queuedPromptCarriesAdmissionTimeHumanGeneration() {
+    @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {
+        let snapshot = TerminalPromptInputLedger.HumanInputSnapshot(
+            epoch: 7,
+            generation: 42
+        )
         let input = PendingSocketInput.promptSubmission(
             text: Data("prompt".utf8),
             submitKey: PendingKeyEvent(
@@ -58,19 +62,19 @@ import GhosttyKit
                 label: "return"
             ),
             hookRecordingSource: "workspace.prompt_submit",
-            hookConfirmedHumanInputGeneration: 42
+            hookConfirmedHumanInputSnapshot: snapshot
         )
 
         guard case .promptSubmission(
             _,
             _,
             _,
-            let generation
+            let queuedSnapshot
         ) = input else {
             Issue.record("Expected compound prompt")
             return
         }
-        #expect(generation == 42)
+        #expect(queuedSnapshot == snapshot)
     }
 }
 

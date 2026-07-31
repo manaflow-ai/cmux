@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import CmuxTerminal
 
 /// Thread-safe test probe that can hold the first synchronous delivery while a
@@ -40,16 +41,20 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
             guard case .promptSubmission(let text, _, _, _) = item else {
                 return nil
             }
-            return String(decoding: text, as: UTF8.self)
+            return String(bytes: text, encoding: .utf8)
         }
     }
 
-    func waitUntilFirstStarted() {
+    func waitUntilFirstStarted() -> Bool {
         condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(5)
         while !firstStarted {
-            condition.wait()
+            guard condition.wait(until: deadline) else {
+                return firstStarted
+            }
         }
-        condition.unlock()
+        return true
     }
 
     func releaseFirst() {
@@ -66,12 +71,16 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         }
     }
 
-    func waitUntilSecondCallerReady() {
+    func waitUntilSecondCallerReady() -> Bool {
         condition.lock()
+        defer { condition.unlock() }
+        let deadline = Date().addingTimeInterval(5)
         while !secondCallerReady {
-            condition.wait()
+            guard condition.wait(until: deadline) else {
+                return secondCallerReady
+            }
         }
-        condition.unlock()
+        return true
     }
 
     @MainActor
@@ -89,8 +98,11 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         if waitsForRelease {
             firstStarted = true
             condition.broadcast()
+            let deadline = Date().addingTimeInterval(5)
             while !firstReleased {
-                condition.wait()
+                let signaled = condition.wait(until: deadline)
+                #expect(signaled)
+                guard signaled else { break }
             }
         }
         condition.unlock()

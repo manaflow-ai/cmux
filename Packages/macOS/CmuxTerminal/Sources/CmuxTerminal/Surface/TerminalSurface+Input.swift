@@ -270,9 +270,9 @@ extension TerminalSurface {
            promptInputLedger.hasUnconfirmedHumanInput {
             return .composerBusy
         }
-        let hookConfirmedHumanInputGeneration =
+        let hookConfirmedHumanInputSnapshot =
             hookConfirmsHumanInput
-                ? promptInputLedger.humanInputGenerationSnapshot
+                ? promptInputLedger.humanInputSnapshot
                 : nil
 
         didReceiveExplicitInput()
@@ -285,8 +285,8 @@ extension TerminalSurface {
                     text: data,
                     submitKey: submitEvent,
                     hookRecordingSource: hookRecordingSource,
-                    hookConfirmedHumanInputGeneration:
-                        hookConfirmedHumanInputGeneration
+                    hookConfirmedHumanInputSnapshot:
+                        hookConfirmedHumanInputSnapshot
                 )
             ) else {
                 return .inputQueueFull
@@ -314,8 +314,8 @@ extension TerminalSurface {
         promptInputLedger.recordProgrammaticSubmission(
             message: text,
             source: hookRecordingSource,
-            confirmsHumanInputGeneration:
-                hookConfirmedHumanInputGeneration
+            confirmsHumanInputSnapshot:
+                hookConfirmedHumanInputSnapshot
         )
         return .sent
     }
@@ -920,7 +920,7 @@ extension TerminalSurface {
                 let text,
                 let submitKey,
                 let hookRecordingSource,
-                let hookConfirmedHumanInputGeneration
+                let hookConfirmedHumanInputSnapshot
             ):
                 writeTextData(text, to: surface)
                 queuedKeys += 1
@@ -933,8 +933,8 @@ extension TerminalSurface {
                 promptInputLedger.recordProgrammaticSubmission(
                     message: message,
                     source: hookRecordingSource,
-                    confirmsHumanInputGeneration:
-                        hookConfirmedHumanInputGeneration
+                    confirmsHumanInputSnapshot:
+                        hookConfirmedHumanInputSnapshot
                 )
             }
         }

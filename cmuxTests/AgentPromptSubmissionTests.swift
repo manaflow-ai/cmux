@@ -22,9 +22,10 @@ struct AgentPromptSubmissionTests {
                 probe.deliver("first", waitsForRelease: true)
             }
         }
-        await Task.detached {
+        let firstStarted = await Task.detached {
             probe.waitUntilFirstStarted()
         }.value
+        #expect(firstStarted)
 
         let second = Task.detached {
             probe.noteSecondCallerReady()
@@ -32,9 +33,10 @@ struct AgentPromptSubmissionTests {
                 probe.deliver("second", waitsForRelease: false)
             }
         }
-        await Task.detached {
+        let secondCallerReady = await Task.detached {
             probe.waitUntilSecondCallerReady()
         }.value
+        #expect(secondCallerReady)
 
         #expect(probe.startedMessages == ["first"])
         probe.releaseFirst()
@@ -227,5 +229,19 @@ struct AgentPromptSubmissionTests {
             data["retry_after"] as? String
                 == "human_prompt_submit_or_agent_restart"
         )
+    }
+
+    @MainActor
+    @Test func whitespaceOnlyPromptIsRejectedWithoutDelivery() {
+        let result = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
+            "workspace_id": UUID().uuidString,
+            "text": " \n\t ",
+        ])
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params")
+            return
+        }
+        #expect(code == "invalid_params")
     }
 }

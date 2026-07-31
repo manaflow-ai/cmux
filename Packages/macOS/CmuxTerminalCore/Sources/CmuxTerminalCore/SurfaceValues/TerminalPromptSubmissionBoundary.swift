@@ -6,7 +6,8 @@ enum TerminalPromptSubmissionBoundary: Sendable {
     case programmatic(
         messageSignature: TerminalPromptMessageSignature,
         source: String,
-        confirmsHumanInputGeneration: UInt64?
+        confirmsHumanInputSnapshot:
+            TerminalPromptInputLedger.HumanInputSnapshot?
     )
     /// Programmatic hook ownership retained after exact source attribution was
     /// evicted. Adjacent retired boundaries coalesce without losing FIFO order.

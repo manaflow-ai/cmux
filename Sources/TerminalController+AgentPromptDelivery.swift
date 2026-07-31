@@ -108,9 +108,7 @@ extension TerminalController {
 
         var candidates: [AgentPromptTerminalTarget] = []
         var seenSurfaceIDs: Set<UUID> = []
-        for panelID in workspace.panels.keys.sorted(by: {
-            $0.uuidString < $1.uuidString
-        }) {
+        for panelID in workspace.panels.keys {
             for panel in workspace.terminalPanels(projectedFromPanelID: panelID)
                 where seenSurfaceIDs.insert(panel.id).inserted {
                 if let resolved = knownAgentPromptTarget(
@@ -128,7 +126,9 @@ extension TerminalController {
         case 2...:
             return .failure(.ambiguousAgent(
                 workspaceID: workspace.id,
-                surfaceIDs: candidates.map(\.surfaceID)
+                surfaceIDs: candidates.map(\.surfaceID).sorted {
+                    $0.uuidString < $1.uuidString
+                }
             ))
         default:
             return .failure(.agentNotFound(

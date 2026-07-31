@@ -5216,10 +5216,14 @@ struct CMUXCLI {
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg
                 ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-                ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                ?? (windowRaw == nil
+                    ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                    : nil)
             let promptArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let text = promptArgs.joined(separator: " ")
-            guard !text.isEmpty else {
+            guard !text.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.agentSubmit.error.missingText",
                     defaultValue: "agent-submit requires prompt text"
@@ -5229,7 +5233,8 @@ struct CMUXCLI {
             let workspaceID = try normalizeWorkspaceHandle(
                 workspaceArg,
                 client: client,
-                windowHandle: winID
+                windowHandle: winID,
+                allowCurrent: workspaceArg == nil && winID != nil
             )
             guard let workspaceID else {
                 throw CLIError(message: String(
@@ -17048,7 +17053,7 @@ struct CMUXCLI {
             """
         case "agent-submit":
             return String(localized: "cli.help.agentSubmit", defaultValue: """
-            Usage: cmux agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
+            Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
 
             Submit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If a human draft is present, the command fails with rejected_composer_busy and leaves the draft unchanged.
 
@@ -36002,7 +36007,7 @@ export default CMUXSessionRestore;
           current-workspace [--window <id|ref|index>]
           read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
-          \(String(localized: "cli.agentSubmit.usageLine", defaultValue: "agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] <text>"))
+          \(String(localized: "cli.agentSubmit.usageLine", defaultValue: "agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>"))
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
           send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>

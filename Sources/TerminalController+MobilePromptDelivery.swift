@@ -136,6 +136,9 @@ extension TerminalController {
                 )
             }
         } else {
+            terminalPanel.surface.synchronizePromptInputAgentScope(
+                agentInputScope
+            )
             guard terminalPanel.sendText(text) else {
                 return .err(
                     code: "surface_unavailable",
@@ -157,7 +160,7 @@ extension TerminalController {
 
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
+            "surface_id": surfaceID.uuidString,
             "submitted": submitted,
             "queued": queued,
         ]

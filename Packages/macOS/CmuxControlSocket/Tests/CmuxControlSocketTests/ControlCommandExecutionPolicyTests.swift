@@ -124,6 +124,9 @@ struct ControlCommandExecutionPolicyTests {
     }
 
     @Test func atomicAgentSubmitRunsOnWorkerWithACallableMainHop() {
+        // The worker owns the reply; the body performs one non-suspending
+        // v2MainSync hop that collapses inline for main-thread in-process
+        // callers, so this callable policy cannot deadlock.
         #expect(
             ControlCommandExecutionPolicy(
                 forMethod: "workspace.agent_submit"

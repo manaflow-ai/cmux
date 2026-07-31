@@ -29,7 +29,10 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let text = params["text"] as? String, !text.isEmpty else {
+        guard let text = params["text"] as? String,
+              !text.trimmingCharacters(
+                  in: .whitespacesAndNewlines
+              ).isEmpty else {
             return .err(
                 code: "invalid_params",
                 message: String(

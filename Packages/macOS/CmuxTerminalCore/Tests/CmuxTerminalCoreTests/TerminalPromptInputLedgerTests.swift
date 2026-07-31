@@ -44,8 +44,8 @@ import Testing
         ledger.recordProgrammaticSubmission(
             message: "native composer prompt",
             source: "workspace.prompt_submit",
-            confirmsHumanInputGeneration:
-                ledger.humanInputGenerationSnapshot
+            confirmsHumanInputSnapshot:
+                ledger.humanInputSnapshot
         )
         ledger.recordHumanInput(.unknown)
 
@@ -63,18 +63,18 @@ import Testing
     @Test func olderAppConfirmationCannotUndoANewerConfirmation() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)
-        let olderGeneration = ledger.humanInputGenerationSnapshot
+        let olderSnapshot = ledger.humanInputSnapshot
         ledger.recordProgrammaticSubmission(
             message: "older",
             source: "workspace.prompt_submit",
-            confirmsHumanInputGeneration: olderGeneration
+            confirmsHumanInputSnapshot: olderSnapshot
         )
         ledger.recordHumanInput(.unknown)
-        let newerGeneration = ledger.humanInputGenerationSnapshot
+        let newerSnapshot = ledger.humanInputSnapshot
         ledger.recordProgrammaticSubmission(
             message: "newer",
             source: "workspace.prompt_submit",
-            confirmsHumanInputGeneration: newerGeneration
+            confirmsHumanInputSnapshot: newerSnapshot
         )
 
         #expect(
@@ -179,6 +179,27 @@ import Testing
 
         ledger.synchronizeAgentScope("agentPIDKey:codex.session")
 
+        #expect(ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func queuedConfirmationFromAPreviousScopeCannotClearCurrentInput() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agentPIDKey:first.session")
+        ledger.recordHumanInput(.unknown)
+        let staleSnapshot = ledger.humanInputSnapshot
+
+        ledger.synchronizeAgentScope("agentPIDKey:second.session")
+        ledger.recordHumanInput(.unknown)
+        ledger.recordProgrammaticSubmission(
+            message: "queued prompt",
+            source: "workspace.prompt_submit",
+            confirmsHumanInputSnapshot: staleSnapshot
+        )
+
+        #expect(
+            ledger.confirmSubmission(message: "queued prompt")
+                == .programmatic(source: "workspace.prompt_submit")
+        )
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
