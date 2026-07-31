@@ -40,6 +40,12 @@ struct CodexLifecycleSession: Equatable, Sendable {
 
 struct CodexProcessSnapshot: Equatable, Sendable {
     let startedAt: TimeInterval
+    let identity: NativeProcessIdentity?
+
+    init(startedAt: TimeInterval, identity: NativeProcessIdentity? = nil) {
+        self.startedAt = startedAt
+        self.identity = identity
+    }
 }
 
 enum CodexLifecycleProjection {

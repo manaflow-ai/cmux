@@ -1,4 +1,4 @@
-// cmux-surface-sidebar-opencode-status v1
+// cmux-surface-sidebar-opencode-status v2
 // Reports OpenCode lifecycle states using cmux's own sidebar status contract.
 // Installed by the CMUX Surface Status companion app.
 
@@ -38,7 +38,8 @@ export class OpenCodeSidebarLifecycle {
     this.publish = publish;
     this.rootSessionID = undefined;
     this.childParents = new Map();
-    this.blockers = new Set();
+    this.blockerIDs = new Set();
+    this.anonymousBlockerCounts = new Map();
     this.hasWorked = false;
     this.terminalFailure = undefined;
     this.baseReport = { state: "idle" };
@@ -48,14 +49,9 @@ export class OpenCodeSidebarLifecycle {
   observeSession(info, sessionID) {
     if (info?.id && info.parentID) {
       this.childParents.set(info.id, info.parentID);
-      return false;
     }
-    // Claim the first root only. Background/restored roots observed by the same
-    // plugin process must never steal the visible surface's ownership.
-    if (!this.rootSessionID && sessionID) {
-      this.rootSessionID = sessionID;
-      return true;
-    }
+    // Metadata events can enumerate restored/background roots. Ownership is
+    // claimed only by explicit chat/work/error/interaction events below.
     return false;
   }
 
@@ -71,11 +67,22 @@ export class OpenCodeSidebarLifecycle {
     return false;
   }
 
+  rootOf(sessionID) {
+    if (!sessionID) return undefined;
+    let current = sessionID;
+    const visited = new Set();
+    while (this.childParents.has(current) && !visited.has(current)) {
+      visited.add(current);
+      current = this.childParents.get(current);
+    }
+    return current;
+  }
+
   isOwnedRoot(sessionID) {
     if (!sessionID) return !this.rootSessionID;
     if (!this.rootSessionID) {
-      this.rootSessionID = sessionID;
-      return true;
+      this.rootSessionID = this.rootOf(sessionID);
+      return sessionID === this.rootSessionID;
     }
     return sessionID === this.rootSessionID;
   }
@@ -107,11 +114,29 @@ export class OpenCodeSidebarLifecycle {
     this.publishDesired();
   }
 
-  blocker(sessionID, kind, active) {
+  blocker(sessionID, kind, active, requestID) {
     if (!this.isOwnedInteraction(sessionID)) return;
-    const key = `${sessionID ?? "root"}:${kind}`;
-    if (active) this.blockers.add(key);
-    else this.blockers.delete(key);
+    const baseKey = `${sessionID ?? "root"}:${kind}`;
+    if (requestID) {
+      const key = `${baseKey}:${requestID}`;
+      if (active) this.blockerIDs.add(key);
+      else this.blockerIDs.delete(key);
+    } else {
+      const current = this.anonymousBlockerCounts.get(baseKey) ?? 0;
+      if (active) {
+        this.anonymousBlockerCounts.set(baseKey, current + 1);
+      } else if (current > 0) {
+        const next = current - 1;
+        if (next > 0) this.anonymousBlockerCounts.set(baseKey, next);
+        else this.anonymousBlockerCounts.delete(baseKey);
+      } else {
+        // Some OpenCode versions omit request identity on replies. Remove one
+        // matching identified blocker, never all of them at once.
+        const prefix = `${baseKey}:`;
+        const matching = this.blockerIDs.values().find((key) => key.startsWith(prefix));
+        if (matching) this.blockerIDs.delete(matching);
+      }
+    }
     this.publishDesired();
   }
 
@@ -119,7 +144,12 @@ export class OpenCodeSidebarLifecycle {
     if (sessionID && sessionID !== this.rootSessionID) return false;
     this.rootSessionID = undefined;
     this.childParents.clear();
-    this.blockers.clear();
+    this.blockerIDs.clear();
+    this.anonymousBlockerCounts.clear();
+    this.hasWorked = false;
+    this.terminalFailure = undefined;
+    this.baseReport = { state: "idle" };
+    this.lastReport = undefined;
     return true;
   }
 
@@ -128,7 +158,7 @@ export class OpenCodeSidebarLifecycle {
   }
 
   publishDesired(force = false) {
-    const report = this.blockers.size > 0
+    const report = this.blockerIDs.size > 0 || this.anonymousBlockerCounts.size > 0
       ? { state: "needsInput", reason: "interaction" }
       : this.baseReport;
     if (!force && JSON.stringify(report) === JSON.stringify(this.lastReport)) return;
@@ -143,25 +173,41 @@ const surfaceID = rawSurfaceID && uuidPattern.test(rawSurfaceID) ? rawSurfaceID 
 const rawWorkspaceID = process.env.CMUX_WORKSPACE_ID;
 const workspaceID = rawWorkspaceID && uuidPattern.test(rawWorkspaceID) ? rawWorkspaceID : undefined;
 const agentID = "opencode";
+// Node records timeOrigin as Unix epoch milliseconds at process creation. The
+// monitor compares this immutable process incarnation with proc_bsdinfo.
+const processStartedAt = performance.timeOrigin / 1000;
 const stateDirectory = path.join(os.homedir(), ".cmuxterm");
 const statusFile = surfaceID
   ? path.join(stateDirectory, `${agentID}-${surfaceID}-sidebar-agent-status.json`)
   : undefined;
+export function directStatusRecord({ state, reason }, context) {
+  return {
+    version: 3,
+    agentID,
+    surfaceID: context.surfaceID,
+    workspaceID: context.workspaceID,
+    state,
+    reason,
+    pid: context.pid,
+    processStartedAt: context.processStartedAt,
+    updatedAt: context.updatedAt,
+  };
+}
 function report({ state, reason }) {
   if (!statusFile || !surfaceID) return;
   try {
     fs.mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
     const temporary = `${statusFile}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify({
-      version: 2,
-      agentID,
-      surfaceID,
-      workspaceID,
-      state,
-      reason,
-      pid: process.pid,
-      updatedAt: Date.now() / 1000,
-    })}\n`, { mode: 0o600 });
+    fs.writeFileSync(temporary, `${JSON.stringify(directStatusRecord(
+      { state, reason },
+      {
+        surfaceID,
+        workspaceID,
+        pid: process.pid,
+        processStartedAt,
+        updatedAt: Date.now() / 1000,
+      },
+    ))}\n`, { mode: 0o600 });
     fs.renameSync(temporary, statusFile);
   } catch {
     // Sidebar telemetry must never interfere with OpenCode.
@@ -193,6 +239,7 @@ export const CmuxSidebarAgentStatusPlugin = async () => {
       const properties = event?.properties ?? {};
       const sessionID = sessionIDFromProperties(properties);
       lifecycle.observeSession(properties.info, sessionID);
+      const requestID = properties.id ?? properties.requestID ?? properties.permissionID ?? properties.questionID;
 
       switch (type) {
         case "session.created":
@@ -221,18 +268,18 @@ export const CmuxSidebarAgentStatusPlugin = async () => {
           lifecycle.working(sessionID);
           break;
         case "permission.asked":
-          lifecycle.blocker(sessionID, "permission", true);
+          lifecycle.blocker(sessionID, "permission", true, requestID);
           break;
         case "question.asked":
-          lifecycle.blocker(sessionID, "question", true);
+          lifecycle.blocker(sessionID, "question", true, requestID);
           break;
         case "permission.replied":
-          lifecycle.blocker(sessionID, "permission", false);
+          lifecycle.blocker(sessionID, "permission", false, requestID);
           lifecycle.working(sessionID);
           break;
         case "question.replied":
         case "question.rejected":
-          lifecycle.blocker(sessionID, "question", false);
+          lifecycle.blocker(sessionID, "question", false, requestID);
           lifecycle.working(sessionID);
           break;
         case "session.error":

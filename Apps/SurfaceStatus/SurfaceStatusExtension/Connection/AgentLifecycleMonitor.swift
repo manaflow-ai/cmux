@@ -15,7 +15,8 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
         let state: SurfaceAgentLifecycle.State
         let reason: SurfaceAgentLifecycle.Reason?
         let statusMessage: String?
-        let pid: Int32?
+        let pid: Int32
+        let processStartedAt: TimeInterval
         let updatedAt: TimeInterval
     }
 
@@ -38,6 +39,8 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
             let agentLifecycle: SurfaceAgentLifecycle.State?
             let runtimeStatus: String?
             let pid: Int32?
+            let pidStartSeconds: Int64?
+            let pidStartMicroseconds: Int64?
             let surfaceId: String
             let transcriptPath: String?
             let updatedAt: TimeInterval?
@@ -46,6 +49,10 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
         let activeSessionsBySurface: [String: ActiveSession]?
         let sessions: [String: Session]
     }
+
+    private static let directStatusMaximumBytes = 64 * 1024
+    private static let launchMarkerMaximumBytes = 64 * 1024
+    private static let hookStoreMaximumBytes = 8 * 1024 * 1024
 
     private let directoryURL: URL
     private let queue = DispatchQueue(label: "dev.vincent.cmux.surface-status.lifecycle", qos: .utility)
@@ -180,17 +187,24 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
         var result: Statuses = [:]
         var directStatusUpdatedAt: [String: TimeInterval] = [:]
         var projectedCodexPIDs: [UUID: Int32] = [:]
+        var watchedBirths: [Int32: CodexProcessSnapshot] = [:]
+        let now = Date().timeIntervalSince1970
 
         for file in files where file.lastPathComponent.hasSuffix("-sidebar-agent-status.json") {
-            guard let data = try? Data(contentsOf: file),
+            guard let data = safeLifecycleData(at: file, maximumBytes: Self.directStatusMaximumBytes),
                   let status = try? decoder.decode(DirectStatusFile.self, from: data),
-                  status.version == 2,
-                  !status.agentID.isEmpty,
+                  status.version == 3,
+                  status.agentID == "pi" || status.agentID == "opencode",
                   let surfaceID = UUID(uuidString: status.surfaceID),
-                  let pid = status.pid,
-                  processIsAlive(pid) else {
+                  let snapshot = processSnapshot(status.pid),
+                  DirectStatusProcessIdentity(recordedStartedAt: status.processStartedAt)
+                    .matches(actualStartedAt: snapshot.startedAt),
+                  status.updatedAt.isFinite,
+                  status.updatedAt >= status.processStartedAt - DirectStatusProcessIdentity.birthTolerance,
+                  status.updatedAt <= now + DirectStatusProcessIdentity.birthTolerance else {
                 continue
             }
+            watchedBirths[status.pid] = snapshot
             directStatusUpdatedAt["\(status.agentID):\(surfaceID.uuidString)"] = status.updatedAt
             let candidate = SurfaceAgentLifecycle(
                 agentID: status.agentID,
@@ -208,7 +222,7 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
         let codexLaunches: [CodexLaunchPresence] = files.compactMap { file in
             guard file.lastPathComponent.hasPrefix("codex-"),
                   file.lastPathComponent.hasSuffix("-sidebar-agent-launch.json"),
-                  let data = try? Data(contentsOf: file),
+                  let data = safeLifecycleData(at: file, maximumBytes: Self.launchMarkerMaximumBytes),
                   let launch = try? decoder.decode(CodexLaunchFile.self, from: data),
                   launch.schemaVersion == 1,
                   launch.kind == "codex-launch",
@@ -228,7 +242,7 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
             // Pi has a dedicated direct status source; skip its larger,
             // chat-bearing hook store before any file read or JSON decode.
             if agentID == "pi" { continue }
-            guard let data = try? Data(contentsOf: file),
+            guard let data = safeLifecycleData(at: file, maximumBytes: Self.hookStoreMaximumBytes),
                   let store = try? decoder.decode(StoreFile.self, from: data) else {
                 continue
             }
@@ -250,7 +264,7 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
                     sessions: sessions,
                     activeSessionsBySurface: activeBySurface,
                     launches: codexLaunches,
-                    now: Date().timeIntervalSince1970,
+                    now: now,
                     processLookup: processSnapshot
                 )
                 for (surfaceID, candidate) in codexStatuses {
@@ -274,21 +288,31 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
                 continue
             }
 
-            let activeSessionIDs = store.activeSessionsBySurface.map { Set($0.values.map(\.sessionId)) }
-
             for (sessionID, session) in store.sessions {
-                // A present active map is authoritative, including when empty.
-                // Claude is the exception: its SessionStart record can carry a
-                // valid surface and live process before cmux populates the active
-                // map. Accept only that process-verified record; other agents
-                // and dead Claude sessions continue to fail closed.
-                let hasLiveProcess = session.pid.map(processIsAlive) ?? false
-                if let activeSessionIDs,
-                   !activeSessionIDs.contains(sessionID),
-                   !(agentID == "claude" && hasLiveProcess) {
-                    continue
-                }
-                guard let surfaceID = UUID(uuidString: session.surfaceId), hasLiveProcess else { continue }
+                guard let surfaceID = UUID(uuidString: session.surfaceId),
+                      let pid = session.pid,
+                      let snapshot = processSnapshot(pid),
+                      let identity = snapshot.identity,
+                      identity.matches(
+                        recordedSeconds: session.pidStartSeconds,
+                        recordedMicroseconds: session.pidStartMicroseconds
+                      ) else { continue }
+
+                // A present owner map is authoritative, including when empty.
+                // Ownership is per surface: a session active on another surface
+                // cannot claim this one. Claude's process-verified SessionStart
+                // fallback is allowed only briefly while the map is absent.
+                let activeBySurface = store.activeSessionsBySurface?.mapValues(\.sessionId)
+                guard LifecycleSessionOwnership.isEligible(
+                    agentID: agentID,
+                    sessionID: sessionID,
+                    surfaceID: surfaceID,
+                    activeSessionsBySurface: activeBySurface,
+                    updatedAt: session.updatedAt,
+                    now: now
+                ) else { continue }
+                watchedBirths[pid] = snapshot
+                let hasLiveProcess = true
 
                 let transcriptStatus = agentID == "claude"
                     ? session.transcriptPath.flatMap(latestClaudeRateLimit)
@@ -339,7 +363,7 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
                 sessions: [:],
                 activeSessionsBySurface: nil,
                 launches: codexLaunches,
-                now: Date().timeIntervalSince1970,
+                now: now,
                 processLookup: processSnapshot
             )
             for (surfaceID, candidate) in launchStatuses {
@@ -352,10 +376,53 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
                 }
             }
         }
-        watchedProcessBirths = Dictionary(uniqueKeysWithValues: Set(projectedCodexPIDs.values).compactMap { pid in
-            processSnapshot(pid).map { (pid, $0) }
-        })
+        for pid in Set(projectedCodexPIDs.values) {
+            if let snapshot = processSnapshot(pid) { watchedBirths[pid] = snapshot }
+        }
+        watchedProcessBirths = watchedBirths
         return result
+    }
+
+    /// Reads small lifecycle JSON through a no-follow descriptor. Files must be
+    /// regular, owned by the current account, single-linked, and bounded before
+    /// allocation. Claude transcript tail reads intentionally use a separate
+    /// seek-based path below because those files are large append-only logs.
+    private func safeLifecycleData(at url: URL, maximumBytes: Int) -> Data? {
+        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        var info = stat()
+        guard fstat(descriptor, &info) == 0,
+              (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_uid == getuid(),
+              info.st_nlink == 1,
+              info.st_size >= 0,
+              info.st_size <= maximumBytes else { return nil }
+
+        let expectedSize = Int(info.st_size)
+        var data = Data(count: expectedSize)
+        let bytesRead = data.withUnsafeMutableBytes { buffer -> Int in
+            guard let base = buffer.baseAddress else { return expectedSize == 0 ? 0 : -1 }
+            var offset = 0
+            while offset < expectedSize {
+                let count = read(descriptor, base.advanced(by: offset), expectedSize - offset)
+                if count > 0 { offset += count; continue }
+                if count < 0 && errno == EINTR { continue }
+                return count == 0 ? offset : -1
+            }
+            return offset
+        }
+        guard bytesRead == expectedSize else { return nil }
+
+        var trailing: UInt8 = 0
+        while true {
+            let count = read(descriptor, &trailing, 1)
+            if count < 0 && errno == EINTR { continue }
+            guard count == 0 else { return nil }
+            break
+        }
+        return data
     }
 
     private func latestClaudeRateLimit(transcriptPath: String) -> String? {
@@ -369,7 +436,7 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
             let readLength = min(end, 64 * 1024)
             let startsMidFile = readLength < end
             try handle.seek(toOffset: end - readLength)
-            var tail = try handle.readToEnd() ?? Data()
+            var tail = try handle.read(upToCount: Int(readLength)) ?? Data()
             if startsMidFile, let newline = tail.firstIndex(of: 0x0A) {
                 tail = tail[tail.index(after: newline)...]
             }
@@ -418,7 +485,11 @@ final class AgentLifecycleMonitor: @unchecked Sendable {
         let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
         if size == expectedSize {
             return CodexProcessSnapshot(
-                startedAt: TimeInterval(info.pbi_start_tvsec) + TimeInterval(info.pbi_start_tvusec) / 1_000_000
+                startedAt: TimeInterval(info.pbi_start_tvsec) + TimeInterval(info.pbi_start_tvusec) / 1_000_000,
+                identity: NativeProcessIdentity(
+                    seconds: Int64(info.pbi_start_tvsec),
+                    microseconds: Int64(info.pbi_start_tvusec)
+                )
             )
         }
         // Codex requires an exact process birth time, not just kill(pid, 0),

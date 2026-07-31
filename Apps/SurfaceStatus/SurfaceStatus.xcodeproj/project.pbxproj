@@ -52,6 +52,7 @@
 		C0DE47000000000000000005 /* Exceptions for "Shared" folder in "SurfaceStatusApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AgentLifecyclePolicies.swift,
 				CodexLifecycleProjection.swift,
 			);
 			target = A3685BE82FCA3AEE00009F1B /* SurfaceStatusApp */;

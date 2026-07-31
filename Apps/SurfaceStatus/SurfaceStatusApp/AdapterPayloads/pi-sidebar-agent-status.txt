@@ -1,4 +1,4 @@
-// cmux-surface-sidebar-pi-status v2
+// cmux-surface-sidebar-pi-status v3
 // Reports Pi lifecycle states using cmux's own sidebar status contract.
 // Installed by the CMUX Surface Status companion app.
 
@@ -154,10 +154,35 @@ const surfaceID = rawSurfaceID && uuidPattern.test(rawSurfaceID) ? rawSurfaceID 
 const rawWorkspaceID = process.env.CMUX_WORKSPACE_ID;
 const workspaceID = rawWorkspaceID && uuidPattern.test(rawWorkspaceID) ? rawWorkspaceID : undefined;
 const agentID = "pi";
+// Node records timeOrigin as Unix epoch milliseconds at process creation. The
+// monitor compares this immutable process incarnation with proc_bsdinfo.
+const processStartedAt = performance.timeOrigin / 1000;
 const stateDirectory = path.join(os.homedir(), ".cmuxterm");
 const statusFile = surfaceID
   ? path.join(stateDirectory, `${agentID}-${surfaceID}-sidebar-agent-status.json`)
   : undefined;
+export function directStatusRecord(
+  { state, reason }: Report,
+  context: {
+    surfaceID: string;
+    workspaceID?: string;
+    pid: number;
+    processStartedAt: number;
+    updatedAt: number;
+  },
+) {
+  return {
+    version: 3,
+    agentID,
+    surfaceID: context.surfaceID,
+    workspaceID: context.workspaceID,
+    state,
+    reason,
+    pid: context.pid,
+    processStartedAt: context.processStartedAt,
+    updatedAt: context.updatedAt,
+  };
+}
 function report({ state, reason }: Report): void {
   if (!statusFile || !surfaceID) return;
   try {
@@ -165,16 +190,16 @@ function report({ state, reason }: Report): void {
     const temporary = `${statusFile}.${process.pid}.tmp`;
     fs.writeFileSync(
       temporary,
-      `${JSON.stringify({
-        version: 2,
-        agentID,
-        surfaceID,
-        workspaceID,
-        state,
-        reason,
-        pid: process.pid,
-        updatedAt: Date.now() / 1000,
-      })}\n`,
+      `${JSON.stringify(directStatusRecord(
+        { state, reason },
+        {
+          surfaceID,
+          workspaceID,
+          pid: process.pid,
+          processStartedAt,
+          updatedAt: Date.now() / 1000,
+        },
+      ))}\n`,
       { mode: 0o600 },
     );
     fs.renameSync(temporary, statusFile);
