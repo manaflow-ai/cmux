@@ -3488,6 +3488,38 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(openWithTitles, [FileExternalOpenText.openWithOther])
     }
 
+    func testExternalOpenMenuKeepsOpenWithForASingleResolvedApplication() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.env")
+        let primaryApplication = FileExternalOpenApplication(
+            url: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
+            displayName: "TextEdit",
+            isDefault: true
+        )
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: []
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("TextEdit"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(
+            openWithItem.submenu?.items.filter { !$0.isSeparatorItem }.map(\.title)
+        )
+        XCTAssertEqual(
+            openWithTitles,
+            [FileExternalOpenText.openWithOther],
+            "One handler used to drop the submenu, which is the case this PR is about."
+        )
+    }
+
     @MainActor
     func testOpenWithOtherOpensTheFileWithTheChosenApplication() {
         let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.env")
