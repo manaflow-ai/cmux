@@ -8223,6 +8223,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
                     }
+                    // An unreachable-class iroh route failure is staleness
+                    // evidence: drop any reusable discovery snapshot for this
+                    // Mac so the NEXT attempt rebuilds its dial plan from a
+                    // fresh broker fetch instead of redialing a corpse route.
+                    // The transport pool reports most dial failures itself,
+                    // but this request deadline cancels an in-flight dial (the
+                    // pool then sees only a cancellation), so the owner that
+                    // classified the outcome reports it too.
+                    if route.kind == .iroh,
+                       !ticket.macDeviceID.isEmpty,
+                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                        await personalIrohDiscovery?.invalidateDiscovery(
+                            forMacDeviceID: ticket.macDeviceID
+                        )
+                    }
                 }
             }
             // This route exhausted every workspace-list request without being

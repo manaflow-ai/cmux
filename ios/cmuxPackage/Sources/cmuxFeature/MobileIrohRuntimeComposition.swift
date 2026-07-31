@@ -573,6 +573,13 @@ public final class MobileIrohRuntimeComposition:
         return candidates
     }
 
+    /// Drops reusable broker discovery state for one Mac after a presence
+    /// route push, so the next dial rebuilds its plan from a fresh snapshot
+    /// instead of redialing the Mac's pre-relaunch route state.
+    public func invalidateDiscovery(forMacDeviceID deviceID: String) async {
+        await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
+    }
+
     private func recordDiscoveryOutcome(candidateCount: Int) {
         if candidateCount > 0 {
             diagnosticLog?.record(DiagnosticEvent(
