@@ -1,5 +1,15 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+const modifiedEnvironment = [
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_STACK_AUTH_TIMEOUT_MS",
+  "SUBROUTER_HOSTED_URL",
+] as const;
+const originalEnvironment = Object.fromEntries(
+  modifiedEnvironment.map((name) => [name, process.env[name]]),
+) as Record<(typeof modifiedEnvironment)[number], string | undefined>;
+
 process.env.SUBROUTER_ALLOWED_TEAM_IDS = "*";
 process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "10000";
@@ -38,6 +48,14 @@ let listedAccounts: unknown[] = [];
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
+  for (const name of modifiedEnvironment) {
+    const value = originalEnvironment[name];
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
 });
 
 beforeEach(() => {
@@ -54,6 +72,21 @@ describe("hosted Subrouter account routes", () => {
     currentUser = null;
 
     const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("returns 401 when cookie auth has no Stack access token", async () => {
+    getAuthJson.mockResolvedValueOnce({
+      accessToken: "",
+      refreshToken: "",
+    });
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts", { auth: "cookie" }),
+    );
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });

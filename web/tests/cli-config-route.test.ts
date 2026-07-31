@@ -18,4 +18,29 @@ describe("CLI config route", () => {
       },
     });
   });
+
+  test("returns 503 instead of advertising incomplete Stack configuration", async () => {
+    const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+    const publishableKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
+    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+    delete process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
+    try {
+      const response = GET();
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: "Stack Auth is not configured",
+      });
+    } finally {
+      if (projectId === undefined) {
+        delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+      } else {
+        process.env.NEXT_PUBLIC_STACK_PROJECT_ID = projectId;
+      }
+      if (publishableKey === undefined) {
+        delete process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
+      } else {
+        process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = publishableKey;
+      }
+    }
+  });
 });
