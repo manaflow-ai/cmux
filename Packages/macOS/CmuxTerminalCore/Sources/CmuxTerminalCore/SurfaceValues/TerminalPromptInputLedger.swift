@@ -6,7 +6,6 @@ public struct TerminalPromptInputLedger: Sendable {
     private var agentScope: String?
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
-    private var knownHumanComposerLength: Int? = 0
     private var pendingBoundaries: [TerminalPromptSubmissionBoundary] = []
 
     /// Creates an empty ledger with no human input or pending boundaries.
@@ -22,7 +21,6 @@ public struct TerminalPromptInputLedger: Sendable {
         agentScope = scope
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
-        knownHumanComposerLength = 0
         pendingBoundaries.removeAll(keepingCapacity: false)
     }
 
@@ -50,11 +48,6 @@ public struct TerminalPromptInputLedger: Sendable {
     /// This means agent-specific key handling can conservatively produce a
     /// false negative without weakening draft safety: a later known boundary
     /// and hook can still recover the ledger.
-    ///
-    /// Simple insert/backspace sequences retain exact length knowledge, so
-    /// deleting a freshly typed draft back to zero recovers without guessing
-    /// or waiting for a hook. Any editor-dependent operation loses that
-    /// knowledge and stays fail-closed.
     public mutating func recordHumanInput(
         _ mutation: HumanPromptInputMutation
     ) {
@@ -65,33 +58,13 @@ public struct TerminalPromptInputLedger: Sendable {
             // establish a new recoverable epoch.
             humanInputGeneration = 1
             confirmedHumanInputGeneration = 0
-            knownHumanComposerLength = nil
             removeHumanBoundaries()
         }
         switch mutation {
-        case .insert(let characterCount):
-            guard characterCount > 0 else { return }
-            if let knownHumanComposerLength {
-                let (updatedLength, overflowed) =
-                    knownHumanComposerLength.addingReportingOverflow(
-                        characterCount
-                    )
-                self.knownHumanComposerLength =
-                    overflowed ? nil : updatedLength
-            }
-        case .backspace:
-            guard let knownHumanComposerLength else { return }
-            let remaining = max(knownHumanComposerLength - 1, 0)
-            self.knownHumanComposerLength = remaining
-            if remaining == 0 {
-                confirmedHumanInputGeneration = humanInputGeneration
-                removeHumanBoundaries()
-            }
         case .submissionBoundary:
-            knownHumanComposerLength = nil
             appendHumanBoundary(generation: humanInputGeneration)
         case .unknown:
-            knownHumanComposerLength = nil
+            break
         }
     }
 
@@ -173,10 +146,6 @@ public struct TerminalPromptInputLedger: Sendable {
                         confirmedHumanInputGeneration,
                         confirmsHumanInputGeneration
                     )
-                    knownHumanComposerLength =
-                        humanInputGeneration == confirmedHumanInputGeneration
-                            ? 0
-                            : nil
                 }
                 return .programmatic(source: source)
             }
@@ -209,8 +178,6 @@ public struct TerminalPromptInputLedger: Sendable {
         }
         pendingBoundaries.removeFirst()
         confirmedHumanInputGeneration = generation
-        knownHumanComposerLength =
-            humanInputGeneration == generation ? 0 : nil
         return .human
     }
 

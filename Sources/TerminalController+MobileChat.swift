@@ -274,14 +274,34 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: terminalParams,
+            requireTerminal: true
+        ),
+              let surfaceID = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalInputTarget(
+                  forPanelID: surfaceID
+              )?.panel else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        let clearResult = clearAgentPrompt(terminalPanel)
-        guard clearResult.accepted else {
-            return mobileChatInputError(clearResult)
+        guard let agentInputScope = resolved.workspace.agentPromptInputScope(
+            forPanelId: terminalPanel.id
+        ),
+              !terminalPanel.humanComposerIsBusy(
+                  agentInputScope: agentInputScope
+              ) else {
+            return .err(
+                code: "rejected_composer_busy",
+                message: Self.agentPromptComposerBusyMessage,
+                data: [
+                    "surface_id": surfaceID.uuidString,
+                    "retryable": true,
+                    "retry_after":
+                        "human_prompt_submit_or_agent_restart",
+                ]
+            )
         }
         for (index, attachment) in attachments.enumerated() {
             guard let base64 = attachment["data_b64"] as? String else {

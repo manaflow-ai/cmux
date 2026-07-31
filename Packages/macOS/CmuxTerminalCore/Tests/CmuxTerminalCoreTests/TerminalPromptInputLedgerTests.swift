@@ -2,27 +2,6 @@ import Testing
 @testable import CmuxTerminalCore
 
 @Suite struct TerminalPromptInputLedgerTests {
-    @Test func deletingKnownTypedDraftBackToEmptyRecoversWithoutHook() {
-        var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(.insert(characterCount: 3))
-        #expect(ledger.hasUnconfirmedHumanInput)
-
-        ledger.recordHumanInput(.backspace)
-        ledger.recordHumanInput(.backspace)
-        #expect(ledger.hasUnconfirmedHumanInput)
-        ledger.recordHumanInput(.backspace)
-
-        #expect(!ledger.hasUnconfirmedHumanInput)
-    }
-
-    @Test func backspaceCannotGuessAnUnknownComposerIsEmpty() {
-        var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(.unknown)
-        ledger.recordHumanInput(.backspace)
-
-        #expect(ledger.hasUnconfirmedHumanInput)
-    }
-
     @Test func submitCapableReturnStaysBusyUntilItsHookArrives() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)

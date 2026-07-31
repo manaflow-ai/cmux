@@ -5666,48 +5666,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// `UserPromptSubmit` hook can confirm the boundary; missing an
     /// agent-specific submit chord therefore stays fail-closed.
     private func humanPromptInputMutation(
-        for event: NSEvent,
-        surface: ghostty_surface_t
+        for event: NSEvent
     ) -> HumanPromptInputMutation {
         guard !hasMarkedText() else { return .unknown }
         let flags = event.modifierFlags.intersection(
             .deviceIndependentFlagsMask
         )
-        if (event.keyCode == UInt16(kVK_Return)
-                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter)),
-           !flags.contains(.shift),
-           !flags.contains(.option),
-           !flags.contains(.command) {
-            return ghosttyBindingFlags(for: event, surface: surface) == nil
-                ? .submissionBoundary
-                : .unknown
-        }
-        if event.keyCode == UInt16(kVK_Delete),
-           !flags.contains(.control),
-           !flags.contains(.option),
-           !flags.contains(.command) {
-            // A binding can replace Backspace with arbitrary terminal input,
-            // so exact draft-length tracking is safe only when Ghostty will
-            // encode the key normally.
-            return ghosttyBindingFlags(for: event, surface: surface) == nil
-                ? .backspace
-                : .unknown
-        }
-        guard !flags.contains(.control),
+        guard event.keyCode == UInt16(kVK_Return)
+                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter),
+              !flags.contains(.shift),
               !flags.contains(.option),
-              !flags.contains(.command),
-              let characters = event.characters,
-              !characters.isEmpty,
-              !characters.unicodeScalars.contains(where: {
-                  CharacterSet.controlCharacters.contains($0)
-              }) else {
+              !flags.contains(.command) else {
             return .unknown
         }
-        // Printable keys can also be remapped to multi-character text or an
-        // editor action; retain exact length only for ordinary key encoding.
-        return ghosttyBindingFlags(for: event, surface: surface) == nil
-            ? .insert(characterCount: characters.count)
-            : .unknown
+        return .submissionBoundary
     }
 
     override func keyDown(with event: NSEvent) {
@@ -5801,14 +5773,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         // Shells do not own an agent composer, so keep their typing path free
-        // of the binding lookup and character classification below. Any key
-        // forwarded to an active agent can mutate its composer: history
-        // navigation, control bindings, and user-defined Ghostty bindings are
-        // not limited to printable text, so track those fail-closed.
+        // of ownership bookkeeping. Any key forwarded to an active agent can
+        // mutate its composer; only Return has useful structure, and its later
+        // structured hook must still confirm that it actually submitted.
         if let terminalSurface,
            terminalSurface.hasPromptInputAgentScope {
             terminalSurface.recordHumanPromptInput(
-                humanPromptInputMutation(for: event, surface: surface)
+                humanPromptInputMutation(for: event)
             )
         }
 #if DEBUG

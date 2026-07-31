@@ -71,6 +71,40 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func mobileChatAdmissionLeavesNativeHumanDraftUnchanged() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.surface.releaseSurfaceForTesting()
+        panel.textBoxContent = "human draft"
+
+        let isBusy = panel.humanComposerIsBusy(
+            agentInputScope: "agentPIDKey:codex.session"
+        )
+
+        #expect(isBusy)
+        #expect(panel.textBoxContent == "human draft")
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func mobileChatAdmissionLeavesTerminalHumanDraftUnchanged() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.surface.releaseSurfaceForTesting()
+        let agentScope = "agentPIDKey:codex.session"
+        panel.surface.synchronizePromptInputAgentScope(agentScope)
+        panel.surface.recordHumanPromptInput(.unknown)
+
+        let isBusy = panel.humanComposerIsBusy(
+            agentInputScope: agentScope
+        )
+
+        #expect(isBusy)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
     @Test func simpleTextBoxSubmissionUsesOneCompoundTerminalItem() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }

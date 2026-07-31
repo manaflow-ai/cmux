@@ -724,10 +724,12 @@ final class TerminalPanel: Panel, ObservableObject {
         hookRecordingSource: String?,
         hookConfirmsHumanInput: Bool = false
     ) -> TerminalSurface.PromptSubmissionSendResult {
-        if rejectIfHumanComposerBusy, hasHumanTextBoxDraft {
+        if rejectIfHumanComposerBusy,
+           humanComposerIsBusy(agentInputScope: agentInputScope) {
             return .composerBusy
+        } else if !rejectIfHumanComposerBusy {
+            surface.synchronizePromptInputAgentScope(agentInputScope)
         }
-        surface.synchronizePromptInputAgentScope(agentInputScope)
         resumeForExplicitInputIfNeeded()
         return surface.sendPromptSubmission(
             text,
@@ -736,6 +738,18 @@ final class TerminalPanel: Panel, ObservableObject {
             hookRecordingSource: hookRecordingSource,
             hookConfirmsHumanInput: hookConfirmsHumanInput
         )
+    }
+
+    /// Synchronizes the agent ownership epoch and reports whether either
+    /// human composer can contain a draft.
+    ///
+    /// Callers that stage more than one terminal input use this as their
+    /// admission boundary before the first write. The check and subsequent
+    /// synchronous writes must remain in one non-suspending main-actor turn.
+    func humanComposerIsBusy(agentInputScope: String?) -> Bool {
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        return hasHumanTextBoxDraft
+            || surface.hasUnconfirmedHumanPromptInput
     }
 
     var hasHumanTextBoxDraft: Bool {
