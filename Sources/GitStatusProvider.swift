@@ -1,6 +1,28 @@
 import CmuxFoundation
 import Foundation
 
+private struct GitStatusEnvironmentCommandRunner: CommandRunning {
+    let base: any CommandRunning
+    let environment: [String: String]
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        let environmentArguments = environment
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+        return await base.run(
+            directory: directory,
+            executable: "/usr/bin/env",
+            arguments: ["-i"] + environmentArguments + [executable] + arguments,
+            timeout: timeout
+        )
+    }
+}
+
 /// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
 struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
@@ -26,10 +48,14 @@ struct GitStatusProvider: Sendable {
         } else {
             var nonLockingEnvironment = environment
             nonLockingEnvironment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
-            self.commandRunner = CommandRunner(
+            let baseRunner = CommandRunner(
                 environment: nonLockingEnvironment,
                 bundledBinPath: nil,
                 fallbackSearchDirectories: []
+            )
+            self.commandRunner = GitStatusEnvironmentCommandRunner(
+                base: baseRunner,
+                environment: nonLockingEnvironment
             )
         }
         self.processTimeout = max(0, processTimeout)
