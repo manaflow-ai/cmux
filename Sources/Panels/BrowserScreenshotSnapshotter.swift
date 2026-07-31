@@ -818,7 +818,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         afterScreenUpdates: Bool,
         renderer: BrowserViewportSnapshotRenderer?,
-        timeout: TimeInterval?
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
