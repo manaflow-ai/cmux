@@ -138,9 +138,8 @@ extension TerminalController: ControlWorkspaceContext {
         // If this workspace belongs to another window, bring it forward so focus
         // is visible.
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        if let windowId {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectWorkspace(ws)
         return .resolved(windowID: windowId)
@@ -171,20 +170,22 @@ extension TerminalController: ControlWorkspaceContext {
         windowID: UUID,
         focusRequested: Bool
     ) -> ControlWorkspaceMoveToWindowResolution {
-        guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard let app = AppDelegate.shared else {
             return .workspaceNotFound
         }
-        guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
+        guard app.tabManagerFor(tabId: workspaceID) != nil else {
+            return .workspaceNotFound
+        }
+        guard app.tabManagerFor(windowId: windowID) != nil else {
             return .windowNotFound
         }
-        guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
-            return .workspaceNotFound
-        }
         let focus = v2FocusAllowed(requested: focusRequested)
-        dstTM.attachWorkspace(ws, select: focus)
-        if focus {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
-            setActiveTabManager(dstTM)
+        guard app.moveWorkspaceToWindow(
+            workspaceId: workspaceID,
+            windowId: windowID,
+            focus: focus
+        ) else {
+            return focus ? .windowNotFound : .workspaceNotFound
         }
         return .resolved
     }
@@ -331,9 +332,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectNextTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
@@ -346,9 +346,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.selectPreviousTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
@@ -361,9 +360,8 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard let before = tabManager.selectedTabId else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         tabManager.navigateBack()
         guard let after = tabManager.selectedTabId, after != before else { return .notFound }

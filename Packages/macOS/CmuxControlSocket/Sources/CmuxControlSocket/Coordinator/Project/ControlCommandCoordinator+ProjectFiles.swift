@@ -35,6 +35,8 @@ extension ControlCommandCoordinator {
             requestedFocus: bool(params, "focus") ?? false
         ) ?? .createFailed
         switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noFocusedSurface:

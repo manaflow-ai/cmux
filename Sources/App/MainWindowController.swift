@@ -3,6 +3,7 @@ import CmuxWindowing
 
 @MainActor
 final class MainWindowController: ReleasingWindowController {
+    var onCloseCommitted: ((NSWindow) -> Void)?
     var onClose: (() -> Void)?
     var shouldClose: (() -> Bool)?
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
@@ -18,6 +19,7 @@ final class MainWindowController: ReleasingWindowController {
 #endif
 
     override func managedWindowWillClose(_ window: NSWindow) {
+        onCloseCommitted?(window)
         onClose?()
     }
 
@@ -54,6 +56,7 @@ final class MainWindowController: ReleasingWindowController {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         let shouldClose = shouldClose?() ?? true
         if shouldClose {
+            onCloseCommitted?(sender)
             WebViewInspectorTeardown.closeAllInspectors(in: sender)
         }
         return shouldClose

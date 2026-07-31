@@ -259,7 +259,9 @@ extension TerminalController: ControlSurfaceContext {
             if windowDockMismatchesExplicitSelectors(routing, dock: windowDock, aliasTabManager: tabManager) {
                 return .surfaceNotFound(surfaceID)
             }
-            focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+            guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) != nil else {
+                return .tabManagerUnavailable
+            }
             windowDock.focusPanel(surfaceID)
             return .focused(
                 windowID: windowDock.workspaceId,
@@ -272,12 +274,23 @@ extension TerminalController: ControlSurfaceContext {
         }
         switch ws.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .pane(let location):
-            guard focusRemoteTmuxControlPane(
-                location,
-                workspace: ws,
-                tabManager: tabManager
-            ) else {
+            switch controlPerformRemoteTmuxMutation(
+                prepare: {
+                    controlPrepareWorkspaceFocus(tabManager, workspace: ws)
+                },
+                mutation: {
+                    location.controlFocus()
+                },
+                afterMutation: {
+                    ws.focusPanel(location.containerPanelID)
+                }
+            ) {
+            case .unavailable:
+                return .tabManagerUnavailable
+            case .rejected:
                 return .surfaceNotFound(surfaceID)
+            case .performed:
+                break
             }
             return .focused(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -289,12 +302,8 @@ extension TerminalController: ControlSurfaceContext {
         case .notRemote:
             break
         }
-        if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
-        }
-        if tabManager.selectedTabId != ws.id {
-            tabManager.selectWorkspace(ws)
+        guard controlPrepareWorkspaceFocus(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
         }
         if ws.panels[surfaceID] != nil {
             ws.focusPanel(surfaceID)

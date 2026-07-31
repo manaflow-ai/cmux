@@ -3,6 +3,8 @@ public import Foundation
 /// The outcome of `project.open` (the legacy `v2ProjectOpen` main-actor
 /// block; the path validation happens in the coordinator).
 public enum ControlProjectOpenResolution: Sendable, Equatable {
+    /// The routed window could not accept the requested focus mutation.
+    case tabManagerUnavailable
     /// The routed workspace was not found.
     case workspaceNotFound
     /// The workspace has no focused pane to open the project in.

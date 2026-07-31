@@ -130,8 +130,9 @@ extension TerminalController {
             }
         }
 
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
 
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let orientation = direction.orientation
@@ -251,8 +252,9 @@ extension TerminalController {
             return .surfaceNotTerminal(surfaceId)
         }
 
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
 
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
@@ -343,9 +345,17 @@ extension TerminalController {
         ) else {
             return .workspaceNotFound
         }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
-        if let remote = controlRemoteTmuxSurfaceCreate(workspace: ws, tabManager: tabManager, inputs: inputs, panelType: panelType) { return remote }
+        if let remote = controlRemoteTmuxSurfaceCreate(
+            workspace: ws,
+            tabManager: tabManager,
+            inputs: inputs,
+            panelType: panelType
+        ) {
+            return remote
+        }
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
         let paneId: PaneID? = {
             if let paneUUID = inputs.requestedPaneID {
                 return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })

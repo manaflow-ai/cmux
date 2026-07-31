@@ -178,8 +178,9 @@ extension TerminalController {
         guard let target = resolution.target else {
             return .surfaceNotFound(resolution.requestedSurfaceID)
         }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
         if ws.panels[target.surfaceID] != nil {
             ws.triggerUserInitiatedFocusFlash(panelId: target.surfaceID)
         } else {

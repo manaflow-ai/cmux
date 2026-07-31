@@ -179,6 +179,17 @@ extension TerminalController {
                 ])
                 return
             }
+            if focus {
+                guard app.focusMainWindow(windowId: located.windowId) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: "TabManager not available",
+                        data: nil
+                    )
+                    return
+                }
+                setActiveTabManager(located.tabManager)
+            }
             let previousFocusedPanelId = ws.focusedPanelId
             guard let newPaneId = ws.bonsplitController.splitPane(
                 orientation: orientation,
@@ -189,8 +200,6 @@ extension TerminalController {
                 return
             }
             if focus {
-                _ = app.focusMainWindow(windowId: located.windowId)
-                setActiveTabManager(located.tabManager)
                 located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
             } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {
                 ws.focusPanel(previousFocusedPanelId)

@@ -177,7 +177,10 @@ extension AppDelegate {
             return
         }
 
-        _ = focusMainWindow(windowId: windowID)
+        guard focusMainWindow(windowId: windowID) else {
+            NSSound.beep()
+            return
+        }
         tabManager.selectTab(workspace)
         TerminalController.shared.setActiveTabManager(tabManager)
 

@@ -333,9 +333,8 @@ extension TerminalController: ControlWorkspaceGroupContext {
               let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else {
             return .notFound
         }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(tabManager)
+        guard controlFocusWindow(for: tabManager) else {
+            return .tabManagerUnavailable
         }
         // Route through selectWorkspace so the explicit-resume notification
         // dismissal and other selection side effects fire, matching

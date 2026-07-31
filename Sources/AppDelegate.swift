@@ -575,7 +575,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
         var closeObserver: WindowCloseObserver?
-        weak var window: NSWindow?
+        private(set) var hasEverOwnedWindow: Bool
+        weak var window: NSWindow? {
+            didSet {
+                if window != nil {
+                    hasEverOwnedWindow = true
+                }
+            }
+        }
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
         private let workspaceTerminalFontSizeArbiter:
@@ -608,6 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
+            self.hasEverOwnedWindow = window != nil
             self.window = window
             self.workspaceTerminalFontSizeArbiter =
                 workspaceTerminalFontSizeArbiter
@@ -863,6 +871,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isActivationSuppressed: {
                 TerminalController.shouldSuppressSocketCommandActivation()
                     && !TerminalController.socketCommandAllowsInAppFocusMutations()
+            },
+            windowAvailability: { [weak self] window in
+                guard let self else {
+                    return .init(
+                        isAvailable: false,
+                        windowId: nil,
+                        workspaceId: nil,
+                        owner: "app-deallocated"
+                    )
+                }
+
+                if self.isMainWindowCloseCommitted(window) {
+                    return .init(
+                        isAvailable: false,
+                        windowId: self.mainWindowId(from: window),
+                        workspaceId: nil,
+                        owner: "close-committed"
+                    )
+                }
+
+                if let context = self.mainWindowContexts[ObjectIdentifier(window)]
+                    ?? self.mainWindowContexts.values.first(where: { $0.window === window }) {
+                    return .init(
+                        isAvailable: true,
+                        windowId: context.windowId,
+                        workspaceId: context.tabManager.selectedTabId,
+                        owner: "registered-context"
+                    )
+                }
+
+                let windowId = self.mainWindowId(from: window)
+                if let windowId,
+                   let route = self.recoverableMainWindowRoute(windowId: windowId),
+                   route.window === window,
+                   let manager = route.tabManager {
+                    return .init(
+                        isAvailable: false,
+                        windowId: windowId,
+                        workspaceId: manager.selectedTabId,
+                        owner: "recoverable-route-missing-context"
+                    )
+                }
+
+                return .init(
+                    isAvailable: false,
+                    windowId: windowId,
+                    workspaceId: nil,
+                    owner: "missing"
+                )
             },
             setActiveMainWindow: { [weak self] window in
                 self?.setActiveMainWindow(window)
@@ -4705,6 +4762,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
+        guard !isMainWindowCloseCommitted(window) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "mainWindow.register.closeCommittedRejected "
+                    + "windowId=\(String(windowId.uuidString.prefix(8))) "
+                    + "window={\(debugWindowToken(window))}"
+            )
+            #endif
+            return
+        }
+        // A registered context is the sole live owner. Recovery authority is
+        // transferred back to the ledger only when that exact context detaches.
         forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
@@ -4835,7 +4904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         return orderedSummaries.compactMap { summary in
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
+            guard let manager = registeredMainWindowTabManager(windowId: summary.windowId) else { return nil }
             let label = labels[summary.windowId] ?? "Window"
             return WindowMoveTarget(
                 windowId: summary.windowId,
@@ -4856,7 +4925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })
 
         for summary in orderedSummaries {
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { continue }
+            guard let manager = registeredMainWindowTabManager(windowId: summary.windowId) else { continue }
             let windowLabel = labels[summary.windowId] ?? "Window"
             let isCurrentWindow = summary.windowId == referenceWindowId
             for workspace in manager.tabs {
@@ -4881,15 +4950,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, atIndex: Int? = nil, focus: Bool = true) -> Bool {
-        guard let sourceManager = tabManagerFor(tabId: workspaceId),
-              let destinationManager = tabManagerFor(windowId: windowId) else {
+        guard let sourceContext = contextContainingTabId(workspaceId),
+              let sourceManager = registeredMainWindowTabManager(windowId: sourceContext.windowId),
+              sourceManager.workspacesById[workspaceId] != nil,
+              let destinationManager = registeredMainWindowTabManager(windowId: windowId) else {
+            return false
+        }
+        if focus, !focusMainWindow(windowId: windowId) {
             return false
         }
 
         if sourceManager === destinationManager {
             if focus {
                 destinationManager.focusTab(workspaceId, suppressFlash: true)
-                _ = focusMainWindow(windowId: windowId)
                 TerminalController.shared.setActiveTabManager(destinationManager)
             }
             return true
@@ -4899,7 +4972,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
 
         if focus {
-            _ = focusMainWindow(windowId: windowId)
             TerminalController.shared.setActiveTabManager(destinationManager)
         }
         return true
@@ -5260,19 +5332,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let window = state.window else {
             return false
         }
-        setActiveMainWindow(window)
         if shouldBringToFront {
-            bringToFront(window)
+            return bringToFront(window)
         }
+        setActiveMainWindow(window)
         return true
     }
 
     @discardableResult
     func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
         guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
-        if shouldBringToFront, let window = state.window {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        if shouldBringToFront {
+            guard let window = state.window, bringToFront(window) else { return nil }
         }
         let workspace = state.tabManager.addWorkspace(
             workingDirectory: workingDirectory,
@@ -5835,6 +5906,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
+    func isMainWindowAvailableForMutation(windowId: UUID) -> Bool {
+        guard let window = windowForMainWindowId(windowId) else { return false }
+        return mainWindowVisibilityController.isWindowAvailableForMutation(
+            window,
+            reason: .focusMainWindow
+        )
+    }
+
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {
@@ -5976,7 +6055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            self.bringToFront(destinationWindow)
+            guard self.bringToFront(destinationWindow) else { return }
             destinationManager.focusTab(
                 destinationWorkspaceId,
                 surfaceId: destinationPanelId,
@@ -7022,15 +7101,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .rightSidebarFocus
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.focusRightSidebar(
             mode: requestedMode,
             focusFirstItem: focusFirstItem
         )
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "rs.focus.app.end requested=1 result=\(result ? 1 : 0) " +
             "mode=\(requestedMode?.rawValue ?? (context.fileExplorerState?.mode.rawValue ?? "nil")) " +
@@ -7119,12 +7202,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .fileSearchFocus)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .fileSearchFocus
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.focusFileSearch()
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "file.search.focus.app.end result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
@@ -7168,8 +7255,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .findShortcut
+              ) else {
+            return false
         }
 
         let result: Bool
@@ -7182,7 +7273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "find.shortcut.app.end target=\(target) result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
@@ -7213,12 +7304,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
+        guard let window,
+              mainWindowVisibilityController.focusForInWindowCommand(
+                  window,
+                  reason: .rightSidebarToggle
+              ) else {
+            return false
         }
         let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
 #if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterResponder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "rs.focus.toggle.end result=\(result ? 1 : 0) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
@@ -7328,12 +7423,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
-                mainWindowVisibilityController.focus(
+                guard mainWindowVisibilityController.focus(
                     window,
                     reason: .ensureInitialWindow,
                     activation: .none,
                     respectActivationSuppression: false
-                )
+                ) else {
+                    continue
+                }
+            } else if !mainWindowVisibilityController.isWindowAvailableForMutation(
+                window,
+                reason: .ensureInitialWindow
+            ) {
+                continue
             }
             return context.windowId
         }
@@ -8362,10 +8464,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         guard let context else { return false }
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if shouldBringToFront, let window {
-            bringToFront(window)
-            setActiveMainWindow(window)
+        if shouldBringToFront {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  bringToFront(window) else {
+                return false
+            }
         }
 
         let workspace = context.tabManager.selectedWorkspace
@@ -8409,10 +8512,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         guard let context else { return false }
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if let window {
-            bringToFront(window)
-            setActiveMainWindow(window)
+        guard let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window) else {
+            return false
         }
 
         let workspace = context.tabManager.selectedWorkspace
@@ -8484,9 +8586,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
             return nil
         }
-        setActiveMainWindow(window)
         if shouldBringToFront {
-            bringToFront(window)
+            guard bringToFront(window, reason: .workspaceCreation) else { return nil }
+        } else {
+            setActiveMainWindow(window)
         }
 
         let workspace: Workspace
@@ -9030,27 +9133,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Keep a strong reference so the window isn't deallocated.
         let controller = MainWindowController(window: window)
+        controller.onCloseCommitted = { [weak self] closingWindow in
+            self?.markMainWindowCloseCommitted(closingWindow)
+        }
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
             self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
         }
-        controller.onClose = { [weak self, weak controller] in
+        let closeCleanupManager = tabManager
+        controller.onClose = { [weak self, weak controller, closeCleanupManager] in
             guard let self, let controller else { return }
-            let manager = self.tabManagerFor(windowId: windowId)
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it
             // also closes the app window. A plain window/quit close leaves the marker
             // unset and falls through to detach below (server stays alive for resume).
-            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId),
-               let manager {
-                for workspace in manager.tabs where workspace.isRemoteTmuxMirror {
+            if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId) {
+                for workspace in closeCleanupManager.tabs where workspace.isRemoteTmuxMirror {
                     self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
                 }
             }
-            if let manager {
-                self.remoteTmuxController.handleWindowWorkspacesClosed(
-                    workspaceIds: manager.tabs.map { $0.id }
-                )
-            }
+            self.remoteTmuxController.handleWindowWorkspacesClosed(
+                workspaceIds: closeCleanupManager.tabs.map { $0.id }
+            )
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
@@ -9145,9 +9248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
             return
         }
-        if let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        guard let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window, reason: .workspaceCreation) else {
+            return
         }
         let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
         sendWelcomeCommandWhenReady(to: workspace)
@@ -9514,16 +9617,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
-        guard let window = windowForMainWindowId(windowId) else {
+        if let window = windowForMainWindowId(windowId),
+           mainWindowVisibilityController.focus(
+               window,
+               reason: .menuBar,
+               respectActivationSuppression: false
+           ) {
+            return window
+        }
+
+        let replacementWindowId = createMainWindow(shouldActivate: false)
+        guard let replacementWindow = windowForMainWindowId(replacementWindowId),
+              mainWindowVisibilityController.focus(
+                  replacementWindow,
+                  reason: .menuBar,
+                  respectActivationSuppression: false
+              ) else {
             NSSound.beep()
             return nil
         }
-        _ = mainWindowVisibilityController.focus(
-            window,
-            reason: .menuBar,
-            respectActivationSuppression: false
-        )
-        return window
+        return replacementWindow
     }
 
     func mainWindowsForVisibilityController() -> [NSWindow] {
@@ -9555,10 +9668,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return mainWindowContexts.values.first(where: { $0.windowId == windowId })
         }()
 
-        if let context,
-           let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            bringToFront(window)
+        guard let context,
+              let window = context.window ?? windowForMainWindowId(context.windowId),
+              bringToFront(window, reason: .menuBar) else {
+            return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -13803,8 +13916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
                 return false
             }
-            setActiveMainWindow(targetWindow)
-            bringToFront(targetWindow)
+            guard bringToFront(targetWindow, reason: .feedback) else { return false }
             NotificationCenter.default.post(name: .feedbackComposerRequested, object: targetWindow)
             return true
         }
@@ -16632,6 +16744,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        // `windowWillClose` is the point of no return. Record it before
+        // teardown callbacks can attempt to focus this window.
+        markMainWindowCloseCommitted(window)
+
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
@@ -16843,11 +16959,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
+    @discardableResult
     func bringToFront(
         _ window: NSWindow,
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
-    ) {
-        _ = mainWindowVisibilityController.focus(window, reason: reason)
+    ) -> Bool {
+        mainWindowVisibilityController.focus(window, reason: reason)
+    }
+
+    func markMainWindowCloseCommitted(_ window: NSWindow) {
+        mainWindowVisibilityController.markCloseCommitted(window)
+    }
+
+    func isMainWindowCloseCommitted(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.isCloseCommitted(window)
     }
 
 #if DEBUG

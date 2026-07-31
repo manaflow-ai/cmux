@@ -107,8 +107,18 @@ extension AppDelegate {
             return false
         }
 
+        guard bringToFront(window, reason: .notification) else {
+#if DEBUG
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "window_unavailable"
+            )
+#endif
+            return false
+        }
         context.sidebarSelectionState.selection = .tabs
-        bringToFront(window)
         let focusSurfaceId = surfaceId ?? panelId
         let completion = notificationOpenCompletion(
             tabManager: context.tabManager,
@@ -191,8 +201,18 @@ extension AppDelegate {
             return false
         }
 
+        guard bringToFront(window, reason: .notification) else {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData([
+                    "jumpUnreadFallbackFail": "window_unavailable",
+                    "jumpUnreadOpenResult": "0",
+                ])
+            }
+#endif
+            return false
+        }
         sidebarSelectionState?.selection = .tabs
-        bringToFront(window)
         let focusSurfaceId = surfaceId ?? panelId
         let completion = notificationOpenCompletion(
             tabManager: tabManager,

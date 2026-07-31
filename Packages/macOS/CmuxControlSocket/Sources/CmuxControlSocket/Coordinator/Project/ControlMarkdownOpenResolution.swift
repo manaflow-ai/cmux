@@ -45,6 +45,8 @@ public enum ControlMarkdownOpenResolution: Sendable, Equatable {
         }
     }
 
+    /// The routed window could not accept the requested focus mutation.
+    case tabManagerUnavailable
     /// The routed workspace was not found.
     case workspaceNotFound
     /// No explicit surface and the workspace has no focused panel.

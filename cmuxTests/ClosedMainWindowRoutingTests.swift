@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxControlSocket
 import CmuxTerminal
 import Testing
 
@@ -22,6 +23,326 @@ struct ClosedMainWindowRoutingTests {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
+    }
+
+    @Test("Captured main window is not refocused after its context is removed")
+    func capturedMainWindowIsNotRefocusedAfterContextRemoval() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.orderOut(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            window.close()
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(app.contextForMainTerminalWindow(window, reindex: false) != nil)
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        #expect(app.contextForMainTerminalWindow(window, reindex: false) == nil)
+        #expect(!window.isVisible)
+
+        app.bringToFront(window, reason: .focusMainWindow)
+
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
+    @Test("Main window cannot be refocused after close commits")
+    func mainWindowCannotBeRefocusedAfterCloseCommits() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var focusResultDuringWillClose: Bool?
+        let focusObserver = FocusMainWindowOnWillClose(window: window) {
+            focusResultDuringWillClose = app.focusMainWindow(windowId: windowId)
+        }
+
+        withExtendedLifetime(focusObserver) {
+            window.close()
+        }
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(focusResultDuringWillClose == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
+    @Test("Close commitment removes registered window from command routing")
+    func closeCommitmentRemovesRegisteredWindowFromCommandRouting() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            window.close()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) === manager)
+
+        app.markMainWindowCloseCommitted(window)
+
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+        #expect(app.registeredMainWindowTabManager(windowId: windowId) == nil)
+    }
+
+    @Test("Production close teardown cannot re-register and refocus its window")
+    func productionCloseTeardownCannotReRegisterAndRefocusItsWindow() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let controller = MainWindowController(window: window)
+
+        AppDelegate.shared = app
+        controller.onCloseCommitted = { closingWindow in
+            app.markMainWindowCloseCommitted(closingWindow)
+        }
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var focusResultDuringControllerTeardown: Bool?
+        controller.onClose = {
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            focusResultDuringControllerTeardown = app.focusMainWindow(windowId: windowId)
+        }
+
+        window.close()
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(focusResultDuringControllerTeardown == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+    }
+
+    @Test("project.open with focus false preserves the active window and workspace")
+    func projectOpenWithoutFocusPreservesActiveContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let managerA = TabManager()
+        let managerB = TabManager()
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+
+        AppDelegate.shared = app
+        app.tabManager = managerA
+        TerminalController.shared.setActiveTabManager(managerA)
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        windowA.makeKeyAndOrderFront(nil)
+        app.setActiveMainWindow(windowA)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowAId)
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+            managerA.tabs.forEach { $0.teardownAllPanels() }
+            managerB.tabs.forEach { $0.teardownAllPanels() }
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let initiallySelectedWorkspace = try #require(managerB.selectedWorkspace)
+        let backgroundWorkspace = managerB.addWorkspace(
+            title: "Background project",
+            select: false
+        )
+        let panelCountBeforeOpen = backgroundWorkspace.panels.count
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: windowBId,
+            groupID: nil,
+            workspaceID: backgroundWorkspace.id,
+            surfaceID: nil,
+            paneID: nil
+        )
+
+        let result = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "project.open",
+            isV2: true,
+            params: ["focus": false]
+        ) {
+            TerminalController.shared.controlProjectOpen(
+                routing: routing,
+                path: FileManager.default.temporaryDirectory.path,
+                requestedFocus: false
+            )
+        }
+
+        guard case .opened = result else {
+            Issue.record("Expected background project surface creation")
+            return
+        }
+        #expect(backgroundWorkspace.panels.count == panelCountBeforeOpen + 1)
+        #expect(managerB.selectedTabId == initiallySelectedWorkspace.id)
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+    }
+
+    @Test("Noninteractive close commits before inspector teardown")
+    func noninteractiveCloseCommitsBeforeInspectorTeardown() {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        window.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        var wasCommittedDuringTeardown = false
+        var focusResultDuringTeardown: Bool?
+        app.closeMainWindowWithoutInteractiveVeto(window) { closingWindow in
+            wasCommittedDuringTeardown = app.isMainWindowCloseCommitted(closingWindow)
+            app.registerMainWindow(
+                closingWindow,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            focusResultDuringTeardown = app.focusMainWindow(windowId: windowId)
+        }
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(wasCommittedDuringTeardown)
+        #expect(focusResultDuringTeardown == false)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
     }
 
     @Test("Closed main window is not listed or focusable while its objects linger")
@@ -105,11 +426,12 @@ struct ClosedMainWindowRoutingTests {
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowBId })
         #expect(!app.focusMainWindow(windowId: windowBId))
         #expect(!windowB.isVisible)
-        #expect(app.tabManagerFor(windowId: windowBId) === managerB)
+        #expect(app.tabManagerFor(windowId: windowBId) == nil)
+        #expect(app.windowId(for: managerB) == nil)
     }
 
-    @Test("Recovered visible window stays listed and focusable")
-    func recoveredVisibleWindowStaysListedAndFocusable() throws {
+    @Test("Recovered visible window stays routable but cannot focus without context")
+    func recoveredVisibleWindowStaysRoutableButCannotFocusWithoutContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -122,15 +444,17 @@ struct ClosedMainWindowRoutingTests {
         let windowCId = UUID()
         let windowA = makeMainWindow(id: windowAId)
         let windowC = makeMainWindow(id: windowCId)
+        let managerA = TabManager()
+        let managerC = TabManager()
         defer {
             app.unregisterMainWindowContextForTesting(windowId: windowAId)
             app.unregisterMainWindowContextForTesting(windowId: windowCId)
+            managerA.tabs.forEach { $0.teardownAllPanels() }
+            managerC.tabs.forEach { $0.teardownAllPanels() }
             windowA.orderOut(nil)
             windowC.orderOut(nil)
         }
 
-        let managerA = TabManager()
-        let managerC = TabManager()
         app.registerMainWindow(
             windowA,
             windowId: windowAId,
@@ -149,17 +473,404 @@ struct ClosedMainWindowRoutingTests {
         )
         windowA.makeKeyAndOrderFront(nil)
         windowC.makeKeyAndOrderFront(nil)
-        TerminalController.shared.setActiveTabManager(managerA)
+        app.setActiveMainWindow(windowA)
 
         let workspaceC = try #require(managerC.selectedWorkspace)
         let terminalPanelC = try #require(workspaceC.focusedTerminalPanel)
+        let unselectedWorkspaceC = managerC.addWorkspace(title: "Unavailable target", select: false)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
+        let workspaceA = try #require(managerA.selectedWorkspace)
+        let routingC = ControlRoutingSelectors(
+            hasWindowIDParam: true,
+            windowID: windowCId,
+            groupID: nil,
+            workspaceID: nil,
+            surfaceID: nil,
+            paneID: nil
+        )
+        // The registered context is the sole live routing owner.
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
 
         app.unregisterMainWindowContextForTesting(windowId: windowCId)
 
+        // Detachment transfers non-focus routing authority to the recovery ledger.
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId)?.tabManager === managerC)
         #expect(windowC.isVisible)
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
-        #expect(app.focusMainWindow(windowId: windowCId))
+        #expect(app.tabManagerFor(windowId: windowCId) === managerC)
+        #expect(!app.moveWorkspaceToWindow(
+            workspaceId: workspaceA.id,
+            windowId: windowCId,
+            focus: false
+        ))
+        #expect(managerA.tabs.contains { $0.id == workspaceA.id })
+        #expect(!managerC.tabs.contains { $0.id == workspaceA.id })
+        #expect(!app.moveWorkspaceToWindow(
+            workspaceId: workspaceC.id,
+            windowId: windowAId,
+            focus: false
+        ))
+        #expect(managerC.tabs.contains { $0.id == workspaceC.id })
+        #expect(!managerA.tabs.contains { $0.id == workspaceC.id })
+        #expect(!app.focusMainWindow(windowId: windowCId))
+        #expect(!app.focusScriptableMainWindow(windowId: windowCId, bringToFront: true))
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+        #expect(
+            TerminalController.shared.controlSelectWorkspace(
+                routing: routingC,
+                workspaceID: unselectedWorkspaceC.id
+            ) == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        #expect(
+            TerminalController.shared.controlSelectNextWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(
+            TerminalController.shared.controlSelectPreviousWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(
+            TerminalController.shared.controlSelectLastWorkspace(routing: routingC)
+                == .tabManagerUnavailable
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+
+        let paneC = try #require(workspaceC.bonsplitController.focusedPaneId)
+        #expect(
+            TerminalController.shared.controlPaneFocus(
+                workspace: workspaceC,
+                paneID: paneC.id,
+                tabManager: managerC
+            ) == .tabManagerUnavailable
+        )
+        #expect(
+            TerminalController.shared.controlSurfaceFocus(
+                routing: routingC,
+                surfaceID: terminalPanelC.id
+            ) == .tabManagerUnavailable
+        )
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        let panelCountBeforeProjectOpen = workspaceC.panels.count
+        let projectOpenResult = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "project.open",
+            isV2: true,
+            params: ["focus": true]
+        ) {
+            TerminalController.shared.controlProjectOpen(
+                routing: routingC,
+                path: FileManager.default.temporaryDirectory.path,
+                requestedFocus: true
+            )
+        }
+        if case .opened = projectOpenResult {
+            Issue.record("Rejected window focus still created a project surface")
+        }
+        #expect(workspaceC.panels.count == panelCountBeforeProjectOpen)
+        #expect(managerC.selectedTabId == workspaceC.id)
+
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-closed-window-\(UUID().uuidString).txt"
+        )
+        try Data("closed-window".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let panelCountBeforeFileOpen = workspaceC.panels.count
+        let fileOpenResult = TerminalController.shared.withSocketCommandPolicy(
+            commandKey: "file.open",
+            isV2: true,
+            params: ["focus": true]
+        ) {
+            TerminalController.shared.v2FileOpen(params: [
+                "window_id": windowCId.uuidString,
+                "workspace_id": workspaceC.id.uuidString,
+                "path": [fileURL.path],
+                "focus": true,
+            ])
+        }
+        if case .ok = fileOpenResult {
+            Issue.record("Rejected window focus still opened a file surface")
+        }
+        #expect(workspaceC.panels.count == panelCountBeforeFileOpen)
+        #expect(managerC.selectedTabId == workspaceC.id)
+
+        let globalSearchWorkspace = unselectedWorkspaceC
+        let globalSearchPanel = try #require(globalSearchWorkspace.focusedTerminalPanel)
+        app.openGlobalSearchHit(
+            SearchIndexHit(
+                id: "closed-window-hit",
+                windowID: windowCId,
+                workspaceID: globalSearchWorkspace.id,
+                panelID: globalSearchPanel.id,
+                kind: .title,
+                title: "Unavailable target",
+                location: "Unavailable target",
+                anchor: "",
+                snippet: "needle",
+                rank: 0,
+                timestamp: Date(timeIntervalSince1970: 0)
+            ),
+            query: "needle"
+        )
+        #expect(managerC.selectedTabId == workspaceC.id)
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        #expect(!app.workspaceMoveTargets(
+            excludingWorkspaceId: workspaceA.id,
+            referenceWindowId: windowAId
+        ).contains { $0.windowId == windowCId })
+
+        #expect(!app.moveWorkspaceToWindow(
+            workspaceId: workspaceA.id,
+            windowId: windowCId,
+            focus: true
+        ))
+        #expect(managerA.tabs.contains { $0.id == workspaceA.id })
+        #expect(!managerC.tabs.contains { $0.id == workspaceA.id })
+        #expect(app.tabManager === managerA)
+        #expect(TerminalController.shared.activeTabManagerForCallerNotification() === managerA)
+
+        windowC.orderOut(nil)
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
+        windowC.makeKeyAndOrderFront(nil)
+        #expect(app.recoverableMainWindowRoute(windowId: windowCId) == nil)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowCId })
+        #expect(app.tabManagerFor(windowId: windowCId) == nil)
+        #expect(app.windowId(for: managerC) == nil)
+        #expect(!TerminalController.shared.controlFocusWindow(for: managerC))
+        #expect(!TerminalController.shared.controlWorkspaceMutationTargetIsAvailable(managerC))
+        #expect(!TerminalController.shared.v2PrepareWorkspaceMutation(
+            managerC,
+            workspace: unselectedWorkspaceC,
+            requestedFocus: false
+        ))
+    }
+
+    @Test("Initial and menu-bar routing skip close-committed contexts")
+    func initialAndMenuBarRoutingSkipCloseCommittedContexts() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let closingManager = TabManager()
+        let closingWindowId = UUID()
+        let closingWindow = makeMainWindow(id: closingWindowId)
+        let previousConfirmationHandler = app.debugCloseMainWindowConfirmationHandler
+
+        AppDelegate.shared = app
+        app.tabManager = closingManager
+        app.debugCloseMainWindowConfirmationHandler = { _ in true }
+        TerminalController.shared.setActiveTabManager(closingManager)
+        app.registerMainWindow(
+            closingWindow,
+            windowId: closingWindowId,
+            tabManager: closingManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.markMainWindowCloseCommitted(closingWindow)
+
+        var replacementWindowId: UUID?
+        defer {
+            if let replacementWindowId,
+               let replacementWindow = app.windowForMainWindowId(replacementWindowId) {
+                replacementWindow.close()
+            }
+            app.unregisterMainWindowContextForTesting(windowId: closingWindowId)
+            closingManager.tabs.forEach { $0.teardownAllPanels() }
+            closingWindow.orderOut(nil)
+            app.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let ensuredWindowId = app.ensureInitialMainWindowIfNeeded(
+            shouldActivate: false,
+            suppressWelcome: true
+        )
+        replacementWindowId = ensuredWindowId
+        #expect(ensuredWindowId != closingWindowId)
+
+        let shownWindow = try #require(app.showMainWindowFromMenuBar())
+        #expect(shownWindow !== closingWindow)
+        #expect(!app.isMainWindowCloseCommitted(shownWindow))
+    }
+
+    @Test("Rejected focus blocks external input and notification acknowledgement")
+    func rejectedFocusBlocksExternalInputAndNotificationAcknowledgement() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let sidebarSelectionState = SidebarSelectionState(selection: .notifications)
+        let notificationStore = TerminalNotificationStore.shared
+        let previousNotifications = notificationStore.notifications
+        let previousNotificationStore = app.notificationStore
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        app.notificationStore = notificationStore
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Rejected focus",
+            subtitle: "test",
+            body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_888_888),
+            isRead: false
+        )
+        notificationStore.replaceNotificationsForTesting([notification])
+        let context = try #require(app.contextForMainTerminalWindow(window, reindex: false))
+        app.markMainWindowCloseCommitted(window)
+
+        defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            app.notificationStore = previousNotificationStore
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(!app.pasteTextInPreferredMainWindowFromExternalLink(
+            "rejected-input",
+            preferredWindow: window,
+            shouldBringToFront: true
+        ))
+        #expect(!app.openNotificationInContext(
+            context,
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            notificationId: notification.id
+        ))
+        #expect(notificationStore.notifications.first(where: { $0.id == notification.id })?.isRead == false)
+        if case .notifications = sidebarSelectionState.selection {
+            // Expected: focus rejection leaves the notification view untouched.
+        } else {
+            Issue.record("Rejected focus changed the sidebar selection")
+        }
+    }
+
+    @Test("Recoverable route never rebinds to another window with the same identifier")
+    func recoverableRouteNeverRebindsToAnotherWindowWithSameIdentifier() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        var originalWindow: NSWindow? = makeMainWindow(id: windowId)
+        let replacementWindow = makeMainWindow(id: windowId)
+        originalWindow?.isReleasedWhenClosed = false
+        replacementWindow.isReleasedWhenClosed = false
+
+        AppDelegate.shared = app
+        app.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        app.registerMainWindow(
+            try #require(originalWindow),
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        originalWindow?.makeKeyAndOrderFront(nil)
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminalPanel = try #require(workspace.focusedTerminalPanel)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+        let originalWorkspaceId = workspace.id
+        let originalTerminalId = terminalPanel.id
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        if let originalWindow {
+            app.markMainWindowCloseCommitted(originalWindow)
+            originalWindow.orderOut(nil)
+            originalWindow.close()
+        }
+        originalWindow = nil
+        let replacementManager = TabManager()
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: replacementManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        replacementWindow.makeKeyAndOrderFront(nil)
+
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            replacementManager.tabs.forEach { $0.teardownAllPanels() }
+            replacementWindow.orderOut(nil)
+            replacementWindow.close()
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let replacementWorkspace = try #require(replacementManager.selectedWorkspace)
+        let replacementTerminal = try #require(replacementWorkspace.focusedTerminalPanel)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
+        #expect(app.tabManagerFor(windowId: windowId) === replacementManager)
+        #expect(replacementWorkspace.id != originalWorkspaceId)
+        #expect(replacementTerminal.id != originalTerminalId)
+        #expect(!replacementManager.tabs.contains { $0.id == originalWorkspaceId })
+    }
+}
+
+@MainActor
+private final class FocusMainWindowOnWillClose: NSObject {
+    private let focus: @MainActor () -> Void
+
+    init(window: NSWindow, focus: @escaping @MainActor () -> Void) {
+        self.focus = focus
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func windowWillClose(_ notification: Notification) {
+        focus()
     }
 }
 

@@ -94,7 +94,9 @@ extension TerminalController: ControlPaneContext {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            guard focusAndRevealWindowDock(for: dock, fallback: tabManager) != nil else {
+                return .tabManagerUnavailable
+            }
             dock.bonsplitController.focusPane(paneId)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
@@ -278,11 +280,28 @@ extension TerminalController: ControlPaneContext {
                 )
                 guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
                 let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
-                guard remoteTarget.requestSplit(vertical: orientation == .vertical, focusIntent: focusIntent) else {
+                switch controlPerformRemoteTmuxMutation(
+                    prepare: {
+                        v2PrepareWorkspaceMutation(
+                            tabManager,
+                            workspace: ws,
+                            requestedFocus: inputs.requestedFocus
+                        )
+                    },
+                    mutation: {
+                        remoteTarget.requestSplit(
+                            vertical: orientation == .vertical,
+                            focusIntent: focusIntent
+                        )
+                    }
+                ) {
+                case .unavailable:
+                    return .tabManagerUnavailable
+                case .rejected:
                     return .createFailed
+                case .performed:
+                    break
                 }
-                v2MaybeFocusWindow(for: tabManager)
-                v2MaybeSelectWorkspace(tabManager, workspace: ws)
                 return .routedToRemote(
                     windowID: v2ResolveWindowId(tabManager: tabManager),
                     workspaceID: ws.id,
@@ -290,8 +309,9 @@ extension TerminalController: ControlPaneContext {
                 )
             }
         }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        guard v2PrepareWorkspaceMutation(tabManager, workspace: ws) else {
+            return .tabManagerUnavailable
+        }
 
         guard let sourcePanelId = inputs.requestedSourceSurfaceID ?? ws.focusedPanelId,
               ws.panels[sourcePanelId] != nil else {
