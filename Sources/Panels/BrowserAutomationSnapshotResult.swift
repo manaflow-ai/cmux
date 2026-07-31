@@ -26,7 +26,12 @@ enum BrowserAutomationSnapshotResult: Sendable {
                 code: "screenshot_mismatch",
                 message: screenshotError.localizedDescription
             )
-        default:
+        case .captureAreaTooLarge,
+             .emptySnapshot,
+             .invalidSelection,
+             .invalidImageRepresentation,
+             .pasteboardWriteFailed,
+             .webContentMetricsUnavailable:
             return .failure(
                 code: "internal_error",
                 message: screenshotError.localizedDescription

@@ -697,6 +697,26 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierRejectsUniformTransparentPixelsOverOpaqueDOMBackground() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: probes.viewportSize,
+                color: BrowserScreenshotRGBA(
+                    red: 0,
+                    green: 0,
+                    blue: 0,
+                    alpha: 0
+                )
+            )
+        )
+
+        #expect(outcome == .mismatch(probe: probes.probes[0], count: 2))
+    }
+
+    @Test
     func verifierUsesBulkPixelSampling() {
         let probes = textProbeSet()
         let outcome = BrowserScreenshotFrameVerifier().verify(

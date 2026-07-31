@@ -100,7 +100,8 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     }
 
     /// A painted glyph introduces color or alpha variation inside its range.
-    /// A missing glyph reveals the solid CSS background expected by the DOM.
+    /// A missing glyph reveals the solid CSS background expected by the DOM or
+    /// a transparent compositor hole where the DOM requires opaque content.
     /// A different uniform color is inconclusive because an unobservable
     /// pointer-events-none overlay may legitimately cover the text.
     private func pixelsAreUniform(
@@ -160,7 +161,8 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
             }
         }
         guard let referenceColor else { return false }
-        return referenceColor.distance(from: probe.background) <= uniformityTolerance
+        return referenceColor.alpha <= uniformityTolerance
+            || referenceColor.distance(from: probe.background) <= uniformityTolerance
     }
 
     /// Maps a probe to one of sixteen viewport cells for independent mismatch evidence.
