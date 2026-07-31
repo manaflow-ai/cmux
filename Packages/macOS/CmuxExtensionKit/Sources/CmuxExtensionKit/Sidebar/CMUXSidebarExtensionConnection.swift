@@ -201,14 +201,17 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     }
 
     private func markInterrupted(ifCurrentGeneration generation: UInt64) {
-        let transition = withState { state -> (replies: [ActionReplyHandler], generation: UInt64)? in
+        let transition = withState { state -> (connection: NSXPCConnection?, replies: [ActionReplyHandler], generation: UInt64)? in
             guard state.generation == generation else { return nil }
             state.generation += 1
+            let connection = state.connection
+            state.connection = nil
             state.host = nil
             let replies = pendingReplies(from: &state, matching: generation)
-            return (replies, state.generation)
+            return (connection, replies, state.generation)
         }
         if let transition {
+            transition.connection?.invalidate()
             deliver(.rejected("cmux connection was interrupted"), to: transition.replies)
             report(.waitingForHost, ifCurrentGeneration: transition.generation)
         }
