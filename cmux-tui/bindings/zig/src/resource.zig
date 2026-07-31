@@ -1106,6 +1106,7 @@ pub const OwnedResourceError = struct {
 pub const MutationTransportCause = enum {
     timeout,
     connection_closed,
+    other,
 };
 
 /// A mutation request was fully written, but its response was lost. The
@@ -1991,10 +1992,10 @@ fn maybeParseCreatedPath(value: raw.wire.Value) !?CreatedPath {
 
 fn mutationTransportCause(
     failure: anyerror,
-) ?MutationTransportCause {
+) MutationTransportCause {
     if (failure == error.Timeout) return .timeout;
     if (failure == error.ConnectionClosed) return .connection_closed;
-    return null;
+    return .other;
 }
 
 pub const Client = struct {
@@ -2562,14 +2563,12 @@ pub const Client = struct {
         ) catch |failure| {
             if (dispatch == .payload_complete) {
                 if (mutation) |options| {
-                    if (mutationTransportCause(failure)) |cause| {
-                        try self.setMutationTransportUncertain(
-                            operation,
-                            options.key(),
-                            cause,
-                        );
-                        return error.MutationTransportUncertain;
-                    }
+                    try self.setMutationTransportUncertain(
+                        operation,
+                        options.key(),
+                        mutationTransportCause(failure),
+                    );
+                    return error.MutationTransportUncertain;
                 }
             }
             return failure;
@@ -2583,14 +2582,12 @@ pub const Client = struct {
                     self.cancelRequest(request_id, operation) catch {};
                 }
                 if (mutation) |options| {
-                    if (mutationTransportCause(failure)) |cause| {
-                        try self.setMutationTransportUncertain(
-                            operation,
-                            options.key(),
-                            cause,
-                        );
-                        return error.MutationTransportUncertain;
-                    }
+                    try self.setMutationTransportUncertain(
+                        operation,
+                        options.key(),
+                        mutationTransportCause(failure),
+                    );
+                    return error.MutationTransportUncertain;
                 }
                 return failure;
             };
@@ -15545,6 +15542,10 @@ test "nonstandard failures after a complete mutation payload are uncertain" {
             "custom-transport-key",
             uncertainty.idempotency_key,
         );
+        try std.testing.expectEqual(
+            MutationTransportCause.other,
+            uncertainty.cause,
+        );
         try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
         if (mode == .complete_then_custom_newline_failure) {
             try std.testing.expect(payload.closed);
@@ -15606,7 +15607,7 @@ test "non-mutation post-payload failure retains its original error" {
     try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
 }
 
-test "mutation framing failures before full dispatch stay determinate" {
+test "mutation framing failures respect the payload dispatch boundary" {
     for ([_]usize{ 1, 2 }) |fail_write_call| {
         var shared = FakeShared{
             .allocator = std.testing.allocator,
@@ -15628,16 +15629,27 @@ test "mutation framing failures before full dispatch stay determinate" {
             "ws_0123456789abcdef0123456789abcdef",
         );
 
+        const expected_error: anyerror = if (fail_write_call == 1)
+            error.InjectedWriteFailure
+        else
+            error.MutationTransportUncertain;
         try std.testing.expectError(
-            error.InjectedWriteFailure,
+            expected_error,
             client.workspace(workspace_id).rename(
                 "not-dispatched",
                 try MutationOptions.withKey("pre-dispatch-failure-key"),
             ),
         );
-        try std.testing.expect(
-            client.lastMutationTransportUncertain() == null,
-        );
+        if (fail_write_call == 1) {
+            try std.testing.expect(
+                client.lastMutationTransportUncertain() == null,
+            );
+        } else {
+            try std.testing.expectEqual(
+                MutationTransportCause.other,
+                client.lastMutationTransportUncertain().?.cause,
+            );
+        }
     }
 }
 
