@@ -11,6 +11,25 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceRecoveryTests {
+    private func makeCustomizationStore() throws -> (
+        store: WorkspaceCustomizationStore,
+        defaults: UserDefaults,
+        suiteName: String
+    ) {
+        let suiteName = "WorkspaceCustomizationStore.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (
+            WorkspaceCustomizationStore(
+                defaults: defaults,
+                storageKey: "test.customizations",
+                legacyStorageKey: "test.legacy-customizations"
+            ),
+            defaults,
+            suiteName
+        )
+    }
+
     @Test
     func closedHistoryPushesMostRecentFirstAndBoundsCapacity() throws {
         #expect(ClosedItemHistoryStore.defaultWorkspaceCapacity == 100)
@@ -195,8 +214,11 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
-    func closedRestoreKeepsAutomaticTitleProvenance() throws {
+    func closedRestoreKeepsAutomaticSnapshotTitleProvenance() throws {
         let directory = "/tmp/automatic-history-title"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
         let sourceManager = TabManager(
             initialWorkingDirectory: directory,
             autoWelcomeIfNeeded: false
@@ -214,7 +236,10 @@ struct WorkspaceRecoveryTests {
             snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
         )
 
-        let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+        let destinationManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
         let historyStore = ClosedItemHistoryStore(loadPersisted: false)
         historyStore.push(.workspace(entry))
 
@@ -222,10 +247,15 @@ struct WorkspaceRecoveryTests {
         let reopened = try #require(destinationManager.selectedWorkspace)
         #expect(reopened.customTitle == "Automatic Snapshot Title")
         #expect(reopened.effectiveCustomTitleSource == .auto)
+        #expect(fixture.store.customization(for: reopened.stableId) == nil)
     }
+
     @Test
-    func failedClosedRestoreLeavesNoWorkspaceBehind() throws {
+    func failedClosedRestoreLeavesNoWorkspaceOrRecoveryRecord() throws {
         let directory = "/tmp/failed-history-restore"
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
         let sourceManager = TabManager(initialWorkingDirectory: directory, autoWelcomeIfNeeded: false)
         var snapshot = try #require(sourceManager.selectedWorkspace).sessionSnapshot(includeScrollback: false)
         snapshot.customTitle = "Failed Restore Label"
@@ -248,11 +278,17 @@ struct WorkspaceRecoveryTests {
             workspaceIndex: 0,
             snapshot: snapshot
         )
-        let destinationManager = TabManager(autoWelcomeIfNeeded: false)
+        let destinationManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
         let tabsBeforeRestore = destinationManager.tabs.map(\.id)
 
         #expect(!destinationManager.restoreClosedWorkspace(entry))
         #expect(destinationManager.tabs.map(\.id) == tabsBeforeRestore)
+        if let stableId = snapshot.stableId {
+            #expect(fixture.store.customization(for: stableId) == nil)
+        }
     }
 
     @Test
@@ -265,9 +301,13 @@ struct WorkspaceRecoveryTests {
         )
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let directory = directoryURL.path
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
         let manager = TabManager(
             initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
         )
         let sourceWorkspace = try #require(manager.selectedWorkspace)
 
@@ -280,15 +320,12 @@ struct WorkspaceRecoveryTests {
             toWorkspaceIds: [sourceWorkspace.id]
         )
 
-        // Cmd+T-style creation: the working directory is inherited from the
-        // selected workspace, not requested by the user.
         let generated = manager.addWorkspace(select: false)
         #expect(generated.title == "Terminal 2")
         #expect(generated.currentDirectory == directory)
         #expect(generated.customTitle == nil)
         #expect(generated.customColor == nil)
 
-        // Same directory requested explicitly (CLI --cwd, open-in-workspace).
         let explicitlyNamed = manager.addWorkspace(
             title: "Explicit Fresh",
             workingDirectory: directory,
@@ -297,6 +334,93 @@ struct WorkspaceRecoveryTests {
         )
         #expect(explicitlyNamed.customTitle == "Explicit Fresh")
         #expect(explicitlyNamed.customColor == nil)
+    }
+
+    @Test
+    func stableWorkspaceJournalRecoversStaleTitleColorAndClears() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/stable-workspace-journal",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(
+            tabId: sourceWorkspace.id,
+            title: "Renamed Label"
+        ))
+        sourceManager.setTabColor(tabId: sourceWorkspace.id, color: "#AABBCC")
+        #expect(
+            store.customization(for: sourceWorkspace.stableId) ==
+                WorkspaceCustomization(
+                    customTitle: .value("Renamed Label"),
+                    customColor: .value("#AABBCC")
+                )
+        )
+        var staleSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        staleSnapshot.customTitle = "Stale Snapshot Label"
+        staleSnapshot.customColor = "#112233"
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [staleSnapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Renamed Label")
+        #expect(restoredWorkspace.customColor == "#AABBCC")
+
+        restoredManager.clearCustomTitle(tabId: restoredWorkspace.id)
+        restoredManager.setTabColor(tabId: restoredWorkspace.id, color: nil)
+        var staleClearedSnapshot = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        staleClearedSnapshot.customTitle = "Resurrected Label"
+        staleClearedSnapshot.customColor = "#FFFFFF"
+
+        let clearedManager = TabManager(autoWelcomeIfNeeded: false, workspaceCustomizationStore: store)
+        clearedManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [staleClearedSnapshot]
+        ))
+        let clearedWorkspace = try #require(clearedManager.selectedWorkspace)
+        #expect(clearedWorkspace.customTitle == nil)
+        #expect(clearedWorkspace.customColor == nil)
+    }
+
+    @Test
+    func titleAndColorRecoveryFieldsRemainIndependent() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/independent-fields",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.setCustomColor("#123456")
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "Only Title Recorded"))
+        #expect(
+            store.customization(for: workspace.stableId) ==
+                WorkspaceCustomization(
+                    customTitle: .value("Only Title Recorded"),
+                    customColor: .absent
+                )
+        )
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false, workspaceCustomizationStore: store)
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        #expect(restoredManager.selectedWorkspace?.customTitle == "Only Title Recorded")
+        #expect(restoredManager.selectedWorkspace?.customColor == "#123456")
     }
 
     @Test
@@ -327,12 +451,10 @@ struct WorkspaceRecoveryTests {
 
     @Test
     func explicitCreationTitleBecomesCustomTitleWithoutInheritedColor() throws {
-        let directory = "/tmp/explicit-project"
         let manager = TabManager(autoWelcomeIfNeeded: false)
-
         let explicitlyNamed = manager.addWorkspace(
             title: "CLI Label",
-            workingDirectory: directory,
+            workingDirectory: "/tmp/explicit-project",
             inheritWorkingDirectory: false,
             select: false
         )
@@ -346,48 +468,6 @@ struct WorkspaceRecoveryTests {
             workspaces: [explicitlyNamed.sessionSnapshot(includeScrollback: false)]
         ))
         #expect(laterManager.selectedWorkspace?.customTitle == "CLI Label")
-    }
-
-    @Test
-    func sessionRestoreKeepsDistinctTitlesForSameDirectoryWorkspaces() throws {
-        let directory = "/tmp/restore-distinct-title-project"
-        let manager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
-        )
-        let first = try #require(manager.selectedWorkspace)
-        #expect(manager.setCustomTitle(tabId: first.id, title: "Task One"))
-        manager.setTabColor(tabId: first.id, color: "#111111")
-        let second = manager.addWorkspace(
-            workingDirectory: directory,
-            inheritWorkingDirectory: false,
-            select: false
-        )
-        #expect(manager.setCustomTitle(tabId: second.id, title: "Task Two"))
-        manager.setTabColor(tabId: second.id, color: "#222222")
-        let third = manager.addWorkspace(
-            workingDirectory: directory,
-            inheritWorkingDirectory: false,
-            select: false
-        )
-        #expect(manager.setCustomTitle(tabId: third.id, title: "Task Three"))
-        manager.setTabColor(tabId: third.id, color: "#333333")
-
-        // Sidebar order is an insertion-policy detail; the restore contract is
-        // that every workspace keeps its own identity, in the saved order.
-        let expectedTitles = manager.tabs.map(\.customTitle)
-        let expectedColors = manager.tabs.map(\.customColor)
-        #expect(
-            Set(expectedTitles.compactMap { $0 }) ==
-                ["Task One", "Task Two", "Task Three"]
-        )
-
-        let snapshot = manager.sessionSnapshot(includeScrollback: false)
-        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
-        restoredManager.restoreSessionSnapshot(snapshot)
-
-        #expect(restoredManager.tabs.map(\.customTitle) == expectedTitles)
-        #expect(restoredManager.tabs.map(\.customColor) == expectedColors)
     }
 
 }
