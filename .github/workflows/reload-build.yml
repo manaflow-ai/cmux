@@ -211,12 +211,26 @@ jobs:
       - name: Run focused injected-attach startup tests
         if: ${{ inputs.platform == 'ios-shellui-test' }}
         run: |
-          set -o pipefail
+          set -euo pipefail
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            xcodebuild -downloadPlatform iOS
+            ios_ready || { echo "iOS simulator runtime is unavailable" >&2; exit 1; }
+          fi
+
           mkdir -p artifact
-          swift test \
-            --package-path Packages/iOS/CmuxMobileShellUI \
-            --filter MobileInjectedAttachStartupTests \
+          xcodebuild test \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=latest' \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-shellui-test-dd" \
+            -only-testing:CmuxMobileShellUITests/MobileInjectedAttachStartupTests \
             2>&1 | tee artifact/test.log
+          grep -Eq 'Test run with [1-9][0-9]* test|Executed [1-9][0-9]* test' artifact/test.log || {
+            echo "Focused selector executed zero tests" >&2
+            exit 1
+          }
 
       - name: Write timings.json
         if: ${{ always() }}
