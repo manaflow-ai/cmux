@@ -3474,7 +3474,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 executablePath: cliPath,
                 arguments: item.arguments,
                 environment: environment,
-                timeout: 5
+                // This verifies forwarding and quiet output, not process launch latency.
+                // Shared macOS runners can stall a freshly signed CLI during startup.
+                timeout: 20
             )
 
             wait(for: [serverHandled], timeout: 5)
