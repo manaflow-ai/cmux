@@ -1661,16 +1661,17 @@ private final class TextBoxSubmitEventRunner {
 
         if index == 0, let atomicPromptSubmission {
             index = events.count
-            guard surface.sendPromptSubmission(
-                atomicPromptSubmission.text,
-                submitKey: atomicPromptSubmission.submitKey,
-                rejectIfHumanComposerBusy:
-                    atomicPromptSubmission.rejectIfHumanComposerBusy,
-                hookRecordingSource:
-                    atomicPromptSubmission.hookRecordingSource,
-                hookConfirmsHumanInput:
-                    atomicPromptSubmission.hookConfirmsHumanInput
-            ).accepted else {
+            guard let terminalSurface = surface.textBoxSubmitTerminalSurface,
+                  terminalSurface.sendPromptSubmission(
+                      atomicPromptSubmission.text,
+                      submitKey: atomicPromptSubmission.submitKey,
+                      rejectIfHumanComposerBusy:
+                          atomicPromptSubmission.rejectIfHumanComposerBusy,
+                      hookRecordingSource:
+                          atomicPromptSubmission.hookRecordingSource,
+                      hookConfirmsHumanInput:
+                          atomicPromptSubmission.hookConfirmsHumanInput
+                  ).accepted else {
                 fail(.terminalWriteRejected)
                 return
             }

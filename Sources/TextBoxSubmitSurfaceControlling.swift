@@ -15,14 +15,6 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
     @discardableResult
-    func sendPromptSubmission(
-        _ text: String,
-        submitKey: String,
-        rejectIfHumanComposerBusy: Bool,
-        hookRecordingSource: String?,
-        hookConfirmsHumanInput: Bool
-    ) -> TerminalSurface.PromptSubmissionSendResult
-    @discardableResult
     func performBindingAction(_ action: String) -> Bool
     @discardableResult
     func performExplicitInputBindingAction(_ action: String) -> Bool
