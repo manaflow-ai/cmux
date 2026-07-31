@@ -1779,46 +1779,75 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
 }
 
 
-final class BrowserThemeSettingsTests: XCTestCase {
-    private func makeIsolatedDefaults() -> UserDefaults {
+@Suite
+struct BrowserThemeSettingsTests {
+    private func makeIsolatedDefaults() throws -> (defaults: UserDefaults, suiteName: String) {
         let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            fatalError("Failed to create defaults suite")
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        addTeardownBlock {
-            defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
+    @Test
+    func defaultsMatchConfiguredFallbacks() throws {
+        let fixture = try makeIsolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == BrowserThemeSettings.defaultMode)
+    }
+
+    @Test
+    func modeReadsPersistedValue() throws {
+        let fixture = try makeIsolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
+        #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == .dark)
+
+        fixture.defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
+        #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == .light)
+    }
+
+    @Test
+    func normalizationMigratesLegacyForcedDarkModeFlagDespiteRegisteredFallback() throws {
+        for legacyEnabled in [true, false] {
+            let fixture = try makeIsolatedDefaults()
+            defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+            fixture.defaults.register(defaults: [
+                BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+            ])
+            fixture.defaults.set(legacyEnabled, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+
+            BrowserPanel.normalizeBrowserDefaults(
+                defaults: fixture.defaults,
+                persistentDomainName: fixture.suiteName
+            )
+
+            let expectedMode: BrowserThemeMode = legacyEnabled ? .dark : .system
+            let persistedMode = fixture.defaults.persistentDomain(forName: fixture.suiteName)?[
+                BrowserThemeSettings.modeKey
+            ] as? String
+            #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == expectedMode)
+            #expect(persistedMode == expectedMode.rawValue)
         }
-        return defaults
     }
 
-    func testDefaultsMatchConfiguredFallbacks() {
-        let defaults = makeIsolatedDefaults()
-        XCTAssertEqual(
-            BrowserThemeSettings.mode(defaults: defaults),
-            BrowserThemeSettings.defaultMode
+    @Test
+    func normalizationPreservesPersistedModeOverLegacyFlag() throws {
+        let fixture = try makeIsolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        fixture.defaults.set(BrowserThemeMode.system.rawValue, forKey: BrowserThemeSettings.modeKey)
+        fixture.defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+
+        BrowserPanel.normalizeBrowserDefaults(
+            defaults: fixture.defaults,
+            persistentDomainName: fixture.suiteName
         )
-    }
 
-    func testModeReadsPersistedValue() {
-        let defaults = makeIsolatedDefaults()
-        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
-        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
-
-        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
-        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .light)
-    }
-
-    func testModeMigratesLegacyForcedDarkModeFlag() {
-        let defaults = makeIsolatedDefaults()
-        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
-        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
-
-        let otherDefaults = makeIsolatedDefaults()
-        otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
-        XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
-        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
+        #expect(BrowserThemeSettings.mode(defaults: fixture.defaults) == .system)
+        #expect(fixture.defaults.string(forKey: BrowserThemeSettings.modeKey) == BrowserThemeMode.system.rawValue)
     }
 }
 
