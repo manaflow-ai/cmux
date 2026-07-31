@@ -69,7 +69,6 @@ import UIKit
             },
             dropIntoGroup: { recorder.dropIntoGroupCalls.append(($0, $1)) },
             selectWorkspace: { _ in },
-            requestWorkspaceClose: nil,
             closeWorkspace: nil,
             setUnread: nil,
             setPinned: nil,
