@@ -249,6 +249,13 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
+          // The native timeout can abandon its continuation, but it cannot
+          // interrupt JavaScript already running in WebKit. Keep the synchronous
+          // DOM/layout work independently bounded in the content process.
+          const workDeadline = performance.now() + 100;
+          const workBudgetExpired = () => performance.now() >= workDeadline;
+          let remainingCharacterMeasurements = 512;
+
           // This cache lives only for this synchronous script invocation, so
           // computed styles cannot survive a DOM/style mutation or a later collection.
           const styleCache = new WeakMap();
@@ -381,13 +388,20 @@ final class BrowserScreenshotDOMProbeCollector {
             let visitedCharacters = 0;
             let widest = null;
             for (const character of node.data) {
-              if (visitedCharacters >= 64) break;
+              if (
+                visitedCharacters >= 64
+                || remainingCharacterMeasurements <= 0
+                || workBudgetExpired()
+              ) {
+                break;
+              }
               visitedCharacters += 1;
               const characterIndex = codeUnitIndex;
               const characterLength = character.length;
               codeUnitIndex += characterLength;
               if (/^\\s+$/u.test(character)) continue;
 
+              remainingCharacterMeasurements -= 1;
               const range = document.createRange();
               range.setStart(node, characterIndex);
               range.setEnd(node, characterIndex + characterLength);
@@ -440,8 +454,10 @@ final class BrowserScreenshotDOMProbeCollector {
           };
 
           // Pointer-transparent layers do not appear in elementFromPoint, yet
-          // can legitimately paint over text. Bound the scan before asking for
-          // computed styles; large or layer-heavy documents are inconclusive.
+          // can legitimately paint over text. Scan the whole document when it
+          // fits inside the work budget; a fixed element limit would disable
+          // verification on otherwise inexpensive, complex application DOMs.
+          // Exhausting either budget makes the capture inconclusive.
           const elementWalker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_ELEMENT
@@ -454,7 +470,7 @@ final class BrowserScreenshotDOMProbeCollector {
             element = elementWalker.nextNode()
           ) {
             visitedElements += 1;
-            if (visitedElements > 2000) {
+            if ((visitedElements & 31) === 0 && workBudgetExpired()) {
               return { viewportWidth, viewportHeight, probes: [] };
             }
             const style = styleFor(element);
@@ -491,6 +507,7 @@ final class BrowserScreenshotDOMProbeCollector {
           );
           let visited = 0;
           for (let node = walker.nextNode(); node && visited < 500; node = walker.nextNode()) {
+            if (remainingCharacterMeasurements <= 0 || workBudgetExpired()) break;
             visited += 1;
             const element = node.parentElement;
             if (!element) continue;
