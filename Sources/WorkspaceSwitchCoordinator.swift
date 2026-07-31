@@ -76,17 +76,18 @@ final class WorkspaceSwitchCoordinator {
         var interactiveInterval: DynamicTracingSignpostInterval?
     }
     private let notificationCenter: NotificationCenter
-    private let beginRendererProtection: @MainActor (UUID, UUID) -> Void
+    private let beginRendererProtection: @MainActor (UUID, UUID, @escaping () -> Bool) -> Void
     private let endRendererProtection: @MainActor (UUID) -> Void
     private var active: ActiveTransaction?
     init(
         notificationCenter: NotificationCenter = .default,
-        beginRendererProtection: @escaping @MainActor (UUID, UUID) -> Void = {
-            surfaceID,
-            requestID in
+        beginRendererProtection:
+            @escaping @MainActor (UUID, UUID, @escaping () -> Bool) -> Void = {
+            surfaceID, requestID, ownerIsAlive in
             RendererRealizationController.shared.beginWorkspaceSwitchPresentationProtection(
                 surfaceID: surfaceID,
-                requestID: requestID
+                requestID: requestID,
+                ownerIsAlive: ownerIsAlive
             )
         },
         endRendererProtection: @escaping @MainActor (UUID) -> Void = { requestID in
@@ -99,8 +100,6 @@ final class WorkspaceSwitchCoordinator {
         self.beginRendererProtection = beginRendererProtection
         self.endRendererProtection = endRendererProtection
     }
-
-    isolated deinit { cancel() }
 
     /// The current destination's visual diagnostic state.
     ///
@@ -176,8 +175,9 @@ final class WorkspaceSwitchCoordinator {
         _ target: PresentationTarget,
         retiringWorkspaceID: UUID
     ) {
-        guard var transaction = active,
-              transaction.targetWorkspaceID == target.workspaceID else {
+        guard var transaction = active else { return }
+        guard transaction.targetWorkspaceID == target.workspaceID else {
+            cancel()
             return
         }
 
@@ -406,7 +406,9 @@ final class WorkspaceSwitchCoordinator {
         transaction.warmFrameAvailable =
             rendererPresented && renderedFrameSequence > 0
         transaction.frameSequenceAtSelection = renderedFrameSequence
-        beginRendererProtection(surfaceID, transaction.requestID)
+        beginRendererProtection(surfaceID, transaction.requestID) {
+            [weak self] in self != nil
+        }
         transaction.rendererProtectionActive = true
 
         if !rendererPresented {

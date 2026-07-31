@@ -50,7 +50,8 @@ final class RendererRealizationController {
     private var portalVisibilityObserver: NSObjectProtocol?
     private var portalVisibilityEvaluationTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
-    private var workspaceSwitchPresentationSurfaceByRequestID: [UUID: UUID] = [:]
+    private var workspaceSwitchPresentationProtectionByRequestID:
+        [UUID: (surfaceID: UUID, ownerIsAlive: () -> Bool)] = [:]
 
     private convenience init() {
         self.init(
@@ -143,7 +144,9 @@ final class RendererRealizationController {
         portalVisibilityEvaluationTask = nil
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
-        workspaceSwitchPresentationSurfaceByRequestID.removeAll(keepingCapacity: false)
+        workspaceSwitchPresentationProtectionByRequestID.removeAll(
+            keepingCapacity: false
+        )
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
             self.settingsObserver = nil
@@ -186,13 +189,20 @@ final class RendererRealizationController {
     /// source workspace.
     func beginWorkspaceSwitchPresentationProtection(
         surfaceID: UUID,
-        requestID: UUID
+        requestID: UUID,
+        ownerIsAlive: @escaping () -> Bool
     ) {
-        workspaceSwitchPresentationSurfaceByRequestID[requestID] = surfaceID
+        pruneExpiredWorkspaceSwitchPresentationProtections()
+        workspaceSwitchPresentationProtectionByRequestID[requestID] = (
+            surfaceID,
+            ownerIsAlive
+        )
     }
 
     func endWorkspaceSwitchPresentationProtection(requestID: UUID) {
-        guard workspaceSwitchPresentationSurfaceByRequestID.removeValue(forKey: requestID) != nil else {
+        guard workspaceSwitchPresentationProtectionByRequestID.removeValue(
+            forKey: requestID
+        ) != nil else {
             return
         }
         // If an interrupted switch left the destination hidden, restore its
@@ -294,8 +304,11 @@ final class RendererRealizationController {
             return .empty
         }
 
+        pruneExpiredWorkspaceSwitchPresentationProtections()
         let presentationProtectedSurfaceIDs = Set(
-            workspaceSwitchPresentationSurfaceByRequestID.values
+            workspaceSwitchPresentationProtectionByRequestID.values.map(
+                \.surfaceID
+            )
         )
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
             guard surface.hasLiveSurface else { return nil }
@@ -347,6 +360,13 @@ final class RendererRealizationController {
             now: now
         )
         return result
+    }
+
+    private func pruneExpiredWorkspaceSwitchPresentationProtections() {
+        workspaceSwitchPresentationProtectionByRequestID =
+            workspaceSwitchPresentationProtectionByRequestID.filter {
+                $0.value.ownerIsAlive()
+            }
     }
 
     private func scheduleSystemMemoryPressureRetry(
