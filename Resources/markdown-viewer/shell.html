@@ -994,8 +994,8 @@ html { scroll-behavior: smooth; }
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
   // rendered to HTML and passed in as `text`. Codespan text is the
-  // exception below: walkTokens replaces marked's pre-escaped text
-  // with normalized raw source before the renderer escapes it once.
+  // exception below: processAllTokens replaces marked's pre-escaped
+  // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1040,13 +1040,52 @@ html { scroll-behavior: smooth; }
     return text;
   }
 
+  function normalizeCodespanTokens(tokens) {
+    // marked's public walkTokens helper accumulates callback results with
+    // repeated Array.concat calls, making a registered walkTokens hook
+    // quadratic in the number of tokens. Traverse the token tree directly so
+    // normalization remains linear for large, untrusted markdown documents.
+    var pendingArrays = [tokens];
+    var visitedArrays = new WeakSet();
+    while (pendingArrays.length > 0) {
+      var siblings = pendingArrays.pop();
+      if (!Array.isArray(siblings) || visitedArrays.has(siblings)) {
+        continue;
+      }
+      visitedArrays.add(siblings);
+
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var token = siblings[i];
+        if (Array.isArray(token)) {
+          pendingArrays.push(token);
+          continue;
+        }
+        if (!token || typeof token !== 'object') {
+          continue;
+        }
+        if (token.type === 'codespan') {
+          token.text = normalizedCodespanText(token);
+        }
+
+        var keys = Object.keys(token);
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+          var child = token[keys[keyIndex]];
+          if (Array.isArray(child)) {
+            pendingArrays.push(child);
+          }
+        }
+      }
+    }
+    return tokens;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
-    walkTokens: function(token) {
-      if (token.type === 'codespan') {
-        token.text = normalizedCodespanText(token);
+    hooks: {
+      processAllTokens: function(tokens) {
+        return normalizeCodespanTokens(tokens);
       }
     },
     renderer: {

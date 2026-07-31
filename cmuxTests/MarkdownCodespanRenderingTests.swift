@@ -32,6 +32,12 @@ final class MarkdownCodespanRenderingTests {
 
                 Hostile lifecycle: `<cmux-codespan-execution-probe></cmux-codespan-execution-probe>`
 
+                - Nested list codespan: `<nested-list>`
+
+                | Nested table codespan |
+                | --- |
+                | `<nested-table>` |
+
                 Fenced block:
                 ```bash
                 aws lambda invoke --function-name foo --payload '{"action":"db_state"}' /dev/stdout
@@ -61,6 +67,7 @@ final class MarkdownCodespanRenderingTests {
                 ]
             )
             #expect(snapshot.inlineChildElementCounts == [0, 0, 0, 0, 0, 0, 0, 0, 0])
+            #expect(snapshot.nestedInlineTexts == ["<nested-list>", "<nested-table>"])
             #expect(
                 snapshot.fencedTexts == [
                     #"aws lambda invoke --function-name foo --payload '{"action":"db_state"}' /dev/stdout"#,
@@ -71,6 +78,7 @@ final class MarkdownCodespanRenderingTests {
             #expect(snapshot.documentImageCount == 0)
             #expect(snapshot.hostileProbeElementCount == 0)
             #expect(snapshot.hostileProbeConnected == false)
+            #expect(snapshot.markedWalkerEnabled == false)
         }
     }
 
@@ -165,6 +173,9 @@ final class MarkdownCodespanRenderingTests {
               var inlineCodes = Array.prototype.slice.call(
                 document.querySelectorAll('#content p code:not(.hljs)')
               );
+              var nestedInlineCodes = Array.prototype.slice.call(
+                document.querySelectorAll('#content li code:not(.hljs), #content td code:not(.hljs)')
+              );
               var fencedCodes = Array.prototype.slice.call(
                 document.querySelectorAll('#content pre > code.hljs')
               );
@@ -173,6 +184,7 @@ final class MarkdownCodespanRenderingTests {
                 proseChildElementCount: prose ? prose.children.length : null,
                 inlineTexts: inlineCodes.map(function(code) { return code.textContent; }),
                 inlineChildElementCounts: inlineCodes.map(function(code) { return code.children.length; }),
+                nestedInlineTexts: nestedInlineCodes.map(function(code) { return code.textContent; }),
                 fencedTexts: fencedCodes.map(function(code) { return code.textContent; }),
                 fencedImageCounts: fencedCodes.map(function(code) {
                   return code.querySelectorAll('img').length;
@@ -181,7 +193,8 @@ final class MarkdownCodespanRenderingTests {
                 hostileProbeElementCount: document.querySelectorAll(
                   '#content ' + hostileProbeTag
                 ).length,
-                hostileProbeConnected: !!window.__cmuxCodespanHostileProbeConnected
+                hostileProbeConnected: !!window.__cmuxCodespanHostileProbeConnected,
+                markedWalkerEnabled: !!window.marked.defaults.walkTokens
               };
             })(\(literal)[0]);
             """
@@ -191,22 +204,26 @@ final class MarkdownCodespanRenderingTests {
         let proseChildElementCount = try #require(raw["proseChildElementCount"] as? NSNumber)
         let inlineTexts = try #require(raw["inlineTexts"] as? [String])
         let inlineChildElementCounts = try #require(raw["inlineChildElementCounts"] as? [NSNumber])
+        let nestedInlineTexts = try #require(raw["nestedInlineTexts"] as? [String])
         let fencedTexts = try #require(raw["fencedTexts"] as? [String])
         let fencedImageCounts = try #require(raw["fencedImageCounts"] as? [NSNumber])
         let documentImageCount = try #require(raw["documentImageCount"] as? NSNumber)
         let hostileProbeElementCount = try #require(raw["hostileProbeElementCount"] as? NSNumber)
         let hostileProbeConnected = try #require(raw["hostileProbeConnected"] as? Bool)
+        let markedWalkerEnabled = try #require(raw["markedWalkerEnabled"] as? Bool)
 
         return MarkdownCodespanSnapshot(
             proseText: proseText,
             proseChildElementCount: proseChildElementCount.intValue,
             inlineTexts: inlineTexts,
             inlineChildElementCounts: inlineChildElementCounts.map(\.intValue),
+            nestedInlineTexts: nestedInlineTexts,
             fencedTexts: fencedTexts,
             fencedImageCounts: fencedImageCounts.map(\.intValue),
             documentImageCount: documentImageCount.intValue,
             hostileProbeElementCount: hostileProbeElementCount.intValue,
-            hostileProbeConnected: hostileProbeConnected
+            hostileProbeConnected: hostileProbeConnected,
+            markedWalkerEnabled: markedWalkerEnabled
         )
     }
 }
@@ -216,11 +233,13 @@ private struct MarkdownCodespanSnapshot {
     let proseChildElementCount: Int
     let inlineTexts: [String]
     let inlineChildElementCounts: [Int]
+    let nestedInlineTexts: [String]
     let fencedTexts: [String]
     let fencedImageCounts: [Int]
     let documentImageCount: Int
     let hostileProbeElementCount: Int
     let hostileProbeConnected: Bool
+    let markedWalkerEnabled: Bool
 }
 
 private final class MarkdownCodespanShellLoadDelegate: NSObject, WKNavigationDelegate {
