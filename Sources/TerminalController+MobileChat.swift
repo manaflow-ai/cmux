@@ -288,10 +288,19 @@ extension TerminalController {
         }
         guard let agentInputScope = resolved.workspace.agentPromptInputScope(
             forPanelId: terminalPanel.id
-        ),
-              !terminalPanel.humanComposerIsBusy(
-                  agentInputScope: agentInputScope
-              ) else {
+        ) else {
+            return .err(
+                code: "agent_not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: [
+                    "session_id": sessionID,
+                    "surface_id": surfaceID.uuidString,
+                ]
+            )
+        }
+        guard !terminalPanel.humanComposerIsBusy(
+            agentInputScope: agentInputScope
+        ) else {
             return .err(
                 code: "rejected_composer_busy",
                 message: Self.agentPromptComposerBusyMessage,
@@ -303,46 +312,44 @@ extension TerminalController {
                 ]
             )
         }
-        for (index, attachment) in attachments.enumerated() {
-            guard let base64 = attachment["data_b64"] as? String else {
-                return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
+
+        // Materialize every attachment before the first terminal write. Once
+        // preparation succeeds, paths and text enter the same compound
+        // paste-and-submit transaction, so a failed attachment cannot leave a
+        // partial programmatic draft for a retry to append to.
+        var promptComponents: [String] = []
+        promptComponents.reserveCapacity(
+            attachments.count + (text.isEmpty ? 0 : 1)
+        )
+        for attachment in attachments {
+            guard let base64 = attachment["data_b64"] as? String,
+                  let imageData = Data(base64Encoded: base64),
+                  !imageData.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Attachment missing data_b64",
+                    data: nil
+                )
             }
-            var imageParams = terminalParams
-            imageParams["image_base64"] = base64
-            imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
-            let result = v2MobileTerminalPasteImage(params: imageParams)
-            if case .err = result {
-                return result
+            let format = (attachment["format"] as? String) ?? "png"
+            guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(
+                imageData,
+                fileExtension: format
+            ) else {
+                return .err(
+                    code: "invalid_params",
+                    message:
+                        "Image payload was empty or exceeded the size limit",
+                    data: nil
+                )
             }
-            // Separate each pasted path from the next path or the prompt
-            // (the local Mac paste joins with spaces too) so the agent
-            // detects the paths and the echo is "<path> <path> <text>" —
-            // the shape the client's pending-row reconcile matches. A
-            // dropped separator corrupts that shape; surface it.
-            let needsSeparator = index < attachments.count - 1 || !text.isEmpty
-            if needsSeparator {
-                let separatorResult = terminalPanel.surface.sendInputResult(" ")
-                switch separatorResult {
-                case .sent, .queued:
-                    break
-                case .inputQueueFull:
-                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
-                case .surfaceUnavailable:
-                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-                case .processExited:
-                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
-                }
-            }
+            promptComponents.append(escapedPath)
         }
-        guard !text.isEmpty else {
-            // Attachment-only send: the image path is sitting pasted at the
-            // agent's prompt; submit it so the send actually reaches the
-            // agent instead of idling in the line editor.
-            let keyResult = terminalPanel.sendNamedKeyResult("return")
-            return .ok(["submitted": keyResult.accepted])
+        if !text.isEmpty {
+            promptComponents.append(text)
         }
         var pasteParams = terminalParams
-        pasteParams["text"] = text
+        pasteParams["text"] = promptComponents.joined(separator: " ")
         return v2MobileTerminalPaste(params: pasteParams)
     }
 
