@@ -394,7 +394,7 @@ jobs:
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
           for attempt in 1 2; do
-            LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
+            LOG_PATH="${RUNNER_TEMP:-$PWD/.tmp}/ios-attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
@@ -420,7 +420,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-simulator-${{ matrix.family }}-attempt-logs
-          path: ${{ env.IOS_DERIVED_DATA }}/logs
+          path: |
+            ${{ runner.temp }}/ios-attempt-*.log
+            ${{ env.IOS_DERIVED_DATA }}/Logs
           if-no-files-found: error
 
   ios-tests:
