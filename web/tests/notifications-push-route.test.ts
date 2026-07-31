@@ -4,7 +4,6 @@ import postgres, { type Sql } from "postgres";
 const envKeys = [
   "SKIP_ENV_VALIDATION",
   "VERCEL",
-  "CMUX_PUSH_RATE_LIMIT_ID",
   "CMUX_APNS_KEY_P8",
   "CMUX_APNS_KEY_ID",
   "CMUX_APNS_TEAM_ID",
@@ -23,7 +22,6 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.VERCEL = "1";
-process.env.CMUX_PUSH_RATE_LIMIT_ID = "cmux-push-test";
 process.env.CMUX_APNS_KEY_P8 = "test-key";
 process.env.CMUX_APNS_KEY_ID = "test-key-id";
 process.env.CMUX_APNS_TEAM_ID = "test-team-id";
@@ -40,15 +38,27 @@ const cloudDb = mock(() => {
 });
 let useStubDb = false;
 let sql: Sql | null = null;
+let scriptedSendOutcomes: Array<Array<{
+  deviceToken: string;
+  status: number;
+  reason?: string;
+  prune: boolean;
+}>> = [];
+let beforeNextSend: (() => Promise<void>) | null = null;
 const sendApnsNotificationReliably = mock(
-  async (
-    _config: unknown,
-    targets: readonly { deviceToken: string }[],
-  ) => targets.map((target) => ({
-    deviceToken: target.deviceToken,
-    status: 200,
-    prune: false,
-  })),
+  async (...args: unknown[]) => {
+    const hook = beforeNextSend;
+    beforeNextSend = null;
+    if (hook) await hook();
+    const scripted = scriptedSendOutcomes.shift();
+    if (scripted) return scripted;
+    const targets = args[1] as readonly { deviceToken: string }[];
+    return targets.map((target) => ({
+      deviceToken: target.deviceToken,
+      status: 200,
+      prune: false,
+    }));
+  },
 );
 
 mock.module("../app/lib/stack", () => ({
@@ -68,10 +78,6 @@ mock.module("../db/client", () => ({
     useStubDb
       ? (cloudDb() as unknown as ReturnType<typeof realCloudDb>)
       : realCloudDb()) as typeof realCloudDb,
-}));
-
-mock.module("../services/apns/sender", () => ({
-  sendApnsNotificationReliably,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
@@ -107,12 +113,13 @@ beforeEach(() => {
   // the route skip rate-limiting and flaked this suite in CI.
   process.env.SKIP_ENV_VALIDATION = "1";
   process.env.VERCEL = "1";
-  process.env.CMUX_PUSH_RATE_LIMIT_ID = "cmux-push-test";
   getUser.mockClear();
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
   cloudDb.mockClear();
   sendApnsNotificationReliably.mockClear();
+  scriptedSendOutcomes = [];
+  beforeNextSend = null;
   useStubDb = true;
 });
 
@@ -151,8 +158,8 @@ describe("notifications push route", () => {
         ('user-1', ${"b".repeat(64)}, 'ios', 'com.cmux.app', 'production')
     `;
 
-    sendApnsNotificationReliably
-      .mockResolvedValueOnce([
+    scriptedSendOutcomes = [
+      [
         {
           deviceToken: "a".repeat(64),
           status: 200,
@@ -164,14 +171,15 @@ describe("notifications push route", () => {
           reason: "ServiceUnavailable",
           prune: false,
         },
-      ])
-      .mockResolvedValueOnce([
+      ],
+      [
         {
           deviceToken: "b".repeat(64),
           status: 200,
           prune: false,
         },
-      ]);
+      ],
+    ];
 
     const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
     const request = () => new Request(
@@ -191,7 +199,12 @@ describe("notifications push route", () => {
       },
     );
 
-    const partial = await pushRoute.POST(request());
+    const partial = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
     expect(partial.status).toBe(200);
     expect(await partial.json()).toMatchObject({
       sent: 1,
@@ -200,7 +213,39 @@ describe("notifications push route", () => {
       correlationId,
     });
 
-    const recovered = await pushRoute.POST(request());
+    let releaseRetry!: () => void;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    const retryReleased = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
+    beforeNextSend = async () => {
+      markRetryStarted();
+      await retryReleased;
+    };
+
+    const recoveredPromise = pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await retryStarted;
+    const concurrent = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(concurrent.status).toBe(409);
+    expect(await concurrent.json()).toMatchObject({
+      error: "push_event_in_progress",
+      correlationId,
+    });
+    releaseRetry();
+    const recovered = await recoveredPromise;
     expect(recovered.status).toBe(200);
     expect(await recovered.json()).toMatchObject({
       sent: 2,
@@ -209,10 +254,13 @@ describe("notifications push route", () => {
       correlationId,
     });
     expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(2);
-    expect(
-      sendApnsNotificationReliably.mock.calls[1]?.[1]
-        .map((target: { deviceToken: string }) => target.deviceToken),
-    ).toEqual(["b".repeat(64)]);
+    const retryTargets = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[1]?.[1] as Array<{ deviceToken: string }>
+    );
+    expect(retryTargets.map((target) => target.deviceToken))
+      .toEqual(["b".repeat(64)]);
 
     const [stored] = await sql<{ total: number }[]>`
       select count(*)::int as total
@@ -220,5 +268,90 @@ describe("notifications push route", () => {
       where user_id = 'user-1' and correlation_id = ${correlationId}
     `;
     expect(stored?.total).toBe(1);
+  });
+
+  dbTest("takes over a stale retry lease without resending a recorded success", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production'),
+        ('user-1', ${"b".repeat(64)}, 'ios', 'com.cmux.app', 'production')
+    `;
+    scriptedSendOutcomes = [
+      [
+        {
+          deviceToken: "a".repeat(64),
+          status: 200,
+          prune: false,
+        },
+        {
+          deviceToken: "b".repeat(64),
+          status: 503,
+          reason: "ServiceUnavailable",
+          prune: false,
+        },
+      ],
+      [
+        {
+          deviceToken: "b".repeat(64),
+          status: 200,
+          prune: false,
+        },
+      ],
+    ];
+    const correlationId = "527e7ed5-b70d-45d8-a78e-fd032ae61ff5";
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds: Math.floor(Date.now() / 1000) + 120,
+        }),
+      },
+    );
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await sql`
+      update notification_send_events
+      set lease_until = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+
+    const recovered = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(await recovered.json()).toMatchObject({
+      sent: 2,
+      devices: 2,
+      transientFailures: 0,
+    });
+    const retryTargets = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[1]?.[1] as Array<{ deviceToken: string }>
+    );
+    expect(retryTargets.map((target) => target.deviceToken))
+      .toEqual(["b".repeat(64)]);
   });
 });
