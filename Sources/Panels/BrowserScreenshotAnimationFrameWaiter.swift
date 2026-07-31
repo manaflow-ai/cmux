@@ -11,10 +11,9 @@ final class BrowserScreenshotAnimationFrameWaiter {
 
     private let startFrame: FrameStarter
     private let timeout: TimeInterval
-    private var continuation: CheckedContinuation<Void, Error>?
+    private let completionGate = BrowserScreenshotContinuationGate<Void>()
     private var timeoutTimer: Timer?
     private var isCancelled = false
-    private var didFinish = false
 
     init(webView: WKWebView, timeout: TimeInterval) {
         self.startFrame = { script, completion in
@@ -43,7 +42,7 @@ final class BrowserScreenshotAnimationFrameWaiter {
         try Task.checkCancellation()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
+                guard completionGate.install(continuation) else { return }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -88,15 +87,8 @@ final class BrowserScreenshotAnimationFrameWaiter {
     }
 
     private func finish(_ result: Result<Void, Error>) {
-        guard !didFinish else { return }
-        didFinish = true
+        guard completionGate.finish(result) else { return }
         timeoutTimer?.invalidate()
         timeoutTimer = nil
-        guard let continuation else {
-            assertionFailure("Animation-frame request completed without a continuation")
-            return
-        }
-        self.continuation = nil
-        continuation.resume(with: result)
     }
 }

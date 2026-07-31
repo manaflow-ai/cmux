@@ -11,10 +11,9 @@ final class BrowserScreenshotJavaScriptRequest {
 
     private let timeout: TimeInterval
     private let startEvaluation: EvaluationStarter
-    private var continuation: CheckedContinuation<Any?, Error>?
+    private let completionGate = BrowserScreenshotContinuationGate<Any?>()
     private var timeoutTimer: Timer?
     private var isCancelled = false
-    private var didFinish = false
 
     init(webView: WKWebView, timeout: TimeInterval) {
         self.timeout = timeout
@@ -47,7 +46,7 @@ final class BrowserScreenshotJavaScriptRequest {
         try Task.checkCancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
+                guard completionGate.install(continuation) else { return }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -81,15 +80,8 @@ final class BrowserScreenshotJavaScriptRequest {
     }
 
     private func finish(_ result: Result<Any?, Error>) {
-        guard !didFinish else { return }
-        didFinish = true
+        guard completionGate.finish(result) else { return }
         timeoutTimer?.invalidate()
         timeoutTimer = nil
-        guard let continuation else {
-            assertionFailure("JavaScript request completed without a continuation")
-            return
-        }
-        self.continuation = nil
-        continuation.resume(with: result)
     }
 }

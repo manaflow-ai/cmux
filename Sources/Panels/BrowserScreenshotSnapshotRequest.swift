@@ -10,9 +10,8 @@ final class BrowserScreenshotSnapshotRequest {
 
     private let startSnapshot: SnapshotStarter
     private let renderer: BrowserViewportSnapshotRenderer?
-    private var continuation: CheckedContinuation<NSImage, Error>?
+    private let completionGate = BrowserScreenshotContinuationGate<NSImage>()
     private var isCancelled = false
-    private var didFinish = false
 
     init(
         webView: WKWebView,
@@ -37,7 +36,7 @@ final class BrowserScreenshotSnapshotRequest {
         try Task.checkCancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
+                guard completionGate.install(continuation) else { return }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -58,7 +57,7 @@ final class BrowserScreenshotSnapshotRequest {
     }
 
     private func complete(image: NSImage?, error: Error?) {
-        guard !didFinish else { return }
+        guard !completionGate.isFinished else { return }
         guard let image else {
             finish(.failure(error ?? BrowserScreenshotError.emptySnapshot))
             return
@@ -80,13 +79,6 @@ final class BrowserScreenshotSnapshotRequest {
     }
 
     private func finish(_ result: Result<NSImage, Error>) {
-        guard !didFinish else { return }
-        didFinish = true
-        guard let continuation else {
-            assertionFailure("Snapshot request completed without a continuation")
-            return
-        }
-        self.continuation = nil
-        continuation.resume(with: result)
+        completionGate.finish(result)
     }
 }

@@ -224,6 +224,19 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func continuationGateDeliversCancellationBeforeInstall() async {
+        let gate = BrowserScreenshotContinuationGate<Void>()
+        #expect(gate.finish(.failure(CancellationError())))
+
+        await #expect(throws: CancellationError.self) {
+            let _: Void = try await withCheckedThrowingContinuation { continuation in
+                #expect(!gate.install(continuation))
+            }
+        }
+        #expect(!gate.finish(.success(())))
+    }
+
+    @Test
     func snapshotRequestCancellationResumesExactlyOnce() async throws {
         var snapshotCompletion: (@MainActor (NSImage?, Error?) -> Void)?
         let request = BrowserScreenshotSnapshotRequest(
