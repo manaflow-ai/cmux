@@ -368,6 +368,36 @@ final class BrowserScreenshotDOMProbeCollector {
             return -1;
           };
 
+          const layerPaints = (element) => {
+            const style = styleFor(element);
+            if (
+              style.display === "none"
+              || style.visibility !== "visible"
+              || Number(style.opacity) <= 0
+            ) {
+              return false;
+            }
+            const background = parseColor(style.backgroundColor);
+            if (
+              (background && background.alpha > 0)
+              || style.backgroundImage !== "none"
+              || style.boxShadow !== "none"
+              || style.filter !== "none"
+              || (style.backdropFilter && style.backdropFilter !== "none")
+            ) {
+              return true;
+            }
+            return (
+              element instanceof HTMLCanvasElement
+              || element instanceof HTMLImageElement
+              || element instanceof HTMLVideoElement
+              || element instanceof SVGElement
+              || element instanceof HTMLIFrameElement
+              || element instanceof HTMLObjectElement
+              || element instanceof HTMLEmbedElement
+            );
+          };
+
           const candidates = [];
           const occupiedCells = new Set();
           const walker = document.createTreeWalker(
@@ -456,10 +486,51 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
+          // elementFromPoint intentionally ignores pointer-events:none layers.
+          // Temporarily make every element hit-testable, then reject a probe
+          // when a painted layer appears above its text. The high-specificity
+          // rule covers page-authored !important selectors; if WebKit/CSP does
+          // not apply it, fail open by returning no probes.
+          const hitTestStyle = document.createElement("style");
+          hitTestStyle.style.pointerEvents = "none";
+          hitTestStyle.textContent = `
+            *:not(#cmux-screenshot-passive-hit-test-a):not(#cmux-screenshot-passive-hit-test-b):not(#cmux-screenshot-passive-hit-test-c):not(#cmux-screenshot-passive-hit-test-d) {
+              pointer-events: auto !important;
+            }
+          `;
+          let visibleCandidates = [];
+          try {
+            document.documentElement.appendChild(hitTestStyle);
+            if (
+              getComputedStyle(hitTestStyle).pointerEvents !== "auto"
+              || typeof document.elementsFromPoint !== "function"
+            ) {
+              return { viewportWidth, viewportHeight, probes: [] };
+            }
+            visibleCandidates = candidates.filter((candidate) => {
+              const layers = document.elementsFromPoint(
+                candidate.centerX,
+                candidate.centerY
+              );
+              for (const layer of layers) {
+                if (
+                  layer === candidate.node.parentElement
+                  || candidate.node.parentElement.contains(layer)
+                ) {
+                  return true;
+                }
+                if (layerPaints(layer)) return false;
+              }
+              return false;
+            });
+          } finally {
+            hitTestStyle.remove();
+          }
+
           return {
             viewportWidth,
             viewportHeight,
-            probes: candidates.map(({
+            probes: visibleCandidates.map(({
               node,
               characterIndex,
               centerX,

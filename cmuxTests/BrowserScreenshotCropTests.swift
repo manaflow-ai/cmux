@@ -971,7 +971,7 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func pointerEventsNoneOverlayIsInconclusiveForDOMAttestation() async throws {
+    func domProbeCollectorSkipsPaintedPointerEventsNoneOverlay() async throws {
         let probes = try await collectDOMProbes(
             html: """
             <!doctype html>
@@ -989,8 +989,8 @@ struct BrowserScreenshotCropTests {
                 position: fixed;
                 inset: 0;
                 z-index: 10;
-                pointer-events: none;
-                background: rgb(255, 0, 0);
+                pointer-events: none !important;
+                background: white;
               }
             </style>
             <p id="first">MMMM</p>
@@ -998,18 +998,7 @@ struct BrowserScreenshotCropTests {
             <div id="overlay"></div>
             """
         )
-        #expect(probes.probes.count >= 2)
-
-        let outcome = BrowserScreenshotFrameVerifier().verify(
-            before: probes,
-            after: probes,
-            pixels: SolidPixelSource(
-                pixelSize: probes.viewportSize,
-                color: .init(red: 1, green: 0, blue: 0, alpha: 1)
-            )
-        )
-
-        #expect(outcome == .accepted)
+        #expect(probes.probes.isEmpty)
     }
 
     @Test
