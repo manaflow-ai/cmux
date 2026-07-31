@@ -185,9 +185,9 @@ if [[ "$ATTACH" -eq 1 ]]; then
   fi
 fi
 
-ADMISSION_CURSOR=""
+READINESS_CURSOR=""
 if [[ -n "$ATTACH_URL" && ("$TARGET" == "device" || "$DETACH" -eq 1) ]]; then
-  if ! ADMISSION_CURSOR="$(cmux_attach_admission_cursor "$TAG" "$REPO_ROOT")"; then
+  if ! READINESS_CURSOR="$(cmux_attach_readiness_cursor "$TAG" "$REPO_ROOT")"; then
     echo "error: could not read tagged Mac diagnostics before mobile launch" >&2
     exit 1
   fi
@@ -250,11 +250,11 @@ else
       --device "$DEVICE_ID" "$BUNDLE_ID"
 fi
 
-if [[ -n "$ADMISSION_CURSOR" ]]; then
-  cmux_attach_wait_for_admission \
+if [[ -n "$READINESS_CURSOR" ]]; then
+  cmux_attach_wait_for_usable_session \
     "$TAG" \
     "$REPO_ROOT" \
-    "$ADMISSION_CURSOR" \
+    "$READINESS_CURSOR" \
     "$ATTACH_READY_TIMEOUT_SECONDS"
-  echo "==> connected $BUNDLE_ID to tagged Mac '$TAG'"
+  echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
 fi

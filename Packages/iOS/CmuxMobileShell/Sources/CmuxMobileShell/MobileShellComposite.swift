@@ -9242,10 +9242,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionRecoveryFailed = false
             return
         }
+        let foregroundKey = foregroundMacKey
+        if var foregroundState = workspacesByMac[foregroundKey],
+           foregroundState.status != .connected {
+            foregroundState.status = .connected
+            workspacesByMac[foregroundKey] = foregroundState
+        }
         macConnectionStatus = .connected
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+    }
+
+    @discardableResult
+    func recordUsableTerminalSubscription(
+        client: MobileCoreRPCClient,
+        connectionGeneration: UUID,
+        listenerID: UUID
+    ) -> Bool {
+        guard isCurrentRemoteOperation(
+            client: client,
+            generation: connectionGeneration
+        ) else {
+            return false
+        }
+        recordSuccessfulTerminalSubscription(
+            connectionGeneration: connectionGeneration,
+            listenerID: listenerID
+        )
+        markMacConnectionHealthy()
+        return true
     }
 
     func markMacConnectionReconnecting() {
@@ -10197,6 +10223,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalSubscriptionHandoffFenceClientID = nil
         }
         let listenerID = UUID()
+        let listenerConnectionGeneration = connectionGeneration
         terminalEventListenerID = listenerID
         markMacConnectionHealthy()
         // Arm the liveness watchdog for this subscription generation. Done only
@@ -10251,6 +10278,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self?.beginTerminalEventSubscriptionStart(
                 client: client,
                 listenerID: listenerID,
+                connectionGeneration: listenerConnectionGeneration,
                 topics: topics,
                 transport: outputTransport,
                 subscriptionReadiness: subscriptionReadiness,
@@ -10261,7 +10289,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for await event in stream {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
-                guard self.remoteClient === client, self.connectionState == .connected else { return }
+                guard self.isCurrentRemoteOperation(
+                    client: client,
+                    generation: listenerConnectionGeneration
+                ) else {
+                    return
+                }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
                 self.cancelTerminalInputAckResubscribeRetry()
@@ -10332,6 +10365,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func beginTerminalEventSubscriptionStart(
         client: MobileCoreRPCClient,
         listenerID: UUID,
+        connectionGeneration: UUID,
         topics: [String],
         transport: TerminalOutputTransport,
         subscriptionReadiness: MobileTerminalEventSubscriptionReadiness? = nil,
@@ -10366,7 +10400,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 topics: topics
             ) ?? .failed
             guard let self else { return }
-            guard !Task.isCancelled, self.terminalEventListenerID == listenerID else { return }
+            guard !Task.isCancelled,
+                  self.terminalEventListenerID == listenerID,
+                  self.isCurrentRemoteOperation(
+                      client: client,
+                      generation: connectionGeneration
+                  ) else {
+                return
+            }
             self.terminalSubscriptionStartTask = nil
             guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
@@ -10383,8 +10424,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // cross-actor readiness hop can admit a cancellation or newer
             // listener, and a stale acknowledgement must never mutate that
             // replacement connection after it resumes.
-            self.recordSuccessfulTerminalSubscription(listenerID: listenerID)
-            self.markMacConnectionHealthy()
+            guard self.recordUsableTerminalSubscription(
+                client: client,
+                connectionGeneration: connectionGeneration,
+                listenerID: listenerID
+            ) else {
+                return
+            }
             didSubscribe = true
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             // Negotiate state sync v2 only from the subscription

@@ -289,8 +289,11 @@ extension ReconnectRouteSelectionTests {
         fixture.store.isRecoveringConnection = true
         fixture.store.connectionRecoveryFailed = true
 
-        fixture.store.recordSuccessfulTerminalSubscription()
-        fixture.store.markMacConnectionHealthy()
+        let client = try #require(fixture.store.remoteClient)
+        #expect(fixture.store.recordUsableTerminalSubscription(
+            client: client,
+            connectionGeneration: fixture.store.connectionGeneration
+        ))
 
         #expect(fixture.store.connectionState == .connected)
         #expect(fixture.store.macConnectionStatus == .connected)
@@ -453,7 +456,7 @@ extension ReconnectRouteSelectionTests {
             attempt,
             connectionGeneration: generation
         )
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {
@@ -480,8 +483,8 @@ extension ReconnectRouteSelectionTests {
             attempt,
             connectionGeneration: generation
         )
-        store.recordSuccessfulTerminalSubscription()
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {
@@ -505,7 +508,7 @@ extension ReconnectRouteSelectionTests {
         ))
 
         #expect(store.completeConnectionRecovery(attempt))
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {

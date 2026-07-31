@@ -385,7 +385,10 @@ extension MobileShellComposite {
         ))
     }
 
-    func recordSuccessfulTerminalSubscription(listenerID: UUID? = nil) {
+    func recordSuccessfulTerminalSubscription(
+        connectionGeneration: UUID,
+        listenerID: UUID? = nil
+    ) {
         lastSuccessfulTerminalSubscription =
             MobileTerminalSubscriptionValidation(
                 connectionGeneration: connectionGeneration,

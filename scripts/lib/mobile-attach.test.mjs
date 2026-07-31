@@ -58,7 +58,7 @@ function removeStaleSocket(socketPath) {
   );
 }
 
-function waitForMacAdmission(status = 0, baseline = "100", timeout = "30") {
+function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
 
@@ -74,7 +74,7 @@ function waitForMacAdmission(status = 0, baseline = "100", timeout = "30") {
           '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
           '  return "$CMUX_TEST_STATUS"',
           '}',
-          'cmux_attach_wait_for_admission "ready" "$2" "$3" "$4"',
+          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4"',
         ].join("\n"),
         "mobile-admission-test",
         validator,
@@ -94,7 +94,7 @@ function waitForMacAdmission(status = 0, baseline = "100", timeout = "30") {
   }
 }
 
-function admissionCursor(snapshot) {
+function readinessCursor(snapshot) {
   return run(
     "bash",
     [
@@ -102,7 +102,7 @@ function admissionCursor(snapshot) {
       [
         'source "$1"',
         'cmux_attach_events() { printf "%s\\n" "$CMUX_TEST_SNAPSHOT"; }',
-        'cmux_attach_admission_cursor "ready" "$2"',
+        'cmux_attach_readiness_cursor "ready" "$2"',
       ].join("\n"),
       "mobile-admission-cursor-test",
       validator,
@@ -442,7 +442,7 @@ test("tagged stale-socket cleanup refuses a non-socket path", () => {
 });
 
 test("dogfood readiness captures the Mac event sequence before launch", () => {
-  const result = admissionCursor(
+  const result = readinessCursor(
     '{"type":"ack","resume":{"latest_seq":842,"next_seq":843}}',
   );
 
@@ -450,21 +450,21 @@ test("dogfood readiness captures the Mac event sequence before launch", () => {
   assert.equal(result.stdout, "842");
 });
 
-test("dogfood readiness blocks on the post-launch host admission event", () => {
-  const result = waitForMacAdmission(0, "842", "30");
+test("dogfood readiness blocks on the post-launch usable RPC event", () => {
+  const result = waitForUsableSession(0, "842", "30");
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.eventArgs,
-    "--after 842 --name mobile.iroh.admission.succeeded --limit 1 --timeout 30 --no-ack --no-heartbeat",
+    "--after 842 --name mobile.rpc.ready --limit 1 --timeout 30 --no-ack --no-heartbeat",
   );
 });
 
-test("dogfood readiness fails when host admission misses its deadline", () => {
-  const result = waitForMacAdmission(1);
+test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
+  const result = waitForUsableSession(1);
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /did not establish a connection.*readiness deadline/i);
+  assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {

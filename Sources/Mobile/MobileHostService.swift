@@ -1886,6 +1886,9 @@ actor MobileHostConnection {
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
+    private var didServeWorkspaceList = false
+    private var didAcceptUsableEventSubscription = false
+    private var didPublishUsableSession = false
 
     init(
         id: UUID,
@@ -2341,6 +2344,12 @@ actor MobileHostConnection {
         guard !isClosed, !Task.isCancelled else {
             return nil
         }
+        if case .ok = result,
+           request.method == "workspace.list"
+            || request.method == "mobile.workspace.list" {
+            didServeWorkspaceList = true
+            publishUsableSessionIfReady()
+        }
         return MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result)
     }
 
@@ -2385,6 +2394,16 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport
             )
+            let includesWorkspaceState =
+                topics.contains("workspace.updated")
+                && topics.contains("mobile.sync.delta")
+            let includesTerminalOutput =
+                topics.contains("terminal.render_grid")
+                || topics.contains("terminal.bytes")
+            if includesWorkspaceState, includesTerminalOutput {
+                didAcceptUsableEventSubscription = true
+                publishUsableSessionIfReady()
+            }
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
                 // viewport/scrollback and receive active-area-anchored frames;
@@ -2415,6 +2434,22 @@ actor MobileHostConnection {
         default:
             return nil
         }
+    }
+
+    private func publishUsableSessionIfReady() {
+        guard didServeWorkspaceList,
+              didAcceptUsableEventSubscription,
+              !didPublishUsableSession,
+              !isClosed else {
+            return
+        }
+        didPublishUsableSession = true
+        CmuxEventBus.shared.publish(
+            name: "mobile.rpc.ready",
+            category: "mobile",
+            source: "mobile.host",
+            payload: ["connection_id": id.uuidString]
+        )
     }
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
