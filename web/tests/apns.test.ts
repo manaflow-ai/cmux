@@ -398,6 +398,13 @@ describe("apns route policy", () => {
     expect(
       parsePushPayload({ title: "agent", body: "done", notificationId: "x".repeat(MAX_PUSH_ID_CHARS + 1) }),
     ).toEqual({ ok: false, error: "notification_id_too_long" });
+    expect(
+      parsePushPayload({
+        title: "agent",
+        body: "done",
+        correlationId: "opaque-but-not-a-uuid",
+      }),
+    ).toEqual({ ok: false, error: "invalid_correlation_id" });
   });
 
   test("parses a dismiss push: text-free, requires ids, carries the badge", () => {
