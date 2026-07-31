@@ -53,38 +53,6 @@ struct FilePreviewKindResolverTests {
     }
 
     @MainActor
-    @Test("Media previews ignore stale text-load completions")
-    func mediaPreviewsIgnoreStaleTextLoadCompletions() async throws {
-        let url = try temporaryOversizedMPEGTransportStream(
-            extension: "mts",
-            packetSize: 192,
-            syncOffset: 4
-        )
-        defer { try? FileManager.default.removeItem(at: url) }
-        let loader = DeferredTextLoader(result: .unavailable)
-
-        let panel = FilePreviewPanel(
-            workspaceId: UUID(),
-            filePath: url.path,
-            textLoader: { url in await loader.load(url: url) }
-        )
-        defer { panel.close() }
-
-        #expect(panel.previewMode == .text)
-        await loader.waitUntilStarted()
-        let resolvedAsMedia = await waitForPreviewMode(panel, .media)
-        #expect(resolvedAsMedia)
-        #expect(panel.isFileUnavailable == false)
-
-        await loader.release()
-        await loader.waitUntilCompleted()
-
-        #expect(panel.previewMode == .media)
-        #expect(panel.isFileUnavailable == false)
-        #expect(panel.textContent.isEmpty)
-    }
-
-    @MainActor
     @Test("File commands target the focused preview's file")
     func fileCommandsTargetTheFocusedPreviewsFile() throws {
         let url = try temporaryFile(extension: "md", contents: "# title\n")
@@ -123,6 +91,38 @@ struct FilePreviewKindResolverTests {
     @Test("File commands ignore an unfocused pane")
     func fileCommandsIgnoreAnUnfocusedPane() {
         #expect(FilePreviewCommandTarget.fileURL(for: nil) == nil)
+    }
+
+    @MainActor
+    @Test("Media previews ignore stale text-load completions")
+    func mediaPreviewsIgnoreStaleTextLoadCompletions() async throws {
+        let url = try temporaryOversizedMPEGTransportStream(
+            extension: "mts",
+            packetSize: 192,
+            syncOffset: 4
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        let loader = DeferredTextLoader(result: .unavailable)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { url in await loader.load(url: url) }
+        )
+        defer { panel.close() }
+
+        #expect(panel.previewMode == .text)
+        await loader.waitUntilStarted()
+        let resolvedAsMedia = await waitForPreviewMode(panel, .media)
+        #expect(resolvedAsMedia)
+        #expect(panel.isFileUnavailable == false)
+
+        await loader.release()
+        await loader.waitUntilCompleted()
+
+        #expect(panel.previewMode == .media)
+        #expect(panel.isFileUnavailable == false)
+        #expect(panel.textContent.isEmpty)
     }
 
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
