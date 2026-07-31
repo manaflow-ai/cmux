@@ -58,6 +58,47 @@ function removeStaleSocket(socketPath) {
   );
 }
 
+function waitForMacAdmission(reports, baseline = "100") {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
+  const reportDirectory = path.join(tempRoot, "reports");
+  const callCounterPath = path.join(tempRoot, "call-count");
+  fs.mkdirSync(reportDirectory);
+  reports.forEach((report, index) => {
+    fs.writeFileSync(path.join(reportDirectory, `${index + 1}`), report);
+  });
+
+  try {
+    return run(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_iroh_diag() {',
+          '  count="$(cat "$CMUX_TEST_CALL_COUNTER" 2>/dev/null || printf 0)"',
+          '  count="$((count + 1))"',
+          '  printf "%s" "$count" > "$CMUX_TEST_CALL_COUNTER"',
+          '  cat "$CMUX_TEST_REPORT_DIRECTORY/$count"',
+          '}',
+          'sleep() { :; }',
+          'cmux_attach_wait_for_admission "ready" "$2" "$3" "$4" 0',
+        ].join("\n"),
+        "mobile-admission-test",
+        validator,
+        repoRoot,
+        baseline,
+        String(reports.length),
+      ],
+      {
+        CMUX_TEST_CALL_COUNTER: callCounterPath,
+        CMUX_TEST_REPORT_DIRECTORY: reportDirectory,
+      },
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function extractShellFunction(source, name) {
   const start = source.indexOf(`${name}() {`);
   assert.notEqual(start, -1, `missing shell function ${name}`);
@@ -385,6 +426,34 @@ test("tagged stale-socket cleanup refuses a non-socket path", () => {
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("dogfood readiness requires a new Mac admission after the launch baseline", () => {
+  const result = waitForMacAdmission([
+    [
+      "cmuxdiag v1 count=1 role=2",
+      "100,47,,,,,",
+    ].join("\n"),
+    [
+      "cmuxdiag v1 count=2 role=2",
+      "100,47,,,,,",
+      "101,47,,,,,",
+    ].join("\n"),
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("dogfood readiness fails when only an admission from before launch exists", () => {
+  const result = waitForMacAdmission([
+    [
+      "cmuxdiag v1 count=1 role=2",
+      "100,47,,,,,",
+    ].join("\n"),
+  ]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a new connection/i);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {

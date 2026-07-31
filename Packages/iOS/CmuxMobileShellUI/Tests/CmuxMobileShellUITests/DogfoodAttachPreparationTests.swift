@@ -20,7 +20,7 @@ struct DogfoodAttachPreparationTests {
 
     @Test
     @MainActor
-    func injectedAttachExclusivelyOwnsStartupAcrossRepeatedLifecycleCallbacks() throws {
+    func failedInjectedAttachReleasesStartupToStoredReconnect() throws {
         let coordinator = MobileStartupConnectionCoordinator()
 
         let attachAttempt = try #require(coordinator.claimInjectedAttach())
@@ -28,21 +28,23 @@ struct DogfoodAttachPreparationTests {
         #expect(coordinator.claimInjectedAttach() == nil)
         #expect(coordinator.claimStoredReconnect() == nil)
 
-        coordinator.finishInjectedAttach(attachAttempt)
-
-        // Consuming the explicit launch route is terminal for this signed-in
-        // startup. A later onAppear/auth callback must not silently restore a
-        // different saved Mac after the requested attach finishes.
+        #expect(coordinator.finishInjectedAttach(attachAttempt, outcome: .failed))
         #expect(coordinator.claimInjectedAttach() == nil)
-        #expect(coordinator.claimStoredReconnect() == nil)
-
-        coordinator.reset()
 
         let storedAttempt = try #require(coordinator.claimStoredReconnect())
-        #expect(coordinator.claimStoredReconnect() == nil)
-        #expect(coordinator.claimInjectedAttach() == nil)
         coordinator.finishStoredReconnect(storedAttempt)
         #expect(coordinator.claimStoredReconnect() != nil)
+    }
+
+    @Test
+    @MainActor
+    func connectedInjectedAttachKeepsExclusiveStartupOwnership() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attachAttempt = try #require(coordinator.claimInjectedAttach())
+
+        #expect(!coordinator.finishInjectedAttach(attachAttempt, outcome: .connected))
+        #expect(coordinator.claimInjectedAttach() == nil)
+        #expect(coordinator.claimStoredReconnect() == nil)
     }
 }
 
