@@ -148,6 +148,22 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Run focused workspace move model tests
+        run: |
+          set -o pipefail
+          swift test \
+            --package-path Packages/iOS/CmuxMobileShellModel \
+            --filter MobileWorkspaceMovePolicy \
+            2>&1 | tee "$RUNNER_TEMP/workspace-move-model.log"
+
+      - name: Run focused workspace mutation capability tests
+        run: |
+          set -o pipefail
+          swift test \
+            --package-path Packages/iOS/CmuxMobileShell \
+            --filter MobileShellWorkspaceCapabilityTests \
+            2>&1 | tee "$RUNNER_TEMP/workspace-mutation-capability.log"
+
       - name: Run CMUXMobileCore package tests
         run: |
           swift test --package-path Packages/Shared/CMUXMobileCore
@@ -174,6 +190,16 @@ jobs:
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
           swift test --package-path Packages/iOS/CmuxMobileShellModel
+
+      - name: Upload focused workspace drag package logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: workspace-drag-package-logs
+          path: |
+            ${{ runner.temp }}/workspace-move-model.log
+            ${{ runner.temp }}/workspace-mutation-capability.log
+          if-no-files-found: warn
 
   ios-simulator:
     needs: detect-ios-changes
