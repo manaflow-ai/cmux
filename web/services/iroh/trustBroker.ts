@@ -60,6 +60,11 @@ import {
   type IrohRepositoryShape,
 } from "./repository";
 import {
+  encodeIrohDiscoveryCursor,
+  legacyIrohDiscoveryRequest,
+  parseIrohDiscoveryRequest,
+} from "./discoveryPagination";
+import {
   IrohRelayMinter,
   IrohRelayMinterLive,
   type IrohRelayMinterShape,
@@ -92,6 +97,7 @@ export type IrohTrustBrokerShape = {
   readonly discover: (
     userId: string,
     now?: Date,
+    request?: unknown,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly revoke: (
     userId: string,
@@ -263,9 +269,17 @@ export function makeIrohTrustBroker(
       };
     }),
 
-    discover: (userId, now = new Date()) => Effect.gen(function* () {
+    discover: (userId, now = new Date(), rawRequest) => Effect.gen(function* () {
+      const request = rawRequest === undefined
+        ? legacyIrohDiscoveryRequest()
+        : yield* parseEffect(() => parseIrohDiscoveryRequest(rawRequest));
       yield* repository.pruneExpiredState({ userId, now });
-      const snapshot = yield* repository.discoverySnapshot({ userId, now });
+      const snapshot = yield* repository.discoveryPage({
+        userId,
+        now,
+        pageSize: request.pageSize,
+        ...(request.cursor ? { cursor: request.cursor } : {}),
+      });
       const relayPreference = yield* accountRelayPreference(userId);
       const savedCustomRelayURLs = customRelayURLs(relayPreference);
       const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
@@ -274,7 +288,7 @@ export function makeIrohTrustBroker(
         snapshot.lanDiscoveryGeneration,
       ));
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
-      return {
+      const response = {
         route_contract_version: 1,
         bindings: snapshot.bindings.map((binding) => publicBinding(
           binding,
@@ -288,6 +302,14 @@ export function makeIrohTrustBroker(
         },
         grant_verification_keys: verificationKeys.keySet,
       };
+      return request.paginated
+        ? {
+          ...response,
+          next_cursor: snapshot.nextCursor
+            ? encodeIrohDiscoveryCursor(snapshot.nextCursor)
+            : null,
+        }
+        : response;
     }),
 
     revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
