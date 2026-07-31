@@ -108,8 +108,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "Focus Back/Forward use Cmd+[ and Cmd+] outside browser panes; browser Back/Forward use the same defaults inside browser panes. Unbind Focus Back/Forward to let terminal shortcuts handle those keys.",
+          ja: "フォーカスを戻す/進めるはブラウザペイン外で Cmd+[ / Cmd+] を使い、ブラウザペイン内では同じキーでブラウザの戻る/進むが動作します。ターミナル側で使うには、フォーカスを戻す/進めるの割り当てを解除します。",
         },
       },
       {
@@ -117,8 +117,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "]"]],
         description: { en: "Focus forward", ja: "フォーカスを進める" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "Focus Back/Forward use Cmd+[ and Cmd+] outside browser panes; browser Back/Forward use the same defaults inside browser panes. Unbind Focus Back/Forward to let terminal shortcuts handle those keys.",
+          ja: "フォーカスを戻す/進めるはブラウザペイン外で Cmd+[ / Cmd+] を使い、ブラウザペイン内では同じキーでブラウザの戻る/進むが動作します。ターミナル側で使うには、フォーカスを戻す/進めるの割り当てを解除します。",
         },
       },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
