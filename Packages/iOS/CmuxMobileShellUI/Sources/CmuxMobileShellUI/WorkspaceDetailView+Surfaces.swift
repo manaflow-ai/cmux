@@ -6,15 +6,6 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
-    /// The active browser surface for this workspace, when a browser pane is open.
-    var activeBrowser: BrowserSurfaceState? {
-        browserStore.activeBrowser(for: workspace.id.rawValue)
-    }
-
-    var activeSurface: WorkspaceActiveSurface {
-        WorkspaceActiveSurface.derive(hasActiveBrowser: activeBrowser != nil)
-    }
-
     @ViewBuilder
     var detailSurfaceContent: some View {
         #if os(iOS)

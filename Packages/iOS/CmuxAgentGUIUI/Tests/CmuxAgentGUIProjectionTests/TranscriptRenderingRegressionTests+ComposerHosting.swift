@@ -244,6 +244,9 @@ extension TranscriptRenderingRegressionTests {
         let initialChromeHeight = container.transcript.bottomChromeHeight
         let bottomConstraint = try #require(container.composerBottomConstraint)
 
+        #expect(bottomConstraint.secondItem as? UIView === container.view)
+        #expect(bottomConstraint.secondAttribute == .bottom)
+
         bottomConstraint.constant = -320
         UIView.performWithoutAnimation {
             container.view.layoutIfNeeded()

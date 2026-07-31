@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentGUIUI
 import Foundation
 import Observation

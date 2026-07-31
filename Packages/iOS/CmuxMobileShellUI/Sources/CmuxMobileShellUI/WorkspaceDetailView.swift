@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentGUIUI
 import CmuxAgentChatUI
 import CmuxMobileBrowser

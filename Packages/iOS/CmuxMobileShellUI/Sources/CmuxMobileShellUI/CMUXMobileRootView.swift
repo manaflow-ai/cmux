@@ -274,8 +274,8 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowDeleteComputersVerifier {
-            deleteComputersVerifier
+        if shouldShowHideComputersVerifier {
+            hideComputersVerifier
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowTranscriptDemoPreview {
