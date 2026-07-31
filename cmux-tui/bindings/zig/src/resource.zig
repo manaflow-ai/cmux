@@ -14300,6 +14300,76 @@ const FullDispatchDeadlineConnection = struct {
     }
 };
 
+const PayloadBoundaryMode = enum {
+    complete_then_deadline,
+    partial_then_timeout,
+};
+
+const PayloadBoundaryConnection = struct {
+    allocator: std.mem.Allocator,
+    mode: PayloadBoundaryMode,
+    output: std.ArrayList(u8) = .empty,
+    attempted_payload_bytes: usize = 0,
+    write_calls: usize = 0,
+    closed: bool = false,
+
+    fn create(mode: PayloadBoundaryMode) !*PayloadBoundaryConnection {
+        const state = try std.testing.allocator.create(
+            PayloadBoundaryConnection,
+        );
+        state.* = .{
+            .allocator = std.testing.allocator,
+            .mode = mode,
+        };
+        return state;
+    }
+
+    pub fn read(
+        self: *PayloadBoundaryConnection,
+        buffer: []u8,
+        timeout_ms: ?u32,
+    ) !usize {
+        _ = self;
+        _ = buffer;
+        _ = timeout_ms;
+        return error.UnexpectedRead;
+    }
+
+    pub fn writeAll(
+        self: *PayloadBoundaryConnection,
+        bytes: []const u8,
+        timeout_ms: ?u32,
+    ) !void {
+        self.write_calls += 1;
+        self.attempted_payload_bytes = bytes.len;
+        switch (self.mode) {
+            .complete_then_deadline => {
+                try self.output.appendSlice(self.allocator, bytes);
+                const delay_ms = @as(u64, timeout_ms orelse 10) + 2;
+                std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+            },
+            .partial_then_timeout => {
+                const partial_len = @max(@as(usize, 1), bytes.len / 2);
+                try self.output.appendSlice(
+                    self.allocator,
+                    bytes[0..partial_len],
+                );
+                return error.Timeout;
+            },
+        }
+    }
+
+    pub fn close(self: *PayloadBoundaryConnection) void {
+        self.closed = true;
+    }
+
+    pub fn deinit(self: *PayloadBoundaryConnection) void {
+        const allocator = self.allocator;
+        self.output.deinit(allocator);
+        allocator.destroy(self);
+    }
+};
+
 const AdmissionWorker = struct {
     client: *Client,
     timeout_ms: u32,
@@ -15339,6 +15409,81 @@ test "fully dispatched mutation timeout preserves uncertainty" {
         uncertainty.idempotency_key,
     );
     try std.testing.expect(dispatched.closed);
+}
+
+test "complete mutation payload without newline is uncertain" {
+    const payload = try PayloadBoundaryConnection.create(
+        .complete_then_deadline,
+    );
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(payload),
+        .{ .timeout_ms = 10 },
+    );
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.MutationTransportUncertain,
+        client.workspace(workspace_id).rename(
+            "payload-complete",
+            try MutationOptions.withKey("payload-complete-key"),
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
+    try std.testing.expectEqual(
+        payload.attempted_payload_bytes,
+        payload.output.items.len,
+    );
+    try std.testing.expect(
+        !std.mem.endsWith(u8, payload.output.items, "\n"),
+    );
+    const uncertainty = client.lastMutationTransportUncertain().?;
+    try std.testing.expectEqual(
+        MutationTransportCause.timeout,
+        uncertainty.cause,
+    );
+    try std.testing.expectEqualStrings(
+        "payload-complete-key",
+        uncertainty.idempotency_key,
+    );
+    try std.testing.expect(payload.closed);
+}
+
+test "partial mutation payload timeout stays determinate" {
+    const payload = try PayloadBoundaryConnection.create(
+        .partial_then_timeout,
+    );
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(payload),
+        .{ .timeout_ms = 1_000 },
+    );
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client.workspace(workspace_id).rename(
+            "payload-partial",
+            try MutationOptions.withKey("payload-partial-key"),
+        ),
+    );
+    try std.testing.expect(
+        client.lastMutationTransportUncertain() == null,
+    );
+    try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
+    try std.testing.expect(
+        payload.output.items.len < payload.attempted_payload_bytes,
+    );
+    try std.testing.expect(
+        !std.mem.endsWith(u8, payload.output.items, "\n"),
+    );
+    try std.testing.expect(payload.closed);
 }
 
 test "mutation framing failures before full dispatch stay determinate" {
