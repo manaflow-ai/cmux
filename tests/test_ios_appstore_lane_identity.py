@@ -320,7 +320,8 @@ if "archive" in args:
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
         }},
     )
-    (archive / "dSYMs" / "cmux.app.dSYM").mkdir(parents=True, exist_ok=True)
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
 
 if "-exportArchive" in args:
@@ -344,15 +345,17 @@ if "-exportArchive" in args:
         )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
-    symbols = export_path / "Symbols" / "cmux.symbols"
-    symbols.parent.mkdir(parents=True, exist_ok=True)
-    symbols.write_text("fake symbols", encoding="utf-8")
+    # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
+    symbols_root = export_path / "Symbols"
+    symbols_root.mkdir(parents=True, exist_ok=True)
+    (symbols_root / "cmux.symbols").write_text("fake symbols", encoding="utf-8")
     ipa = export_path / "cmux.ipa"
     ipa.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ipa, "w") as zf:
-        for root in (payload_root, symbols.parent):
-            for item in root.rglob("*"):
-                zf.write(item, item.relative_to(export_path))
+        for item in payload_root.rglob("*"):
+            zf.write(item, item.relative_to(export_path))
+        for item in symbols_root.rglob("*"):
+            zf.write(item, item.relative_to(export_path))
     sys.exit(0)
 
 sys.exit(0)
@@ -522,7 +525,8 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
     }
     (path).mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True, exist_ok=True)
-    (path / "dSYMs" / "cmux.app.dSYM").mkdir(parents=True, exist_ok=True)
+    # upload-testflight.sh refuses archives without dSYM bundles.
+    (path / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     (path / "Info.plist").write_bytes(
         _plist_bytes(
             {
