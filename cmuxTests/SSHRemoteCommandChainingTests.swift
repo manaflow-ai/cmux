@@ -277,8 +277,73 @@ struct SSHRemoteCommandChainingTests {
 
         #expect(restored.configuredRemoteCommand == nil)
         #expect(restored.sshOptions.contains("ServerAliveInterval=15"))
-        #expect(!restored.sshOptions.contains { $0.hasPrefix("RemoteCommand=") })
+        #expect(restored.sshOptions.contains("RemoteCommand=none"))
         #expect(!startupCommand.contains(legacyRemoteCommand), Comment(rawValue: startupCommand))
+    }
+
+    @Test(
+        "explicit empty command overrides a live host-configured RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandOverridesHostConfiguredRemoteCommand(
+        configuredRemoteCommand: String
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-disabled-remote-command-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let hostCommandMarker = root.appendingPathComponent("host-command-ran")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        remote_command_override=inherited
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o)
+              case "$2" in
+                RemoteCommand=none|remotecommand=none) remote_command_override=none ;;
+              esac
+              shift 2
+              ;;
+            -p|-i) shift 2 ;;
+            -tt|-t|-T) shift ;;
+            *) shift; break ;;
+          esac
+        done
+        if [ "$remote_command_override" = inherited ]; then
+          printf 'ran\n' > "$HOST_COMMAND_MARKER"
+        fi
+        """
+        .write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: []
+        )
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOST_COMMAND_MARKER"] = hostCommandMarker.path
+        environment["PATH"] = "/usr/bin:/bin"
+        let result = processSupport.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(startupCommand.contains("RemoteCommand=none"), Comment(rawValue: startupCommand))
+        #expect(!fileManager.fileExists(atPath: hostCommandMarker.path))
     }
 
     @Test

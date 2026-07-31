@@ -295,8 +295,14 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.relayPort == nil)
         #expect(configuration.configuredRemoteCommand == nil)
         #expect(configuration.sshOptions.contains("ServerAliveInterval=15"))
-        #expect(!configuration.sshOptions.contains { $0.hasPrefix("RemoteCommand=") })
+        #expect(configuration.sshOptions.contains("RemoteCommand=none"))
         #expect(command.contains("mosh"), Comment(rawValue: command))
+        #expect(
+            command.contains(
+                "/usr/bin/ssh -o RemoteCommand=none -o ServerAliveInterval=15 -tt dev@example.com"
+            ),
+            "The no-relay Mosh fallback must suppress a live host RemoteCommand: \(command)"
+        )
         #expect(!command.contains(legacyRemoteCommand), Comment(rawValue: command))
     }
 }
