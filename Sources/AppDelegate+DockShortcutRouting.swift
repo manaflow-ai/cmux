@@ -159,12 +159,7 @@ extension AppDelegate {
     ) -> Bool {
         switch route {
         case let .direction(direction):
-            let directionalKey: (glyph: String, keyCode: UInt16) = switch direction {
-            case .left: ("←", 123)
-            case .right: ("→", 124)
-            case .up: ("↑", 126)
-            case .down: ("↓", 125)
-            }
+            let directionalKey = directionalArrowKey(for: direction)
             return matchDirectionalShortcut(
                 event: event,
                 shortcut: shortcut,
@@ -186,10 +181,10 @@ extension AppDelegate {
         }
 
         let directionalKey: (glyph: String, keyCode: UInt16)? = switch action {
-        case .focusLeft: ("←", 123)
-        case .focusRight: ("→", 124)
-        case .focusUp: ("↑", 126)
-        case .focusDown: ("↓", 125)
+        case .focusLeft: directionalArrowKey(for: .left)
+        case .focusRight: directionalArrowKey(for: .right)
+        case .focusUp: directionalArrowKey(for: .up)
+        case .focusDown: directionalArrowKey(for: .down)
         default: nil
         }
         if let directionalKey {
@@ -201,5 +196,16 @@ extension AppDelegate {
             )
         }
         return matchConfiguredShortcut(event: event, action: action)
+    }
+
+    private func directionalArrowKey(
+        for direction: NavigationDirection
+    ) -> (glyph: String, keyCode: UInt16) {
+        switch direction {
+        case .left: ("←", 123)
+        case .right: ("→", 124)
+        case .up: ("↑", 126)
+        case .down: ("↓", 125)
+        }
     }
 }
