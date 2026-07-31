@@ -50,6 +50,13 @@ extension CMUXCLI {
                   let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
                   !surfaceID.isEmpty {
             params["surface_id"] = surfaceID
+        } else if selector.usesCurrentSurface,
+                  let ttyName = resolveCallerTTYName(),
+                  let caller = resolveTerminalBinding(
+                      ttyName: ttyName,
+                      client: client
+                  ) {
+            params["surface_id"] = caller.surfaceId
         } else {
             throw CLIError(
                 message: "restore: positional form requires a cmux surface context; "
@@ -64,13 +71,15 @@ extension CMUXCLI {
         let record = try restoreRecord(from: rawRecord)
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw CLIError(
-                message: "restore: expected kind '\(expectedKind)', but the surface records '\(record.kind)'"
+                message: "restore: expected kind '\(expectedKind)', but the surface records "
+                    + "'\(record.kind)'. Run 'cmux restore --surface' to use the current record."
             )
         }
         if let expectedCheckpointID = selector.checkpointID,
            expectedCheckpointID != record.checkpointID {
             throw CLIError(
-                message: "restore: checkpoint does not match this surface's persisted record"
+                message: "restore: checkpoint does not match this surface's persisted record. "
+                    + "Run 'cmux restore --surface' to use the current record."
             )
         }
 

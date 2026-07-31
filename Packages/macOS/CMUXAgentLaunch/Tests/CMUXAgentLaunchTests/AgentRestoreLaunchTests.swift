@@ -35,13 +35,20 @@ import Testing
     @Test func bundledCLIStartupTokenQuotesAbsolutePathWithoutEnvironmentLookup() {
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: "/Applications/cmux user's build.app/Contents/Resources/bin/cmux"
+                bundledCLIPath: "/Applications/cmux user's build.app/Contents/Resources/bin/cmux",
+                isExecutableFile: { _ in true }
             )
                 == "'/Applications/cmux user'\\''s build.app/Contents/Resources/bin/cmux'"
         )
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
                 bundledCLIPath: nil
+            ) == "cmux"
+        )
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                isExecutableFile: { _ in false }
             ) == "cmux"
         )
     }

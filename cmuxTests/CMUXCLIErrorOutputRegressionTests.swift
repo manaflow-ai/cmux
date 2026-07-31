@@ -110,7 +110,14 @@ import Testing
 
         let checkpointID = "checkpoint-\(UUID().uuidString)"
         let arguments = [executable.path, "space value", "quote'\"", "日本語", String(repeating: "x", count: 4_000)]
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
         let response = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9258",
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]],
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -131,9 +138,12 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["TTY"] = "/dev/ttys9258"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -150,6 +160,14 @@ import Testing
             XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
         }
         XCTAssertFalse(result.stdout.contains("/bin/sh -c"), result.stdout)
+        let methods = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+            return try XCTUnwrap(object["method"] as? String)
+        }
+        XCTAssertEqual(methods, ["debug.terminals", "surface.resume.get"])
     }
 
     @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
@@ -1898,33 +1916,35 @@ final class UnixSocketResponder {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
-        var request = Data()
         while true {
-            var byte: UInt8 = 0
-            let count = read(clientFD, &byte, 1)
-            if count <= 0 {
+            var request = Data()
+            while true {
+                var byte: UInt8 = 0
+                let count = read(clientFD, &byte, 1)
+                if count <= 0 {
+                    return
+                }
+                request.append(byte)
+                if byte == 0x0A {
+                    break
+                }
+            }
+            guard !request.isEmpty else {
                 return
             }
-            request.append(byte)
-            if byte == 0x0A {
-                break
+            if let line = String(data: request, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) {
+                lock.lock()
+                requests.append(line)
+                lock.unlock()
             }
-        }
-        guard !request.isEmpty else {
-            return
-        }
-        if let line = String(data: request, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
-            lock.lock()
-            requests.append(line)
-            lock.unlock()
-        }
-        if responseDelay > 0 {
-            Thread.sleep(forTimeInterval: responseDelay)
-        }
-        let payload = response + "\n"
-        payload.withCString { pointer in
-            _ = write(clientFD, pointer, strlen(pointer))
+            if responseDelay > 0 {
+                Thread.sleep(forTimeInterval: responseDelay)
+            }
+            let payload = response + "\n"
+            payload.withCString { pointer in
+                _ = write(clientFD, pointer, strlen(pointer))
+            }
         }
     }
 

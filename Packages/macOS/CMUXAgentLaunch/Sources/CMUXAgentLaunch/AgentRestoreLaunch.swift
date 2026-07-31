@@ -18,12 +18,22 @@ public struct AgentRestoreLaunch: Sendable {
     /// ambiguity and remains available even when a shell profile removes cmux
     /// environment variables. The quoting form is accepted by the supported
     /// POSIX, fish, and csh-family interactive shells.
+    ///
+    /// - Parameters:
+    ///   - bundledCLIPath: The app-relative CLI candidate.
+    ///   - isExecutableFile: The executable-path lookup used to validate the candidate.
+    /// - Returns: A quoted absolute token, or the `cmux` PATH token when unavailable.
     public static func bundledCLIStartupExecutableToken(
         bundledCLIPath: String? = Bundle.main.resourceURL?
             .appendingPathComponent("bin/cmux", isDirectory: false)
-            .path
+            .path,
+        isExecutableFile: @Sendable (String) -> Bool = {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }
     ) -> String {
-        guard let path = bundledCLIPath, !path.isEmpty else {
+        guard let path = bundledCLIPath,
+              !path.isEmpty,
+              isExecutableFile(path) else {
             return "cmux"
         }
         return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
