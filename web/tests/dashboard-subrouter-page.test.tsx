@@ -37,6 +37,9 @@ mock.module("@/i18n/navigation", () => ({
 
 mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
+  getStackServerApp: () => ({
+    getAuthJson: async () => ({ accessToken: "test-access-token" }),
+  }),
 }));
 
 mock.module("../services/vms/auth", () => ({
@@ -52,15 +55,10 @@ mock.module("../services/subrouter/routeHelpers", () => ({
   authorizedSubrouterTeams: async () => [],
 }));
 
-mock.module("../services/subrouter/client", () => ({
-  createSubrouterClient: () => {
+mock.module("../services/subrouter/hostedClient", () => ({
+  createHostedSubrouterClient: () => {
     throw new Error("account client must not load during auth failure");
   },
-  subrouterRuntimeConfig: () => null,
-}));
-
-mock.module("../services/subrouter/tenants", () => ({
-  getTenantForTeam: async () => null,
 }));
 
 mock.module("../db/client", () => ({

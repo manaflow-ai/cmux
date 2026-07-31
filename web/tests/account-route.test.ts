@@ -13,7 +13,6 @@ import {
   devices,
   stripeCustomers,
   stripeSubscriptions,
-  subrouterTenants,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -52,8 +51,6 @@ const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
 const vaultUsageModule = await import("../services/vault/usage");
 const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
-const subrouterClientModule = await import("../services/subrouter/client");
-const realCreateSubrouterClientFromEnv = subrouterClientModule.createSubrouterClientFromEnv;
 const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
@@ -268,13 +265,6 @@ const removeTester = mock(async (...args: unknown[]) => {
 const captureAscError = mock((..._args: unknown[]) => {
   routeEvents.push("testflight-error");
 });
-const revokeTenant = mock(async (...args: unknown[]) => {
-  const [tenantId] = args as [string];
-  routeEvents.push(`subrouter-revoke:${tenantId}`);
-  const sequenceError = subrouterRevokeErrors.shift();
-  if (sequenceError) throw sequenceError;
-  if (subrouterRevokeError) throw subrouterRevokeError;
-});
 const realFetch = globalThis.fetch;
 const postHogDeleteFetch = mock(async (...args: unknown[]) => {
   const fetchArgs = args as Parameters<typeof fetch>;
@@ -320,9 +310,6 @@ let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let revokedIdentityLeaseCount = 2;
-let subrouterClientCreateError: unknown = null;
-let subrouterRevokeError: unknown = null;
-let subrouterRevokeErrors: unknown[] = [];
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
 let useAccountRouteStubs = false;
@@ -537,17 +524,6 @@ mock.module("../services/errors", () => ({
   }) as typeof realCaptureAscError,
 }));
 
-mock.module("../services/subrouter/client", () => ({
-  ...subrouterClientModule,
-  createSubrouterClientFromEnv: () => {
-    if (!useAccountRouteStubs) return realCreateSubrouterClientFromEnv();
-    if (subrouterClientCreateError) throw subrouterClientCreateError;
-    return {
-        revokeTenant,
-      };
-  },
-}));
-
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
   destroyVm: ((...args: Parameters<typeof realDestroyVm>) => {
@@ -611,7 +587,6 @@ beforeEach(() => {
   updateSubscription.mockClear();
   removeTester.mockClear();
   captureAscError.mockClear();
-  revokeTenant.mockClear();
   postHogDeleteFetch.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
@@ -650,9 +625,6 @@ beforeEach(() => {
   revokeIdentityLeasesError = null;
   revokedIdentityLeaseCount = 2;
   lastRevokeIdentityCall = null;
-  subrouterClientCreateError = null;
-  subrouterRevokeError = null;
-  subrouterRevokeErrors = [];
   stackUserSelectedTeam = null;
   stackUserTeams = [];
   vaultLockUsers = [];
@@ -951,7 +923,6 @@ describe("account deletion route", () => {
     expect(listUserVms).not.toHaveBeenCalled();
     expect(destroyVm).not.toHaveBeenCalled();
     expect(deleteObject).not.toHaveBeenCalled();
-    expect(revokeTenant).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.failed",
       "Error: POSTHOG_ENVIRONMENT_ID is required for account deletion",
@@ -997,7 +968,6 @@ describe("account deletion route", () => {
       [],
       [],
       [],
-      [{ tenantId: "tenant-team-personal" }],
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -1023,7 +993,6 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(subscriptionDelete?.condition)).toContain("stack_team_id");
     const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
     expect(transactionExecute).toHaveBeenCalledTimes(6);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
@@ -1333,27 +1302,6 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
-  test("revokes the personal Subrouter tenant before deleting local rows", async () => {
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(200);
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).toContain(subrouterTenants);
-    expect(routeEvents.indexOf("subrouter-revoke:tenant-personal")).toBeLessThan(
-      routeEvents.lastIndexOf("transaction"),
-    );
-  });
-
   test("removes TestFlight access during account deletion when ASC is configured", async () => {
     ascConfigured = true;
     listedPersonalVmIds = [];
@@ -1553,144 +1501,6 @@ describe("account deletion route", () => {
       "account.delete.partial_after_destructive_cleanup",
       "AccountDeletionDestructiveCleanupError: Failed to destroy 1 personal cloud VM",
     );
-  });
-
-  test("keeps deletion retryable after Subrouter 404 removes local tenant state", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterRevokeError = new subrouterClientModule.SubrouterClientError("revokeTenant", 404);
-    stackDeleteError = new Error("stack unavailable after subrouter cleanup");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(3);
-    expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenCalledTimes(1);
-  });
-
-  test("restores Stack metadata when Subrouter revoke fails before external mutation", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterRevokeError = new Error("subrouter request timed out");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
-  });
-
-  test("restores Stack metadata when Subrouter 404 is followed by a pre-mutation failure", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-missing" }, { tenantId: "tenant-timeout" }],
-    ];
-    subrouterRevokeErrors = [
-      new subrouterClientModule.SubrouterClientError("revokeTenant", 404),
-      new Error("subrouter request timed out"),
-    ];
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-missing");
-    expect(revokeTenant).toHaveBeenCalledWith("tenant-timeout");
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
-  });
-
-  test("restores Stack metadata when local Subrouter configuration fails before external mutation", async () => {
-    listedPersonalVmIds = [];
-    revokedIdentityLeaseCount = 0;
-    selectResults = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      [],
-      [{ tenantId: "tenant-personal" }],
-    ];
-    subrouterClientCreateError = new Error("subrouter not configured");
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 0,
-    });
-    expect(revokeTenant).not.toHaveBeenCalled();
-    expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(deleteStackUser).not.toHaveBeenCalled();
-    expect(updateStackUser).toHaveBeenNthCalledWith(1, {
-      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
-    });
-    expect(updateStackUser).toHaveBeenNthCalledWith(2, {
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
   });
 
   test("does not delete personal VM rows that gained a provider id before account row deletion", async () => {
@@ -2103,7 +1913,6 @@ describe("account deletion route", () => {
       [],
       [],
       [],
-      [],
       [{ id: "post-stack-session", latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
     ];
 
@@ -2136,7 +1945,6 @@ describe("account deletion route", () => {
     postStackVaultDeleteError = new Error("post-delete vault unavailable");
     tombstoneCleanupIncompleteError = new Error("tombstone unavailable");
     selectResults = [
-      [],
       [],
       [],
       [],
