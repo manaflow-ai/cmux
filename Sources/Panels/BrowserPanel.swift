@@ -7377,7 +7377,7 @@ extension BrowserPanel {
         timeout: TimeInterval,
         operation: @escaping (
             _ webView: WKWebView,
-            _ presentation: BrowserScreenshotCaptureService.Presentation,
+            _ presentation: BrowserScreenshotPresentation,
             _ finish: @escaping (Result<T, Error>) -> Void
         ) -> Task<Void, Never>,
         completion: @escaping (Result<T, Error>) -> Void
@@ -7472,8 +7472,8 @@ extension BrowserPanel {
         visualAutomationPresentation.usesOffscreenRenderHost
     }
 
-    private var visualAutomationPresentation: BrowserScreenshotCaptureService.Presentation {
-        BrowserScreenshotCaptureService.Presentation.resolve(
+    private var visualAutomationPresentation: BrowserScreenshotPresentation {
+        BrowserScreenshotPresentation.resolve(
             isVisibleInUI: isWebViewVisibleInUI,
             isAttachedToWindow: webView.window != nil,
             isHiddenOrHasHiddenAncestor: webView.isHiddenOrHasHiddenAncestor,

@@ -181,24 +181,24 @@ struct BrowserScreenshotCropTests {
 
     @Test
     func screenshotPresentationSeparatesHostingFromSynchronization() {
-        let onscreen = BrowserScreenshotCaptureService.Presentation.onscreen
+        let onscreen = BrowserScreenshotPresentation.onscreen
         #expect(!onscreen.afterScreenUpdates)
         #expect(!onscreen.usesOffscreenRenderHost)
-        #expect(BrowserScreenshotCaptureService.Presentation.offscreen.usesOffscreenRenderHost)
-        #expect(!BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates)
+        #expect(BrowserScreenshotPresentation.offscreen.usesOffscreenRenderHost)
+        #expect(!BrowserScreenshotPresentation.offscreen.afterScreenUpdates)
         #expect(
             onscreen.waitsForAnimationFrame(isRetry: false)
         )
         #expect(
-            !BrowserScreenshotCaptureService.Presentation.offscreen
+            !BrowserScreenshotPresentation.offscreen
                 .waitsForAnimationFrame(isRetry: false)
         )
         #expect(
-            BrowserScreenshotCaptureService.Presentation.offscreen
+            BrowserScreenshotPresentation.offscreen
                 .waitsForAnimationFrame(isRetry: true)
         )
         #expect(
-            BrowserScreenshotCaptureService.Presentation.resolve(
+            BrowserScreenshotPresentation.resolve(
                 isVisibleInUI: true,
                 isAttachedToWindow: true,
                 isHiddenOrHasHiddenAncestor: false,
@@ -206,7 +206,7 @@ struct BrowserScreenshotCropTests {
             ) == onscreen
         )
         #expect(
-            BrowserScreenshotCaptureService.Presentation.resolve(
+            BrowserScreenshotPresentation.resolve(
                 isVisibleInUI: true,
                 isAttachedToWindow: true,
                 isHiddenOrHasHiddenAncestor: true,
@@ -214,7 +214,7 @@ struct BrowserScreenshotCropTests {
             ) == .offscreen
         )
         #expect(
-            BrowserScreenshotCaptureService.Presentation.resolve(
+            BrowserScreenshotPresentation.resolve(
                 isVisibleInUI: true,
                 isAttachedToWindow: false,
                 isHiddenOrHasHiddenAncestor: false,
@@ -386,7 +386,7 @@ struct BrowserScreenshotCropTests {
             maximumAttempts: 3,
             synchronize: { _ in },
             collectProbes: {
-                BrowserScreenshotFrameVerifier.ProbeSet(
+                BrowserScreenshotProbeSet(
                     viewportSize: NSSize(width: 100, height: 100),
                     probes: []
                 )
@@ -411,7 +411,7 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifierTreatsOneDisagreeingProbeAsInconclusive() {
         let probes = textProbeSet()
-        let oneProbe = BrowserScreenshotFrameVerifier.ProbeSet(
+        let oneProbe = BrowserScreenshotProbeSet(
             viewportSize: probes.viewportSize,
             probes: [probes.probes[0]]
         )
@@ -490,14 +490,14 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifierRequiresBlankEvidenceFromDistinctViewportCells() {
         let original = textProbeSet()
-        let sameCellProbe = BrowserScreenshotFrameVerifier.Probe(
+        let sameCellProbe = BrowserScreenshotProbe(
             identifier: "nearby-balance",
             text: "Available",
             rect: NSRect(x: 12, y: 14, width: 10, height: 12),
             foreground: .white,
             background: .black
         )
-        let probes = BrowserScreenshotFrameVerifier.ProbeSet(
+        let probes = BrowserScreenshotProbeSet(
             viewportSize: original.viewportSize,
             probes: [original.probes[0], sameCellProbe]
         )
@@ -513,21 +513,21 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifierReportsEveryBlankProbe() {
         let original = textProbeSet()
-        let nearby = BrowserScreenshotFrameVerifier.Probe(
+        let nearby = BrowserScreenshotProbe(
             identifier: "nearby-balance",
             text: "Available",
             rect: NSRect(x: 12, y: 14, width: 10, height: 12),
             foreground: .white,
             background: .black
         )
-        let third = BrowserScreenshotFrameVerifier.Probe(
+        let third = BrowserScreenshotProbe(
             identifier: "secondary-action",
             text: "Withdraw",
             rect: NSRect(x: 30, y: 35, width: 12, height: 12),
             foreground: .white,
             background: .black
         )
-        let probes = BrowserScreenshotFrameVerifier.ProbeSet(
+        let probes = BrowserScreenshotProbeSet(
             viewportSize: original.viewportSize,
             probes: original.probes + [nearby, third]
         )
@@ -543,10 +543,10 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifierIgnoresTextThatMovesDuringCapture() {
         let before = textProbeSet()
-        let after = BrowserScreenshotFrameVerifier.ProbeSet(
+        let after = BrowserScreenshotProbeSet(
             viewportSize: before.viewportSize,
             probes: before.probes.map {
-                BrowserScreenshotFrameVerifier.Probe(
+                BrowserScreenshotProbe(
                     identifier: $0.identifier,
                     text: $0.text,
                     rect: $0.rect.offsetBy(dx: 3, dy: 0),
@@ -912,7 +912,7 @@ struct BrowserScreenshotCropTests {
     private func collectDOMProbes(
         html: String,
         configuration: WKWebViewConfiguration = WKWebViewConfiguration()
-    ) async throws -> BrowserScreenshotFrameVerifier.ProbeSet {
+    ) async throws -> BrowserScreenshotProbeSet {
         let webView = try await loadDOMWebView(
             html: html,
             configuration: configuration
@@ -936,8 +936,8 @@ struct BrowserScreenshotCropTests {
 
     private func textProbeSet(
         firstText: String = "Balance"
-    ) -> BrowserScreenshotFrameVerifier.ProbeSet {
-        BrowserScreenshotFrameVerifier.ProbeSet(
+    ) -> BrowserScreenshotProbeSet {
+        BrowserScreenshotProbeSet(
             viewportSize: NSSize(width: 100, height: 100),
             probes: [
                 .init(
@@ -958,11 +958,11 @@ struct BrowserScreenshotCropTests {
         )
     }
 
-    private struct SolidPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+    private struct SolidPixelSource: BrowserScreenshotPixelSource {
         let pixelSize: NSSize
-        let color: BrowserScreenshotFrameVerifier.RGBA
+        let color: BrowserScreenshotRGBA
 
-        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
@@ -970,11 +970,11 @@ struct BrowserScreenshotCropTests {
         }
     }
 
-    private struct TextPaintPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+    private struct TextPaintPixelSource: BrowserScreenshotPixelSource {
         let pixelSize: NSSize
         let textRects: [NSRect]
 
-        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
@@ -993,11 +993,11 @@ struct BrowserScreenshotCropTests {
         }
     }
 
-    private struct ThinTextStrokePixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+    private struct ThinTextStrokePixelSource: BrowserScreenshotPixelSource {
         let pixelSize: NSSize
         let textRects: [NSRect]
 
-        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }

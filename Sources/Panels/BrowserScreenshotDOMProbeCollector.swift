@@ -36,7 +36,7 @@ final class BrowserScreenshotDOMProbeCollector {
         forceAppKitLayout(for: webView)
     }
 
-    func collect() async -> BrowserScreenshotFrameVerifier.ProbeSet? {
+    func collect() async -> BrowserScreenshotProbeSet? {
         guard let webView else { return nil }
         do {
             guard let value = try await webView.evaluateJavaScript(
@@ -56,7 +56,7 @@ final class BrowserScreenshotDOMProbeCollector {
 
     private func probeSet(
         from value: [String: Any]
-    ) -> BrowserScreenshotFrameVerifier.ProbeSet? {
+    ) -> BrowserScreenshotProbeSet? {
         let viewportSize = NSSize(
             width: number(value["viewportWidth"]),
             height: number(value["viewportHeight"])
@@ -69,7 +69,7 @@ final class BrowserScreenshotDOMProbeCollector {
             return nil
         }
 
-        let probes = values.compactMap { probeValue -> BrowserScreenshotFrameVerifier.Probe? in
+        let probes = values.compactMap { probeValue -> BrowserScreenshotProbe? in
             guard let identifier = probeValue["identifier"] as? String,
                   let text = probeValue["text"] as? String,
                   let rectValue = probeValue["rect"] as? [String: Any],
@@ -95,7 +95,7 @@ final class BrowserScreenshotDOMProbeCollector {
                   rect.height > 0 else {
                 return nil
             }
-            return BrowserScreenshotFrameVerifier.Probe(
+            return BrowserScreenshotProbe(
                 identifier: identifier,
                 text: text,
                 rect: rect,
@@ -103,7 +103,7 @@ final class BrowserScreenshotDOMProbeCollector {
                 background: background
             )
         }
-        return BrowserScreenshotFrameVerifier.ProbeSet(
+        return BrowserScreenshotProbeSet(
             viewportSize: viewportSize,
             probes: probes
         )
@@ -111,8 +111,8 @@ final class BrowserScreenshotDOMProbeCollector {
 
     private func color(
         from value: [String: Any]
-    ) -> BrowserScreenshotFrameVerifier.RGBA? {
-        let color = BrowserScreenshotFrameVerifier.RGBA(
+    ) -> BrowserScreenshotRGBA? {
+        let color = BrowserScreenshotRGBA(
             red: number(value["red"]),
             green: number(value["green"]),
             blue: number(value["blue"]),

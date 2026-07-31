@@ -406,6 +406,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A15388300000000000000004 /* BrowserScreenshotOversizedImagePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15388300000000000000003 /* BrowserScreenshotOversizedImagePolicy.swift */; };
 		A15388300000000000000002 /* BrowserScreenshotPasteboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15388300000000000000001 /* BrowserScreenshotPasteboardWriter.swift */; };
 		4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */; };
+		A9210001000000000000000D /* BrowserScreenshotPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9210001000000000000000E /* BrowserScreenshotPresentation.swift */; };
 		A9210001000000000000000B /* BrowserScreenshotSnapshotRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9210001000000000000000C /* BrowserScreenshotSnapshotRequest.swift */; };
 		4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */; };
 		80560000000000000000000B /* BrowserScreenshotTilePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80560000000000000000000C /* BrowserScreenshotTilePlacement.swift */; };
@@ -3026,6 +3027,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A15388300000000000000003 /* BrowserScreenshotOversizedImagePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotOversizedImagePolicy.swift; sourceTree = "<group>"; };
 		A15388300000000000000001 /* BrowserScreenshotPasteboardWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPasteboardWriter.swift; sourceTree = "<group>"; };
 		4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPipeline.swift; sourceTree = "<group>"; };
+		A9210001000000000000000E /* BrowserScreenshotPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPresentation.swift; sourceTree = "<group>"; };
 		A9210001000000000000000C /* BrowserScreenshotSnapshotRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotRequest.swift; sourceTree = "<group>"; };
 		4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotter.swift; sourceTree = "<group>"; };
 		80560000000000000000000C /* BrowserScreenshotTilePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotTilePlacement.swift; sourceTree = "<group>"; };
@@ -6484,6 +6486,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9210001000000000000000A /* BrowserScreenshotAnimationFrameWaiter.swift */,
 				A92100010000000000000004 /* BrowserScreenshotCaptureService.swift */,
 				A92100010000000000000006 /* BrowserScreenshotDOMProbeCollector.swift */,
+				A9210001000000000000000E /* BrowserScreenshotPresentation.swift */,
 				A15388300000000000000005 /* BrowserScreenshotEncodedImage.swift */,
 				A15388300000000000000003 /* BrowserScreenshotOversizedImagePolicy.swift */,
 				A15388300000000000000001 /* BrowserScreenshotPasteboardWriter.swift */,
@@ -8525,6 +8528,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A15388300000000000000004 /* BrowserScreenshotOversizedImagePolicy.swift in Sources */,
 				A15388300000000000000002 /* BrowserScreenshotPasteboardWriter.swift in Sources */,
 				4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */,
+				A9210001000000000000000D /* BrowserScreenshotPresentation.swift in Sources */,
 				A9210001000000000000000B /* BrowserScreenshotSnapshotRequest.swift in Sources */,
 				4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */,
 				80560000000000000000000B /* BrowserScreenshotTilePlacement.swift in Sources */,
