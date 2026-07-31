@@ -15190,6 +15190,44 @@ mod tests {
     }
 
     #[test]
+    fn projected_effect_preserves_restored_terminal_before_surface_adoption() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("Restored".into()), Some((80, 24))).unwrap();
+        let identity = surface.resource_identity().unwrap().clone();
+        let ContentPublicId::Terminal(terminal_id) = identity.content_id.clone() else {
+            panic!("workspace fixture must create a terminal");
+        };
+        let host = mux.resource_terminal_host_identity(&surface).unwrap();
+        let removed = mux.state.lock().unwrap().surfaces.remove(&surface.id);
+        assert!(removed.is_some(), "surface must exist before simulating delayed adoption");
+
+        let projection = mux
+            .resource_effect_projection()
+            .expect("a restored terminal may be projected before its surface is adopted");
+
+        assert!(projection.patch.changes.iter().any(|change| matches!(
+            change,
+            ResourceChange::UpsertTab(tab)
+                if tab.public_id == identity.tab_id
+                    && tab.content_id == ContentPublicId::Terminal(terminal_id.clone())
+        )));
+        assert!(projection.patch.changes.iter().any(|change| matches!(
+            change,
+            ResourceChange::UpsertTerminal { public_id, terminal }
+                if public_id == &terminal_id && terminal.terminal_id == host.terminal_id
+        )));
+        assert!(!projection.patch.changes.iter().any(|change| matches!(
+            change,
+            ResourceChange::TombstoneTab { tab_id } if tab_id == &identity.tab_id
+        )));
+        assert!(!projection.patch.changes.iter().any(|change| matches!(
+            change,
+            ResourceChange::TombstoneTerminal { public_id, .. } if public_id == &terminal_id
+        )));
+        surface.kill();
+    }
+
+    #[test]
     fn projected_effect_holds_writer_fence_through_commit_and_publishes_once() {
         use std::sync::mpsc;
 
