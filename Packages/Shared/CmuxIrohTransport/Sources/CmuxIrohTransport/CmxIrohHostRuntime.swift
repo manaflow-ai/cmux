@@ -43,6 +43,7 @@ public actor CmxIrohHostRuntime {
         let relayBootstrap: CmxIrohRelayTokenResponse?
         let lanRendezvous: CmxIrohLANRendezvous
         let routePathHints: [CmxIrohPathHint]
+        let registrationRetryAfterSeconds: Int?
     }
 
     enum LifecyclePhase: Equatable, Sendable {
@@ -313,6 +314,7 @@ public actor CmxIrohHostRuntime {
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
             }
+            let publishedFreshBinding: Bool
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
@@ -324,6 +326,9 @@ public actor CmxIrohHostRuntime {
                     binding: registration.binding,
                     revision: revision
                 )
+                publishedFreshBinding = true
+            } else {
+                publishedFreshBinding = false
             }
             await handleRoute(
                 publishedPolicy.binding,
@@ -331,7 +336,18 @@ public actor CmxIrohHostRuntime {
             )
             try requireCurrent(revision)
             registrationRefreshEnabled = true
-            if registrationRefreshPending {
+            if !publishedFreshBinding {
+                // Cached authority keeps offline admission and LAN discovery
+                // available, but it cannot describe this endpoint generation's
+                // live direct port. Give the lifecycle-owned retry loop the
+                // incomplete activation so the broker is refreshed without
+                // creating a second endpoint or relying on another network event.
+                registrationRefreshPending = false
+                scheduleRegistrationRetry(
+                    revision: revision,
+                    retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
+                )
+            } else if registrationRefreshPending {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
