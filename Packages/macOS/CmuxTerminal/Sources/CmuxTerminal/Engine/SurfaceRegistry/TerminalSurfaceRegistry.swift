@@ -197,12 +197,19 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
 
     /// All live registered surfaces, ordered by id for stable iteration.
     public func allSurfaces() -> [any TerminalSurfacing] {
+        allSurfacesUnordered().sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    /// All live registered surfaces without imposing an allocation-heavy UUID
+    /// string ordering. Hot-path consumers that apply their own ranking should
+    /// use this snapshot to avoid sorting the registry twice.
+    public func allSurfacesUnordered() -> [any TerminalSurfacing] {
         lock.lock()
         let objects = surfaces.allObjects.compactMap { $0 as? any TerminalSurfacing }
         lock.unlock()
-        return objects.sorted { lhs, rhs in
-            lhs.id.uuidString < rhs.id.uuidString
-        }
+        return objects
     }
 
     /// Begins a weak traversal without materializing or sorting every surface.

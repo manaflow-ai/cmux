@@ -230,16 +230,22 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
     /// the protocol default (which routes to `remove`). The inner build-scope
     /// decorator's `remove` over-deletes its team-less fallback row; its
     /// `removeExactScope` deletes only the exact scope. Keeping the exact-scope
-    /// call on the exact-scope path preserves that guarantee. The compatibility
-    /// guard still applies so an incompatible tagged instance cannot delete a
-    /// row it may not touch.
+    /// call on the exact-scope path preserves that guarantee.
+    ///
+    /// NO compatibility guard here, deliberately: an exact-scope delete targets a
+    /// row the caller explicitly captured from `loadAllInstances` (which forwards
+    /// incompatible rows so a forget's cleanup can match the broker's TAG-BLIND
+    /// wildcard revoke). Silently skipping an incompatible tag would let the
+    /// backup tombstone flush and the forget report success while the local row
+    /// — whose binding is already revoked — survives to resurface as a dead
+    /// entry. The guard remains on the ambient verbs (`upsert`, `remove`,
+    /// `setCustomization`), which act on live rows this build may not touch.
     func removeExactScope(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
-        guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.removeExactScope(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
@@ -248,20 +254,17 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    func removeExactScope(
+    /// Forward the cross-team enumeration down the rail unchanged. This is a
+    /// read used to target deletions during a forget: rows with incompatible
+    /// tags are included on purpose, because the broker's wildcard revoke is
+    /// tag-blind and the cleanup's exact-scope deletes must match its breadth.
+    func loadAllInstances(
         macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID: String?
-    ) async throws {
-        guard isCompatible(instanceTag: instanceTag) else { return }
-        try await inner.removeExactScope(
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            backupTeamID: backupTeamID
+            stackUserID: stackUserID
         )
     }
 
@@ -274,6 +277,23 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
                 teamID: mac.teamID
             )
         }
+    }
+
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            routes: routes
+        )
     }
 
     /// Legacy rows remain visible long enough to be claimed by an

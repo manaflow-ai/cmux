@@ -65,6 +65,7 @@ extension TerminalSurface {
             "CMUX_WORKSPACE_ID": context.workspaceId.uuidString,
             "CMUX_PANEL_ID": context.surfaceId.uuidString,
             "CMUX_TAB_ID": context.workspaceId.uuidString,
+            "CMUX_TERMINAL_LIFECYCLE_ID": context.terminalLifecycleId.uuidString,
             "CMUX_SOCKET_PATH": context.socketPath
         ]
 
@@ -125,8 +126,10 @@ extension TerminalSurface {
             return nil
         }
 
-        let shimDirectory = temporaryDirectory
+        let shimParentDirectory = temporaryDirectory
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+            .standardizedFileURL
+        let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
         let shimURL = shimDirectory.appendingPathComponent("claude", isDirectory: false)
@@ -135,6 +138,9 @@ extension TerminalSurface {
         )
         do {
             try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+            for directory in [shimParentDirectory, shimDirectory] {
+                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            }
             let script = """
             #!/usr/bin/env bash
             cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
