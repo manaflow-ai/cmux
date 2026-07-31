@@ -57,6 +57,7 @@ final class MobileLatencyTraceWriter: Sendable {
 
     init(capacity: Int) {
         precondition(capacity > 0)
+        // lint:allow lock - same sanctioned hot-path ring-buffer lock as the property above.
         state = OSAllocatedUnfairLock(initialState: State(capacity: capacity))
         (signals, signalContinuation) = AsyncStream.makeStream(
             bufferingPolicy: .bufferingNewest(1)

@@ -73,6 +73,7 @@ public struct MobileTerminalOutputStream: AsyncSequence, Sendable {
     public typealias Element = MobileTerminalOutputChunk
 
     public final class Cancellation: @unchecked Sendable {
+        // lint:allow lock - explicit cancel is synchronous teardown state, so callers cannot await an actor here.
         private let lock = NSLock()
         private var didCancel = false
         private var handler: (@Sendable () -> Void)?

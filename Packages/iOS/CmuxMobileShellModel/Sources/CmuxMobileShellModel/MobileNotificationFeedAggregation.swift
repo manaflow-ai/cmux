@@ -96,6 +96,7 @@ public struct MobileNotificationFeedAggregation: Sendable {
     }
 }
 
+// lint:allow free-function - internal package helper mobileNotificationFeedItemPrecedes, preserving existing call sites during UI closeout.
 func mobileNotificationFeedItemPrecedes(
     _ lhs: MobileNotificationFeedItem,
     _ rhs: MobileNotificationFeedItem

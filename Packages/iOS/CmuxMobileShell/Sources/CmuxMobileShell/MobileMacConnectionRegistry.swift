@@ -268,6 +268,7 @@ final class MobileMacConnectionRegistry {
 
 }
 
+// lint:allow free-function - file-local helper mobileMacConnectionDisplayName, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileMacConnectionDisplayName(
     _ value: String?,
     fallback: String

@@ -2,6 +2,7 @@ import CmuxMobileTransport
 import CmuxMobileRPC
 import Foundation
 
+// lint:allow free-function - internal package helper secondaryControlAttemptIsTransient, preserving existing call sites during UI closeout.
 func secondaryControlAttemptIsTransient(_ error: any Error) -> Bool {
     if error is CancellationError || error is DecodingError {
         return false

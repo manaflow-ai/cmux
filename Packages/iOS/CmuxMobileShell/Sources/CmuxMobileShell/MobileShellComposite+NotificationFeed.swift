@@ -1080,6 +1080,7 @@ nonisolated private func mobileShellNotificationFeedListStringLimits() -> Mobile
     )
 }
 
+// lint:allow free-function - file-local helper mobileShellNotificationFeedString, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileShellNotificationFeedString(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
     guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
     var byteCount = 0

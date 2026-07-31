@@ -61,6 +61,7 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
     }
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowAccessibilityDetails, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowAccessibilityDetails(
     item: MobileNotificationFeedItem,
     workspaceName: String,
@@ -91,6 +92,7 @@ private func notificationFeedRowAccessibilityDetails(
 // concurrent hot paths (the PR 5347 regression class). The catalog values
 // keep their positional placeholders; interpolation arguments bind to them
 // in order.
+// lint:allow free-function - file-local helper notificationFeedRowAccessibilityField, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowAccessibilityField(label: String, value: String) -> String {
     L10n.string(
         "mobile.notificationFeed.row.fieldFormat",
@@ -98,6 +100,7 @@ private func notificationFeedRowAccessibilityField(label: String, value: String)
     )
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowApplyingConnectionStatus, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowApplyingConnectionStatus(
     _ connectionStatus: MobileMacConnectionStatus,
     to value: String
@@ -118,20 +121,24 @@ private func notificationFeedRowApplyingConnectionStatus(
     }
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowNormalized, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowNormalized(_ value: String?) -> String? {
     guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !value.isEmpty else { return nil }
     return value
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowMatchesAny, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowMatchesAny(_ candidate: String, _ values: [String]) -> Bool {
     values.contains { notificationFeedRowMatches(candidate, $0) }
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowMatches, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowMatches(_ lhs: String, _ rhs: String) -> Bool {
     notificationFeedRowCanonical(lhs) == notificationFeedRowCanonical(rhs)
 }
 
+// lint:allow free-function - file-local helper notificationFeedRowCanonical, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func notificationFeedRowCanonical(_ value: String) -> String {
     value
         .split(whereSeparator: \.isWhitespace)
