@@ -709,10 +709,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return AnyView(
                 MobileConnectionRecoveryBanner(
                     connectionRequiresReauth: configuration.connectionRequiresReauth,
-                    connectionRecoveryFailed: configuration.connectionRecoveryFailed,
-                    isRecoveringConnection: configuration.isRecoveringConnection,
                     connectionError: configuration.connectionError,
-                    retry: configuration.retryConnectionRecovery,
                     signOut: configuration.signOut,
                     rendersInline: true
                 )
@@ -781,11 +778,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .chrome(.recoveryBanner):
             kind = .recoveryBanner([
                 String(configuration.connectionRequiresReauth),
-                String(configuration.connectionRecoveryFailed),
-                String(configuration.isRecoveringConnection),
                 configuration.connectionError ?? "",
                 String(configuration.signOut != nil),
-                String(configuration.retryConnectionRecovery != nil),
             ].joined(separator: "|"))
         case .chrome(.macStatusRow):
             kind = .macStatus([
@@ -894,10 +888,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return previous.groupsByID[id]?.name != next.groupsByID[id]?.name
         case .chrome(.recoveryBanner):
             return previous.connectionRequiresReauth != next.connectionRequiresReauth
-                || previous.connectionRecoveryFailed != next.connectionRecoveryFailed
-                || previous.isRecoveringConnection != next.isRecoveringConnection
                 || previous.connectionError != next.connectionError
-                || (previous.retryConnectionRecovery != nil) != (next.retryConnectionRecovery != nil)
                 || (previous.signOut != nil) != (next.signOut != nil)
         case .chrome(.macStatusRow):
             return previous.host != next.host
