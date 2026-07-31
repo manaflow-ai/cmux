@@ -5,6 +5,7 @@ import SwiftUI
 /// the right-sidebar mount and the pop-out pane mount render this view so
 /// the two entrypoints share one implementation.
 struct VaultPaneView: View {
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var store: SessionIndexStore
     @ObservedObject var closedItemStore: ClosedItemHistoryStore
     let onResume: ((SessionEntry) -> Void)?
@@ -20,6 +21,7 @@ struct VaultPaneView: View {
             tabBar
             VaultHistoryView(
                 mode: selectedMode,
+                tabManager: tabManager,
                 sessionStore: store,
                 closedItemStore: closedItemStore,
                 log: .shared,

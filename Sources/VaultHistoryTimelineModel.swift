@@ -92,6 +92,7 @@ final class VaultHistoryTimelineModel {
     }
 
     private(set) var groups: [VaultHistoryGroup] = []
+    private(set) var workspaceSections: [VaultHistoryWorkspaceTimelineProjection.Section] = []
     private(set) var resumeEntriesByEventId: [String: SessionEntry] = [:]
     private(set) var isLoading = false
     /// True once the first refresh completed, so the empty state does not
@@ -108,9 +109,12 @@ final class VaultHistoryTimelineModel {
     private let log: VaultHistoryEventLog
     private let grouper: VaultHistoryGrouper
     private let projection = VaultHistorySessionEventProjection()
+    private let workspaceProjection = VaultHistoryWorkspaceTimelineProjection()
+    private let agentBindingStore: VaultHistoryAgentBindingStore
     private let defaults: UserDefaults
     private let now: () -> Date
     private var mergedEvents: [VaultHistoryEvent] = []
+    private var topology = VaultHistoryWorkspaceTopology(workspaces: [])
     private var refreshTask: Task<Void, Never>?
 
     var hasActiveFilters: Bool {
@@ -122,11 +126,13 @@ final class VaultHistoryTimelineModel {
         log: VaultHistoryEventLog,
         mode: VaultHistoryMode = .timeline,
         grouper: VaultHistoryGrouper = VaultHistoryGrouper(),
+        agentBindingStore: VaultHistoryAgentBindingStore = VaultHistoryAgentBindingStore(),
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
     ) {
         self.log = log
         self.grouper = grouper
+        self.agentBindingStore = agentBindingStore
         self.defaults = defaults
         self.now = now
         self.mode = mode
@@ -139,15 +145,24 @@ final class VaultHistoryTimelineModel {
     /// Reloads persisted events, merges the given session entries, and
     /// regroups. Coalesces: a refresh requested while one is in flight
     /// cancels and replaces it.
-    func refresh(sessionEntries: [SessionEntry]) {
+    func refresh(
+        sessionEntries: [SessionEntry],
+        topology: VaultHistoryWorkspaceTopology
+    ) {
         refreshTask?.cancel()
         isLoading = true
         let log = log
+        let agentBindingStore = agentBindingStore
         refreshTask = Task { [weak self] in
-            let recorded = await log.recentEvents()
+            async let recordedEvents = log.recentEvents()
+            async let agentBindings = agentBindingStore.load()
+            let (recorded, bindings) = await (recordedEvents, agentBindings)
             guard !Task.isCancelled, let self else { return }
             var merged = recorded
-            merged.append(contentsOf: self.projection.events(from: sessionEntries))
+            merged.append(contentsOf: self.projection.events(
+                from: sessionEntries,
+                bindings: bindings
+            ))
             // Ordering is the grouper's job; sort here only when the cap
             // forces dropping the oldest events, so the common path pays
             // for a single sort per refresh.
@@ -159,6 +174,7 @@ final class VaultHistoryTimelineModel {
                 merged.removeLast(merged.count - Self.maxTimelineEvents)
             }
             self.mergedEvents = merged
+            self.topology = topology
             var resumeEntries: [String: SessionEntry] = [:]
             for entry in sessionEntries {
                 resumeEntries["session:\(entry.agent.rawValue):\(entry.id)"] = entry
@@ -182,11 +198,22 @@ final class VaultHistoryTimelineModel {
             sortOrder: sortOrder,
             searchText: searchText
         )
-        groups = grouper.groups(
-            events: mode.includedEvents(from: mergedEvents),
-            by: mode.groupKey,
-            query: query,
-            now: currentTime
-        )
+        if mode == .timeline {
+            workspaceSections = workspaceProjection.sections(
+                topology: topology,
+                events: mode.includedEvents(from: mergedEvents),
+                query: query,
+                now: currentTime
+            )
+            groups = []
+        } else {
+            workspaceSections = []
+            groups = grouper.groups(
+                events: mode.includedEvents(from: mergedEvents),
+                by: mode.groupKey,
+                query: query,
+                now: currentTime
+            )
+        }
     }
 }

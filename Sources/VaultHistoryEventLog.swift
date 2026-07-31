@@ -34,7 +34,17 @@ final class VaultHistoryEventLog {
     /// programmatic churn like session restore, or app termination).
     static var isRecordingSuppressed: Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
-        return appDelegate.isApplyingSessionRestore || appDelegate.isTerminatingApp
+        return shouldSuppressRecording(
+            isApplyingSessionRestore: appDelegate.isApplyingSessionRestore,
+            isTerminatingApp: appDelegate.isTerminatingApp
+        )
+    }
+
+    nonisolated static func shouldSuppressRecording(
+        isApplyingSessionRestore: Bool,
+        isTerminatingApp: Bool
+    ) -> Bool {
+        isApplyingSessionRestore || isTerminatingApp
     }
 
     func record(_ event: VaultHistoryEvent) {

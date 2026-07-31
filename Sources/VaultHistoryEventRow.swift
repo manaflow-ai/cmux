@@ -5,6 +5,8 @@ import CmuxFoundation
 enum VaultHistoryRowAction: Equatable {
     case resumeSession(SessionEntry)
     case reopenClosedItem(UUID)
+    case activateWorkspace(UUID)
+    case activateTerminal(workspaceId: UUID, terminalId: UUID)
 
     var label: String {
         switch self {
@@ -12,6 +14,16 @@ enum VaultHistoryRowAction: Equatable {
             return String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab")
         case .reopenClosedItem:
             return String(localized: "vaultHistory.action.reopen", defaultValue: "Reopen")
+        case .activateWorkspace:
+            return String(
+                localized: "vaultHistory.action.goToWorkspace",
+                defaultValue: "Go to Workspace"
+            )
+        case .activateTerminal:
+            return String(
+                localized: "vaultHistory.action.goToTerminal",
+                defaultValue: "Go to Terminal"
+            )
         }
     }
 
@@ -19,6 +31,7 @@ enum VaultHistoryRowAction: Equatable {
         switch self {
         case .resumeSession: return "play.fill"
         case .reopenClosedItem: return "arrow.uturn.backward"
+        case .activateWorkspace, .activateTerminal: return "arrow.right"
         }
     }
 }
@@ -26,14 +39,33 @@ enum VaultHistoryRowAction: Equatable {
 struct VaultHistoryRowActions {
     let onResume: ((SessionEntry) -> Void)?
     let onReopenClosedItem: ((UUID) -> Bool)?
+    let onActivateWorkspace: ((UUID) -> Bool)?
+    let onActivateTerminal: ((UUID, UUID) -> Bool)?
+
+    init(
+        onResume: ((SessionEntry) -> Void)?,
+        onReopenClosedItem: ((UUID) -> Bool)?,
+        onActivateWorkspace: ((UUID) -> Bool)? = nil,
+        onActivateTerminal: ((UUID, UUID) -> Bool)? = nil
+    ) {
+        self.onResume = onResume
+        self.onReopenClosedItem = onReopenClosedItem
+        self.onActivateWorkspace = onActivateWorkspace
+        self.onActivateTerminal = onActivateTerminal
+    }
 
     var canResume: Bool { onResume != nil }
     var canReopen: Bool { onReopenClosedItem != nil }
+    var canActivateWorkspace: Bool { onActivateWorkspace != nil }
+    var canActivateTerminal: Bool { onActivateTerminal != nil }
 
     func perform(_ action: VaultHistoryRowAction) {
         switch action {
         case .resumeSession(let entry): onResume?(entry)
         case .reopenClosedItem(let id): _ = onReopenClosedItem?(id)
+        case .activateWorkspace(let id): _ = onActivateWorkspace?(id)
+        case .activateTerminal(let workspaceId, let terminalId):
+            _ = onActivateTerminal?(workspaceId, terminalId)
         }
     }
 }
@@ -50,8 +82,10 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
     private let timeLabel = NSTextField(labelWithString: "")
     private let actionButton = NSButton()
     private lazy var textStack = NSStackView(views: [titleLabel, subtitleLabel])
+    private var iconLeadingConstraint: NSLayoutConstraint!
     private var actionButtonWidthConstraint: NSLayoutConstraint!
     private var representedEvent: VaultHistoryEvent?
+    private var representedTopologyItem: VaultHistoryTableRow.TopologyItem?
     private var representedAction: VaultHistoryRowAction?
     private var representedAgent: SessionAgent?
     private var representedFontPercent = GlobalFontMagnification.defaultPercent
@@ -107,13 +141,14 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
 
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(timeLabel)
+        iconLeadingConstraint = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10)
         NSLayoutConstraint.activate([
             hoverBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             hoverBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             hoverBackground.topAnchor.constraint(equalTo: topAnchor, constant: 1),
             hoverBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            iconLeadingConstraint,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 14),
             iconView.heightAnchor.constraint(equalToConstant: 14),
@@ -151,6 +186,7 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
     override func prepareForReuse() {
         super.prepareForReuse()
         representedEvent = nil
+        representedTopologyItem = nil
         representedAction = nil
         representedAgent = nil
         onPerformAction = nil
@@ -166,6 +202,7 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         onPerformAction: @escaping (VaultHistoryRowAction) -> Void
     ) {
         self.onPerformAction = onPerformAction
+        representedTopologyItem = nil
         guard representedEvent != event
                 || representedAction != action
                 || representedAgent != agent
@@ -177,6 +214,7 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         representedAction = action
         representedAgent = agent
         representedFontPercent = globalFontMagnificationPercent
+        iconLeadingConstraint.constant = 10
 
         titleLabel.stringValue = Self.displayTitle(for: event)
         subtitleLabel.stringValue = Self.displaySubtitle(for: event)
@@ -204,6 +242,50 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         ].filter { !$0.isEmpty }.joined(separator: ", "))
     }
 
+    func configure(
+        topologyItem: VaultHistoryTableRow.TopologyItem,
+        globalFontMagnificationPercent: Int,
+        onPerformAction: @escaping (VaultHistoryRowAction) -> Void
+    ) {
+        self.onPerformAction = onPerformAction
+        representedEvent = nil
+        guard representedTopologyItem != topologyItem
+                || representedFontPercent != globalFontMagnificationPercent else {
+            updateRelativeTimestamp(topologyItem.timestamp)
+            return
+        }
+        representedTopologyItem = topologyItem
+        representedAction = topologyItem.action
+        representedFontPercent = globalFontMagnificationPercent
+        iconLeadingConstraint.constant = 10 + CGFloat(max(0, topologyItem.indentationLevel)) * 16
+
+        let title = VaultHistoryDisplayText.singleLine(topologyItem.title)
+        titleLabel.stringValue = Self.truncated(title, maximumLength: 240)
+        subtitleLabel.stringValue = VaultHistoryDisplayText.singleLine(topologyItem.subtitle)
+        titleLabel.toolTip = title
+        subtitleLabel.toolTip = subtitleLabel.stringValue
+        titleLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(11.5, percent: globalFontMagnificationPercent)
+        )
+        subtitleLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(10, percent: globalFontMagnificationPercent)
+        )
+        timeLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(10, percent: globalFontMagnificationPercent)
+        )
+        configureIcon(topologyItem.icon)
+        configureAction(topologyItem.action)
+        updateRelativeTimestamp(topologyItem.timestamp)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier(topologyItem.accessibilityIdentifier)
+        setAccessibilityLabel([
+            titleLabel.stringValue,
+            subtitleLabel.stringValue,
+            timeLabel.stringValue,
+        ].filter { !$0.isEmpty }.joined(separator: ", "))
+    }
+
     override func mouseEntered(with event: NSEvent) {
         isPointerHovering = true
         updateHoverPresentation()
@@ -216,27 +298,46 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
 
     private func configureIcon(event: VaultHistoryEvent, agent: SessionAgent?) {
         if event.kind == .sessionActivity, let agent {
-            let description = event.subject.agentDisplayName ?? agent.displayName
-            let source: CmuxResolvedIconSource
-            if let assetName = agent.assetName {
-                source = .asset(name: assetName, bundle: .main)
-            } else {
-                source = .systemSymbol(
-                    name: agent.systemImageName ?? "person.crop.circle",
-                    accessibilityDescription: description
-                )
-            }
-            iconView.apply(CmuxResolvedIconRequest(
-                source: source,
-                size: NSSize(width: 14, height: 14),
-                tintColor: agent.assetName == nil ? .secondaryLabelColor : nil
-            ))
+            configureAgentIcon(
+                agent,
+                description: event.subject.agentDisplayName ?? agent.displayName
+            )
             return
         }
         iconView.apply(CmuxResolvedIconRequest(
             source: .systemSymbol(name: event.kind.symbolName, accessibilityDescription: event.kind.label),
             size: NSSize(width: 14, height: 14),
             tintColor: .secondaryLabelColor
+        ))
+    }
+
+    private func configureIcon(_ icon: VaultHistoryTableRow.Icon) {
+        switch icon {
+        case .agent(let agent):
+            configureAgentIcon(agent, description: agent.displayName)
+        case .system(let name, let style):
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .systemSymbol(name: name, accessibilityDescription: nil),
+                size: NSSize(width: 14, height: 14),
+                tintColor: style == .active ? .systemGreen : .secondaryLabelColor
+            ))
+        }
+    }
+
+    private func configureAgentIcon(_ agent: SessionAgent, description: String) {
+        let source: CmuxResolvedIconSource
+        if let assetName = agent.assetName {
+            source = .asset(name: assetName, bundle: .main)
+        } else {
+            source = .systemSymbol(
+                name: agent.systemImageName ?? "person.crop.circle",
+                accessibilityDescription: description
+            )
+        }
+        iconView.apply(CmuxResolvedIconRequest(
+            source: source,
+            size: NSSize(width: 14, height: 14),
+            tintColor: agent.assetName == nil ? .secondaryLabelColor : nil
         ))
     }
 
@@ -274,11 +375,22 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
     }
 
     private func updateRelativeTimestamp(for event: VaultHistoryEvent) {
+        updateRelativeTimestamp(event.timestamp)
+    }
+
+    private func updateRelativeTimestamp(_ timestamp: Date?) {
+        guard let timestamp else {
+            timeLabel.stringValue = ""
+            timeLabel.toolTip = nil
+            timeLabel.isHidden = true
+            return
+        }
+        timeLabel.isHidden = false
         timeLabel.stringValue = Self.relativeFormatter.localizedString(
-            for: event.timestamp,
+            for: timestamp,
             relativeTo: Date()
         )
-        timeLabel.toolTip = event.timestamp.formatted(date: .abbreviated, time: .shortened)
+        timeLabel.toolTip = timestamp.formatted(date: .abbreviated, time: .shortened)
     }
 
     private func updateHoverPresentation() {

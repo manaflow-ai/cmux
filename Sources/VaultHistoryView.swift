@@ -3,6 +3,7 @@ import SwiftUI
 /// The History timeline, combining workspace/window lifecycle events with agent sessions.
 struct VaultHistoryView: View {
     let mode: VaultHistoryMode
+    @ObservedObject private var tabManager: TabManager
     @ObservedObject private var sessionStore: SessionIndexStore
     @ObservedObject private var closedItemStore: ClosedItemHistoryStore
     private let log: VaultHistoryEventLog
@@ -12,6 +13,7 @@ struct VaultHistoryView: View {
 
     init(
         mode: VaultHistoryMode,
+        tabManager: TabManager,
         sessionStore: SessionIndexStore,
         closedItemStore: ClosedItemHistoryStore,
         log: VaultHistoryEventLog,
@@ -19,6 +21,7 @@ struct VaultHistoryView: View {
         onReopenClosedItem: ((UUID) -> Bool)?
     ) {
         self.mode = mode
+        self.tabManager = tabManager
         self.sessionStore = sessionStore
         self.closedItemStore = closedItemStore
         self.log = log
@@ -29,6 +32,7 @@ struct VaultHistoryView: View {
 
     var body: some View {
         VaultHistoryContentView(
+            tabManager: tabManager,
             sessionStore: sessionStore,
             closedItemStore: closedItemStore,
             log: log,
@@ -43,6 +47,7 @@ struct VaultHistoryView: View {
 }
 
 private struct VaultHistoryContentView: View {
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var sessionStore: SessionIndexStore
     @ObservedObject var closedItemStore: ClosedItemHistoryStore
     let log: VaultHistoryEventLog
@@ -59,7 +64,7 @@ private struct VaultHistoryContentView: View {
             )
             if !model.didLoad {
                 VaultHistoryLoadingView()
-            } else if model.groups.isEmpty {
+            } else if model.groups.isEmpty && model.workspaceSections.isEmpty {
                 VaultHistoryEmptyView(
                     hasActiveFilters: model.hasActiveFilters,
                     onClearFilters: model.clearFilters
@@ -67,11 +72,14 @@ private struct VaultHistoryContentView: View {
             } else {
                 VaultHistoryTimelineList(
                     groups: model.groups,
+                    workspaceSections: model.workspaceSections,
                     resumeEntriesByEventId: model.resumeEntriesByEventId,
                     availableClosedItemIds: closedItemStore.recordIdsSnapshot,
                     actions: VaultHistoryRowActions(
                         onResume: onResume,
-                        onReopenClosedItem: onReopenClosedItem
+                        onReopenClosedItem: onReopenClosedItem,
+                        onActivateWorkspace: activateWorkspace,
+                        onActivateTerminal: activateTerminal
                     )
                 )
             }
@@ -80,19 +88,107 @@ private struct VaultHistoryContentView: View {
             if sessionStore.entries.isEmpty && !sessionStore.isLoading {
                 sessionStore.reload()
             }
-            model.refresh(sessionEntries: sessionStore.entries)
+            refresh()
         }
         .onChange(of: sessionStore.entries) { _, entries in
-            model.refresh(sessionEntries: entries)
+            refresh(sessionEntries: entries)
         }
         .onChange(of: log.revision) { _, _ in
-            model.refresh(sessionEntries: sessionStore.entries)
+            refresh()
+        }
+        .onChange(of: closedItemStore.revision) { _, _ in
+            refresh()
+        }
+        .onChange(of: tabManager.tabs.map(\.id)) { _, _ in
+            refresh()
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .vaultHistoryLiveTopologyDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                refresh()
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .sharedLiveAgentIndexDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                refresh()
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .workspaceTitleDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                refresh()
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(
+                named: .workspaceCurrentDirectoryDidChange
+            ) {
+                guard !Task.isCancelled else { return }
+                refresh()
+            }
         }
     }
 
     private func reload() {
         sessionStore.reload()
-        model.refresh(sessionEntries: sessionStore.entries)
+        refresh()
+    }
+
+    @discardableResult
+    private func activateWorkspace(_ workspaceId: UUID) -> Bool {
+        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? (
+            tabManager.workspacesById[workspaceId] == nil ? nil : tabManager
+        ),
+        let workspace = manager.workspacesById[workspaceId] else {
+            return false
+        }
+        focusWindow(for: manager)
+        manager.selectWorkspace(workspace)
+        return true
+    }
+
+    @discardableResult
+    private func activateTerminal(_ workspaceId: UUID, _ terminalId: UUID) -> Bool {
+        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? (
+            tabManager.workspacesById[workspaceId] == nil ? nil : tabManager
+        ),
+        let workspace = manager.workspacesById[workspaceId],
+        workspace.panels[terminalId] != nil else {
+            return false
+        }
+        focusWindow(for: manager)
+        manager.selectWorkspace(workspace)
+        workspace.focusPanel(terminalId)
+        return true
+    }
+
+    private func focusWindow(for manager: TabManager) {
+        guard let appDelegate = AppDelegate.shared,
+              let windowId = appDelegate.windowId(for: manager) else {
+            return
+        }
+        _ = appDelegate.focusScriptableMainWindow(
+            windowId: windowId,
+            bringToFront: true
+        )
+    }
+
+    private func refresh(sessionEntries: [SessionEntry]? = nil) {
+        let topology = VaultHistoryWorkspaceTopology.Snapshotter().capture(
+            fallbackTabManager: tabManager,
+            closedRecords: closedItemStore.recordsSnapshot
+        )
+        model.refresh(
+            sessionEntries: sessionEntries ?? sessionStore.entries,
+            topology: topology
+        )
     }
 }
 

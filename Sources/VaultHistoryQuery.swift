@@ -112,7 +112,10 @@ struct VaultHistoryQuery: Equatable, Sendable {
             event.subject.sessionId ?? "",
             event.subject.agentDisplayName ?? "",
             event.subject.workspaceId?.uuidString ?? "",
+            event.subject.workspaceStableId?.uuidString ?? "",
             event.subject.windowId?.uuidString ?? "",
+            event.subject.surfaceId?.uuidString ?? "",
+            event.subject.surfaceStableId?.uuidString ?? "",
         ]
         if let rawAgent = event.subject.agent {
             fields.append(rawAgent)

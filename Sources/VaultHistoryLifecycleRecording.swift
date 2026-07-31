@@ -12,6 +12,7 @@ extension TabManager {
             title: resolvedWorkspaceDisplayTitle(for: workspace),
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
+                workspaceStableId: workspace.stableId,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 directory: workspace.currentDirectory
             )
@@ -31,6 +32,7 @@ extension TabManager {
             previousTitle: previousTitle,
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
+                workspaceStableId: workspace.stableId,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 directory: workspace.currentDirectory
             )
@@ -45,6 +47,7 @@ extension TabManager {
             title: resolvedWorkspaceDisplayTitle(for: workspace),
             subject: VaultHistorySubject(
                 workspaceId: workspace.id,
+                workspaceStableId: workspace.stableId,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 closedItemId: closedItemId,
                 directory: workspace.currentDirectory

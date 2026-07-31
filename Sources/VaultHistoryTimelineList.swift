@@ -6,6 +6,7 @@ import SwiftUI
 /// SwiftUI bridge for the AppKit-virtualized History timeline.
 struct VaultHistoryTimelineList: NSViewRepresentable {
     let groups: [VaultHistoryGroup]
+    let workspaceSections: [VaultHistoryWorkspaceTimelineProjection.Section]
     let resumeEntriesByEventId: [String: SessionEntry]
     let availableClosedItemIds: Set<UUID>
     let actions: VaultHistoryRowActions
@@ -21,12 +22,19 @@ struct VaultHistoryTimelineList: NSViewRepresentable {
 
     func updateNSView(_ nsView: VaultHistoryTableContainerView, context: Context) {
         context.coordinator.apply(
-            rows: Self.makeRows(
-                groups: groups,
-                resumeEntriesByEventId: resumeEntriesByEventId,
-                availableClosedItemIds: availableClosedItemIds,
-                actions: actions
-            ),
+            rows: workspaceSections.isEmpty
+                ? Self.makeRows(
+                    groups: groups,
+                    resumeEntriesByEventId: resumeEntriesByEventId,
+                    availableClosedItemIds: availableClosedItemIds,
+                    actions: actions
+                )
+                : Self.makeWorkspaceRows(
+                    sections: workspaceSections,
+                    resumeEntriesByEventId: resumeEntriesByEventId,
+                    availableClosedItemIds: availableClosedItemIds,
+                    actions: actions
+                ),
             actions: actions,
             globalFontMagnificationPercent: globalFontMagnificationPercent
         )
@@ -75,6 +83,127 @@ struct VaultHistoryTimelineList: NSViewRepresentable {
         }
     }
 
+    static func makeWorkspaceRows(
+        sections: [VaultHistoryWorkspaceTimelineProjection.Section],
+        resumeEntriesByEventId: [String: SessionEntry],
+        availableClosedItemIds: Set<UUID>,
+        actions: VaultHistoryRowActions
+    ) -> [VaultHistoryTableRow] {
+        sections.flatMap { section in
+            var detailParts = [
+                section.state == .active
+                    ? String(localized: "vaultHistory.workspace.active", defaultValue: "Active")
+                    : String(localized: "vaultHistory.workspace.closed", defaultValue: "Closed"),
+            ]
+            if let windowLabel = section.windowLabel {
+                detailParts.append(windowLabel)
+            }
+            detailParts.append(terminalCountLabel(section.terminals.count))
+            let headerAction: VaultHistoryRowAction? = {
+                if section.state == .active,
+                   let workspaceId = section.workspaceId,
+                   actions.canActivateWorkspace {
+                    return .activateWorkspace(workspaceId)
+                }
+                return section.closedItemId.flatMap { id in
+                    guard actions.canReopen, availableClosedItemIds.contains(id) else {
+                        return nil
+                    }
+                    return .reopenClosedItem(id)
+                }
+            }()
+            let header = VaultHistoryTableRow.workspace(
+                VaultHistoryTableRow.WorkspaceHeader(
+                    id: section.id,
+                    title: section.title,
+                    detail: detailParts.joined(separator: " · "),
+                    isActive: section.state == .active,
+                    action: headerAction
+                )
+            )
+            let topologyRows = section.terminals.flatMap { terminal -> [VaultHistoryTableRow] in
+                let activeTerminalAction: VaultHistoryRowAction? = {
+                    guard section.state == .active,
+                          let workspaceId = section.workspaceId,
+                          let terminalId = terminal.runtimeId,
+                          actions.canActivateTerminal else {
+                        return nil
+                    }
+                    return .activateTerminal(
+                        workspaceId: workspaceId,
+                        terminalId: terminalId
+                    )
+                }()
+                let terminalTitle = VaultHistoryDisplayText.singleLine(terminal.title)
+                let directory = terminal.directory.flatMap { rawValue -> String? in
+                    let component = (rawValue as NSString).lastPathComponent
+                    return component.isEmpty || component == "." ? nil : component
+                }
+                let terminalSubtitle = [
+                    String(localized: "vaultHistory.terminal", defaultValue: "Terminal"),
+                    directory,
+                ].compactMap { $0 }.joined(separator: " · ")
+                let terminalRow = VaultHistoryTableRow.topologyItem(
+                    VaultHistoryTableRow.TopologyItem(
+                        id: "terminal-row:\(section.id):\(terminal.id)",
+                        title: terminalTitle.isEmpty
+                            ? String(localized: "vaultHistory.terminal", defaultValue: "Terminal")
+                            : terminalTitle,
+                        subtitle: terminalSubtitle,
+                        timestamp: nil,
+                        icon: .system(name: "terminal", style: .secondary),
+                        indentationLevel: 0,
+                        action: activeTerminalAction,
+                        accessibilityIdentifier: "VaultHistoryTerminalRow:\(terminal.id)"
+                    )
+                )
+                let agentRows = terminal.agents.map { agent -> VaultHistoryTableRow in
+                    let entry = agent.event.flatMap { resumeEntriesByEventId[$0.id] }
+                    let action: VaultHistoryRowAction? = {
+                        if let activeTerminalAction {
+                            return activeTerminalAction
+                        }
+                        guard agent.state == .saved, let entry, actions.canResume else {
+                            return nil
+                        }
+                        return .resumeSession(entry)
+                    }()
+                    let title = VaultHistoryDisplayText.singleLine(agent.title)
+                    return .topologyItem(VaultHistoryTableRow.TopologyItem(
+                        id: "agent-row:\(section.id):\(terminal.id):\(agent.id)",
+                        title: title.isEmpty ? agent.agent.displayName : title,
+                        subtitle: [
+                            agent.agent.displayName,
+                            agentStateLabel(agent.state),
+                        ].joined(separator: " · "),
+                        timestamp: agent.updatedAt,
+                        icon: .agent(agent.agent),
+                        indentationLevel: 1,
+                        action: action,
+                        accessibilityIdentifier: "VaultHistoryAgentRow:\(agent.id)"
+                    ))
+                }
+                return [terminalRow] + agentRows
+            }
+            let activityRows = section.activityEvents.map { event in
+                VaultHistoryTableRow.event(
+                    event: event,
+                    action: rowAction(
+                        for: event,
+                        resumeEntriesByEventId: resumeEntriesByEventId,
+                        availableClosedItemIds: availableClosedItemIds,
+                        actions: actions
+                    ),
+                    agent: resolvedAgent(
+                        for: event,
+                        resumeEntriesByEventId: resumeEntriesByEventId
+                    )
+                )
+            }
+            return [header] + topologyRows + activityRows
+        }
+    }
+
     private static func groupRowAction(
         for group: VaultHistoryGroup,
         availableClosedItemIds: Set<UUID>,
@@ -118,14 +247,73 @@ struct VaultHistoryTimelineList: NSViewRepresentable {
         }
         return nil
     }
+
+    private static func terminalCountLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "vaultHistory.terminalCount.one", defaultValue: "1 terminal")
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "vaultHistory.terminalCount.other",
+                defaultValue: "%d terminals"
+            ),
+            count
+        )
+    }
+
+    private static func agentStateLabel(
+        _ state: VaultHistoryWorkspaceTopology.AgentState
+    ) -> String {
+        switch state {
+        case .running:
+            return String(localized: "vaultHistory.agentState.running", defaultValue: "Running")
+        case .restoring:
+            return String(localized: "vaultHistory.agentState.restoring", defaultValue: "Restoring")
+        case .hibernated:
+            return String(localized: "vaultHistory.agentState.hibernated", defaultValue: "Hibernated")
+        case .saved:
+            return String(localized: "vaultHistory.agentState.saved", defaultValue: "Saved")
+        }
+    }
 }
 
 enum VaultHistoryTableRowID: Hashable {
     case group(String)
+    case workspace(String)
+    case topologyItem(String)
     case event(String)
 }
 
 enum VaultHistoryTableRow {
+    enum IconStyle: Equatable {
+        case secondary
+        case active
+    }
+
+    enum Icon: Equatable {
+        case system(name: String, style: IconStyle)
+        case agent(SessionAgent)
+    }
+
+    struct WorkspaceHeader: Equatable {
+        let id: String
+        let title: String
+        let detail: String
+        let isActive: Bool
+        let action: VaultHistoryRowAction?
+    }
+
+    struct TopologyItem: Equatable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let timestamp: Date?
+        let icon: Icon
+        let indentationLevel: Int
+        let action: VaultHistoryRowAction?
+        let accessibilityIdentifier: String
+    }
+
     case group(
         id: String,
         title: String,
@@ -133,18 +321,24 @@ enum VaultHistoryTableRow {
         agent: SessionAgent?,
         action: VaultHistoryRowAction?
     )
+    case workspace(WorkspaceHeader)
+    case topologyItem(TopologyItem)
     case event(event: VaultHistoryEvent, action: VaultHistoryRowAction?, agent: SessionAgent?)
 
     var id: VaultHistoryTableRowID {
         switch self {
         case .group(let id, _, _, _, _): return .group(id)
+        case .workspace(let header): return .workspace(header.id)
+        case .topologyItem(let item): return .topologyItem(item.id)
         case .event(let event, _, _): return .event(event.id)
         }
     }
 
     var isGroup: Bool {
-        if case .group = self { return true }
-        return false
+        switch self {
+        case .group, .workspace: return true
+        case .topologyItem, .event: return false
+        }
     }
 
     func hasEquivalentContent(to other: Self) -> Bool {
@@ -160,6 +354,10 @@ enum VaultHistoryTableRow {
                 && lhsAction == rhsAction
         case let (.event(lhsEvent, lhsAction, lhsAgent), .event(rhsEvent, rhsAction, rhsAgent)):
             return lhsEvent == rhsEvent && lhsAction == rhsAction && lhsAgent == rhsAgent
+        case let (.workspace(lhs), .workspace(rhs)):
+            return lhs == rhs
+        case let (.topologyItem(lhs), .topologyItem(rhs)):
+            return lhs == rhs
         default:
             return false
         }
@@ -292,6 +490,28 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
                 onPerformAction: { [weak self] action in self?.actions.perform(action) }
             )
             return cell
+        case .workspace(let header):
+            let cell = (tableView.makeView(
+                withIdentifier: VaultHistoryTableGroupCellView.reuseIdentifier,
+                owner: self
+            ) as? VaultHistoryTableGroupCellView) ?? VaultHistoryTableGroupCellView()
+            cell.configureWorkspace(
+                header,
+                globalFontMagnificationPercent: globalFontMagnificationPercent,
+                onPerformAction: { [weak self] action in self?.actions.perform(action) }
+            )
+            return cell
+        case .topologyItem(let item):
+            let cell = (tableView.makeView(
+                withIdentifier: VaultHistoryTableEventCellView.reuseIdentifier,
+                owner: self
+            ) as? VaultHistoryTableEventCellView) ?? VaultHistoryTableEventCellView()
+            cell.configure(
+                topologyItem: item,
+                globalFontMagnificationPercent: globalFontMagnificationPercent,
+                onPerformAction: { [weak self] action in self?.actions.perform(action) }
+            )
+            return cell
         case .event(let event, let action, let agent):
             let cell = (tableView.makeView(
                 withIdentifier: VaultHistoryTableEventCellView.reuseIdentifier,
@@ -310,8 +530,21 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
 
     @objc private func handleDoubleClick(_ sender: NSTableView) {
         let row = sender.clickedRow
-        guard rows.indices.contains(row), case .event(_, let action?, _) = rows[row] else { return }
-        actions.perform(action)
+        guard rows.indices.contains(row) else { return }
+        switch rows[row] {
+        case .event(_, let action?, _):
+            actions.perform(action)
+        case .topologyItem(let item):
+            guard let action = item.action else { return }
+            actions.perform(action)
+        case .workspace(let header):
+            guard let action = header.action else { return }
+            actions.perform(action)
+        case .group(_, _, _, _, let action?) :
+            actions.perform(action)
+        default:
+            return
+        }
     }
 
     private struct ApplyInput {

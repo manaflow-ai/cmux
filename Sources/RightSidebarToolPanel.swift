@@ -285,6 +285,7 @@ struct RightSidebarToolPanelView: View {
             )
         case .sessions:
             VaultPaneView(
+                tabManager: tabManager,
                 store: panel.sessionIndexStore,
                 closedItemStore: .shared,
                 onResume: { entry in

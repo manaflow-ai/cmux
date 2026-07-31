@@ -26,7 +26,10 @@ import Testing
         kind: VaultHistoryEventKind = .workspaceCreated,
         title: String = "",
         workspaceId: UUID? = nil,
+        workspaceStableId: UUID? = nil,
         windowId: UUID? = nil,
+        surfaceId: UUID? = nil,
+        surfaceStableId: UUID? = nil,
         agent: String? = nil,
         directory: String? = nil
     ) -> VaultHistoryEvent {
@@ -37,7 +40,10 @@ import Testing
             title: title,
             subject: VaultHistorySubject(
                 workspaceId: workspaceId,
+                workspaceStableId: workspaceStableId,
                 windowId: windowId,
+                surfaceId: surfaceId,
+                surfaceStableId: surfaceStableId,
                 sessionId: agent == nil ? nil : "session-\(id)",
                 agent: agent,
                 directory: directory
@@ -353,6 +359,291 @@ import Testing
         #expect(groups.first?.title == "Review Bot")
     }
 
+    @Test func sessionProjectionUsesDurableTerminalBinding() throws {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let entry = SessionEntry(
+            id: "bound-session",
+            agent: .codex,
+            sessionId: "native-session",
+            title: "Implement topology",
+            cwd: "/tmp/repo",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Self.now,
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        )
+        let key = VaultHistoryAgentBindingStore.Key(
+            agentId: "codex",
+            sessionId: "native-session"
+        )
+        let binding = VaultHistoryAgentBindingStore.Binding(
+            key: key,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            updatedAt: Self.now
+        )
+
+        let projected = VaultHistorySessionEventProjection().events(
+            from: [entry],
+            bindings: [key: binding]
+        )
+        let event = try #require(projected.first)
+
+        #expect(event.subject.workspaceId == workspaceId)
+        #expect(event.subject.surfaceId == surfaceId)
+    }
+
+    @Test func timelineIncludesEveryActiveWorkspaceAndNestsSessionsByTerminal() throws {
+        let workspaceId = UUID()
+        let stableWorkspaceId = UUID()
+        let firstTerminalId = UUID()
+        let secondTerminalId = UUID()
+        let topology = VaultHistoryWorkspaceTopology(workspaces: [
+            VaultHistoryWorkspaceTopology.Workspace(
+                id: "workspace-stable:\(stableWorkspaceId.uuidString)",
+                workspaceId: workspaceId,
+                stableId: stableWorkspaceId,
+                windowId: UUID(),
+                windowLabel: nil,
+                title: "History",
+                directory: "/tmp/repo",
+                timestamp: Self.now.addingTimeInterval(-60 * 24 * 3600),
+                state: .active,
+                isSelected: true,
+                closedItemId: nil,
+                terminals: [
+                    VaultHistoryWorkspaceTopology.Terminal(
+                        id: firstTerminalId,
+                        stableId: UUID(),
+                        title: "Backend",
+                        directory: "/tmp/repo",
+                        agentSessions: [
+                            VaultHistoryWorkspaceTopology.AgentSession(
+                                agent: .claude,
+                                sessionId: "claude-live",
+                                title: "Fix restore",
+                                updatedAt: Self.now.addingTimeInterval(-30),
+                                state: .running
+                            ),
+                        ]
+                    ),
+                    VaultHistoryWorkspaceTopology.Terminal(
+                        id: secondTerminalId,
+                        stableId: UUID(),
+                        title: "Frontend",
+                        directory: "/tmp/repo",
+                        agentSessions: []
+                    ),
+                ]
+            ),
+        ])
+        let codexEvent = event(
+            id: "codex-bound",
+            secondsAgo: 10,
+            kind: .sessionActivity,
+            title: "Implement tree",
+            workspaceId: workspaceId,
+            surfaceId: secondTerminalId,
+            agent: "codex"
+        )
+
+        let sections = VaultHistoryWorkspaceTimelineProjection().sections(
+            topology: topology,
+            events: [codexEvent],
+            query: VaultHistoryQuery(timeRange: .last24Hours),
+            now: Self.now
+        )
+        let section = try #require(sections.first)
+
+        #expect(sections.count == 1)
+        #expect(section.terminals.map(\.title) == ["Backend", "Frontend"])
+        #expect(section.terminals[0].agents.map(\.sessionId) == ["claude-live"])
+        #expect(section.terminals[1].agents.map(\.sessionId) == ["session-codex-bound"])
+
+        let rows = VaultHistoryTimelineList.makeWorkspaceRows(
+            sections: sections,
+            resumeEntriesByEventId: [:],
+            availableClosedItemIds: [],
+            actions: VaultHistoryRowActions(
+                onResume: nil,
+                onReopenClosedItem: nil,
+                onActivateWorkspace: { _ in true },
+                onActivateTerminal: { _, _ in true }
+            )
+        )
+        guard case .workspace(let header) = rows[0],
+              case .topologyItem(let firstTerminal) = rows[1],
+              case .topologyItem(let liveAgent) = rows[2] else {
+            Issue.record("Expected actionable workspace, terminal, and agent rows")
+            return
+        }
+        #expect(header.action == .activateWorkspace(workspaceId))
+        let firstTerminalAction = VaultHistoryRowAction.activateTerminal(
+            workspaceId: workspaceId,
+            terminalId: firstTerminalId
+        )
+        #expect(firstTerminal.action == firstTerminalAction)
+        #expect(liveAgent.action == firstTerminalAction)
+    }
+
+    @Test func restoredWorkspaceReconnectsHistoryByStableIdentity() throws {
+        let previousWorkspaceId = UUID()
+        let restoredWorkspaceId = UUID()
+        let stableWorkspaceId = UUID()
+        let terminalId = UUID()
+        let topology = VaultHistoryWorkspaceTopology(workspaces: [
+            VaultHistoryWorkspaceTopology.Workspace(
+                id: "workspace-stable:\(stableWorkspaceId.uuidString)",
+                workspaceId: restoredWorkspaceId,
+                stableId: stableWorkspaceId,
+                windowId: nil,
+                windowLabel: nil,
+                title: "Restored",
+                directory: "/tmp/restored",
+                timestamp: Self.now,
+                state: .active,
+                isSelected: true,
+                closedItemId: nil,
+                terminals: [
+                    VaultHistoryWorkspaceTopology.Terminal(
+                        id: terminalId,
+                        stableId: UUID(),
+                        title: "Terminal",
+                        directory: "/tmp/restored",
+                        agentSessions: [
+                            VaultHistoryWorkspaceTopology.AgentSession(
+                                agent: .opencode,
+                                sessionId: "restored-opencode",
+                                title: nil,
+                                updatedAt: Self.now,
+                                state: .restoring
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+        ])
+        let preQuitEvent = event(
+            id: "before-quit",
+            secondsAgo: 60,
+            kind: .workspaceRenamed,
+            title: "Restored",
+            workspaceId: previousWorkspaceId,
+            workspaceStableId: stableWorkspaceId
+        )
+
+        let section = try #require(
+            VaultHistoryWorkspaceTimelineProjection().sections(
+                topology: topology,
+                events: [preQuitEvent],
+                query: VaultHistoryQuery(),
+                now: Self.now
+            ).first
+        )
+
+        #expect(section.activityEvents.map(\.id) == ["before-quit"])
+        #expect(section.terminals.first?.agents.first?.sessionId == "restored-opencode")
+        #expect(section.terminals.first?.agents.first?.state == .restoring)
+    }
+
+    @Test func normalQuitAndStartupRestoreDoNotCreateLifecycleHistory() {
+        #expect(VaultHistoryEventLog.shouldSuppressRecording(
+            isApplyingSessionRestore: false,
+            isTerminatingApp: true
+        ))
+        #expect(VaultHistoryEventLog.shouldSuppressRecording(
+            isApplyingSessionRestore: true,
+            isTerminatingApp: false
+        ))
+        #expect(!VaultHistoryEventLog.shouldSuppressRecording(
+            isApplyingSessionRestore: false,
+            isTerminatingApp: false
+        ))
+    }
+
+    @MainActor
+    @Test func restoredAgentStatusDistinguishesAutoResumeFromManualResume() {
+        let restoring = VaultHistoryWorkspaceTopology.Snapshotter.agentState(
+            indexedEntry: nil,
+            hasHibernatedSnapshot: false,
+            restoredState: .restoring,
+            hasRestoredSnapshot: true
+        )
+        let saved = VaultHistoryWorkspaceTopology.Snapshotter.agentState(
+            indexedEntry: nil,
+            hasHibernatedSnapshot: false,
+            restoredState: .saved,
+            hasRestoredSnapshot: true
+        )
+
+        #expect(restoring == .restoring)
+        #expect(saved == .saved)
+    }
+
+    @Test func closedWorkspaceTreeKeepsRecoveryAtWorkspaceHeader() throws {
+        let closedItemId = UUID()
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let topology = VaultHistoryWorkspaceTopology(workspaces: [
+            VaultHistoryWorkspaceTopology.Workspace(
+                id: "workspace:\(workspaceId.uuidString)",
+                workspaceId: workspaceId,
+                stableId: nil,
+                windowId: nil,
+                windowLabel: nil,
+                title: "Closed workspace",
+                directory: "/tmp/closed",
+                timestamp: Self.now,
+                state: .closed,
+                isSelected: false,
+                closedItemId: closedItemId,
+                terminals: [
+                    VaultHistoryWorkspaceTopology.Terminal(
+                        id: terminalId,
+                        stableId: nil,
+                        title: "Agent terminal",
+                        directory: "/tmp/closed",
+                        agentSessions: [
+                            VaultHistoryWorkspaceTopology.AgentSession(
+                                agent: .codex,
+                                sessionId: "saved-codex",
+                                title: "Saved task",
+                                updatedAt: Self.now,
+                                state: .saved
+                            ),
+                        ]
+                    ),
+                ]
+            ),
+        ])
+        let sections = VaultHistoryWorkspaceTimelineProjection().sections(
+            topology: topology,
+            events: [],
+            query: VaultHistoryQuery(),
+            now: Self.now
+        )
+        let rows = VaultHistoryTimelineList.makeWorkspaceRows(
+            sections: sections,
+            resumeEntriesByEventId: [:],
+            availableClosedItemIds: [closedItemId],
+            actions: VaultHistoryRowActions(
+                onResume: nil,
+                onReopenClosedItem: { _ in true }
+            )
+        )
+
+        guard case .workspace(let header) = rows.first else {
+            Issue.record("Expected a closed workspace header")
+            return
+        }
+        #expect(header.action == .reopenClosedItem(closedItemId))
+        #expect(rows.map(\.id).contains(.topologyItem(
+            "terminal-row:workspace:\(workspaceId.uuidString):surface:\(terminalId.uuidString)"
+        )))
+    }
+
     @Test func appKitTimelineProjectionFlattensGroupsIntoStableVirtualRows() throws {
         let event = event(
             id: "codex-session",
@@ -540,6 +831,92 @@ struct VaultHistoryAppKitViewportTests {
         #expect(table.numberOfRows == 5_001)
         #expect(visibleRows.length > 0)
         #expect(table.numberOfRows > visibleRows.length)
+        #expect(realizedRows.count <= visibleRows.length + 2)
+    }
+
+    @MainActor
+    @Test
+    func workspaceTreeRealizesOnlyViewportRowsAtScale() async {
+        let controller = VaultHistoryTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        container.frame = window.contentView?.bounds ?? .zero
+
+        let sections = (0..<1_000).map { index in
+            let workspaceId = UUID()
+            let terminalId = UUID()
+            return VaultHistoryWorkspaceTimelineProjection.Section(
+                id: "workspace:\(workspaceId.uuidString)",
+                workspaceId: workspaceId,
+                title: "Workspace \(index)",
+                directory: "/tmp/history-\(index)",
+                windowLabel: nil,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(10_000 - index)),
+                state: .active,
+                isSelected: index == 0,
+                closedItemId: nil,
+                terminals: [
+                    VaultHistoryWorkspaceTimelineProjection.Terminal(
+                        id: "surface:\(terminalId.uuidString)",
+                        runtimeId: terminalId,
+                        title: "Terminal \(index)",
+                        directory: "/tmp/history-\(index)",
+                        agents: [
+                            VaultHistoryWorkspaceTimelineProjection.Agent(
+                                id: "agent-session:codex:\(index)",
+                                agent: .codex,
+                                sessionId: "session-\(index)",
+                                title: "Task \(index)",
+                                updatedAt: Date(timeIntervalSince1970: TimeInterval(10_000 - index)),
+                                state: .running,
+                                event: nil
+                            ),
+                        ]
+                    ),
+                ],
+                activityEvents: []
+            )
+        }
+        let rows = VaultHistoryTimelineList.makeWorkspaceRows(
+            sections: sections,
+            resumeEntriesByEventId: [:],
+            availableClosedItemIds: [],
+            actions: VaultHistoryRowActions(
+                onResume: nil,
+                onReopenClosedItem: nil,
+                onActivateWorkspace: { _ in true },
+                onActivateTerminal: { _, _ in true }
+            )
+        )
+        controller.apply(
+            rows: rows,
+            actions: VaultHistoryRowActions(
+                onResume: nil,
+                onReopenClosedItem: nil,
+                onActivateWorkspace: { _ in true },
+                onActivateTerminal: { _, _ in true }
+            ),
+            globalFontMagnificationPercent: 100
+        )
+
+        window.contentView?.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let table = container.tableView
+        let visibleRows = table.rows(in: table.visibleRect)
+        let realizedRows = (0..<table.numberOfRows).filter { row in
+            table.view(atColumn: 0, row: row, makeIfNecessary: false) != nil
+        }
+
+        #expect(table.numberOfRows == 3_000)
+        #expect(visibleRows.length > 0)
         #expect(realizedRows.count <= visibleRows.length + 2)
     }
 

@@ -189,6 +189,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         Set(records.lazy.map(\.id))
     }
 
+    /// Immutable records used to render closed workspace topology in History.
+    var recordsSnapshot: [ClosedItemHistoryRecord] {
+        records
+    }
+
     func push(_ entry: ClosedItemHistoryEntry) {
         push(ClosedItemHistoryRecord(entry: entry))
     }

@@ -51,7 +51,13 @@ enum VaultHistoryEventKind: String, Codable, CaseIterable, Sendable {
 /// "Other" bucket for that grouping.
 struct VaultHistorySubject: Hashable, Codable, Sendable {
     var workspaceId: UUID?
+    /// Restart-stable workspace identity used when a restored runtime UUID changes.
+    var workspaceStableId: UUID?
     var windowId: UUID?
+    /// Runtime terminal/panel identity for agent-session nesting.
+    var surfaceId: UUID?
+    /// Restart-stable terminal identity, when captured from a live or closed snapshot.
+    var surfaceStableId: UUID?
     /// Recently-closed record that can restore this workspace or window.
     var closedItemId: UUID?
     /// Native agent session identifier for `sessionActivity` events.
@@ -65,7 +71,10 @@ struct VaultHistorySubject: Hashable, Codable, Sendable {
 
     init(
         workspaceId: UUID? = nil,
+        workspaceStableId: UUID? = nil,
         windowId: UUID? = nil,
+        surfaceId: UUID? = nil,
+        surfaceStableId: UUID? = nil,
         closedItemId: UUID? = nil,
         sessionId: String? = nil,
         agent: String? = nil,
@@ -73,7 +82,10 @@ struct VaultHistorySubject: Hashable, Codable, Sendable {
         directory: String? = nil
     ) {
         self.workspaceId = workspaceId
+        self.workspaceStableId = workspaceStableId
         self.windowId = windowId
+        self.surfaceId = surfaceId
+        self.surfaceStableId = surfaceStableId
         self.closedItemId = closedItemId
         self.sessionId = sessionId
         self.agent = agent

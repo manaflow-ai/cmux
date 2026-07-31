@@ -394,6 +394,7 @@ struct RightSidebarPanelView: View {
                 )
             case .sessions:
                 VaultPaneView(
+                    tabManager: tabManager,
                     store: sessionIndexStore,
                     closedItemStore: .shared,
                     onResume: onResumeSession,

@@ -42,9 +42,14 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
         addSubview(titleLabel)
 
         countLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.lineBreakMode = .byTruncatingTail
+        countLabel.maximumNumberOfLines = 1
+        countLabel.usesSingleLineMode = true
+        countLabel.cell?.usesSingleLineMode = true
+        countLabel.cell?.wraps = false
         countLabel.textColor = NSColor.secondaryLabelColor.withAlphaComponent(0.6)
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
-        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        countLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         countLabel.setAccessibilityElement(false)
         addSubview(countLabel)
 
@@ -113,6 +118,7 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
             weight: .semibold
         )
         countLabel.stringValue = count.formatted()
+        countLabel.toolTip = countLabel.stringValue
         countLabel.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(10, percent: globalFontMagnificationPercent)
         )
@@ -122,6 +128,35 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("VaultHistoryGroup:\(id)")
         setAccessibilityLabel("\(singleLineTitle), \(count.formatted())")
+    }
+
+    func configureWorkspace(
+        _ header: VaultHistoryTableRow.WorkspaceHeader,
+        globalFontMagnificationPercent: Int,
+        onPerformAction: @escaping (VaultHistoryRowAction) -> Void
+    ) {
+        self.onPerformAction = onPerformAction
+        let singleLineTitle = VaultHistoryDisplayText.singleLine(header.title)
+        let resolvedTitle = singleLineTitle.isEmpty
+            ? String(localized: "vaultHistory.untitled", defaultValue: "Untitled")
+            : singleLineTitle
+        titleLabel.stringValue = resolvedTitle
+        titleLabel.toolTip = resolvedTitle
+        titleLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(11, percent: globalFontMagnificationPercent),
+            weight: .semibold
+        )
+        countLabel.stringValue = VaultHistoryDisplayText.singleLine(header.detail)
+        countLabel.toolTip = countLabel.stringValue
+        countLabel.font = .systemFont(
+            ofSize: GlobalFontMagnification.scaledSize(9.5, percent: globalFontMagnificationPercent)
+        )
+        configureWorkspaceIcon(isActive: header.isActive)
+        configureAction(header.action)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier("VaultHistoryWorkspace:\(header.id)")
+        setAccessibilityLabel("\(resolvedTitle), \(countLabel.stringValue)")
     }
 
     private func configureAction(_ action: VaultHistoryRowAction?) {
@@ -172,6 +207,20 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
             source: source,
             size: NSSize(width: 12, height: 12),
             tintColor: agent.assetName == nil ? .secondaryLabelColor : nil
+        ))
+    }
+
+    private func configureWorkspaceIcon(isActive: Bool) {
+        let symbolName = isActive ? "circle.fill" : "clock.arrow.circlepath"
+        let description = isActive
+            ? String(localized: "vaultHistory.workspace.active", defaultValue: "Active")
+            : String(localized: "vaultHistory.workspace.closed", defaultValue: "Closed")
+        iconWidthConstraint.constant = 12
+        iconToTitleConstraint.constant = 4
+        iconView.apply(CmuxResolvedIconRequest(
+            source: .systemSymbol(name: symbolName, accessibilityDescription: description),
+            size: NSSize(width: isActive ? 7 : 11, height: isActive ? 7 : 11),
+            tintColor: isActive ? .systemGreen : .secondaryLabelColor
         ))
     }
 }
