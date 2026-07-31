@@ -81,23 +81,134 @@ extension MobileShellComposite {
                 break
             }
         }
+        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+            scheduleSecondaryAggregation()
+        }
+        if connectionState == .connected,
+           let client = remoteClient,
+           transportPathHealthPolicyIsAvailable {
+            applyPathAwareRecovery(trigger: trigger, expectedClient: client)
+            return
+        }
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,
             probeCurrentConnection: connectionState == .connected && remoteClient != nil,
             resyncAfterHealthy: true
         )
-        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-            scheduleSecondaryAggregation()
+    }
+
+    private var transportPathHealthPolicyIsAvailable: Bool {
+        activeRoute?.kind == .iroh
+            && runtime?.transportPathHealthProvider != nil
+    }
+
+    /// Read already-observed health for the exact RPC client's immutable
+    /// transport request, then let the pure policy choose repair or escalation.
+    /// A new trigger cancels and generation-fences the predecessor.
+    private func applyPathAwareRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        connectionPolicyEvaluationTask?.cancel()
+        let evaluationGeneration = UUID()
+        connectionPolicyEvaluationGeneration = evaluationGeneration
+        connectionPolicyEvaluationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let health = await expectedClient.transportPathHealth()
+            guard !Task.isCancelled,
+                  self.connectionPolicyEvaluationGeneration
+                    == evaluationGeneration,
+                  self.remoteClient === expectedClient,
+                  self.connectionState == .connected else {
+                return
+            }
+            let blocked = self.identityProvider?.currentUserID.map {
+                self.automaticIrohReconnectIsBlocked(accountID: $0)
+            } ?? false
+            let context = MobileConnectionPolicyContext(
+                isConnected: true,
+                pathHealth: health,
+                automaticReconnectBlocked: blocked,
+                consecutiveRepairAttempts: self.connectionRepairAttemptCount
+            )
+            let action = MobileConnectionPolicy.action(
+                for: trigger.connectionEvidence,
+                in: context
+            )
+            MobileDebugLog.anchormux(
+                "connection.policy trigger=\(trigger.description) health=\(health) repairs=\(context.consecutiveRepairAttempts) action=\(action)"
+            )
+            self.dispatchPathAwareRecovery(
+                action,
+                trigger: trigger,
+                expectedClient: expectedClient
+            )
+            guard self.connectionPolicyEvaluationGeneration
+                    == evaluationGeneration else {
+                return
+            }
+            self.connectionPolicyEvaluationTask = nil
         }
     }
 
-    /// A definitive event-stream failure bypasses same-client resubscription.
+    private func dispatchPathAwareRecovery(
+        _ action: MobileConnectionPolicyAction,
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        switch action {
+        case .none:
+            return
+        case .resubscribe:
+            connectionRepairAttemptCount += 1
+            resyncTerminalOutput(
+                reason: "policy.resubscribe.\(trigger.description)",
+                restartEventStream: true
+            )
+        case .probeThenEscalate:
+            beginConnectionRecovery(
+                trigger: trigger,
+                expectedClient: expectedClient,
+                probeCurrentConnection: true,
+                resyncAfterHealthy: true
+            )
+        case .redial:
+            legacyRecoverDeadConnection(
+                trigger: trigger,
+                expectedClient: expectedClient
+            )
+        case .stopUntilAuthorizationRepaired:
+            return
+        }
+    }
+
+    /// A definitive event-stream failure bypasses same-client resubscription
+    /// only when no exact transport-health provider is available. With path
+    /// health, an intact QUIC session repairs its stream in place.
     /// Once the exact session is proven dead, rebuilding its listener only hides
     /// the failure behind the transport's reconnect behavior and leaves the
     /// shell owner stale. Instead, transition the one lifecycle owner to a fresh
     /// authenticated stored-Mac dial.
     func recoverDeadConnection(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        guard remoteClient === expectedClient, connectionState == .connected else { return }
+        if transportPathHealthPolicyIsAvailable {
+            applyPathAwareRecovery(
+                trigger: trigger,
+                expectedClient: expectedClient
+            )
+            return
+        }
+        legacyRecoverDeadConnection(
+            trigger: trigger,
+            expectedClient: expectedClient
+        )
+    }
+
+    private func legacyRecoverDeadConnection(
         trigger: RecoveryTrigger,
         expectedClient: MobileCoreRPCClient
     ) {
@@ -362,6 +473,7 @@ extension MobileShellComposite {
 
     func recordSuccessfulTerminalSubscription() {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+        connectionRepairAttemptCount = 0
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()

@@ -734,7 +734,7 @@ private actor BlockingSecondFetchBackup: PairedMacBackingUp {
 @MainActor
 extension ReconnectRouteSelectionTests {
     @Test func eventStreamEndedOnHealthyIrohPathRepairsInPlace() async throws {
-        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .healthy })
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { _ in .healthy })
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
@@ -755,7 +755,7 @@ extension ReconnectRouteSelectionTests {
     }
 
     @Test func eventStreamEndedOnDeadIrohPathRedials() async throws {
-        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .noPath })
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { _ in .noPath })
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
@@ -778,7 +778,7 @@ extension ReconnectRouteSelectionTests {
     @Test func presencePushOnHealthyIrohPathDoesNotProbeOrRedial() async throws {
         let pathHealth = PathHealthProbe(.healthy)
         let fixture = try await makeRecoveryOwnerFixture(
-            pathHealth: { await pathHealth.read() }
+            pathHealth: { _ in await pathHealth.read() }
         )
         defer { fixture.release() }
 

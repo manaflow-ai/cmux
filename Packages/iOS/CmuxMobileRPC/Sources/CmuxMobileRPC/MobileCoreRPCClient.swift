@@ -179,6 +179,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.updateTransportSessionPurpose(purpose)
     }
 
+    /// Returns credential-free health for this client's exact admitted peer.
+    ///
+    /// The provider answers from already-observed transport state and never
+    /// performs network or credential work. Unknown preserves legacy recovery
+    /// behavior for non-Iroh transports and compositions without this seam.
+    public func transportPathHealth() async -> MobileTransportPathHealth {
+        guard route.kind == .iroh,
+              let provider = runtime.transportPathHealthProvider else {
+            return .unknown
+        }
+        return await provider(transportRequest)
+    }
+
     /// Subscribe to server-pushed events. Returns a stream of envelopes
     /// matching any of the requested topics. Cancel by terminating iteration.
     public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {

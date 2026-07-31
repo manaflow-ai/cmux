@@ -1534,6 +1534,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
         teamScopeReconnectTask?.cancel()
+        connectionPolicyEvaluationTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
@@ -1971,6 +1972,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
+    /// Consecutive in-place stream repairs on the current connection without a
+    /// successful subscription or RPC health proof. This bounds repair loops.
+    var connectionRepairAttemptCount = 0
+    /// Owns the asynchronous, credential-free path-health decision. The
+    /// generation fences providers that ignore task cancellation.
+    var connectionPolicyEvaluationGeneration = UUID()
+    var connectionPolicyEvaluationTask: Task<Void, Never>?
     var lastReconnectStackUserID: String?
 
     enum RecoveryTrigger: CustomStringConvertible {
@@ -2014,6 +2022,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
+            }
+        }
+
+        var connectionEvidence: MobileConnectionEvidence {
+            switch self {
+            case .networkChange: return .networkPathChanged
+            case .manual: return .manualRetry
+            case .presencePush: return .presenceRoutePush
+            case .foreground: return .foreground
+            case .liveness: return .livenessSilence
+            case .eventStreamEnded: return .eventStreamEnded
+            case .subscriptionStartFailed: return .subscriptionStartFailed
+            case .transportWriteTimedOut: return .rpcWriteTimedOut
+            case .automaticBackoffExpired: return .backoffExpired
             }
         }
     }
@@ -8853,6 +8875,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func cancelRemoteOperationTasks() {
+        connectionPolicyEvaluationGeneration = UUID()
+        connectionPolicyEvaluationTask?.cancel()
+        connectionPolicyEvaluationTask = nil
         hostIdentityAdoptionTask?.cancel()
         hostIdentityAdoptionTask = nil
         terminalSubscriptionRefreshTask?.cancel()
@@ -9267,6 +9292,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        connectionRepairAttemptCount = 0
     }
 
     func markMacConnectionReconnecting() {

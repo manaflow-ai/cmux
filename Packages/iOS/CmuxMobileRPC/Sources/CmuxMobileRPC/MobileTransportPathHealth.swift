@@ -1,3 +1,5 @@
+public import CMUXMobileCore
+
 /// Credential-free health classification of the live connection's selected
 /// transport path (docs/transport-plane.md, D3).
 ///
@@ -14,13 +16,15 @@ public enum MobileTransportPathHealth: Equatable, Sendable {
     case unknown
 }
 
-/// Async source for the live connection's current path health.
+/// Async source for the exact live connection's current path health.
 ///
 /// Implementations must never mutate connection state and must answer from
 /// already-observed state (no network round trips): the value gates
-/// escalation decisions on hot recovery paths.
+/// escalation decisions on hot recovery paths. The request is the immutable
+/// transport admission identity owned by `MobileCoreRPCClient`; requiring it
+/// prevents a healthy background Mac from masking a dead foreground Mac.
 public typealias MobileTransportPathHealthProvider =
-    @Sendable () async -> MobileTransportPathHealth
+    @Sendable (CmxByteTransportRequest) async -> MobileTransportPathHealth
 
 public extension MobileSyncRuntime {
     /// Optional credential-free path-health source for the live connection.
