@@ -117,7 +117,12 @@ public struct FileDiffPageView: View {
                 }
                 .scrollTargetLayout()
             }
-            .scrollPosition(id: $scrollRowID, anchor: .top)
+            // No anchor on the live binding: a non-nil anchor makes every
+            // tracked-position update re-align that row to the viewport edge
+            // on layout, which snaps and kills fling deceleration at the
+            // first row crossing (verified on-sim; Settings-style momentum
+            // returns with the anchor removed).
+            .scrollPosition(id: $scrollRowID)
             .modifier(SettledScrollRowReporter(
                 rowID: $scrollRowID,
                 onSettled: onScrollRowIDChanged
