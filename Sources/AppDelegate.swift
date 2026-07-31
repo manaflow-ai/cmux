@@ -26,6 +26,7 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
 

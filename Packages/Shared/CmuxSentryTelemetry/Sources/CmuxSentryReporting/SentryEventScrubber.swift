@@ -1,5 +1,5 @@
-import CmuxFoundation
-import Sentry
+public import CmuxSentryScrubbing
+public import Sentry
 
 /// Applies a ``SentryScrubber`` to outgoing Sentry events and breadcrumbs so
 /// file paths, emails, and secrets are redacted before they leave the device.
@@ -29,14 +29,14 @@ import Sentry
 /// fields, `level`, `environment`, `releaseName`, `dist`, `modules`. The
 /// `event.error` reference is not serialized by the SDK (it is converted into
 /// `exceptions` / `mechanism.data` first), so it needs no handling here.
-struct SentryEventScrubber {
+public struct SentryEventScrubber: Sendable {
     /// The pure value scrubber that does the actual redaction.
     private let scrubber: SentryScrubber
 
     /// Creates an event scrubber.
     ///
     /// - Parameter scrubber: The underlying value scrubber. Defaults to one bound to the current home directory.
-    init(scrubber: SentryScrubber = SentryScrubber()) {
+    public init(scrubber: SentryScrubber = SentryScrubber()) {
         self.scrubber = scrubber
     }
 
@@ -48,7 +48,7 @@ struct SentryEventScrubber {
     ///
     /// - Parameter event: The event Sentry is about to send.
     /// - Returns: The scrubbed event.
-    func scrub(_ event: Event) -> Event {
+    public func scrub(_ event: Event) -> Event {
         event.message = scrub(event.message)
 
         event.serverName = scrubber.scrub(optional: event.serverName)
@@ -117,7 +117,7 @@ struct SentryEventScrubber {
     /// - Parameter breadcrumb: The breadcrumb Sentry is about to record.
     /// - Returns: The scrubbed breadcrumb.
     @discardableResult
-    func scrub(_ breadcrumb: Breadcrumb) -> Breadcrumb {
+    public func scrub(_ breadcrumb: Breadcrumb) -> Breadcrumb {
         breadcrumb.message = scrubber.scrub(optional: breadcrumb.message)
         if let data = breadcrumb.data {
             breadcrumb.data = scrubber.scrub(dictionary: data)
@@ -138,7 +138,7 @@ struct SentryEventScrubber {
     /// - Parameter span: The span Sentry is about to send.
     /// - Returns: The scrubbed span.
     @discardableResult
-    func scrub(_ span: any Span) -> any Span {
+    public func scrub(_ span: any Span) -> any Span {
         span.spanDescription = scrubber.scrub(optional: span.spanDescription)
         // `data` / `tags` are read-only; scrub via the key-aware dictionary
         // scrubber and rewrite each entry through the per-key setters.

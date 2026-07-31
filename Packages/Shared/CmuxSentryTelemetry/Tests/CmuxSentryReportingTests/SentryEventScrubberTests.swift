@@ -1,12 +1,8 @@
-import CmuxFoundation
+import CmuxSentryScrubbing
 import Sentry
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxSentryReporting
 
 /// Verifies that ``SentryEventScrubber`` routes every sensitive Sentry field
 /// through the scrubber while leaving grouping-relevant fields intact.
@@ -191,68 +187,5 @@ import Testing
         #expect(scrubbed.message?.formatted == "Index out of range")
         #expect(scrubbed.exceptions?.first?.value == "fatal error: Index out of range")
         #expect(scrubbed.exceptions?.first?.type == "EXC_BAD_INSTRUCTION")
-    }
-}
-
-@Suite struct MacSentryStartupPolicyTests {
-    @Test func xctestLaunchDoesNotStartSentry() {
-        #expect(
-            MacSentryStartupPolicy(
-                telemetryEnabled: true,
-                isRunningUnderXCTest: true,
-                allowUnderXCTest: false
-            ).shouldStart == false
-        )
-    }
-
-    @Test func explicitTestTelemetryOptInStartsSentry() {
-        #expect(
-            MacSentryStartupPolicy(
-                telemetryEnabled: true,
-                isRunningUnderXCTest: true,
-                allowUnderXCTest: true
-            ).shouldStart == true
-        )
-    }
-
-    @Test func normalTelemetryEnabledLaunchStartsSentry() {
-        #expect(
-            MacSentryStartupPolicy(
-                telemetryEnabled: true,
-                isRunningUnderXCTest: false,
-                allowUnderXCTest: false
-            ).shouldStart == true
-        )
-    }
-
-    @Test func telemetryOptOutStillPreventsSentryStartup() {
-        #expect(
-            MacSentryStartupPolicy(
-                telemetryEnabled: false,
-                isRunningUnderXCTest: false,
-                allowUnderXCTest: false
-            ).shouldStart == false
-        )
-    }
-
-    @Test func explicitUITestMarkerPreventsSentryStartup() {
-        #expect(
-            MacSentryStartupPolicy(
-                environment: ["CMUX_UI_TEST_PROCESS": "1"],
-                telemetryEnabled: true
-            ).shouldStart == false
-        )
-    }
-
-    @Test func explicitTestTelemetryOptInOverridesUITestMarker() {
-        #expect(
-            MacSentryStartupPolicy(
-                environment: [
-                    "CMUX_UI_TEST_PROCESS": "1",
-                    "CMUX_TEST_SENTRY_ENABLED": "1"
-                ],
-                telemetryEnabled: true
-            ).shouldStart == true
-        )
     }
 }

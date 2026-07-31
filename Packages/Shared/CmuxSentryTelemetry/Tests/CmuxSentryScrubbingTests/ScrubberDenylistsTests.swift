@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxFoundation
+@testable import CmuxSentryScrubbing
 
 /// Table-driven behavior tests for the maintained denylists ported into
 /// ``ScrubberDenylists``.
