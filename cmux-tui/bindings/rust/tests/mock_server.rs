@@ -1591,18 +1591,8 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         })
                     )
                     .unwrap();
-                    success(&mut stream, &cancel, json!({}));
-                    writeln!(
-                        stream,
-                        "{}",
-                        json!({
-                            "protocol":"cmux.protocol/1",
-                            "type":"stream_end",
-                            "stream_id":stream_id,
-                            "reason":"canceled",
-                        })
-                    )
-                    .unwrap();
+                    // The malformed item must close the peer immediately, so
+                    // fixture cleanup frames would race the expected close.
                 }
                 "valid-known-post-end-item" => {
                     writeln!(
@@ -1634,7 +1624,8 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         })
                     )
                     .unwrap();
-                    success(&mut stream, &cancel, json!({}));
+                    // The post-end item is the violation. A later response
+                    // would race the expected close on fast socket peers.
                 }
                 "malformed-known-stale-item" => {
                     writeln!(
@@ -1663,7 +1654,8 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                         })
                     )
                     .unwrap();
-                    success(&mut stream, &cancel, json!({}));
+                    // The stale malformed item must close the peer before any
+                    // remaining cancellation frames are accepted.
                 }
                 "unknown-end-field" => {
                     success(&mut stream, &cancel, json!({}));

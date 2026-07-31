@@ -341,7 +341,7 @@ const FakeServer = struct {
         try self.respond(
             stream,
             try requestId(open.value),
-            struct {}{},
+            .{ .stream_id = stream_id },
         );
         if (delay_ms > 0) {
             std.Thread.sleep(delay_ms * std.time.ns_per_ms);
