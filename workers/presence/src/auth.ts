@@ -138,6 +138,34 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Minimum configured length for the server nudge secret; anything shorter is
+ * treated as not configured so a weak or placeholder deploy fails closed. */
+export const MIN_NUDGE_SERVER_SECRET_LENGTH = 16;
+
+/** Constant-time shared-secret check for the server-authenticated nudge path
+ * (`x-cmux-nudge-secret`). Both sides are SHA-256 hashed first, so the byte
+ * comparison length is fixed and independent of either input; an unset,
+ * empty, or too-short configured secret always fails. Pure for tests. */
+export async function nudgeServerSecretMatches(
+  provided: string | null,
+  configured: string | undefined,
+): Promise<boolean> {
+  const secret = configured?.trim() ?? "";
+  const candidate = provided?.trim() ?? "";
+  if (secret.length < MIN_NUDGE_SERVER_SECRET_LENGTH || !candidate) return false;
+  const [candidateDigest, secretDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(candidate)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)),
+  ]);
+  const candidateBytes = new Uint8Array(candidateDigest);
+  const secretBytes = new Uint8Array(secretDigest);
+  let difference = 0;
+  for (let index = 0; index < candidateBytes.length; index += 1) {
+    difference |= (candidateBytes[index] ?? 0) ^ (secretBytes[index] ?? 0);
+  }
+  return difference === 0;
+}
+
 function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
   return {
     "x-stack-access-type": "client",

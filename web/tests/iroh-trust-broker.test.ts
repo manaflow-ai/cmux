@@ -26,12 +26,18 @@ import {
 } from "../services/iroh/model";
 import {
   IROH_ACTIVE_BINDING_SANITY_CAP,
+  isIrohReleaseChannelTag,
   type IrohBindingRecord,
   type IrohChallengeRecord,
+  type IrohReapedBinding,
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
 import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
+import type {
+  IrohBindingNudgeEvent,
+  IrohPresenceNudgeShape,
+} from "../services/iroh/presenceNudge";
 import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -268,6 +274,104 @@ describe("Iroh trust broker registration", () => {
     const retired = fixture.repository.bindings.find((row) => row.id === slotId);
     expect(retired?.revokedAt).toEqual(NOW);
     expect(retired?.revokedReason).toBe("slot_reincarnated");
+  });
+});
+
+// The presence nudge is a best-effort wake-up for the AFFECTED device: it must
+// fire exactly on binding-lifecycle changes (revocation, slot re-key) and stay
+// silent on refresh heartbeats, and its failure can never fail the broker op.
+describe("Iroh binding-changed presence nudges", () => {
+  test("revocation nudges the revoked binding's device once, not on retries", async () => {
+    const nudge = new RecordingPresenceNudge();
+    const fixture = makeFixture({ presenceNudge: nudge });
+    const active = binding({ userId: USER_A, tag: "wsid" });
+    fixture.repository.bindings.push(active);
+
+    await Effect.runPromise(fixture.broker.revoke(USER_A, { bindingId: active.id }, NOW));
+    expect(nudge.calls).toEqual([[{
+      userId: USER_A,
+      deviceUuid: active.deviceUuid,
+      tag: "wsid",
+    }]]);
+
+    // Retry of an already-revoked binding still succeeds but nudges nothing new.
+    await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: active.id },
+      new Date(NOW.getTime() + 1_000),
+    ));
+    expect(nudge.calls).toHaveLength(1);
+  });
+
+  test("a plain signed refresh heartbeat never nudges", async () => {
+    const nudge = new RecordingPresenceNudge();
+    const fixture = makeFixture({ presenceNudge: nudge });
+    await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
+    // A genuinely new slot is the registrant itself; nothing to wake.
+    expect(nudge.calls).toEqual([]);
+
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      new Date(NOW.getTime() + 1_000),
+    ));
+    expect(nudge.calls).toEqual([]);
+  });
+
+  test("a slot re-key (replacement registration) nudges the affected device", async () => {
+    const nudge = new RecordingPresenceNudge();
+    const fixture = makeFixture({ presenceNudge: nudge });
+    await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
+
+    const replacement = makeFixture({
+      repository: fixture.repository,
+      appInstanceId: fixture.appInstanceId,
+      deviceId: fixture.deviceId,
+      identityGeneration: 2,
+      presenceNudge: nudge,
+    });
+    await Effect.runPromise(replacement.broker.register(
+      USER_A,
+      await replacement.signedRegistration(),
+      NOW,
+    ));
+    expect(nudge.calls).toEqual([[{
+      userId: USER_A,
+      deviceUuid: fixture.deviceId,
+      tag: "stable",
+    }]]);
+  });
+
+  test("a defective nudge implementation cannot fail revoke or registration", async () => {
+    const nudge = new RecordingPresenceNudge();
+    nudge.failWith = new Error("presence worker unreachable");
+    const fixture = makeFixture({ presenceNudge: nudge });
+    const active = binding({ userId: USER_A });
+    fixture.repository.bindings.push(active);
+
+    const revoked = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: active.id },
+      NOW,
+    ));
+    expect(revoked).toEqual({ revoked: true, lan_rendezvous_rotated: true });
+    expect(active.revokedAt).toEqual(NOW);
+
+    // A slot re-key (the other nudging path) must also survive the defect.
+    await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));
+    const replacement = makeFixture({
+      repository: fixture.repository,
+      appInstanceId: fixture.appInstanceId,
+      deviceId: fixture.deviceId,
+      identityGeneration: 2,
+      presenceNudge: nudge,
+    });
+    const registered = await Effect.runPromise(replacement.broker.register(
+      USER_A,
+      await replacement.signedRegistration(),
+      NOW,
+    )) as { binding: { endpoint_id: string } };
+    expect(registered.binding.endpoint_id).toBe(replacement.endpointId);
   });
 });
 
@@ -791,7 +895,7 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.lastSeenAt = input.now;
       existing.registeredAt = challenge.createdAt;
       existing.updatedAt = input.now;
-      return Effect.succeed({ binding: existing, created: false });
+      return Effect.succeed({ binding: existing, created: false, replaced: false });
     }
     // A new incarnation (rotated endpoint, or any changed signed identity field):
     // retire the old row (soft-revoke, never delete) and mint a fresh binding id so
@@ -831,7 +935,7 @@ class MemoryRepository implements IrohRepositoryShape {
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
-    return Effect.succeed({ binding: inserted, created: true });
+    return Effect.succeed({ binding: inserted, created: true, replaced: existing !== undefined });
   }
 
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
@@ -898,6 +1002,32 @@ class MemoryRepository implements IrohRepositoryShape {
         pairGrantAudits: 0,
         revokedBindings: 0,
       },
+    });
+  }
+
+  reapStaleBindings(input: Parameters<IrohRepositoryShape["reapStaleBindings"]>[0]) {
+    const revoked: IrohReapedBinding[] = [];
+    for (const row of this.bindings) {
+      if (row.revokedAt) continue;
+      const cutoff = isIrohReleaseChannelTag(row.tag) ? input.releaseCutoff : input.devCutoff;
+      if (row.registeredAt >= cutoff || row.lastSeenAt >= cutoff) continue;
+      row.revokedAt = input.now;
+      row.revokedReason = isIrohReleaseChannelTag(row.tag)
+        ? "stale_binding_retention"
+        : "stale_development_binding";
+      this.lanGenerations.set(row.userId, (this.lanGenerations.get(row.userId) ?? 1) + 1);
+      revoked.push({
+        userId: row.userId,
+        deviceUuid: row.deviceUuid,
+        tag: row.tag,
+        platform: row.platform,
+      });
+    }
+    return Effect.succeed({
+      revoked,
+      candidates: revoked.length,
+      skippedUsers: 0,
+      backlog: false,
     });
   }
 
@@ -995,6 +1125,18 @@ class FakeMinter implements IrohRelayMinterShape {
   }
 }
 
+class RecordingPresenceNudge implements IrohPresenceNudgeShape {
+  readonly calls: IrohBindingNudgeEvent[][] = [];
+  failWith: Error | undefined;
+
+  bindingChanged(events: readonly IrohBindingNudgeEvent[]) {
+    return Effect.sync(() => {
+      if (this.failWith) throw this.failWith;
+      this.calls.push([...events]);
+    });
+  }
+}
+
 function makeFixture(options: {
   repository?: MemoryRepository;
   minterFailure?: boolean;
@@ -1004,6 +1146,7 @@ function makeFixture(options: {
   relayPreference?: RelayPreference;
   registrationPathHints?: IrohRegistrationPayload["pathHints"];
   registrationDirectPorts?: TestDirectPorts;
+  presenceNudge?: IrohPresenceNudgeShape;
   developmentBindingLimits?: {
     account: number;
     device: number;
@@ -1054,15 +1197,17 @@ function makeFixture(options: {
     selectedManagedRelayIds: [],
     customRelays: [],
   };
+  const presenceNudge = options.presenceNudge ?? new RecordingPresenceNudge();
   const broker = makeIrohTrustBroker(repository, minter, config, {
     getPreference: () => Effect.succeed({ preference: relayPreference, revision: 0 }),
-  });
+  }, presenceNudge);
 
   return {
     repository,
     minter,
     broker,
     config,
+    presenceNudge,
     endpointId,
     appInstanceId,
     deviceId,

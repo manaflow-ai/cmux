@@ -18,7 +18,7 @@ solo-account user id).
 | `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events. With `?deviceScope=<deviceId>` it is instead a directed nudge channel: WebSocket-only, no snapshot, only `nudge` frames for that device |
-| `/v1/presence/nudge` | POST | directed wake-up `{deviceId, tag?, kind}` delivered to that device's `deviceScope` subscribers; caller must be the device's pinned owner |
+| `/v1/presence/nudge` | POST | directed wake-up `{deviceId, tag?, kind}` delivered to that device's `deviceScope` subscribers; caller must be the device's pinned owner. With the `x-cmux-nudge-secret` header it is instead the server-to-server path: `{deviceId, tag?, kind, userId, teamId?}` |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -61,6 +61,22 @@ cadence, never to a correctness failure. Registry-anchored device credentials
 (the planned key-pinning phase) replace the pin for both heartbeats and
 nudges when they land.
 
+The server-to-server nudge path exists for the web iroh trust broker, which
+holds no Stack user token when it revokes, re-keys, or reaps a binding. A
+request carrying `x-cmux-nudge-secret` never falls back to bearer auth: the
+header must match the `NUDGE_SERVER_SECRET` Worker secret (constant-time,
+provisioned with `wrangler secret put NUDGE_SERVER_SECRET`; unset rejects the
+whole path), and the body then asserts the device owner's `userId` and the
+target `teamId` (default: the user id, the solo-account team resolution). The
+asserted user id is still checked against the device's pinned owner in the DO,
+so even the trusted server cannot wake a device pinned by a different user.
+The web side fans one nudge out to the device's few candidate team DOs; a
+wrong-team candidate answers `404 device_unknown`, which callers treat as
+expected. Phones could reuse this exact `nudge` frame later by subscribing
+`deviceScope=<their paired Mac's deviceId>` (the owner pin already admits
+same-user subscribers); that needs no new frame type, so legacy presence
+decoders stay safe.
+
 ## Develop
 
 ```bash
@@ -95,9 +111,14 @@ One-time Worker secrets (survive deploys; production Stack project values):
 ```bash
 bunx wrangler secret put STACK_PROJECT_ID
 bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+bunx wrangler secret put NUDGE_SERVER_SECRET   # optional: server nudge path
 ```
 
 Optional plain var `STACK_API_URL` defaults to `https://api.stack-auth.com`.
+`NUDGE_SERVER_SECRET` (min 16 chars) enables the server-authenticated nudge
+path; mirror the same value into the web deployment's
+`CMUX_PRESENCE_NUDGE_SECRET` (with `CMUX_PRESENCE_NUDGE_URL` pointing at this
+worker). Leaving it unset keeps the path rejected.
 
 ### Dev/staging instance
 

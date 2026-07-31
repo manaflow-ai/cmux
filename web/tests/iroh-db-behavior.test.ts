@@ -883,6 +883,7 @@ describe("Iroh trust broker database behavior", () => {
       now: NOW,
     });
     expect(first.created).toBe(true);
+    expect(first.replaced).toBe(false);
 
     // Reinstall: fresh app instance, rotated endpoint, generation reset to 1.
     // The rotated key is a new incarnation, so the slot is re-keyed onto a BRAND
@@ -900,6 +901,9 @@ describe("Iroh trust broker database behavior", () => {
       now: new Date(NOW.getTime() + 1_000),
     });
     expect(reinstalled.created).toBe(true);
+    // The re-key retired a live incarnation of the same slot: exactly the
+    // binding-changed case the presence nudge hook keys off.
+    expect(reinstalled.replaced).toBe(true);
     expect(reinstalled.binding.id).not.toBe(first.binding.id);
     expect(reinstalled.binding.endpointId).toBe(rotatedEndpoint);
     expect(reinstalled.binding.appInstanceId).toBe(reinstallApp);
@@ -915,6 +919,7 @@ describe("Iroh trust broker database behavior", () => {
       now: NOW,
     });
     expect(secondTag.created).toBe(true);
+    expect(secondTag.replaced).toBe(false);
     expect(secondTag.binding.id).not.toBe(first.binding.id);
 
     const [state] = await requiredSql()<Array<{
@@ -1012,9 +1017,11 @@ describe("Iroh trust broker database behavior", () => {
     const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: new Date(NOW.getTime() + 1_000) });
     const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: new Date(NOW.getTime() + 2_000) });
 
-    // The NEWER challenge lands first and refreshes the slot.
+    // The NEWER challenge lands first and refreshes the slot. A plain in-place
+    // heartbeat is neither a creation nor a replacement (so it never nudges).
     const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_500)));
     expect(newerResult.created).toBe(false);
+    expect(newerResult.replaced).toBe(false);
     expect(newerResult.binding.appInstanceId).toBe(newerApp);
 
     // The OLDER challenge, delayed, completes second. It was minted before the
@@ -2087,6 +2094,182 @@ describe("Iroh trust broker database behavior", () => {
       where user_id = 'user-retention-budget'
     `;
     expect(remaining).toBe("1");
+  });
+
+  dbTest("stale-binding reaper revokes only past-threshold rows by tag shape", async () => {
+    const repo = requiredRepository();
+    const userId = "user-reap";
+    const devCutoff = new Date(NOW.getTime() - 72 * 60 * 60 * 1_000);
+    const releaseCutoff = new Date(NOW.getTime() - 45 * 24 * 60 * 60 * 1_000);
+    const setActivity = async (id: string, at: Date, lastSeenAt: Date = at) => {
+      await requiredSql()`
+        update iroh_endpoint_bindings
+        set registered_at = ${at}, last_seen_at = ${lastSeenAt}
+        where id = ${id}
+      `;
+    };
+
+    // Dev-style tagged build, idle four days: reaped on the short threshold.
+    const staleDevId = await insertBinding({
+      userId,
+      tag: "wsid",
+      endpointId: "a0".repeat(32),
+      pathHints: [storedLanHint("10.0.0.9:4433", "2026-07-09T19:55:00.000Z", "2026-07-09T20:30:00.000Z")],
+    });
+    await setActivity(staleDevId, new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1_000));
+    // Dev-style but refreshed yesterday: inside the short threshold.
+    const freshDevId = await insertBinding({ userId, tag: "iq1", endpointId: "a1".repeat(32) });
+    await setActivity(freshDevId, new Date(NOW.getTime() - 24 * 60 * 60 * 1_000));
+    // Dev-style with an old registration but RECENT authenticated activity
+    // (relay renewal advances last_seen_at): must not be reaped.
+    const activeDevId = await insertBinding({ userId, tag: "pullr", endpointId: "a2".repeat(32) });
+    await setActivity(
+      activeDevId,
+      new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1_000),
+      new Date(NOW.getTime() - 60 * 60 * 1_000),
+    );
+    // Release-channel binding idle four days: far inside the long threshold.
+    const idleDefaultId = await insertBinding({ userId, tag: "default", endpointId: "a3".repeat(32) });
+    await setActivity(idleDefaultId, new Date(NOW.getTime() - 4 * 24 * 60 * 60 * 1_000));
+    // Release-channel binding idle 46 days: past the long threshold.
+    const staleDefaultId = await insertBinding({
+      userId,
+      tag: "default",
+      platform: "ios",
+      endpointId: "a4".repeat(32),
+    });
+    await setActivity(staleDefaultId, new Date(NOW.getTime() - 46 * 24 * 60 * 60 * 1_000));
+    // Already revoked long ago: the reaper never touches it again.
+    const alreadyRevokedId = await insertBinding({ userId, tag: "wsold", endpointId: "a5".repeat(32) });
+    await setActivity(alreadyRevokedId, new Date(NOW.getTime() - 20 * 24 * 60 * 60 * 1_000));
+    const priorRevokedAt = new Date(NOW.getTime() - 10 * 24 * 60 * 60 * 1_000);
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set revoked_at = ${priorRevokedAt}, revoked_reason = 'user_requested'
+      where id = ${alreadyRevokedId}
+    `;
+    // A live pair grant naming the stale dev binding: revoked with it, exactly
+    // like the user revoke path.
+    await requiredSql()`
+      insert into iroh_pair_grant_issuances (
+        user_id, jti, initiator_binding_id, acceptor_binding_id, signing_key_id,
+        alpn, scope, issued_at, not_before, expires_at
+      ) values (
+        ${userId}, ${randomUUID()}, ${freshDevId}, ${staleDevId}, 'current',
+        'cmux/mobile/1', 'cmux.mobile.attach', ${NOW}, ${NOW},
+        ${new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000)}
+      )
+    `;
+    const generationBefore = (await Effect.runPromise(
+      repo.discoverySnapshot({ userId, now: NOW }),
+    )).lanDiscoveryGeneration;
+
+    const result = await Effect.runPromise(repo.reapStaleBindings({
+      now: NOW,
+      devCutoff,
+      releaseCutoff,
+    }));
+
+    expect(result.backlog).toBe(false);
+    expect(result.skippedUsers).toBe(0);
+    expect(result.revoked.map((binding) => binding.tag).sort()).toEqual(["default", "wsid"]);
+    const reapedDev = result.revoked.find((binding) => binding.tag === "wsid");
+    expect(reapedDev).toMatchObject({ userId, platform: "mac" });
+
+    const rows = await requiredSql()<Array<{
+      id: string;
+      revoked: boolean;
+      reason: string | null;
+      hints: number;
+    }>>`
+      select
+        id::text,
+        revoked_at is not null as revoked,
+        revoked_reason as reason,
+        jsonb_array_length(path_hints)::int as hints
+      from iroh_endpoint_bindings
+      where user_id = ${userId}
+    `;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(staleDevId)).toMatchObject({
+      revoked: true,
+      reason: "stale_development_binding",
+      hints: 0,
+    });
+    expect(byId.get(staleDefaultId)).toMatchObject({
+      revoked: true,
+      reason: "stale_binding_retention",
+    });
+    expect(byId.get(freshDevId)).toMatchObject({ revoked: false });
+    expect(byId.get(activeDevId)).toMatchObject({ revoked: false });
+    expect(byId.get(idleDefaultId)).toMatchObject({ revoked: false });
+    expect(byId.get(alreadyRevokedId)).toMatchObject({ revoked: true, reason: "user_requested" });
+    const [alreadyRevoked] = await requiredSql()<Array<{ revokedAt: Date }>>`
+      select revoked_at as "revokedAt" from iroh_endpoint_bindings where id = ${alreadyRevokedId}
+    `;
+    expect(alreadyRevoked?.revokedAt).toEqual(priorRevokedAt);
+
+    const [grant] = await requiredSql()<Array<{ revokedAt: Date | null }>>`
+      select revoked_at as "revokedAt"
+      from iroh_pair_grant_issuances
+      where acceptor_binding_id = ${staleDevId}
+    `;
+    expect(grant?.revokedAt).not.toBeNull();
+    // Reaping rotates the LAN rendezvous generation like every revocation.
+    const generationAfter = (await Effect.runPromise(
+      repo.discoverySnapshot({ userId, now: NOW }),
+    )).lanDiscoveryGeneration;
+    expect(generationAfter).toBeGreaterThan(generationBefore);
+
+    // Idempotent: a second run finds nothing left to reap.
+    const rerun = await Effect.runPromise(repo.reapStaleBindings({
+      now: NOW,
+      devCutoff,
+      releaseCutoff,
+    }));
+    expect(rerun.revoked).toEqual([]);
+  });
+
+  dbTest("stale-binding reaper honors its row budget and reports backlog", async () => {
+    const repo = requiredRepository();
+    const userId = "user-reap-budget";
+    const staleAt = new Date(NOW.getTime() - 5 * 24 * 60 * 60 * 1_000);
+    for (let index = 0; index < 3; index += 1) {
+      const id = await insertBinding({
+        userId,
+        tag: `dev${index}`,
+        endpointId: `b${index}`.repeat(32),
+      });
+      await requiredSql()`
+        update iroh_endpoint_bindings
+        set registered_at = ${staleAt}, last_seen_at = ${staleAt}
+        where id = ${id}
+      `;
+    }
+
+    const first = await Effect.runPromise(repo.reapStaleBindings({
+      now: NOW,
+      devCutoff: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
+      releaseCutoff: new Date(NOW.getTime() - 45 * 24 * 60 * 60 * 1_000),
+      maxBindings: 2,
+    }));
+    expect(first.revoked).toHaveLength(2);
+    expect(first.backlog).toBe(true);
+
+    const second = await Effect.runPromise(repo.reapStaleBindings({
+      now: NOW,
+      devCutoff: new Date(NOW.getTime() - 72 * 60 * 60 * 1_000),
+      releaseCutoff: new Date(NOW.getTime() - 45 * 24 * 60 * 60 * 1_000),
+      maxBindings: 2,
+    }));
+    expect(second.revoked).toHaveLength(1);
+    expect(second.backlog).toBe(false);
+    const [{ active }] = await requiredSql()<Array<{ active: string }>>`
+      select count(*)::text as active
+      from iroh_endpoint_bindings
+      where user_id = ${userId} and revoked_at is null
+    `;
+    expect(active).toBe("0");
   });
 
   dbTest("retention and cascade lookups use their dedicated indexes", async () => {

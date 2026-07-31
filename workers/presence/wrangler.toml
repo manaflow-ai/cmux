@@ -17,6 +17,7 @@
 # Worker secrets (see README.md) and survive deploys:
 #   wrangler secret put STACK_PROJECT_ID
 #   wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+#   wrangler secret put NUDGE_SERVER_SECRET   # optional server nudge path
 # Optional plain var STACK_API_URL defaults to https://api.stack-auth.com.
 
 name = "cmux-presence"

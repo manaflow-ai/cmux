@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -54,6 +54,64 @@ export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 // count while catching a runaway registration loop, which blows past it at once.
 export const IROH_ACTIVE_BINDING_SANITY_CAP = 256;
 
+// ---- Stale-binding reaper -------------------------------------------------
+//
+// Each dev build registers its own (user, device, tag) binding slot, and the
+// shared dev account accumulated 250+ of them, hit the sanity cap above, and
+// 409'd every NEW registration — bricking all dogfood phones at once. The
+// hourly retention cron therefore soft-revokes bindings whose registration
+// activity has gone stale, with a short TTL for dev-style tagged builds and a
+// long TTL for release-channel bindings.
+//
+// Shape rule (conservative by construction): a binding is RELEASE-shaped only
+// when its tag exactly matches a known release-channel tag. Stable builds
+// register "default" on both platforms (macOS `MobileHostIdentity.instanceTag`
+// and iOS `MobileIOSBuildScope`), and the unslugged mac channels register
+// "rc" / "nightly" / "staging". "stable" is included defensively for
+// historical rows. Slugged channel builds return their bare slug, which is
+// indistinguishable from a dev tag on the wire — they intentionally fall into
+// the dev bucket, since they are transient dogfood installs anyway. Everything
+// non-release is a dev-style tagged build and gets the short TTL.
+//
+// Staleness uses the slot's registration high-water mark (`registered_at`,
+// stamped by every applied signed registration — insert, reincarnation, and
+// heartbeat refresh alike) AND `last_seen_at` (also advanced by relay-token
+// renewal), so a binding with ANY recent authenticated activity is never
+// reaped. Reaping is safe for genuinely live-but-idle devices too: the revoke
+// is the same soft-revoke as a user revocation, and the newest-wins slot
+// re-key semantics let the device re-register IN PLACE on its next launch or
+// refresh, so a reaped Mac reappears with a normal registration round trip.
+export const IROH_RELEASE_CHANNEL_TAGS: readonly string[] = [
+  "default",
+  "stable",
+  "rc",
+  "nightly",
+  "staging",
+];
+
+export function isIrohReleaseChannelTag(tag: string): boolean {
+  return IROH_RELEASE_CHANNEL_TAGS.includes(tag);
+}
+
+export const IROH_STALE_BINDING_REAP_MAX_ROWS = 500;
+
+export type IrohReapedBinding = {
+  readonly userId: string;
+  readonly deviceUuid: string;
+  readonly tag: string;
+  readonly platform: string;
+};
+
+export type IrohStaleBindingReapResult = {
+  readonly revoked: readonly IrohReapedBinding[];
+  /** Rows the candidate scan selected for this run (before locking rechecks). */
+  readonly candidates: number;
+  /** Users skipped because account deletion holds their mutation fence. */
+  readonly skippedUsers: number;
+  /** More past-threshold rows remained beyond this run's budget. */
+  readonly backlog: boolean;
+};
+
 export type IrohRetentionCategory =
   | "revokedHints"
   | "expiredHints"
@@ -76,6 +134,11 @@ export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect
 export type IrohRegistrationCommit = {
   readonly binding: IrohBindingRecord;
   readonly created: boolean;
+  /** True when this registration re-keyed an EXISTING slot to a new binding id
+   * (reincarnation): the old incarnation was revoked in the same transaction.
+   * Always false for a plain in-place heartbeat refresh and for a genuinely
+   * new slot, so callers can nudge exactly the binding-changed cases. */
+  readonly replaced: boolean;
 };
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
@@ -141,6 +204,17 @@ export type IrohRepositoryShape = {
     readonly maxRows?: number;
     readonly maxDurationMs?: number;
   }) => Effect.Effect<IrohRetentionResult, RepositoryError>;
+  /** Soft-revoke active bindings whose registration activity is past their
+   * shape's cutoff (see IROH_RELEASE_CHANNEL_TAGS). Mirrors the revoke path's
+   * semantics exactly via the shared revokeActiveBindings helper. */
+  readonly reapStaleBindings: (input: {
+    readonly now: Date;
+    /** Dev-style tagged bindings staler than this are revoked. */
+    readonly devCutoff: Date;
+    /** Release-channel bindings staler than this are revoked. */
+    readonly releaseCutoff: Date;
+    readonly maxBindings?: number;
+  }) => Effect.Effect<IrohStaleBindingReapResult, RepositoryError>;
   readonly finalizeEndpointAttestation: (input: {
     readonly userId: string;
     readonly bindingId: string;
@@ -416,7 +490,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             .set({ consumedAt: input.now })
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          return { binding: updated, created: false };
+          return { binding: updated, created: false, replaced: false };
         }
 
         // A NEW incarnation on an existing slot: the endpoint key rotated (a
@@ -500,7 +574,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.id, challenge.id),
             isNull(irohRegistrationChallenges.consumedAt),
           ));
-        return { binding, created: true };
+        return { binding, created: true, replaced: existingSlot !== undefined };
       });
     }),
 
@@ -707,6 +781,112 @@ function makeLiveRepository(): IrohRepositoryShape {
       "prune_expired_state_globally",
       () => drainIrohRetention(input),
     ),
+
+    reapStaleBindings: (input) => repositoryEffect("reap_stale_bindings", async () => {
+      const maxBindings = retentionBudget(
+        input.maxBindings,
+        IROH_STALE_BINDING_REAP_MAX_ROWS,
+        10_000,
+        "maxBindings",
+      );
+      if (input.devCutoff > input.now || input.releaseCutoff > input.now) {
+        throw new Error("invalid Iroh reap cutoffs");
+      }
+      const db = cloudDb();
+      const staleness = staleBindingCondition(input.devCutoff, input.releaseCutoff);
+
+      // Phase 1: lock-free candidate scan. One extra row detects backlog.
+      const candidates = await db
+        .select({
+          id: irohEndpointBindings.id,
+          userId: irohEndpointBindings.userId,
+        })
+        .from(irohEndpointBindings)
+        .where(and(isNull(irohEndpointBindings.revokedAt), staleness))
+        .orderBy(asc(irohEndpointBindings.registeredAt), asc(irohEndpointBindings.id))
+        .limit(maxBindings + 1);
+      const backlog = candidates.length > maxBindings;
+      const work = candidates.slice(0, maxBindings);
+      const byUser = new Map<string, string[]>();
+      for (const row of work) {
+        const ids = byUser.get(row.userId);
+        if (ids) ids.push(row.id);
+        else byUser.set(row.userId, [row.id]);
+      }
+
+      // Phase 2: per-user transactions under the SAME fences the revoke path
+      // uses (account-deletion fence, then the per-user binding advisory lock),
+      // re-checking liveness and staleness under FOR UPDATE SKIP LOCKED so a
+      // binding a concurrent registration is refreshing is skipped, never
+      // clobbered.
+      const revoked: IrohReapedBinding[] = [];
+      let skippedUsers = 0;
+      for (const [userId, bindingIds] of byUser) {
+        try {
+          const reaped = await db.transaction(async (tx) => {
+            await assertIrohUserMutationAllowed(tx, userId);
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))`);
+            const rows = await tx
+              .select({
+                id: irohEndpointBindings.id,
+                deviceUuid: irohEndpointBindings.deviceUuid,
+                tag: irohEndpointBindings.tag,
+                platform: irohEndpointBindings.platform,
+              })
+              .from(irohEndpointBindings)
+              .where(and(
+                eq(irohEndpointBindings.userId, userId),
+                inArray(irohEndpointBindings.id, bindingIds),
+                isNull(irohEndpointBindings.revokedAt),
+                staleness,
+              ))
+              .for("update", { skipLocked: true });
+            if (rows.length === 0) return [];
+            const revokedIds = new Set<string>();
+            for (const [reason, ids] of [
+              [
+                "stale_development_binding",
+                rows.filter((row) => !isIrohReleaseChannelTag(row.tag)).map((row) => row.id),
+              ],
+              [
+                "stale_binding_retention",
+                rows.filter((row) => isIrohReleaseChannelTag(row.tag)).map((row) => row.id),
+              ],
+            ] as const) {
+              for (const id of await revokeActiveBindings(tx, {
+                userId,
+                bindingIds: ids,
+                now: input.now,
+                reason,
+              })) {
+                revokedIds.add(id);
+              }
+            }
+            return rows
+              .filter((row) => revokedIds.has(row.id))
+              .map((row): IrohReapedBinding => ({
+                userId,
+                deviceUuid: row.deviceUuid,
+                tag: row.tag,
+                platform: row.platform,
+              }));
+          });
+          revoked.push(...reaped);
+        } catch (error) {
+          // Account deletion holds this user's fence; deletion removes the
+          // rows anyway, so skip the user rather than failing the whole run.
+          if (
+            (error as { _tag?: unknown } | null)?._tag === "IrohConflictError" &&
+            (error as { code?: unknown }).code === "account_deletion_in_progress"
+          ) {
+            skippedUsers += 1;
+            continue;
+          }
+          throw error;
+        }
+      }
+      return { revoked, candidates: work.length, skippedUsers, backlog };
+    }),
 
     finalizeEndpointAttestation: (input) => repositoryEffect("finalize_endpoint_attestation", async () => {
       await cloudDb().transaction(async (tx) => {
@@ -965,6 +1145,7 @@ async function revokeActiveBindings(
     readonly reason:
       | "user_requested"
       | "stale_development_binding"
+      | "stale_binding_retention"
       | "slot_reincarnated";
   },
 ): Promise<readonly string[]> {
@@ -1038,6 +1219,27 @@ async function enforceActiveBindingSanityCap(
   const active = row?.total ?? 0;
   if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
   throw new IrohConflictError({ code: "active_binding_limit" });
+}
+
+// A binding is stale for reaping only when BOTH its registration high-water
+// mark and its last authenticated activity precede its shape's cutoff. Tag
+// shape picks the cutoff: exact release-channel tags get the (long)
+// releaseCutoff, every other tag is treated as a dev-style tagged build and
+// gets the (short) devCutoff.
+function staleBindingCondition(devCutoff: Date, releaseCutoff: Date) {
+  const releaseTags = [...IROH_RELEASE_CHANNEL_TAGS];
+  return or(
+    and(
+      inArray(irohEndpointBindings.tag, releaseTags),
+      lt(irohEndpointBindings.registeredAt, releaseCutoff),
+      lt(irohEndpointBindings.lastSeenAt, releaseCutoff),
+    ),
+    and(
+      notInArray(irohEndpointBindings.tag, releaseTags),
+      lt(irohEndpointBindings.registeredAt, devCutoff),
+      lt(irohEndpointBindings.lastSeenAt, devCutoff),
+    ),
+  );
 }
 
 type RetentionBatchOperation = {

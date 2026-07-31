@@ -158,6 +158,49 @@ export function parseNudge(body: Record<string, unknown>): NudgeParse {
   return { ok: true, nudge: { deviceId, tag: tag || undefined, kind } };
 }
 
+/** Bound on the server-asserted principal fields of a server nudge. Stack user
+ * ids and team ids are short opaque tokens; this only stops garbage. */
+export const MAX_NUDGE_PRINCIPAL_LENGTH = 256;
+
+export interface ServerNudgeInput {
+  nudge: NudgeInput;
+  /** The device owner's Stack user id, asserted by the trusted server caller.
+   * The DO still enforces it against the device's pinned owner. */
+  userId: string;
+  /** Team whose Durable Object should deliver the nudge. Defaults to the
+   * user id (the solo-account team resolution). */
+  teamId: string;
+}
+
+export type ServerNudgeParse =
+  | { ok: true; server: ServerNudgeInput }
+  | { ok: false; error: string };
+
+/** Parse a server-authenticated nudge body (shared-secret path): the normal
+ * nudge fields plus the server-asserted owner and target team. Pure for
+ * tests. */
+export function parseServerNudge(body: Record<string, unknown>): ServerNudgeParse {
+  const base = parseNudge(body);
+  if (!base.ok) return base;
+  const userId = trimmedString(body.userId);
+  if (!validNudgePrincipal(userId)) return { ok: false, error: "invalid_user_id" };
+  const teamId = trimmedString(body.teamId) || userId;
+  if (!validNudgePrincipal(teamId)) return { ok: false, error: "invalid_team_id" };
+  return { ok: true, server: { nudge: base.nudge, userId, teamId } };
+}
+
+function validNudgePrincipal(value: string): boolean {
+  if (!value || value.length > MAX_NUDGE_PRINCIPAL_LENGTH) return false;
+  // No whitespace or control characters: these values name a Durable Object
+  // and are compared against stored owner pins; real Stack ids are opaque
+  // tokens without either.
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x20 || code === 0x7f) return false;
+  }
+  return true;
+}
+
 export type DeviceScopeParse =
   | { scope: "none" }
   | { scope: "invalid" }

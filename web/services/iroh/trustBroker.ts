@@ -77,6 +77,11 @@ import {
   MANAGED_RELAY_URLS,
   accountPrivateIrohPathHints,
 } from "./publicationPolicy";
+import {
+  irohPresenceNudgeLive,
+  type IrohBindingNudgeEvent,
+  type IrohPresenceNudgeShape,
+} from "./presenceNudge";
 
 export type IrohTrustBrokerShape = {
   readonly issueChallenge: (
@@ -130,7 +135,18 @@ export function makeIrohTrustBroker(
       revision: 0,
     }),
   },
+  presenceNudge: IrohPresenceNudgeShape = irohPresenceNudgeLive,
 ): IrohTrustBrokerShape {
+  // Wake the affected device's presence nudge channel after a binding
+  // lifecycle change so it re-checks broker state within seconds instead of on
+  // its next scheduled round trip. Strictly best-effort: the nudge contract is
+  // never-failing, and this guard also swallows defects from injected
+  // implementations, so the broker mutation's outcome can never depend on the
+  // presence worker.
+  const nudgeBindingChanged = (
+    events: readonly IrohBindingNudgeEvent[],
+  ): Effect.Effect<void> => Effect.suspend(() => presenceNudge.bindingChanged(events))
+    .pipe(Effect.catchAllCause(() => Effect.void));
   const accountRelayPreference = (
     userId: string,
   ): Effect.Effect<RelayPreference, IrohExpectedError> => relayPreferences
@@ -248,6 +264,18 @@ export function makeIrohTrustBroker(
         now,
       });
 
+      // A reincarnation revoked the slot's previous incarnation in the same
+      // transaction: the device's other subscribers (old app instance, stale
+      // sockets) should re-check now. Plain heartbeats and genuinely new slots
+      // are deliberately silent — refresh cadence must not become nudge churn.
+      if (registration.replaced) {
+        yield* nudgeBindingChanged([{
+          userId,
+          deviceUuid: registration.binding.deviceUuid,
+          tag: registration.binding.tag,
+        }]);
+      }
+
       // New registration is already committed before relay minting starts.
       // Refreshes keep their existing credential and use the dedicated relay
       // route when it expires, so path-hint churn cannot consume mint quotas.
@@ -292,8 +320,21 @@ export function makeIrohTrustBroker(
 
     revoke: (userId, raw, now = new Date()) => Effect.gen(function* () {
       const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
+      // Capture the slot identity BEFORE revoking: revokeBinding reports only
+      // a boolean (true covers already-revoked retries too), and a retry of an
+      // already-revoked binding reads back nothing here, so it does not
+      // re-nudge.
+      const activeBindings = yield* repository.findActiveBindings(userId, [bindingId]);
+      const active = activeBindings.length === 1 ? activeBindings[0] : undefined;
       const revoked = yield* repository.revokeBinding({ userId, bindingId, now });
       if (!revoked) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      if (active) {
+        yield* nudgeBindingChanged([{
+          userId,
+          deviceUuid: active.deviceUuid,
+          tag: active.tag,
+        }]);
+      }
       return { revoked: true, lan_rendezvous_rotated: true };
     }),
 
