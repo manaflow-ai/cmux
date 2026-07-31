@@ -1099,10 +1099,25 @@ fn run_detached_legacy_stop(
 
 #[cfg(unix)]
 fn wait_for_child_until(
-    mut helper: LegacyHelperChild,
+    helper: LegacyHelperChild,
     reaper: LegacyHelperReaperLease,
     deadline: Instant,
 ) -> anyhow::Result<ExitStatus> {
+    wait_for_child_until_with(helper, reaper, deadline, Instant::now, std::thread::sleep)
+}
+
+#[cfg(unix)]
+fn wait_for_child_until_with<Now, Sleep>(
+    mut helper: LegacyHelperChild,
+    reaper: LegacyHelperReaperLease,
+    deadline: Instant,
+    mut now: Now,
+    mut sleep: Sleep,
+) -> anyhow::Result<ExitStatus>
+where
+    Now: FnMut() -> Instant,
+    Sleep: FnMut(Duration),
+{
     loop {
         match helper.try_wait() {
             Ok(Some(status)) => {
@@ -1117,15 +1132,15 @@ fn wait_for_child_until(
                 anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
             }
         }
-        if Instant::now() >= deadline {
+        if now() >= deadline {
             let pid = libc::pid_t::try_from(helper.id()).ok();
             if let Some(pid) = pid {
                 // The helper installs a cooperative handler so Rust cleanup
                 // can thaw any exact process identities currently fenced.
                 let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
             }
-            let cancel_deadline = Instant::now() + LEGACY_HELPER_CANCEL_MARGIN;
-            while Instant::now() < cancel_deadline {
+            let cancel_deadline = now() + LEGACY_HELPER_CANCEL_MARGIN;
+            while now() < cancel_deadline {
                 match helper.try_wait() {
                     Ok(Some(status)) => {
                         helper.settle(status).map_err(|_| {
@@ -1141,18 +1156,16 @@ fn wait_for_child_until(
                         anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
                     }
                 }
-                std::thread::sleep(
+                sleep(
                     cancel_deadline
-                        .saturating_duration_since(Instant::now())
+                        .saturating_duration_since(now())
                         .min(LEGACY_HELPER_POLL_INTERVAL),
                 );
             }
             reaper.retain_shutdown_ownership(helper);
             anyhow::bail!(crate::localization::catalog().server.legacy_cleanup_failed);
         }
-        std::thread::sleep(
-            deadline.saturating_duration_since(Instant::now()).min(LEGACY_HELPER_POLL_INTERVAL),
-        );
+        sleep(deadline.saturating_duration_since(now()).min(LEGACY_HELPER_POLL_INTERVAL));
     }
 }
 
@@ -1945,16 +1958,24 @@ mod tests {
         BufReader::new(helper.stdout.take().unwrap()).read_line(&mut ready).unwrap();
         assert_eq!(ready, "ready\n");
         let helper_pid = libc::pid_t::try_from(helper.id()).unwrap();
-        let started = Instant::now();
+        let logical_start = Instant::now();
+        let logical_now = Arc::new(Mutex::new(logical_start));
+        let read_clock = logical_now.clone();
+        let advance_clock = logical_now.clone();
         let reaper = reserve_legacy_helper_reaper().unwrap();
 
-        let error = wait_for_child_until(
+        let error = wait_for_child_until_with(
             LegacyHelperChild { child: helper, quarantine },
             reaper,
-            Instant::now() + Duration::from_millis(50),
+            logical_start + Duration::from_millis(50),
+            move || *read_clock.lock().unwrap(),
+            move |duration| {
+                let mut clock = advance_clock.lock().unwrap();
+                *clock = clock.checked_add(duration).unwrap();
+            },
         )
         .unwrap_err();
-        let elapsed = started.elapsed();
+        let logical_elapsed = logical_now.lock().unwrap().duration_since(logical_start);
         // SAFETY: helper_pid names this exact test-owned child.
         unsafe {
             libc::kill(helper_pid, libc::SIGKILL);
@@ -1975,8 +1996,9 @@ mod tests {
 
         assert_eq!(error.to_string(), crate::localization::catalog().server.legacy_cleanup_failed);
         assert!(
-            elapsed < Duration::from_millis(250),
-            "helper wait exceeded its bound: {elapsed:?}"
+            logical_elapsed
+                <= Duration::from_millis(50).saturating_add(LEGACY_HELPER_CANCEL_MARGIN),
+            "helper wait exceeded its logical bound: {logical_elapsed:?}"
         );
         assert_eq!(reaped, -1, "timed-out helper lost its reaping owner");
         assert_eq!(reaped_error.and_then(|error| error.raw_os_error()), Some(libc::ECHILD));
