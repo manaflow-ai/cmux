@@ -1157,6 +1157,14 @@ final class FileExplorerStore: ObservableObject {
                 parentNode.isLoading = false
                 parentNode.error = nil
                 publishOutlineChange(.nodeChanged(node: parentNode, reloadChildren: true))
+                if selectedPaths.contains(where: {
+                    Self.path($0, isContainedIn: parentNode.path)
+                }) {
+                    // The selected descendant may only now exist in the
+                    // outline. Reconcile after the structural reload replaces
+                    // the nearest-loaded-ancestor fallback.
+                    publishOutlineChange(.selectionChanged)
+                }
                 if pendingDescendIntoFirstChildPath == parentNode.path {
                     let path = children.first?.path ?? parentNode.path
                     selectedPath = path
