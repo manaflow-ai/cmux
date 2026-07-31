@@ -182,6 +182,83 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func networkPathChangeResetsActivationBackoff() async throws {
+        let fixture = try await MobileIrohCooldownFixture.make(
+            registrationError: MobileIrohCooldownTestError.unavailable
+        )
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() >= 1
+        }
+        await fixture.composition.prepareForConnection()
+        let settled = await fixture.broker.totalRequestCount()
+        await fixture.composition.prepareForConnection()
+        #expect(await fixture.broker.totalRequestCount() == settled)
+
+        // A network-path-change signal clears the armed window: the failure
+        // streak belonged to the previous path.
+        var invoked = await fixture.networkPathChangeHook.invoke()
+        for _ in 0 ..< 200 where !invoked {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            invoked = await fixture.networkPathChangeHook.invoke()
+        }
+        #expect(invoked)
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() > settled
+        }
+        #expect(await fixture.broker.totalRequestCount() == settled + 1)
+    }
+
+    @Test
+    func failingActivationFollowsExactSeededSchedule() async throws {
+        let seed: UInt64 = 0xB0FF
+        let fixture = try await MobileIrohCooldownFixture.make(
+            registrationError: MobileIrohCooldownTestError.unavailable,
+            activationBackoff: CmxIrohReconnectBackoff(seed: seed),
+            diagnosticCapacity: 4_096
+        )
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() >= 1
+        }
+        await fixture.composition.prepareForConnection()
+        #expect(await fixture.broker.totalRequestCount() == 1)
+
+        // A twin ladder with the same seed predicts the exact schedule: the
+        // first attempt at t=0, each retry at the first whole second on or
+        // after the previous attempt time plus its drawn delay.
+        let horizon = 600.0
+        let twin = CmxIrohReconnectBackoff(seed: seed)
+        var expectedDelays: [TimeInterval] = []
+        var expectedAttemptCount = 1
+        var attemptAt = 0.0
+        while true {
+            let delay = twin.nextDelay()
+            expectedDelays.append(delay)
+            let nextAttemptAt = (attemptAt + delay).rounded(.up)
+            guard nextAttemptAt <= horizon else { break }
+            attemptAt = nextAttemptAt
+            expectedAttemptCount += 1
+        }
+
+        // Simulate ten foreground minutes, redriving the ladder every second.
+        for _ in 0 ..< Int(horizon) {
+            fixture.clock.advance(by: 1)
+            await fixture.composition.prepareForConnection()
+        }
+        #expect(await fixture.broker.totalRequestCount() == expectedAttemptCount)
+
+        // Every scheduled nap matches the twin's draw, and none exceeds the
+        // foreground cap.
+        let scheduledMS = (await fixture.diagnosticLog.snapshot()).events
+            .filter { $0.code == .retryScheduled }
+            .compactMap(\.ms)
+        let expectedMS = expectedDelays.prefix(expectedAttemptCount).map {
+            UInt32(clamping: Int($0 * 1_000))
+        }
+        #expect(scheduledMS == Array(expectedMS))
+        #expect(scheduledMS.allSatisfy { $0 <= 30_000 })
+    }
+
+    @Test
     func scenePhaseActiveResetsActivationBackoff() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
             registrationError: MobileIrohCooldownTestError.unavailable
@@ -335,16 +412,23 @@ private struct MobileIrohCooldownFixture {
     /// coordinator); the fixture must retain it or every reconcile silently
     /// no-ops against a deallocated coordinator.
     let auth: AuthCoordinator
+    /// Captures the reachability-change hook the composition registers, so a
+    /// test can simulate one network-path-change signal.
+    let networkPathChangeHook: MobileIrohCooldownHookBox
     private let compositionFactory: @MainActor () -> MobileIrohRuntimeComposition
 
     static func make(
         registrationError: (any Error)?,
-        discoveryError: (any Error)? = nil
+        discoveryError: (any Error)? = nil,
+        activationBackoff: CmxIrohReconnectBackoff? = nil,
+        diagnosticCapacity: Int = 64
     ) async throws -> Self {
         try await make(
             registrationError: registrationError,
             discoveryError: discoveryError,
-            relayPolicy: nil
+            relayPolicy: nil,
+            activationBackoff: activationBackoff,
+            diagnosticCapacity: diagnosticCapacity
         )
     }
 
@@ -364,7 +448,9 @@ private struct MobileIrohCooldownFixture {
         registrationError: (any Error)?,
         discoveryError: (any Error)?,
         relayPolicy: MobileIrohCooldownRelayPolicyFixture?,
-        suspendRelayBootstrap: Bool = false
+        suspendRelayBootstrap: Bool = false,
+        activationBackoff: CmxIrohReconnectBackoff? = nil,
+        diagnosticCapacity: Int = 64
     ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionCooldownTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -415,8 +501,12 @@ private struct MobileIrohCooldownFixture {
         )
         let credentialStore = MobileIrohCooldownCredentialStore()
         let clock = MobileIrohCooldownTestClock(now)
-        let diagnosticLog = DiagnosticLog(capacity: 64, role: .mobileClient)
+        let diagnosticLog = DiagnosticLog(
+            capacity: diagnosticCapacity,
+            role: .mobileClient
+        )
         let stableDeviceID = deviceID
+        let networkPathChangeHook = MobileIrohCooldownHookBox()
         let brokerCredentials = CmxIrohBrokerCredentialRepository(
             secureStore: credentialStore,
             installState: installState
@@ -458,6 +548,10 @@ private struct MobileIrohCooldownFixture {
                 deviceID: { stableDeviceID },
                 tag: tag,
                 now: { clock.now() },
+                startNetworkPathObservation: { onPathChange in
+                    await networkPathChangeHook.set(onPathChange)
+                },
+                activationRetryBackoff: activationBackoff,
                 diagnosticLog: diagnosticLog,
                 debugDefaults: defaults
             )
@@ -511,6 +605,7 @@ private struct MobileIrohCooldownFixture {
             request: try request(),
             diagnosticLog: diagnosticLog,
             auth: auth,
+            networkPathChangeHook: networkPathChangeHook,
             compositionFactory: compositionFactory
         )
     }
@@ -525,6 +620,7 @@ private struct MobileIrohCooldownFixture {
             request: request,
             diagnosticLog: diagnosticLog,
             auth: auth,
+            networkPathChangeHook: networkPathChangeHook,
             compositionFactory: compositionFactory
         )
     }
@@ -615,6 +711,22 @@ private struct MobileIrohCooldownFixture {
             "path_hints": [],
             "last_seen_at": ISO8601DateFormatter().string(from: now),
         ]
+    }
+}
+
+/// Captures the composition's reachability-change callback for tests.
+actor MobileIrohCooldownHookBox {
+    private var hook: (@Sendable () async -> Void)?
+
+    func set(_ hook: @escaping @Sendable () async -> Void) {
+        self.hook = hook
+    }
+
+    /// Runs the captured hook once, returning whether it was registered yet.
+    func invoke() async -> Bool {
+        guard let hook else { return false }
+        await hook()
+        return true
     }
 }
 
