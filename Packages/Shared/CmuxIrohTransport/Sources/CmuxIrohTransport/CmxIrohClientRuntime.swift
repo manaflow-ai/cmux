@@ -3,9 +3,9 @@ public import Foundation
 
 /// Owns one account-and-build-scoped iOS endpoint and its verified broker policy.
 public actor CmxIrohClientRuntime {
-    /// Runs after a registration and exact discovery response have been verified.
+    /// Runs after an exact local binding and discovery response have been verified.
     public typealias BindingHandler = @Sendable (
-        _ registration: CmxIrohRegistrationResponse,
+        _ binding: CmxIrohBrokerBinding,
         _ discovery: CmxIrohDiscoveryResponse
     ) async -> Bool
 
@@ -362,14 +362,7 @@ public actor CmxIrohClientRuntime {
                 startRelays: false
             )
             try requireCurrent(revision)
-            let published = await handleBinding(
-                CmxIrohRegistrationResponse(
-                    revision: discoveredRevision,
-                    binding: discoveredBinding,
-                    relay: .notRequested
-                ),
-                discovery
-            )
+            let published = await handleBinding(discoveredBinding, discovery)
             try requireCurrent(revision)
             guard published else {
                 return .failed(.superseded)
@@ -473,6 +466,17 @@ public actor CmxIrohClientRuntime {
                 endpointRelayProfile = startingRelayProfile
             }
             await startSupervisorObservation(revision: revision)
+            let cachedDiscoveryTask: Task<CmxIrohDiscoveryResponse?, Never>?
+            if configuration.cachedBinding != nil {
+                try await preparePolicyResolution(revision: revision)
+                cachedDiscoveryTask = Task { [weak self] in
+                    guard let self else { return nil }
+                    return try? await self.prefetchAuthoritativeDiscovery()
+                }
+            } else {
+                cachedDiscoveryTask = nil
+            }
+            defer { cachedDiscoveryTask?.cancel() }
             try await connectivityEngine.start()
             let endpointSnapshot = await connectivityEngine.snapshot()
             try requireCurrent(revision)
@@ -482,7 +486,9 @@ public actor CmxIrohClientRuntime {
             }
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                prefetchedDiscovery: await cachedDiscoveryTask?.value,
+                brokerPreparationComplete: cachedDiscoveryTask != nil
             )
             try requireCurrent(revision)
             try await install(policy: policy, revision: revision, startRelays: true)
@@ -499,9 +505,8 @@ public actor CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if let registration = policy.registration,
-               let discovery = policy.discovery {
-                let published = await handleBinding(registration, discovery)
+            if let discovery = policy.discovery {
+                let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 if published {
                     if let routeRevision = discovery.revision {
@@ -513,6 +518,9 @@ public actor CmxIrohClientRuntime {
                 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
+            }
+            if policy.registration == nil, policy.discovery != nil {
+                registrationRefreshPending = true
             }
             registrationRefreshEnabled = true
             if registrationRefreshPending {

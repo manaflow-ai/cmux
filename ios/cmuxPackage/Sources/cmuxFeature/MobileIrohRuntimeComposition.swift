@@ -1610,7 +1610,8 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
+            cachedBinding: bindingMatches ? cachedBinding : nil
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1671,12 +1672,11 @@ public final class MobileIrohRuntimeComposition:
                 )
             },
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
-            handleBinding: { [weak self] registration, discovery in
+            handleBinding: { [weak self] binding, discovery in
                 guard await self?.allowsPersistence(
                     accountID: accountID,
                     revision: revision
                 ) == true else { return false }
-                let binding = registration.binding
                 try? await credentialRepository.saveBinding(
                     CmxIrohBrokerBindingMetadata(binding: binding),
                     accountID: accountID

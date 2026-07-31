@@ -4,16 +4,63 @@ public import Foundation
 extension CmxIrohClientRuntime {
     func resolvePolicy(
         expectedEndpointID: CmxIrohPeerIdentity,
-        revision: UInt64
+        revision: UInt64,
+        prefetchedDiscovery: CmxIrohDiscoveryResponse? = nil,
+        brokerPreparationComplete: Bool = false
     ) async throws -> ResolvedPolicy {
-        try await pendingRevocations.revokePending(
-            accountID: configuration.accountID,
-            beforeRegisteringTag: configuration.tag,
-            using: broker
+        if !brokerPreparationComplete {
+            try await preparePolicyResolution(revision: revision)
+        }
+        let expectation = try CmxIrohLocalBindingExpectation(
+            deviceID: configuration.deviceID,
+            appInstanceID: configuration.appInstanceID,
+            tag: configuration.tag,
+            platform: .ios,
+            endpointID: expectedEndpointID,
+            identityGeneration: configuration.identity.generation,
+            pairingEnabled: false,
+            capabilities: configuration.capabilities
         )
-        try requireCurrent(revision)
-        try await broker.preflight(operation: .discovery)
-        try requireCurrent(revision)
+        // Without a managed relay fleet (policy unavailable or direct-only)
+        // there is no relay bootstrap to cache offline; activation proceeds
+        // with direct paths instead of failing the expectation's fleet check.
+        let offlineExpectation: CmxIrohClientOfflinePolicyExpectation? =
+            try offlinePolicyCache.flatMap { _ in
+                guard !managedRelayURLs.isEmpty else { return nil }
+                return try CmxIrohClientOfflinePolicyExpectation(
+                    accountID: configuration.accountID,
+                    localBindingExpectation: expectation,
+                    managedRelayURLs: managedRelayURLs
+                )
+            }
+
+        if let cachedBinding = configuration.cachedBinding,
+           let prefetchedDiscovery {
+            guard prefetchedDiscovery.routeContractVersion
+                    == CmxIrohRegistrationPayload.currentRouteContractVersion else {
+                throw CmxIrohClientRuntimeError.routeContractMismatch
+            }
+            guard prefetchedDiscovery.revision != nil else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            try validateRelayFleet(prefetchedDiscovery.relayFleet)
+            authoritativeDiscovery = prefetchedDiscovery
+            let localMatches = prefetchedDiscovery.bindings.filter(expectation.matches)
+            if localMatches.count == 1,
+               let discovered = localMatches.first,
+               CmxIrohBrokerBindingMetadata(binding: discovered) == cachedBinding {
+                return ResolvedPolicy(
+                    registration: nil,
+                    discovery: prefetchedDiscovery,
+                    binding: discovered,
+                    expectation: expectation,
+                    offlineExpectation: offlineExpectation,
+                    cachedTargetBindings: [],
+                    cachedLANRendezvous: nil
+                )
+            }
+        }
+
         let address = try await connectivityEngine.endpointAddress()
         guard address.identity == expectedEndpointID else {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
@@ -38,28 +85,6 @@ extension CmxIrohClientRuntime {
             directPorts: directPorts,
             now: now()
         )
-        let expectation = try CmxIrohLocalBindingExpectation(
-            deviceID: configuration.deviceID,
-            appInstanceID: configuration.appInstanceID,
-            tag: configuration.tag,
-            platform: .ios,
-            endpointID: expectedEndpointID,
-            identityGeneration: configuration.identity.generation,
-            pairingEnabled: false,
-            capabilities: configuration.capabilities
-        )
-        // Without a managed relay fleet (policy unavailable or direct-only)
-        // there is no relay bootstrap to cache offline; activation proceeds
-        // with direct paths instead of failing the expectation's fleet check.
-        let offlineExpectation: CmxIrohClientOfflinePolicyExpectation? =
-            try offlinePolicyCache.flatMap { _ in
-                guard !managedRelayURLs.isEmpty else { return nil }
-                return try CmxIrohClientOfflinePolicyExpectation(
-                    accountID: configuration.accountID,
-                    localBindingExpectation: expectation,
-                    managedRelayURLs: managedRelayURLs
-                )
-            }
         let signer = try CmxIrohRegistrationSigner(
             identity: configuration.identity,
             endpointID: expectedEndpointID.endpointID
@@ -149,6 +174,17 @@ extension CmxIrohClientRuntime {
         )
     }
 
+    func preparePolicyResolution(revision: UInt64) async throws {
+        try await pendingRevocations.revokePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            using: broker
+        )
+        try requireCurrent(revision)
+        try await broker.preflight(operation: .discovery)
+        try requireCurrent(revision)
+    }
+
     func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
         guard let authority = broker as? any CmxConnectivityAuthorityServing else {
             let discovery = try await broker.discover()
@@ -168,6 +204,17 @@ extension CmxIrohClientRuntime {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         return authoritativeDiscovery
+    }
+
+    func prefetchAuthoritativeDiscovery() async throws -> CmxIrohDiscoveryResponse {
+        guard let authority = broker as? any CmxConnectivityAuthorityServing else {
+            return try await broker.discover()
+        }
+        let response = try await authority.syncConnectivity(knownRevision: nil)
+        guard let snapshot = response.snapshot else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return snapshot
     }
 
     func offlineBootstrap(

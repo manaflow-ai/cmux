@@ -82,9 +82,9 @@ extension CmxIrohClientRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            if let registration = policy.registration,
+            if policy.registration != nil,
                let discovery = policy.discovery {
-                let published = await handleBinding(registration, discovery)
+                let published = await handleBinding(policy.binding, discovery)
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
                 if let routeRevision = discovery.revision {
