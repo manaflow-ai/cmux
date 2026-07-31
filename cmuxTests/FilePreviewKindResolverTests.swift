@@ -84,6 +84,68 @@ struct FilePreviewKindResolverTests {
         #expect(panel.textContent.isEmpty)
     }
 
+    @Test("Source files stay text when a multi-byte character straddles the sniff window")
+    func sourceFilesStayTextWhenMultiByteCharacterStraddlesSniffWindow() throws {
+        let url = try temporaryFile(
+            extension: "ts",
+            data: multiByteCharacterAtSniffBoundary(
+                prefix: "// ",
+                suffix: "\nexport const value: number = 42;\n"
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(
+            FilePreviewKindResolver.mode(for: url) == .text,
+            "A TypeScript file must not fall back to the media player because the 4 KB read cut a scalar in half."
+        )
+    }
+
+    @Test("Unknown extensions stay text when a multi-byte character straddles the sniff window")
+    func unknownExtensionsStayTextWhenMultiByteCharacterStraddlesSniffWindow() throws {
+        let url = try temporaryFile(
+            extension: "typ",
+            data: multiByteCharacterAtSniffBoundary(
+                prefix: "= ",
+                suffix: "\nÜberschrift\n"
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    @Test("Single-byte encoded text resolves to the text editor")
+    func singleByteEncodedTextResolvesToTextEditor() throws {
+        let data = try #require("Straße;Grüße;Übung\n".data(using: .isoLatin1))
+        let url = try temporaryFile(extension: "dat", data: data)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(
+            FilePreviewKindResolver.mode(for: url) == .text,
+            "FilePreviewTextLoader decodes ISO Latin-1, so the resolver has to route the same files to the editor."
+        )
+    }
+
+    @Test("Binary payloads without NUL bytes keep the QuickLook backend")
+    func binaryPayloadsWithoutNulBytesKeepQuickLookBackend() throws {
+        var data = Data()
+        for index in 0..<4096 {
+            data.append(index.isMultiple(of: 2) ? 0xFE : 0x07)
+        }
+        let url = try temporaryFile(extension: "bin", data: data)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
+    }
+
+    /// UTF-8 whose first 4096 bytes end on the lead byte of a two-byte scalar,
+    /// which is what the fixed-size sniff read cuts in half.
+    private func multiByteCharacterAtSniffBoundary(prefix: String, suffix: String) -> Data {
+        let padding = String(repeating: "a", count: 4096 - prefix.utf8.count - 1)
+        return Data((prefix + padding + "ä" + suffix).utf8)
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
         try temporaryFile(extension: fileExtension, data: Data(contents.utf8))
     }
