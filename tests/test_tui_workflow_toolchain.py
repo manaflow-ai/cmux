@@ -55,6 +55,14 @@ def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
     assert 'test_args+=(--skip "$test_name")' in valgrind_job
 
 
+def test_macos_serializes_process_barrier_tests() -> None:
+    test_job = job_block(WORKFLOW.read_text(), "test")
+    assert 'if [[ "$RUNNER_OS" == "macOS" ]]; then' in test_job
+    assert "args+=(-- --test-threads=1)" in test_job
+    assert 'cargo test --workspace --locked "${args[@]}"' in test_job
+
+
 if __name__ == "__main__":
     test_tui_rust_jobs_install_the_release_toolchain()
     test_valgrind_fallback_keeps_non_pidfd_tests()
+    test_macos_serializes_process_barrier_tests()
