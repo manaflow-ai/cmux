@@ -3178,6 +3178,42 @@ mod tests {
     }
 
     #[test]
+    fn remote_stop_recovery_copy_uses_selected_locale() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "remote_cli::tests::remote_stop_recovery_copy_locale_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_REMOTE_STOP_LOCALE_FIXTURE", "1")
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .status()
+            .unwrap();
+
+        assert!(status.success(), "Japanese remote-stop recovery copy was not localized");
+    }
+
+    #[test]
+    fn remote_stop_recovery_copy_locale_fixture() {
+        if std::env::var_os("CMUX_TEST_REMOTE_STOP_LOCALE_FIXTURE").is_none() {
+            return;
+        }
+
+        let help = remote_help(Some("remote-stop"));
+        assert!(help.contains("使用方法"), "{help}");
+        assert!(help.contains("停止済み"), "{help}");
+
+        let error = parse_remote_stop_args(
+            &["--acknowledge-failed-finalization", "--acknowledge-legacy-finalization"]
+                .map(str::to_string),
+        )
+        .err()
+        .expect("mutually exclusive recovery flags were accepted")
+        .to_string();
+        assert!(error.contains("同時に指定できません"), "{error}");
+    }
+
+    #[test]
     fn modern_shutdown_request_binds_the_inspected_lifecycle() {
         let request = shutdown_request_for_lifecycle(Some("inspected-lifecycle"));
         let encoded = serde_json::to_value(request).unwrap();
