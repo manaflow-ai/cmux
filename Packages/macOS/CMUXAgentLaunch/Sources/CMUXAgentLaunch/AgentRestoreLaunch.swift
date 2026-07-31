@@ -14,28 +14,54 @@ import Foundation
 public struct AgentRestoreLaunch: Sendable {
     /// Shell token for the CLI bundled with the app that owns the surface.
     ///
-    /// Resolving the absolute app-relative path here avoids PATH/version
-    /// ambiguity and remains available even when a shell profile removes cmux
-    /// environment variables. The quoting form is accepted by the supported
-    /// POSIX, fish, and csh-family interactive shells.
+    /// Resolving an absolute path before composing startup input avoids a second
+    /// PATH lookup in the restored interactive shell. The app-bundled CLI is
+    /// preferred; an already-resolved executable from the app's PATH is accepted
+    /// only as a compatibility fallback. The quoting form is accepted by the
+    /// supported POSIX, fish, and csh-family interactive shells.
     ///
     /// - Parameters:
     ///   - bundledCLIPath: The app-relative CLI candidate.
+    ///   - executableSearchPath: Absolute directories that may contain a fallback CLI.
     ///   - isExecutableFile: The executable-path lookup used to validate the candidate.
-    /// - Returns: A quoted absolute token, or the `cmux` PATH token when unavailable.
+    /// - Returns: A quoted absolute token, or `nil` when no trustworthy CLI exists.
     public static func bundledCLIStartupExecutableToken(
         bundledCLIPath: String? = Bundle.main.resourceURL?
             .appendingPathComponent("bin/cmux", isDirectory: false)
             .path,
+        executableSearchPath: String? = ProcessInfo.processInfo.environment["PATH"],
         isExecutableFile: @Sendable (String) -> Bool = {
-            FileManager.default.isExecutableFile(atPath: $0)
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
+                && FileManager.default.isExecutableFile(atPath: $0)
         }
-    ) -> String {
-        guard let path = bundledCLIPath,
-              !path.isEmpty,
-              path.rangeOfCharacter(from: .newlines) == nil,
-              isExecutableFile(path) else {
-            return "cmux"
+    ) -> String? {
+        var candidates: [String] = []
+        if let bundledCLIPath {
+            candidates.append(bundledCLIPath)
+        }
+        if let executableSearchPath {
+            for directory in executableSearchPath.split(
+                separator: ":",
+                omittingEmptySubsequences: false
+            ) {
+                let root = String(directory)
+                guard root.hasPrefix("/") else { continue }
+                candidates.append(
+                    URL(fileURLWithPath: root, isDirectory: true)
+                        .appendingPathComponent("cmux", isDirectory: false)
+                        .path
+                )
+            }
+        }
+        guard let path = candidates.first(where: {
+            $0.hasPrefix("/")
+                && !$0.isEmpty
+                && $0.rangeOfCharacter(from: .newlines) == nil
+                && isExecutableFile($0)
+        }) else {
+            return nil
         }
         let unescapedScalars = CharacterSet.alphanumerics.union(
             CharacterSet(charactersIn: "/._-")
@@ -43,6 +69,21 @@ public struct AgentRestoreLaunch: Sendable {
         return path.unicodeScalars.map { scalar in
             unescapedScalars.contains(scalar) ? String(scalar) : "\\\(scalar)"
         }.joined()
+    }
+
+    /// Returns whether a persisted identifier can be typed as one restore CLI argument.
+    ///
+    /// This deliberately excludes leading hyphens and every character that
+    /// requires shell quoting, so startup input cannot be reinterpreted as an
+    /// option or multiple shell tokens.
+    ///
+    /// - Parameter value: The already-trimmed binding kind or checkpoint identifier.
+    /// - Returns: `true` when the value is safe to emit without quoting.
+    public static func isSafeRestoreCLIArgument(_ value: String) -> Bool {
+        value.range(
+            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
+            options: .regularExpression
+        ) != nil
     }
 
     private enum Provider: String, Sendable {

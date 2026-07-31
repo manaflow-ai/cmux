@@ -47,10 +47,13 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     func restoreStartupInput(
-        repairPortableAgentExecutable: Bool
+        repairPortableAgentExecutable: Bool,
+        restoreCLIExecutableToken: String? =
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken()
     ) -> String? {
-        if usesLocalRestoreVerb {
-            return localRestoreCLIInput
+        if usesLocalRestoreVerb,
+           let executable = restoreCLIExecutableToken {
+            return localRestoreCLIInput(executable: executable)
         }
         return inlineStartupInput(
             repairPortableAgentExecutable: repairPortableAgentExecutable
@@ -61,8 +64,7 @@ extension SurfaceResumeBindingSnapshot {
         inlineStartupInput(repairPortableAgentExecutable: false)
     }
 
-    private var localRestoreCLIInput: String {
-        let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken()
+    private func localRestoreCLIInput(executable: String) -> String {
         if let kind = Self.restoreCLIArgument(kind),
            let checkpointId = Self.restoreCLIArgument(checkpointId) {
             return " \(executable) restore \(kind) \(checkpointId)\n"
@@ -75,10 +77,7 @@ extension SurfaceResumeBindingSnapshot {
               !value.isEmpty else {
             return nil
         }
-        if value.range(
-            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
-            options: .regularExpression
-        ) != nil {
+        if AgentRestoreLaunch.isSafeRestoreCLIArgument(value) {
             return value
         }
         return nil

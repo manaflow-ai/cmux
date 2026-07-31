@@ -22,6 +22,20 @@ import Testing
         #expect(AgentRestoreLaunch(kind: "claude", sessionID: nil) == nil)
     }
 
+    @Test func preflightInvocationRequiresExecutableArgument() throws {
+        #expect(
+            AgentRestorePreflightInvocation(
+                arguments: [],
+                environment: [:]
+            ) == nil
+        )
+        let invocation = try #require(AgentRestorePreflightInvocation(
+            arguments: ["/usr/bin/true", "config"],
+            environment: ["PATH": "/usr/bin:/bin"]
+        ))
+        #expect(invocation.executable == "/usr/bin/true")
+    }
+
     @Test func authorizationUsesShellPortableEnvironmentTransport() throws {
         let launch = try #require(AgentRestoreLaunch(kind: "codex", sessionID: sessionID))
 
@@ -43,20 +57,37 @@ import Testing
         )
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: nil
-            ) == "cmux"
+                bundledCLIPath: nil,
+                executableSearchPath: nil
+            ) == nil
         )
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
                 bundledCLIPath: "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                executableSearchPath: nil,
                 isExecutableFile: { _ in false }
-            ) == "cmux"
+            ) == nil
         )
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
                 bundledCLIPath: "/Applications/cmux\nDEV.app/Contents/Resources/bin/cmux",
+                executableSearchPath: nil,
                 isExecutableFile: { _ in true }
-            ) == "cmux"
+            ) == nil
+        )
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: nil,
+                executableSearchPath: ":relative:/trusted/bin",
+                isExecutableFile: { $0 == "/trusted/bin/cmux" }
+            ) == "/trusted/bin/cmux"
+        )
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: nil,
+                executableSearchPath: ":relative",
+                isExecutableFile: { _ in true }
+            ) == nil
         )
     }
 
@@ -86,10 +117,11 @@ import Testing
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = [
             "-c",
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+            try #require(AgentRestoreLaunch.bundledCLIStartupExecutableToken(
                 bundledCLIPath: executable.path,
+                executableSearchPath: nil,
                 isExecutableFile: { _ in true }
-            ),
+            )),
         ]
         try process.run()
         process.waitUntilExit()

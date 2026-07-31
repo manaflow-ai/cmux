@@ -786,12 +786,14 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        restoreCLIExecutableToken: String? =
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken()
     ) -> String? {
-        if useLocalRestoreVerb {
-            let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken()
-            guard Self.isSafeRestoreCLIArgument(kind.rawValue),
-                  Self.isSafeRestoreCLIArgument(sessionId) else {
+        if useLocalRestoreVerb,
+           let executable = restoreCLIExecutableToken {
+            guard AgentRestoreLaunch.isSafeRestoreCLIArgument(kind.rawValue),
+                  AgentRestoreLaunch.isSafeRestoreCLIArgument(sessionId) else {
                 return " \(executable) restore --surface\n"
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
@@ -807,13 +809,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                 .applying(toStoredCommand: command) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
-    }
-
-    private static func isSafeRestoreCLIArgument(_ value: String) -> Bool {
-        value.range(
-            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
-            options: .regularExpression
-        ) != nil
     }
 
     func forkStartupInput(

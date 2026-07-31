@@ -5,6 +5,10 @@ import Foundation
 extension CMUXCLI {
     /// Waits for the app-startup socket race only on implicit restore routing.
     func restoreSocketClient(path: String) throws -> SocketClient {
+        // The live app is deliberately the sole restore-record authority: it
+        // identity-checks the requesting surface, reconciles current bindings,
+        // and filters persisted environments. Decoding the private session store
+        // here would create a second authority that bypasses those guarantees.
         try SocketClient.waitForConnectableSocket(path: path, timeout: 10)
     }
 

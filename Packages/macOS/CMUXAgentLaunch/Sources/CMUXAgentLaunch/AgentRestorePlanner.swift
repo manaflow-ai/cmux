@@ -263,7 +263,7 @@ public struct AgentRestorePlanner: Sendable {
         ) {
             settings.append(("model.default", model))
         }
-        return settings.map { key, value in
+        return settings.compactMap { key, value in
             AgentRestorePreflightInvocation(
                 arguments: [executable, "config", "set", key, value],
                 environment: resolvedEnvironment

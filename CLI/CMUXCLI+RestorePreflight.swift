@@ -12,12 +12,12 @@ extension CMUXCLI {
             invocationEnvironment["PWD"] = appliedWorkingDirectory
         }
         guard let executable = resolveRestoreExecutable(
-            invocation.arguments[0],
+            invocation.executable,
             environment: invocationEnvironment
         ) else {
             throw CLIError(
                 message: "restore: preflight executable "
-                    + "'\(invocation.arguments[0])' was not found"
+                    + "'\(invocation.executable)' was not found"
             )
         }
         var fileActions: posix_spawn_file_actions_t?
@@ -113,9 +113,22 @@ extension CMUXCLI {
         }
         let exitedNormally = waitStatus & 0x7f == 0
         let exitStatus = (waitStatus >> 8) & 0xff
-        guard exitedNormally, exitStatus == 0 else {
-            throw CLIError(message: "restore: provider preflight failed")
+        if exitedNormally {
+            guard exitStatus == 0 else {
+                throw CLIError(
+                    message: "restore: provider preflight "
+                        + "'\(restorePreflightLabel(invocation))' exited with status "
+                        + "\(exitStatus)"
+                )
+            }
+            return
         }
+        let terminationSignal = waitStatus & 0x7f
+        throw CLIError(
+            message: "restore: provider preflight "
+                + "'\(restorePreflightLabel(invocation))' terminated by signal "
+                + "\(terminationSignal)"
+        )
     }
 
     private func terminateRestorePreflight(_ processID: pid_t) {
@@ -149,10 +162,7 @@ extension CMUXCLI {
     private func restorePreflightLabel(
         _ invocation: AgentRestorePreflightInvocation
     ) -> String {
-        guard let executable = invocation.arguments.first else {
-            return "provider setup"
-        }
-        let command = URL(fileURLWithPath: executable).lastPathComponent
+        let command = URL(fileURLWithPath: invocation.executable).lastPathComponent
         return ([command] + Array(invocation.arguments.dropFirst().dropLast()))
             .joined(separator: " ")
     }

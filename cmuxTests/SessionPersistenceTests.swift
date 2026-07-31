@@ -2404,7 +2404,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             startupInput,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore claude claude-session-123\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore claude claude-session-123\n"
         )
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(
@@ -2572,7 +2572,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
         XCTAssertEqual(
             startupInput,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore claude \(sessionId)\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore claude \(sessionId)\n"
         )
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(
@@ -2619,11 +2619,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput())
         XCTAssertEqual(
             unsupportedInput,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore gemini 5839bed1-0a60-4c05-b6d1-2410d7a3741e\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore gemini 5839bed1-0a60-4c05-b6d1-2410d7a3741e\n"
         )
         XCTAssertEqual(
             invalidSessionInput,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore claude not-a-session-id\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore claude not-a-session-id\n"
         )
     }
 
@@ -2659,7 +2659,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let input = try XCTUnwrap(snapshot.resumeStartupInput())
         XCTAssertEqual(
             input,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
         )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertEqual(
@@ -2704,7 +2704,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeStartupInput(),
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
         )
     }
 
@@ -4516,7 +4516,7 @@ extension SessionPersistenceTests {
         let input = try XCTUnwrap(binding.restoreStartupInput())
         XCTAssertEqual(
             input,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore --surface\n"
         )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertEqual(
@@ -6505,7 +6505,7 @@ extension SessionPersistenceTests {
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertEqual(
                 startupInput,
-                " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex session-duplicate-turn\n"
+                " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex session-duplicate-turn\n"
             )
             XCTAssertFalse(startupInput.contains(missingCwd.path))
         }
@@ -6755,7 +6755,7 @@ extension SessionPersistenceTests {
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
         XCTAssertEqual(
             input,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex session\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex session\n"
         )
         XCTAssertFalse(input.contains("CODEX_HOME"))
         XCTAssertNil(launcherScriptPath(from: input))
@@ -6795,7 +6795,7 @@ extension SessionPersistenceTests {
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
         XCTAssertEqual(
             input,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex session\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex session\n"
         )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertNil(launcherScriptPath(from: input))
