@@ -149,6 +149,40 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func unavailableSelectedPathEvictsTheSessionAndTheNextOperationRedials() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let stranded = TestConnectivitySession(
+            continuityID: 23,
+            keepsSelectedPathStreamOpen: true
+        )
+        let replacement = TestConnectivitySession(continuityID: 24)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [stranded, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        try await Self.waitUntil { await stranded.hasSelectedPathObserver() }
+        await stranded.publishSelectedPath(.unavailable)
+        try await Self.waitUntil { await peer.snapshot().phase == .failed }
+
+        let failed = await peer.snapshot()
+        #expect(failed.failure == .noRoute)
+        #expect(!failed.controlLaneOwned)
+        #expect(await stranded.closeCount() == 1)
+
+        _ = try await peer.acquireControl(for: request, ownerID: UUID())
+        #expect(await builder.callCount() == 2)
+        #expect(await peer.connectionContinuityID() == 24)
+    }
+
+    @Test
     func lateClosureCleanupCannotOverwriteAReplacementSession() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -475,6 +509,7 @@ private actor OrderedGatedConnectivitySessionBuilder {
 private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private let gatesCloseAttribution: Bool
+    private let keepsSelectedPathStreamOpen: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
@@ -482,13 +517,18 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeAttributionWaiter: CheckedContinuation<Void, Never>?
     private var closeAttributionWaiting = false
     private var received: [Data] = []
+    private var selectedPath = CmxIrohObservedConnectionPath.direct
+    private var selectedPathContinuation:
+        AsyncStream<CmxIrohObservedConnectionPath>.Continuation?
 
     init(
         continuityID: UInt64,
-        gatesCloseAttribution: Bool = false
+        gatesCloseAttribution: Bool = false,
+        keepsSelectedPathStreamOpen: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
+        self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
     }
 
     func receiveControl(maximumByteCount: Int) -> Data? {
@@ -542,14 +582,29 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     }
 
     func observedSelectedPath() -> CmxIrohObservedConnectionPath {
-        closed ? .unavailable : .direct
+        closed ? .unavailable : selectedPath
     }
 
     func observedSelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
-        AsyncStream { continuation in
-            continuation.yield(closed ? .unavailable : .direct)
-            continuation.finish()
+        let pair = AsyncStream<CmxIrohObservedConnectionPath>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        pair.continuation.yield(closed ? .unavailable : selectedPath)
+        guard keepsSelectedPathStreamOpen else {
+            pair.continuation.finish()
+            return pair.stream
         }
+        selectedPathContinuation = pair.continuation
+        return pair.stream
+    }
+
+    func hasSelectedPathObserver() -> Bool {
+        selectedPathContinuation != nil
+    }
+
+    func publishSelectedPath(_ path: CmxIrohObservedConnectionPath) {
+        selectedPath = path
+        selectedPathContinuation?.yield(path)
     }
 
     func observedPathEvents() -> AsyncStream<CmxIrohConnectionPathEvent> {
@@ -581,6 +636,9 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private func finish(failure: DiagnosticFailureKind) {
         guard !closed else { return }
         closed = true
+        selectedPath = .unavailable
+        selectedPathContinuation?.finish()
+        selectedPathContinuation = nil
         closeFailure = failure
         let waiters = closureWaiters
         closureWaiters.removeAll()
