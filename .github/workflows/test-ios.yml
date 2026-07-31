@@ -415,6 +415,17 @@ jobs:
             exit "$status"
           done
 
+      - name: Package iOS simulator app
+        if: ${{ always() && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          app="$(find "$IOS_DERIVED_DATA/Build/Products/Debug-iphonesimulator" -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+          if [ -z "$app" ]; then
+            echo "No simulator app was produced."
+            exit 0
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/cmux-ios-simulator-app.zip"
+
       - name: Upload iOS simulator test logs
         if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -422,6 +433,7 @@ jobs:
           name: ios-simulator-${{ matrix.family }}-attempt-logs
           path: |
             ${{ runner.temp }}/ios-attempt-*.log
+            ${{ runner.temp }}/cmux-ios-simulator-app.zip
             ${{ env.IOS_DERIVED_DATA }}/Logs
           if-no-files-found: error
 
