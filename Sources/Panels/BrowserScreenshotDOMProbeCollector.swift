@@ -398,6 +398,34 @@ final class BrowserScreenshotDOMProbeCollector {
             );
           };
 
+          // Pointer-transparent layers do not appear in elementFromPoint, yet
+          // can legitimately paint over text. Bound the scan before asking for
+          // computed styles; large or layer-heavy documents are inconclusive.
+          const elements = document.body.getElementsByTagName("*");
+          if (elements.length > 2000) {
+            return { viewportWidth, viewportHeight, probes: [] };
+          }
+          const passivePaintedRects = [];
+          for (const element of elements) {
+            const style = styleFor(element);
+            if (style.pointerEvents !== "none" || !layerPaints(element)) continue;
+            const rect = element.getBoundingClientRect();
+            if (
+              rect.width <= 0
+              || rect.height <= 0
+              || rect.right <= 0
+              || rect.bottom <= 0
+              || rect.left >= viewportWidth
+              || rect.top >= viewportHeight
+            ) {
+              continue;
+            }
+            passivePaintedRects.push(rect);
+            if (passivePaintedRects.length > 64) {
+              return { viewportWidth, viewportHeight, probes: [] };
+            }
+          }
+
           const candidates = [];
           const occupiedCells = new Set();
           const walker = document.createTreeWalker(
@@ -449,6 +477,16 @@ final class BrowserScreenshotDOMProbeCollector {
             const centerY = rect.top + rect.height / 2;
             const hit = document.elementFromPoint(centerX, centerY);
             if (!hit || (hit !== element && !element.contains(hit))) continue;
+            if (
+              passivePaintedRects.some((layerRect) => (
+                centerX >= layerRect.left
+                && centerX <= layerRect.right
+                && centerY >= layerRect.top
+                && centerY <= layerRect.bottom
+              ))
+            ) {
+              continue;
+            }
             const column = Math.min(3, Math.floor(centerX / viewportWidth * 4));
             const row = Math.min(3, Math.floor(centerY / viewportHeight * 4));
             const cell = `${column}:${row}`;
@@ -486,51 +524,10 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
-          // elementFromPoint intentionally ignores pointer-events:none layers.
-          // Temporarily make every element hit-testable, then reject a probe
-          // when a painted layer appears above its text. The high-specificity
-          // rule covers page-authored !important selectors; if WebKit/CSP does
-          // not apply it, fail open by returning no probes.
-          const hitTestStyle = document.createElement("style");
-          hitTestStyle.style.pointerEvents = "none";
-          hitTestStyle.textContent = `
-            *:not(#cmux-screenshot-passive-hit-test-a):not(#cmux-screenshot-passive-hit-test-b):not(#cmux-screenshot-passive-hit-test-c):not(#cmux-screenshot-passive-hit-test-d) {
-              pointer-events: auto !important;
-            }
-          `;
-          let visibleCandidates = [];
-          try {
-            document.documentElement.appendChild(hitTestStyle);
-            if (
-              getComputedStyle(hitTestStyle).pointerEvents !== "auto"
-              || typeof document.elementsFromPoint !== "function"
-            ) {
-              return { viewportWidth, viewportHeight, probes: [] };
-            }
-            visibleCandidates = candidates.filter((candidate) => {
-              const layers = document.elementsFromPoint(
-                candidate.centerX,
-                candidate.centerY
-              );
-              for (const layer of layers) {
-                if (
-                  layer === candidate.node.parentElement
-                  || candidate.node.parentElement.contains(layer)
-                ) {
-                  return true;
-                }
-                if (layerPaints(layer)) return false;
-              }
-              return false;
-            });
-          } finally {
-            hitTestStyle.remove();
-          }
-
           return {
             viewportWidth,
             viewportHeight,
-            probes: visibleCandidates.map(({
+            probes: candidates.map(({
               node,
               characterIndex,
               centerX,

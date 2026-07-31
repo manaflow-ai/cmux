@@ -68,17 +68,12 @@ struct BrowserScreenshotCaptureService {
     }
 
     func capture() async throws -> NSImage {
-        var lastMismatch: (
-            probe: BrowserScreenshotProbe,
-            count: Int,
-            synchronization: BrowserScreenshotSynchronizationOutcome
-        )?
-
-        for attempt in 1...maximumAttempts {
-            try Task.checkCancellation()
-            let synchronization = try await synchronize(attempt > 1)
+        var attempt = 1
+        while true {
             try Task.checkCancellation()
             let before = await collectProbes()
+            try Task.checkCancellation()
+            let synchronization = try await synchronize(attempt > 1)
             try Task.checkCancellation()
             let image = try await snapshot()
             try Task.checkCancellation()
@@ -95,28 +90,27 @@ struct BrowserScreenshotCaptureService {
             case .accepted:
                 return image
             case .mismatch(let probe, let count):
-                lastMismatch = (probe, count, synchronization)
+                guard attempt == maximumAttempts else {
 #if DEBUG
-                cmuxDebugLog(
-                    "browser.screenshot.verify.retry attempt=\(attempt) " +
-                    "probe=\(probe.identifier) mismatches=\(count)"
-                )
+                    cmuxDebugLog(
+                        "browser.screenshot.verify.retry attempt=\(attempt) " +
+                        "probe=\(probe.identifier) mismatches=\(count)"
+                    )
 #endif
+                    attempt += 1
+                    continue
+                }
+                guard synchronization == .completed else {
+                    throw BrowserScreenshotError.automationTimedOut
+                }
+                // A plausible-but-wrong frame is more damaging to automated visual QA
+                // than an explicit failure that the caller can diagnose and retry.
+                throw BrowserScreenshotError.renderedContentMismatch(
+                    rect: probe.rect,
+                    attempts: maximumAttempts,
+                    mismatchCount: count
+                )
             }
         }
-
-        guard let lastMismatch else {
-            throw BrowserScreenshotError.emptySnapshot
-        }
-        guard lastMismatch.synchronization == .completed else {
-            throw BrowserScreenshotError.automationTimedOut
-        }
-        // A plausible-but-wrong frame is more damaging to automated visual QA
-        // than an explicit failure that the caller can diagnose and retry.
-        throw BrowserScreenshotError.renderedContentMismatch(
-            rect: lastMismatch.probe.rect,
-            attempts: maximumAttempts,
-            mismatchCount: lastMismatch.count
-        )
     }
 }

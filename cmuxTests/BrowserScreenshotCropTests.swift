@@ -404,6 +404,32 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifiedCaptureSynchronizesAfterPreSnapshotDOMInspection() async throws {
+        var events: [String] = []
+        let image = try makeBlankBitmapImage(width: 100, height: 100)
+        let service = BrowserScreenshotCaptureService(
+            maximumAttempts: 1,
+            synchronize: { _ in
+                events.append("synchronize")
+                return .completed
+            },
+            collectProbes: {
+                events.append("collect")
+                return nil
+            },
+            snapshot: {
+                events.append("snapshot")
+                return image
+            },
+            makePixelSource: { _ in nil }
+        )
+
+        _ = try await service.capture()
+
+        #expect(events == ["collect", "synchronize", "snapshot", "collect"])
+    }
+
+    @Test
     func verifiedCaptureDoesNotMisreportSynchronizationTimeoutAsPixelMismatch() async {
         var captureCount = 0
         let probes = textProbeSet()

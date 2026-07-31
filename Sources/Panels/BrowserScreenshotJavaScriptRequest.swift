@@ -12,7 +12,6 @@ final class BrowserScreenshotJavaScriptRequest {
     private let timeout: TimeInterval
     private let startEvaluation: EvaluationStarter
     private var continuation: CheckedContinuation<Any?, Error>?
-    private var pendingResult: Result<Any?, Error>?
     private var timeoutTimer: Timer?
     private var isCancelled = false
     private var didFinish = false
@@ -49,10 +48,6 @@ final class BrowserScreenshotJavaScriptRequest {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
-                if let pendingResult {
-                    finish(pendingResult)
-                    return
-                }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -87,16 +82,13 @@ final class BrowserScreenshotJavaScriptRequest {
 
     private func finish(_ result: Result<Any?, Error>) {
         guard !didFinish else { return }
-        guard let continuation else {
-            if case nil = pendingResult {
-                pendingResult = result
-            }
-            return
-        }
         didFinish = true
         timeoutTimer?.invalidate()
         timeoutTimer = nil
-        pendingResult = nil
+        guard let continuation else {
+            assertionFailure("JavaScript request completed without a continuation")
+            return
+        }
         self.continuation = nil
         continuation.resume(with: result)
     }
