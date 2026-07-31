@@ -209,6 +209,43 @@ import Testing
         #expect(invocation.workingDirectory == "/tmp/空 白")
     }
 
+    @Test func preparedRestoreArgumentsRetargetTheirPersistedWorkingDirectory() throws {
+        let persistedWorkingDirectory = "/tmp/deleted 项目"
+        let effectiveWorkingDirectory = "/tmp/fallback project"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "cwd-agent",
+            checkpointID: "session-123",
+            source: "session-snapshot",
+            workingDirectory: effectiveWorkingDirectory,
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: "/opt/cwd-agent",
+                arguments: ["/opt/cwd-agent"],
+                workingDirectory: "/tmp/older captured cwd"
+            ),
+            preparedArguments: [
+                "/opt/cwd-agent",
+                "--cwd",
+                persistedWorkingDirectory,
+                "--workspace=\(persistedWorkingDirectory)",
+                "--session",
+                "session-123",
+            ],
+            preparedArgumentsWorkingDirectory: persistedWorkingDirectory,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner().invocation(
+            for: request,
+            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+        ))
+
+        #expect(invocation.workingDirectory == effectiveWorkingDirectory)
+        #expect(invocation.arguments.contains(effectiveWorkingDirectory))
+        #expect(invocation.arguments.contains("--workspace=\(effectiveWorkingDirectory)"))
+        #expect(invocation.arguments.contains(where: { $0.contains(persistedWorkingDirectory) }) == false)
+    }
+
     @Test func structuredHermesRestoreUsesTypedPreflightsAndDirectArgv() throws {
         let executable = "/opt/Hermes Tools/hermes"
         let request = AgentRestoreRequest(

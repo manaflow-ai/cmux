@@ -764,6 +764,18 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
         XCTAssertNil(setEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
+        workspace.restoredAgentSnapshotsByPanelId[panelId] =
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: UUID().uuidString.lowercased(),
+                workingDirectory: "/tmp/stale-agent",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/opt/stale/codex",
+                    arguments: ["/opt/stale/codex"],
+                    workingDirectory: "/tmp/stale-agent"
+                )
+            )
 
         let getResult = try v2Result(
             method: "surface.resume.get",

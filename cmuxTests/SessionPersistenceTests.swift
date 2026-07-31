@@ -4516,7 +4516,7 @@ extension SessionPersistenceTests {
         let input = try XCTUnwrap(binding.restoreStartupInput())
         XCTAssertEqual(
             input,
-            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
+            " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface\n"
         )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertEqual(

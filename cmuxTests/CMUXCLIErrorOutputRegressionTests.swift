@@ -137,7 +137,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["restore", "custom", checkpointID],
+            arguments: ["restore", "--surface"],
             environment: environment,
             timeout: 5
         )
@@ -150,6 +150,73 @@ import Testing
             XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
         }
         XCTAssertFalse(result.stdout.contains("/bin/sh -c"), result.stdout)
+    }
+
+    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
+        let missingDirectory = root.appendingPathComponent("deleted", isDirectory: true)
+        let capturedDirectory = root.appendingPathComponent("captured", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'pwd=%s\\n' "$PWD"
+        for argument in "$@"; do
+          printf 'arg=%s\\n' "$argument"
+        done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "cwd-\(UUID().uuidString)"
+        let preparedArguments = [
+            executable.path,
+            "--cwd",
+            missingDirectory.path,
+            "--session",
+            checkpointID,
+        ]
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "cwd-agent",
+                "checkpoint_id": checkpointID,
+                "working_directory": missingDirectory.path,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": [executable.path],
+                    "executable_path": executable.path,
+                    "working_directory": capturedDirectory.path,
+                ],
+                "prepared_arguments": preparedArguments,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-missing-cwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "cwd-agent", checkpointID],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("pwd=\(root.path)\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("arg=\(root.path)\n"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(missingDirectory.path), result.stdout)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {

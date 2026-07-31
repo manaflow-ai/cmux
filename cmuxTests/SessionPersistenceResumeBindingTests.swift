@@ -66,7 +66,7 @@ import Testing
         #expect(binding.launchCommand == nil)
         #expect(
             binding.restoreStartupInput()
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface\n"
         )
     }
 

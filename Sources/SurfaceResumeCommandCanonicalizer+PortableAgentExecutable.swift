@@ -67,7 +67,7 @@ extension SurfaceResumeBindingSnapshot {
            let checkpointId = Self.restoreCLIArgument(checkpointId) {
             return " \(executable) restore \(kind) \(checkpointId)\n"
         }
-        return " \(executable) restore --surface \"$CMUX_SURFACE_ID\"\n"
+        return " \(executable) restore --surface\n"
     }
 
     private static func restoreCLIArgument(_ value: String?) -> String? {

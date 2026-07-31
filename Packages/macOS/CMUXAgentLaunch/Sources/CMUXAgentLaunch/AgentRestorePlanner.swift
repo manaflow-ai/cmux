@@ -58,7 +58,11 @@ public struct AgentRestorePlanner: Sendable {
                 )
             }
         } else {
-            sanitizedArguments = plannedArguments.values
+            sanitizedArguments = retargetPreparedWorkingDirectory(
+                in: plannedArguments.values,
+                request: request,
+                workingDirectory: workingDirectory
+            )
         }
         guard !sanitizedArguments.isEmpty else { return nil }
 
@@ -163,6 +167,33 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         return selected
+    }
+
+    private func retargetPreparedWorkingDirectory(
+        in arguments: [String],
+        request: AgentRestoreRequest,
+        workingDirectory: String?
+    ) -> [String] {
+        guard request.mode != .direct,
+              let capturedWorkingDirectory = normalized(
+                  request.preparedArgumentsWorkingDirectory
+                      ?? request.launchCommand?.workingDirectory
+              ),
+              let workingDirectory,
+              capturedWorkingDirectory != workingDirectory else {
+            return arguments
+        }
+        return arguments.map { argument in
+            if argument == capturedWorkingDirectory {
+                return workingDirectory
+            }
+            let assignmentSuffix = "=\(capturedWorkingDirectory)"
+            guard argument.hasSuffix(assignmentSuffix) else {
+                return argument
+            }
+            return String(argument.dropLast(assignmentSuffix.count))
+                + "=\(workingDirectory)"
+        }
     }
 
     private func routeManagedWrapper(

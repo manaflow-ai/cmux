@@ -46,7 +46,8 @@ extension CMUXCLI {
                 throw CLIError(message: "restore: surface '\(surface)' was not found")
             }
             params["surface_id"] = surfaceID
-        } else if let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
+        } else if selector.usesCurrentSurface,
+                  let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
                   !surfaceID.isEmpty {
             params["surface_id"] = surfaceID
         } else {
@@ -91,15 +92,32 @@ extension CMUXCLI {
         guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
             throw CLIError(message: "restore: unsupported persisted restore mode '\(record.mode)'")
         }
+        let requestedWorkingDirectory = normalizedRestoreWorkingDirectory(
+            record.workingDirectory
+        ) ?? normalizedRestoreWorkingDirectory(
+            record.launchCommand?.workingDirectory
+        )
+        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
+            requestedWorkingDirectory
+        )
+        let effectiveWorkingDirectory =
+            if requestedWorkingDirectory?.isEmpty == false {
+                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
+            } else {
+                nil
+            }
         let request = AgentRestoreRequest(
             mode: mode,
             kind: record.kind,
             checkpointID: record.checkpointID,
             source: record.source,
-            workingDirectory: record.workingDirectory,
+            workingDirectory: effectiveWorkingDirectory,
             environment: record.environment,
             launchCommand: record.launchCommand,
             preparedArguments: record.preparedArguments,
+            preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
+                record.workingDirectory
+            ),
             observedPermissionMode: record.permissionMode
         )
         guard let invocation = AgentRestorePlanner().invocation(
@@ -107,12 +125,9 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
-                let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
-                    record.workingDirectory
-                )
                 var legacyEnvironment = environment
-                if let appliedWorkingDirectory {
-                    legacyEnvironment["PWD"] = appliedWorkingDirectory
+                if let effectiveWorkingDirectory {
+                    legacyEnvironment["PWD"] = effectiveWorkingDirectory
                 }
                 client.close()
                 try execLegacyRestoreCommand(
@@ -123,22 +138,22 @@ extension CMUXCLI {
             throw CLIError(message: "restore: persisted structured launch data is incomplete")
         }
 
-        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(invocation.workingDirectory)
         for preflight in invocation.preflightInvocations {
             try runRestorePreflight(
                 preflight,
-                appliedWorkingDirectory: appliedWorkingDirectory
+                appliedWorkingDirectory: effectiveWorkingDirectory
             )
         }
         client.close()
         try execRestoreInvocation(
             invocation,
-            appliedWorkingDirectory: appliedWorkingDirectory
+            appliedWorkingDirectory: effectiveWorkingDirectory
         )
     }
 
     private struct RestoreSelector {
         let surface: String?
+        let usesCurrentSurface: Bool
         let kind: String?
         let checkpointID: String?
     }
@@ -158,10 +173,23 @@ extension CMUXCLI {
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
         if arguments.first == "--surface" {
-            guard arguments.count == 2, !arguments[1].isEmpty else {
-                throw CLIError(message: "Usage: cmux restore --surface <id|ref>")
+            if arguments.count == 1 {
+                return RestoreSelector(
+                    surface: nil,
+                    usesCurrentSurface: true,
+                    kind: nil,
+                    checkpointID: nil
+                )
             }
-            return RestoreSelector(surface: arguments[1], kind: nil, checkpointID: nil)
+            guard arguments.count == 2, !arguments[1].isEmpty else {
+                throw CLIError(message: "Usage: cmux restore --surface [id|ref]")
+            }
+            return RestoreSelector(
+                surface: arguments[1],
+                usesCurrentSurface: false,
+                kind: nil,
+                checkpointID: nil
+            )
         }
         guard arguments.count == 2,
               !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -170,6 +198,7 @@ extension CMUXCLI {
         }
         return RestoreSelector(
             surface: nil,
+            usesCurrentSurface: true,
             kind: arguments[0],
             checkpointID: arguments[1]
         )
@@ -230,6 +259,11 @@ extension CMUXCLI {
             message: "restore: cannot enter working directory '\(path)': "
                 + String(cString: strerror(changeDirectoryError))
         )
+    }
+
+    private func normalizedRestoreWorkingDirectory(_ path: String?) -> String? {
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private func runRestorePreflight(

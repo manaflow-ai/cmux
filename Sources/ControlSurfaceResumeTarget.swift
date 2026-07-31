@@ -274,10 +274,15 @@ extension TerminalController {
         // conversation. Reuse the session-restore identity gate so the record
         // returned to the CLI always agrees with the binding that generated its
         // typed `cmux restore <kind> <checkpoint>` selector.
-        let compatibleAgent = Workspace.restorableAgentForSessionRestore(
-            target.restorableAgent,
-            resumeBinding: binding
-        )
+        let compatibleAgent: SessionRestorableAgentSnapshot? =
+            if binding == nil || binding?.isAgentHookBinding == true {
+                Workspace.restorableAgentForSessionRestore(
+                    target.restorableAgent,
+                    resumeBinding: binding
+                )
+            } else {
+                nil
+            }
         if let agent = compatibleAgent {
             let launchCommand = binding?.launchCommand ?? agent.launchCommand
             let workingDirectory = target.restoredResumeWorkingDirectory

@@ -792,7 +792,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken()
             guard Self.isSafeRestoreCLIArgument(kind.rawValue),
                   Self.isSafeRestoreCLIArgument(sessionId) else {
-                return " \(executable) restore --surface \"$CMUX_SURFACE_ID\"\n"
+                return " \(executable) restore --surface\n"
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }

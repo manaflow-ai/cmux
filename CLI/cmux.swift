@@ -15683,11 +15683,12 @@ struct CMUXCLI {
         case "restore":
             return """
             Usage: cmux restore <kind> <checkpoint-id>
-                   cmux restore --surface <id|ref>
+                   cmux restore --surface [id|ref]
 
             Replace this CLI process with the persisted surface process. New
             records preserve argv, environment, and cwd as structured values;
             command-only records from older builds use a compatibility shell.
+            With no id or ref, --surface uses the calling cmux surface.
             """
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
@@ -35878,7 +35879,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
-          restore <kind> <checkpoint-id> | restore --surface <id|ref>
+          restore <kind> <checkpoint-id> | restore --surface [id|ref]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

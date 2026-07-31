@@ -55,7 +55,7 @@ struct AgentResumeReturnShellStartupTests {
         )
         #expect(
             manualBinding.restoreStartupInput()
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface\n"
         )
         #expect(
             snapshot.resumeStartupInput()
@@ -89,7 +89,7 @@ struct AgentResumeReturnShellStartupTests {
         for snapshot in snapshots {
             #expect(
                 snapshot.resumeStartupInput()
-                    == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
+                    == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface\n"
             )
         }
     }

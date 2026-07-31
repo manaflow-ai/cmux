@@ -26,6 +26,8 @@ public struct AgentRestoreRequest: Equatable, Sendable {
     public let launchCommand: AgentLaunchCommand?
     /// A typed argv fallback for registry-owned/custom agents.
     public let preparedArguments: [String]?
+    /// The working directory substituted into ``preparedArguments`` when they were built.
+    public let preparedArgumentsWorkingDirectory: String?
     /// The last observed Claude permission mode.
     public let observedPermissionMode: String?
 
@@ -39,6 +41,7 @@ public struct AgentRestoreRequest: Equatable, Sendable {
         environment: [String: String],
         launchCommand: AgentLaunchCommand?,
         preparedArguments: [String]?,
+        preparedArgumentsWorkingDirectory: String? = nil,
         observedPermissionMode: String?
     ) {
         self.mode = mode
@@ -49,6 +52,7 @@ public struct AgentRestoreRequest: Equatable, Sendable {
         self.environment = environment
         self.launchCommand = launchCommand
         self.preparedArguments = preparedArguments
+        self.preparedArgumentsWorkingDirectory = preparedArgumentsWorkingDirectory
         self.observedPermissionMode = observedPermissionMode
     }
 }
