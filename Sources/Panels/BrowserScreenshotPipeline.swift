@@ -7,6 +7,7 @@ enum BrowserScreenshotError: LocalizedError {
     case invalidSelection
     case invalidImageRepresentation
     case pasteboardWriteFailed
+    case renderedContentMismatch(text: String, rect: NSRect, attempts: Int, mismatchCount: Int)
     case webContentMetricsUnavailable
 
     var errorDescription: String? {
@@ -37,6 +38,14 @@ enum BrowserScreenshotError: LocalizedError {
             return String(
                 localized: "browser.screenshot.error.pasteboardWriteFailed",
                 defaultValue: "The screenshot could not be written to the clipboard."
+            )
+        case let .renderedContentMismatch(text, rect, attempts, mismatchCount):
+            let probeDescription =
+                "\(text) (x=\(Int(rect.minX.rounded())), y=\(Int(rect.minY.rounded())), " +
+                "w=\(Int(rect.width.rounded())), h=\(Int(rect.height.rounded())))"
+            return String(
+                localized: "browser.screenshot.error.renderedContentMismatch",
+                defaultValue: "The browser screenshot disagreed with rendered text probe “\(probeDescription)”; \(mismatchCount) text probes were blank after \(attempts) attempts."
             )
         case .webContentMetricsUnavailable:
             return String(

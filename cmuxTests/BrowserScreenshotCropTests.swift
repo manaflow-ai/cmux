@@ -296,6 +296,69 @@ struct BrowserScreenshotCropTests {
         #expect(outcome == .accepted)
     }
 
+    @Test
+    func verifierIgnoresTextThatMovesDuringCapture() {
+        let before = textProbeSet()
+        let after = BrowserScreenshotFrameVerifier.ProbeSet(
+            viewportSize: before.viewportSize,
+            probes: before.probes.map {
+                BrowserScreenshotFrameVerifier.Probe(
+                    identifier: $0.identifier,
+                    text: $0.text,
+                    rect: $0.rect.offsetBy(dx: 3, dy: 0),
+                    foreground: $0.foreground,
+                    background: $0.background
+                )
+            }
+        )
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: before,
+            after: after,
+            pixels: SolidPixelSource(
+                pixelSize: before.viewportSize,
+                color: .black
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
+    func bitmapPixelSourceUsesTopLeftCoordinates() throws {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 10,
+            pixelsHigh: 10,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        testRed.setFill()
+        NSRect(x: 0, y: 0, width: 10, height: 5).fill()
+        testBlue.setFill()
+        NSRect(x: 0, y: 5, width: 10, height: 5).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        bitmap.size = NSSize(width: 10, height: 10)
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+        let top = try #require(source.color(at: NSPoint(x: 5, y: 1)))
+        let bottom = try #require(source.color(at: NSPoint(x: 5, y: 8)))
+
+        #expect(top.blue > 0.9)
+        #expect(top.red < 0.1)
+        #expect(bottom.red > 0.9)
+        #expect(bottom.blue < 0.1)
+    }
+
     private func textProbeSet() -> BrowserScreenshotFrameVerifier.ProbeSet {
         BrowserScreenshotFrameVerifier.ProbeSet(
             viewportSize: NSSize(width: 100, height: 100),

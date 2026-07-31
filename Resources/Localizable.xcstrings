@@ -32180,6 +32180,131 @@
         }
       }
     },
+    "browser.screenshot.error.renderedContentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتطابق لقطة شاشة المتصفح مع مسبار النص المعروض «%1$@»؛ ظهرت %2$lld من مسابير النص فارغة بعد %3$lld محاولات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimak ekrana preglednika ne podudara se s prikazanim tekstualnim uzorkom „%1$@”; %2$lld tekstualna uzorka bila su prazna nakon %3$lld pokušaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserskærmbilledet stemte ikke overens med den gengivne tekstprøve “%1$@”; %2$lld tekstprøver var tomme efter %3$lld forsøg."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Browser-Screenshot stimmte nicht mit der gerenderten Textprobe „%1$@“ überein; %2$lld Textproben waren nach %3$lld Versuchen leer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser screenshot disagreed with rendered text probe “%1$@”; %2$lld text probes were blank after %3$lld attempts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La captura del navegador no coincidió con la muestra de texto renderizado «%1$@»; %2$lld muestras de texto aparecieron en blanco después de %3$lld intentos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La capture du navigateur ne correspondait pas à la sonde de texte rendu « %1$@ » ; %2$lld sondes de texte étaient vides après %3$lld tentatives."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo screenshot del browser non corrispondeva al campione di testo renderizzato “%1$@”; %2$lld campioni di testo risultavano vuoti dopo %3$lld tentativi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのスクリーンショットが描画済みテキストプローブ「%1$@」と一致しません。%3$lld 回試行した後も %2$lld 個のテキストプローブが空白でした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបថតអេក្រង់កម្មវិធីរុករកមិនត្រូវគ្នានឹងចំណុចសាកល្បងអត្ថបទដែលបានបង្ហាញ “%1$@” ទេ។ ចំណុចសាកល្បងអត្ថបទ %2$lld នៅទទេបន្ទាប់ពីសាកល្បង %3$lld ដង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 스크린샷이 렌더링된 텍스트 프로브 “%1$@”와 일치하지 않습니다. %3$lld번 시도한 후에도 %2$lld개의 텍스트 프로브가 비어 있었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserskjermbildet samsvarte ikke med den gjengitte tekstprøven «%1$@»; %2$lld tekstprøver var tomme etter %3$lld forsøk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrzut ekranu przeglądarki nie zgadzał się z próbką renderowanego tekstu „%1$@”; %2$lld próbki tekstu były puste po %3$lld próbach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A captura de tela do navegador não correspondeu à amostra de texto renderizado “%1$@”; %2$lld amostras de texto ficaram em branco após %3$lld tentativas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Снимок экрана браузера не соответствовал образцу отрисованного текста «%1$@»; %2$lld образца текста оставались пустыми после %3$lld попыток."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพหน้าจอของเบราว์เซอร์ไม่ตรงกับจุดตรวจข้อความที่แสดงผล “%1$@” โดยจุดตรวจข้อความ %2$lld จุดยังว่างอยู่หลังจากลอง %3$lld ครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı ekran görüntüsü, işlenen “%1$@” metin sondasıyla eşleşmedi; %3$lld denemeden sonra %2$lld metin sondası boştu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знімок екрана браузера не відповідав зразку відтвореного тексту «%1$@»; %2$lld зразки тексту залишалися порожніми після %3$lld спроб."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器截图与已渲染的文本探针“%1$@”不一致；尝试 %3$lld 次后，仍有 %2$lld 个文本探针为空白。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器螢幕截圖與已算繪的文字探針「%1$@」不一致；嘗試 %3$lld 次後，仍有 %2$lld 個文字探針為空白。"
+          }
+        }
+      }
+    },
     "browser.screenshot.error.webContentMetricsUnavailable": {
       "extractionState": "manual",
       "localizations": {

@@ -86,18 +86,45 @@ extension TerminalController {
                     switch result {
                     case .success(let image):
                         guard let data = self.v2PNGData(from: image) else {
-                            finish((webViewIdentifier, .failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription)))
+                            finish((
+                                webViewIdentifier,
+                                .failure(
+                                    code: "internal_error",
+                                    message: BrowserScreenshotError.invalidImageRepresentation.localizedDescription
+                                )
+                            ))
                             return
                         }
                         finish((webViewIdentifier, .success(data)))
                     case .failure(let error as BrowserScreenshotError):
-                        if case .automationTimedOut = error {
+                        switch error {
+                        case .automationTimedOut:
                             finish((webViewIdentifier, .timedOut))
-                        } else {
-                            finish((webViewIdentifier, .failure(error.localizedDescription)))
+                        case .renderedContentMismatch:
+                            finish((
+                                webViewIdentifier,
+                                .failure(
+                                    code: "screenshot_mismatch",
+                                    message: error.localizedDescription
+                                )
+                            ))
+                        default:
+                            finish((
+                                webViewIdentifier,
+                                .failure(
+                                    code: "internal_error",
+                                    message: error.localizedDescription
+                                )
+                            ))
                         }
                     case .failure(let error):
-                        finish((webViewIdentifier, .failure(error.localizedDescription)))
+                        finish((
+                            webViewIdentifier,
+                            .failure(
+                                code: "internal_error",
+                                message: error.localizedDescription
+                            )
+                        ))
                     }
                 }
             }

@@ -8061,8 +8061,8 @@ class TerminalController {
         switch snapshotAttempt.result {
         case .success(let data):
             imageData = data
-        case .failure(let message):
-            return .err(code: "internal_error", message: message, data: nil)
+        case .failure(let code, let message):
+            return .err(code: code, message: message, data: nil)
         case .timedOut:
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
                 originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
