@@ -28,7 +28,7 @@ describe("CLI config route", () => {
       const response = GET();
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({
-        error: "Stack Auth is not configured",
+        error: "cli_auth_unavailable",
       });
     } finally {
       if (projectId === undefined) {
