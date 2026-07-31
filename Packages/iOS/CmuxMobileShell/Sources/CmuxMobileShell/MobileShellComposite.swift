@@ -1978,6 +1978,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Consecutive in-place stream repairs on the current connection without a
     /// successful subscription or RPC health proof. This bounds repair loops.
     var connectionRepairAttemptCount = 0
+    let secondaryControlAttemptPolicy = SecondaryControlAttemptPolicy()
     /// Owns the asynchronous, credential-free path-health decision. The
     /// generation fences providers that ignore task cancellation.
     var connectionPolicyEvaluationGeneration = UUID()
@@ -4244,7 +4245,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.warning(
                     "secondary client: ticket exchange failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
                 )
-                return secondaryControlAttemptIsTransient(error)
+                return secondaryControlAttemptPolicy.isTransient(error)
                     ? .transientFailure
                     : .permanentFailure
             }
@@ -4368,7 +4369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .received(response)
         } catch {
             mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
-            return secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptPolicy.isTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -4399,7 +4400,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.warning(
                 "secondary authenticated host status failed: \(String(describing: error), privacy: .private)"
             )
-            return secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptPolicy.isTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -4429,7 +4430,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.warning(
                 "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
-            return secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptPolicy.isTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
@@ -6290,7 +6291,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return .active(requiresCatchUp: response.alreadySubscribed == false)
         } catch {
-            return secondaryControlAttemptIsTransient(error)
+            return secondaryControlAttemptPolicy.isTransient(error)
                 ? .transientFailure
                 : .permanentFailure
         }
