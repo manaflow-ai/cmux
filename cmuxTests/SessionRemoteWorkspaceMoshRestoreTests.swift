@@ -262,12 +262,41 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
 
         #expect(configuration.terminalTransport == .mosh)
         #expect(configuration.relayPort == nil)
-        #expect(configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
+        #expect(!configuration.sshOptions.contains("RemoteCommand=\(currentHostRemoteCommand)"))
         #expect(command.contains("cmux-remote-command"), "\(command)")
         #expect(command.contains(configuredRemoteCommand), "\(command)")
         #expect(
             !command.contains(currentHostRemoteCommand),
             "Mosh and its SSH fallback must execute the same snapshotted command: \(command)"
         )
+    }
+
+    @Test(
+        "explicit empty command suppresses a legacy Mosh fallback RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandSuppressesLegacyMoshFallback(configuredRemoteCommand: String) throws {
+        let legacyRemoteCommand = "printf legacy-mosh-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: [
+                "ServerAliveInterval=15",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration())
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.terminalTransport == .mosh)
+        #expect(configuration.relayPort == nil)
+        #expect(configuration.configuredRemoteCommand == nil)
+        #expect(configuration.sshOptions.contains("ServerAliveInterval=15"))
+        #expect(!configuration.sshOptions.contains { $0.hasPrefix("RemoteCommand=") })
+        #expect(command.contains("mosh"), Comment(rawValue: command))
+        #expect(!command.contains(legacyRemoteCommand), Comment(rawValue: command))
     }
 }

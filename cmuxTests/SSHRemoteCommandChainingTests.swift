@@ -254,6 +254,33 @@ struct SSHRemoteCommandChainingTests {
         }
     }
 
+    @Test(
+        "explicit empty command suppresses a legacy SSH RemoteCommand",
+        arguments: ["", "none"]
+    )
+    func explicitEmptyCommandSuppressesLegacyRemoteCommand(configuredRemoteCommand: String) throws {
+        let legacyRemoteCommand = "printf legacy-command"
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .ssh,
+            terminalProfile: .shell,
+            configuredRemoteCommand: configuredRemoteCommand,
+            destination: "dev@example.com",
+            sshOptions: [
+                "ServerAliveInterval=15",
+                "RemoteCommand=\(legacyRemoteCommand)",
+            ]
+        )
+
+        let restored = try #require(snapshot.workspaceConfiguration())
+        let startupCommand = try #require(restored.terminalStartupCommand)
+
+        #expect(restored.configuredRemoteCommand == nil)
+        #expect(restored.sshOptions.contains("ServerAliveInterval=15"))
+        #expect(!restored.sshOptions.contains { $0.hasPrefix("RemoteCommand=") })
+        #expect(!startupCommand.contains(legacyRemoteCommand), Comment(rawValue: startupCommand))
+    }
+
     @Test
     func nonPersistentRestorePreservesConfiguredCommandAcrossOpenSSHReparsing() throws {
         let fileManager = FileManager.default
