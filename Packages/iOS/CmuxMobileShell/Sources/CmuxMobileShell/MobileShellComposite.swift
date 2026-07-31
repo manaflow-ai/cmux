@@ -8293,9 +8293,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
         }
 
-        diagnosticLog?.record(DiagnosticEvent(.pairFail))
+        // One event per exhausted connect: a second `.rpcFailed` record here
+        // would double the incident policy's consecutive-failure streak and
+        // burn a second signature-cooldown gate for the same underlying error.
         diagnosticLog?.record(DiagnosticEvent(
-            .rpcFailed,
+            .pairFail,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
             b: Self.diagnosticFailureKind(for: lastError).rawValue
