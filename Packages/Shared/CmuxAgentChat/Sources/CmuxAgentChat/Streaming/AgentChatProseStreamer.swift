@@ -1,4 +1,3 @@
-import CmuxAgentChat
 import Foundation
 
 /// Drives the live agent-prose streaming preview for in-flight turns.
@@ -24,7 +23,7 @@ private actor AgentChatProseExtractionWorker {
 }
 
 @MainActor
-final class AgentChatProseStreamer {
+public final class AgentChatProseStreamer {
     /// Per-session live-turn bookkeeping.
     private struct ActiveTurn {
         let generation: Int
@@ -58,7 +57,7 @@ final class AgentChatProseStreamer {
     ///   - now: Clock seam for the preview message timestamp.
     ///   - pollInterval: Snapshot cadence while a turn streams.
     ///   - sleep: Cancellable sleep seam for the poll loop.
-    init(
+    public init(
         emit: @escaping @MainActor (ChatSessionEventFrame) -> Void,
         snapshot: @escaping @MainActor (UUID) async -> [String]?,
         hasSubscribers: @escaping @MainActor () -> Bool,
@@ -80,7 +79,7 @@ final class AgentChatProseStreamer {
     ///   - sessionID: The chat session.
     ///   - surfaceID: The hosting terminal surface to snapshot.
     ///   - agentKind: Selects the prose extractor's chrome markers.
-    func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) {
+    public func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) {
         let previous = turns[sessionID]
         let generation = (previous?.generation ?? -1) + 1
         turns[sessionID] = ActiveTurn(generation: generation, surfaceID: surfaceID, agentKind: agentKind)
@@ -96,7 +95,7 @@ final class AgentChatProseStreamer {
     /// The authoritative prose for the turn landed; drop the preview and stop
     /// emitting until the next turn (kept distinct from ``turnEnded`` so the
     /// poll loop is reused across a multi-block turn instead of respawned).
-    func authoritativeProseArrived(sessionID: String) {
+    public func authoritativeProseArrived(sessionID: String) {
         guard turns[sessionID] != nil else { return }
         turns[sessionID]?.settled = true
         turns[sessionID]?.lastEmitted = nil
@@ -104,7 +103,7 @@ final class AgentChatProseStreamer {
     }
 
     /// Ends streaming for a session: cancels the loop and clears the preview.
-    func turnEnded(sessionID: String) {
+    public func turnEnded(sessionID: String) {
         tasks[sessionID]?.cancel()
         tasks[sessionID] = nil
         let wasActive = turns[sessionID] != nil
@@ -113,7 +112,7 @@ final class AgentChatProseStreamer {
     }
 
     /// Tears down every active stream (app teardown / subscriber loss).
-    func stopAll() {
+    public func stopAll() {
         for sessionID in Array(tasks.keys) { turnEnded(sessionID: sessionID) }
     }
 

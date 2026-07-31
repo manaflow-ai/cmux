@@ -1,12 +1,7 @@
-import CmuxAgentChat
 import Foundation
 import XCTest
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxAgentChat
 
 @MainActor
 final class AgentChatProseStreamerTests: XCTestCase {
