@@ -66,6 +66,8 @@ const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DaemonCleanupPausePhase {
+    BeforeListenerStartup,
+    BeforeReadySend,
     BeforeAuthRelease,
     AfterAuthShutdown,
 }
@@ -1810,6 +1812,8 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
 
+        #[cfg(test)]
+        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
         let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
         let websocket = match options.direct_websocket {
             Some(address) => Some(
@@ -1942,6 +1946,8 @@ async fn run_daemon(
             replaceable_sidecar: options.replaceable_sidecar,
         };
         persist_runtime_info(&state_dir, &info)?;
+        #[cfg(test)]
+        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         ready.send(Ok(info)).map_err(|_| anyhow!("daemon owner stopped during startup"))?;
 
         let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
@@ -3594,6 +3600,51 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_persists_active_lifecycle_before_opening_listener() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "active-before-listener";
+        let (state_dir, link_socket, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeListenerStartup,
+        );
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let caller = thread::spawn(move || {
+            start_daemon_runtime(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            )
+        });
+        pause.wait_until_reached();
+
+        let active = read_runtime_info(&state_dir).unwrap();
+        let listener_opened = link_socket.exists();
+        pause.resume();
+        let runtime = caller.join().unwrap().unwrap();
+        let final_lifecycle_id =
+            runtime.info().lifecycle_id.clone().expect("ready daemon omitted its lifecycle id");
+        runtime.shutdown().unwrap();
+
+        assert!(!listener_opened, "link listener opened before the lifecycle checkpoint");
+        let active = active.expect("active lifecycle was not persisted before listener startup");
+        assert_eq!(active.lifecycle_id.as_deref(), Some(final_lifecycle_id.as_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_runtime_metadata_remains_until_auth_finalization() {
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let runtime = start_daemon_runtime(
@@ -3892,6 +3943,71 @@ mod tests {
             "daemon startup timeout joined a worker blocked on the identity path lock"
         );
         assert!(!link_socket.exists(), "timed-out daemon left its link socket behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "ready-receiver-disappears";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeReadySend,
+        );
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let caller = thread::spawn(move || {
+            start_daemon_runtime_with_timeout(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+                Duration::from_millis(500),
+            )
+        });
+        pause.wait_until_reached();
+
+        let lifecycle_id = read_runtime_info(&state_dir)
+            .unwrap()
+            .expect("starting daemon did not persist runtime metadata")
+            .lifecycle_id
+            .expect("starting daemon omitted its lifecycle id");
+        let startup = caller.join().unwrap();
+        let error = match startup {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("paused daemon became ready after its owner timed out");
+            }
+        };
+        assert!(error.to_string().contains("did not become ready"), "{error:#}");
+        pause.resume();
+
+        let runtime_path = state_dir.join("runtime.json");
+        let outcome_path = state_dir.join("shutdown.json");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while (runtime_path.exists() || !outcome_path.exists())
+            && std::time::Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!runtime_path.exists(), "orphaned startup retained active runtime metadata");
+        let outcome = load_shutdown_outcome(&state_dir)
+            .expect("orphaned startup did not publish authorization finalization");
+        assert_eq!(outcome.lifecycle_id, lifecycle_id);
+        assert_eq!(outcome.status, DaemonShutdownStatus::Succeeded);
     }
 
     #[cfg(unix)]
@@ -5325,6 +5441,32 @@ mod tests {
         assert_eq!(routing["relay_url"], "https://relay.example/");
         assert_eq!(routing["direct_addrs"], "127.0.0.1:7777");
         assert!(!routing.contains_key("ticket"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn persisted_runtime_metadata_propagates_parent_directory_sync_failure() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let info = DaemonRuntimeInfo {
+            session: "persist-runtime-sync".into(),
+            state_dir: directory.path().into(),
+            link_socket: directory.path().join("link.sock"),
+            admin_socket: directory.path().join("admin.sock"),
+            daemon_fingerprint: "public-fingerprint".into(),
+            routes: Vec::new(),
+            direct_websocket: None,
+            iroh_node_id: None,
+            lifecycle_id: Some("durable-active-lifecycle".into()),
+            replaceable_sidecar: false,
+        };
+
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o300)).unwrap();
+        let result = persist_runtime_info(directory.path(), &info);
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+
+        result.expect_err("runtime persistence skipped its parent-directory sync");
     }
 
     #[test]
