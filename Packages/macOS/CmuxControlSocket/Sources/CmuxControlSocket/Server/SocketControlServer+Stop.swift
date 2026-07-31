@@ -32,6 +32,7 @@ extension SocketControlServer {
             state.reservedStartupSocketPath = nil
             state.reservedStartupSocketPathCanReplaceRefusedSocket = false
             state.listenerStartInProgress = false
+            state.pendingStartupRetry = false
             state.nextAcceptLoopGeneration &+= 1
             state.activeAcceptLoopGeneration = 0
             let sourceToCancel = state.listenerReadSource

@@ -66,6 +66,7 @@ extension SocketControlServer {
         !state.isRunning &&
             !state.acceptLoopAlive &&
             !state.listenerStartInProgress &&
+            !state.pendingStartupRetry &&
             state.pendingAcceptLoopRearmGeneration == nil &&
             state.socketPathLockFD < 0 &&
             state.listenerReadSource == nil &&
@@ -99,6 +100,9 @@ extension SocketControlServer {
     ) -> Bool {
         startupRetryTask?.cancel()
         startupRetryTask = nil
+        withListenerState { state in
+            state.pendingStartupRetry = false
+        }
         return startAttempt(
             socketPath: socketPath,
             accessMode: accessMode,
@@ -426,6 +430,9 @@ extension SocketControlServer {
             )
         )
 
+        withListenerState { state in
+            state.pendingStartupRetry = true
+        }
         startupRetryTask?.cancel()
         // A bounded, cancellable transport-recovery delay is the intended
         // behavior; the injected clock makes it deterministic in tests.
@@ -438,6 +445,9 @@ extension SocketControlServer {
             }
             guard let self else { return }
             self.startupRetryTask = nil
+            self.withListenerState { state in
+                state.pendingStartupRetry = false
+            }
             guard !self.isRunning else { return }
             _ = self.startAttempt(
                 socketPath: socketPath,

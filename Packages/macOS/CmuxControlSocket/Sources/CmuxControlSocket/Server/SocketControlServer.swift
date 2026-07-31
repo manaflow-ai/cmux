@@ -68,6 +68,7 @@ public final class SocketControlServer {
         var reservedStartupSocketPath: String?
         var reservedStartupSocketPathCanReplaceRefusedSocket = false
         var listenerStartInProgress = false
+        var pendingStartupRetry = false
         var socketPathLockFD: Int32 = -1
         var listenerReadSource: (any DispatchSourceRead)?
         var listenerReadSourceSuspended = false
@@ -88,6 +89,7 @@ public final class SocketControlServer {
         let pendingRearmGeneration: UInt64?
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
+        let pendingStartupRetry: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
         let configuredPreferredSocketPath: String?
@@ -285,6 +287,7 @@ public final class SocketControlServer {
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
+            pendingStartupRetry: state.pendingStartupRetry,
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode,
             configuredPreferredSocketPath: state.configuredPreferredSocketPath
@@ -343,6 +346,7 @@ public final class SocketControlServer {
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
         if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
+            || snapshot.pendingStartupRetry
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
@@ -358,6 +362,7 @@ public final class SocketControlServer {
         if snapshot.isRunning
             || snapshot.acceptLoopAlive
             || snapshot.listenerStartInProgress
+            || snapshot.pendingStartupRetry
             || snapshot.pendingRearmGeneration != nil
             || snapshot.socketPathLockHeld
             || snapshot.serverSocket >= 0 {

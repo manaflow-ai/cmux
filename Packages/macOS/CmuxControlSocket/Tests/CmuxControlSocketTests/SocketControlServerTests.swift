@@ -382,6 +382,14 @@ struct SocketControlServerLifecycleTests {
         #expect(!server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(harness.recorder.failures.isEmpty)
         #expect(harness.recorder.breadcrumbs.contains("socket.listener.start.retry_scheduled"))
+        #expect(server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(
+            server.activeSocketPath(preferredPath: "\(harness.socketPath).preferred")
+                == harness.socketPath
+        )
+        let unrelatedReservation = "\(harness.socketPath).other"
+        #expect(server.reserveStartupSocketPath(unrelatedReservation) == unrelatedReservation)
+        #expect(server.currentSocketPath == harness.socketPath)
         guard harness.recorder.failures.isEmpty else { return }
 
         close(competingSocket)
