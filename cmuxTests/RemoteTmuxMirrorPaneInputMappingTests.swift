@@ -244,6 +244,61 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     }
 
     @Test
+    func remoteManualInputForwarderBoundsQueuedBytesAndSignalsOverflow() async throws {
+        let (overflows, overflowContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let (deliveries, deliveryContinuation) =
+            AsyncStream<(TerminalManualInput, Int)>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+        var overflowIterator = overflows.makeAsyncIterator()
+        var deliveryIterator = deliveries.makeAsyncIterator()
+        var deliveredNames: [String] = []
+        var overflowCount = 0
+
+        let forwarder = RemoteTmuxPaneInputForwarder(
+            maximumPendingBytes: 4,
+            onInput: { input, paneID in
+                if case .namedKey(let name) = input {
+                    deliveredNames.append(name)
+                }
+                deliveryContinuation.yield((input, paneID))
+            },
+            onOverflow: {
+                overflowCount += 1
+                overflowContinuation.yield()
+            }
+        )
+
+        #expect(
+            forwarder.send(.bytes(Data([0x61, 0x62])), toPane: 4) == .enqueued
+        )
+        #expect(
+            forwarder.send(.namedKey("End"), toPane: 4) == .overflow
+        )
+        #expect(
+            forwarder.send(.bytes(Data([0x63])), toPane: 4) == .inactive
+        )
+        _ = try #require(await overflowIterator.next())
+        #expect(overflowCount == 1)
+        #expect(deliveredNames.isEmpty, "Overflow must invalidate buffered input")
+
+        forwarder.setConnectionActive(true)
+        #expect(
+            forwarder.send(.namedKey("End"), toPane: 9) == .enqueued
+        )
+        let resumedDelivery = try #require(await deliveryIterator.next())
+        guard case .namedKey(let name) = resumedDelivery.0 else {
+            Issue.record("Expected a named-key delivery after reconnect")
+            return
+        }
+        #expect(name == "End")
+        #expect(resumedDelivery.1 == 9)
+        #expect(deliveredNames == ["End"])
+    }
+
+    @Test
     func remoteManualInputDelegatesNavigationAndFunctionKeysToTmux() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }

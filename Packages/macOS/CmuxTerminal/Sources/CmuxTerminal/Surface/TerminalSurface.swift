@@ -193,9 +193,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// When true, the surface is created in libghostty MANUAL I/O mode: no
     /// process is spawned, output is injected via `processRemoteOutput(_:)`,
-    /// and typed input is delivered to `manualInputHandler`.
+    /// and ordered input is delivered to `manualInputHandler`.
     let manualIO: Bool
-    let manualInputHandler: (@Sendable (Data) -> Void)?
+    let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+    /// Resolves physical keys that the manual transport should encode itself.
+    let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
@@ -492,7 +494,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
@@ -525,6 +528,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.manualIO = manualIO
         self.manualInputHandler = manualInputHandler
+        self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
