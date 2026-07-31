@@ -39,6 +39,36 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+/// Owns debug-window coordinators at the application composition root.
+@MainActor
+final class CmuxDebugWindowsCoordinator {
+    private let aboutTitlebarCoordinator: DebugWindowsCoordinator
+#if DEBUG
+    private lazy var sidebarFooterIconBalanceController =
+        SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
+#endif
+    private weak var decorator: (any WindowDecorating)?
+
+    init(decorator: (any WindowDecorating)?) {
+        self.decorator = decorator
+        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(decorator: decorator)
+    }
+
+    var aboutTitlebarStore: AboutTitlebarDebugStore {
+        aboutTitlebarCoordinator.aboutTitlebarStore
+    }
+
+    func showAboutTitlebarDebugWindow() {
+        aboutTitlebarCoordinator.showAboutTitlebarDebugWindow()
+    }
+
+#if DEBUG
+    func showSidebarFooterIconBalanceWindow() {
+        sidebarFooterIconBalanceController.show()
+    }
+#endif
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -508,7 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
-    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var debugWindowsCoordinator = CmuxDebugWindowsCoordinator(decorator: self)
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.

@@ -46,7 +46,7 @@ extension cmuxApp {
                     defaultValue: "Footer Icon Balance Lab…"
                 )
             ) {
-                SidebarFooterIconBalanceDebugPresenter.present()
+                AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
             }
             #endif
 

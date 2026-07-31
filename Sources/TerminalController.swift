@@ -2002,7 +2002,7 @@ class TerminalController {
 
 #if DEBUG
         case "__sidebar_footer_icon_balance":
-            SidebarFooterIconBalanceDebugPresenter.present()
+            AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
             return "OK"
 #endif
 
