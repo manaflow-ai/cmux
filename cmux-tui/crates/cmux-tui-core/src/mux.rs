@@ -28,7 +28,7 @@ use crate::model::{
     ProjectedSplitRatioUpdate, Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
-use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::surface::{DefaultColors, Surface, SurfaceKind, SurfaceOptions};
 use crate::terminal_host::TerminalId;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
@@ -4075,8 +4075,9 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let workspace = self.create_empty_workspace(name, None, None)?.workspace;
-        let (_, surface) =
-            self.create_terminal_in_workspace_impl(workspace, None, None, None, size, None)?;
+        let (_, surface) = self.create_terminal_in_workspace_impl(
+            workspace, None, None, None, size, None, None, true,
+        )?;
         Ok(surface)
     }
 
@@ -4361,7 +4362,19 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.new_screen_with_cwd(workspace, None, size)
+        self.new_screen_with_activation(workspace, size, true).map(|(surface, _)| surface)
+    }
+
+    /// Create a screen without requiring the caller to take over the owner
+    /// TUI's active screen. The returned placement lets an independent
+    /// frontend select the created screen in its own presentation model.
+    pub fn new_screen_with_activation(
+        self: &Arc<Self>,
+        workspace: Option<WorkspaceId>,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        self.new_screen_with_cwd(workspace, None, size, activate)
     }
 
     fn new_screen_with_cwd(
@@ -4369,7 +4382,8 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         // Validate the target before spawning a child.
         let workspace_key = {
             let state = self.state.lock().unwrap();
@@ -4379,7 +4393,19 @@ impl Mux {
                 }
                 None if state.workspaces.is_empty() => {
                     drop(state);
-                    return self.new_workspace(None, size);
+                    let surface = self.new_workspace(None, size)?;
+                    let placement = self.with_state(|state| {
+                        let pane = state.pane_of(surface.id).expect("new workspace pane");
+                        let (workspace, screen) =
+                            state.screen_of(pane).expect("new workspace screen");
+                        RunPlacement {
+                            surface: surface.id,
+                            pane,
+                            screen: state.workspaces[workspace].screens[screen].id,
+                            workspace: state.workspaces[workspace].id,
+                        }
+                    });
+                    return Ok((surface, placement));
                 }
                 Some(id) => state.workspace_by_id(id).map(|workspace| workspace.key.clone()),
                 None => state
@@ -4415,11 +4441,15 @@ impl Mux {
                         layout_revision: 0,
                         layout_undo: Default::default(),
                     });
-                    ws.active_screen = ws.screens.len() - 1;
+                    if activate {
+                        ws.active_screen = ws.screens.len() - 1;
+                    }
                     let workspace = ws.id;
                     let index = ws.screens.len() - 1;
                     state.insert_pane(pane);
-                    stamp_pane_focus(self, &mut state, pane_id);
+                    if activate {
+                        stamp_pane_focus(self, &mut state, pane_id);
+                    }
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &notifications,
@@ -4427,16 +4457,24 @@ impl Mux {
                         screen_id,
                     )
                     .expect("new screen is present in tree snapshot");
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::ScreenAdded,
-                        workspace,
-                        screen: Some(screen_id),
-                        pane: None,
-                        surface: None,
-                        index: Some(index),
-                        entity,
-                        workspace_revision: None,
-                    })
+                    Some((
+                        TreeDelta {
+                            kind: TreeDeltaKind::ScreenAdded,
+                            workspace,
+                            screen: Some(screen_id),
+                            pane: None,
+                            surface: None,
+                            index: Some(index),
+                            entity,
+                            workspace_revision: None,
+                        },
+                        RunPlacement {
+                            surface: surface.id,
+                            pane: pane_id,
+                            screen: screen_id,
+                            workspace,
+                        },
+                    ))
                 }
                 None => None,
             }
@@ -4449,9 +4487,9 @@ impl Mux {
             )?;
             anyhow::bail!("workspace disappeared while creating screen");
         };
-        self.emit_tree_delta(delta, true);
+        self.emit_tree_delta(delta.0, activate);
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok((surface, delta.1))
     }
 
     /// Create a tab in a pane (default: the active pane of the active
@@ -4486,7 +4524,9 @@ impl Mux {
         let Some(target) = target else {
             if let Some(workspace) = empty_workspace {
                 return self
-                    .create_terminal_in_workspace_impl(workspace, None, cwd, None, size, None)
+                    .create_terminal_in_workspace_impl(
+                        workspace, None, cwd, None, size, None, None, true,
+                    )
                     .map(|(_, surface)| surface);
             }
             return self.new_workspace(None, size);
@@ -4564,6 +4604,30 @@ impl Mux {
             .map(|(_, placement)| placement)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_terminal_in_workspace_at(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        target_pane: Option<PaneId>,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        self.create_terminal_in_workspace_impl(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            None,
+            target_pane,
+            activate,
+        )
+        .map(|(placement, _)| placement)
+    }
+
     fn create_terminal_surface_in_workspace(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -4572,8 +4636,9 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let (placement, surface) =
-            self.create_terminal_in_workspace_impl(workspace, argv, cwd, name, size, None)?;
+        let (placement, surface) = self.create_terminal_in_workspace_impl(
+            workspace, argv, cwd, name, size, None, None, true,
+        )?;
         Ok((surface, placement))
     }
 
@@ -4589,6 +4654,38 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<TerminalPlacementResult> {
+        self.create_terminal_in_workspace_with_mutation_at(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            None,
+            true,
+        )
+    }
+
+    /// Create a terminal at one exact canonical pane without requiring the
+    /// caller to take over the owner TUI's active tab or focus path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_terminal_in_workspace_with_mutation_at(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        target_pane: Option<PaneId>,
+        activate: bool,
     ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
@@ -4607,6 +4704,8 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            target_pane,
+            activate,
         )?;
         let replay =
             { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
@@ -4634,6 +4733,8 @@ impl Mux {
             name,
             size,
             Some(reservation),
+            target_pane,
+            activate,
         )?;
         let identity = surface
             .terminal_host_identity()
@@ -4675,6 +4776,7 @@ impl Mux {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_terminal_in_workspace_impl(
         self: &Arc<Self>,
         workspace: WorkspaceId,
@@ -4683,11 +4785,21 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         reservation: Option<TerminalReservationRequest>,
+        target_pane: Option<PaneId>,
+        activate: bool,
     ) -> anyhow::Result<(RunPlacement, Arc<Surface>)> {
         {
             let state = self.state.lock().unwrap();
             if state.workspace_by_id(workspace).is_none() {
                 anyhow::bail!("unknown workspace {workspace}");
+            }
+            if let Some(target_pane) = target_pane {
+                let target_workspace = state
+                    .screen_of(target_pane)
+                    .map(|(workspace, _)| state.workspaces[workspace].id);
+                if target_workspace != Some(workspace) {
+                    anyhow::bail!("pane {target_pane} is not in workspace {workspace}");
+                }
             }
         }
         #[cfg(test)]
@@ -4711,7 +4823,15 @@ impl Mux {
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
-            (workspace.key.clone(), workspace.active_screen_ref().map(|screen| screen.active_pane))
+            let inherited_pane = target_pane
+                .or_else(|| workspace.active_screen_ref().map(|screen| screen.active_pane));
+            if let Some(target_pane) = target_pane
+                && state.screen_of(target_pane).map(|(workspace, _)| state.workspaces[workspace].id)
+                    != Some(workspace.id)
+            {
+                anyhow::bail!("pane {target_pane} is not in workspace {}", workspace.id);
+            }
+            (workspace.key.clone(), inherited_pane)
         };
         let inherited_cwd = inherited_pane.and_then(|pane| self.pane_cwd(pane));
         let surface = match reservation {
@@ -4736,7 +4856,12 @@ impl Mux {
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
-            let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
+            let projected = self.bind_running_terminal_to_canonical_workspace_at(
+                &surface,
+                target_pane,
+                activate,
+                Some(&workspace_key),
+            );
             let (placement, canonical_workspace, changed) = match projected {
                 Ok(projected) => projected,
                 Err(error) => {
@@ -4769,7 +4894,11 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("workspace disappeared while creating terminal");
             };
-            let target = state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
+            let target = target_pane
+                .filter(|pane| state.screen_of(*pane).is_some_and(|(owner, _)| owner == wi))
+                .or_else(|| {
+                    state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane)
+                });
             if let Some(target) = target {
                 let Some((_, si)) = state.screen_of(target) else {
                     state.surfaces.remove(&surface.id);
@@ -4782,8 +4911,10 @@ impl Mux {
                     anyhow::bail!("workspace active pane disappeared while creating terminal");
                 };
                 pane.tabs.push(surface.id);
-                pane.active_tab = pane.tabs.len() - 1;
-                pane.active_at = active_at;
+                if activate {
+                    pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = active_at;
+                }
                 let index = pane.tabs.len() - 1;
                 let screen = state.workspaces[wi].screens[si].id;
                 let entity = crate::server::tree_entity_json(
@@ -4855,7 +4986,7 @@ impl Mux {
             }
         };
         drop(pending_surface);
-        self.emit_tree_delta(attached.1, attached.2);
+        self.emit_tree_delta(attached.1, activate && attached.2);
         drop(workspace_lifecycle);
         self.reap_if_dead(&surface);
         Ok((attached.0, surface))
@@ -4864,9 +4995,20 @@ impl Mux {
     /// Bind a just-launched hosted surface using the latest durable row, not
     /// the workspace requested before process launch. Holding registry ->
     /// state through projection is the create/move serialization fence.
+    #[cfg(test)]
     fn bind_running_terminal_to_canonical_workspace(
         &self,
         surface: &Arc<Surface>,
+    ) -> anyhow::Result<(RunPlacement, String, bool)> {
+        self.bind_running_terminal_to_canonical_workspace_at(surface, None, true, None)
+    }
+
+    fn bind_running_terminal_to_canonical_workspace_at(
+        &self,
+        surface: &Arc<Surface>,
+        target_pane: Option<PaneId>,
+        activate: bool,
+        requested_workspace_key: Option<&str>,
     ) -> anyhow::Result<(RunPlacement, String, bool)> {
         let identity = surface
             .terminal_host_identity()
@@ -4885,10 +5027,15 @@ impl Mux {
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }
-        let (placement, changed) = self.project_terminal_to_workspace_in_state(
+        let target_pane = (requested_workspace_key == Some(terminal.workspace_key.as_str()))
+            .then_some(target_pane)
+            .flatten();
+        let (placement, changed) = self.project_terminal_to_workspace_at_in_state(
             &mut state,
             &identity.terminal_id,
             &terminal.workspace_key,
+            target_pane,
+            activate,
         )?;
         let placement =
             placement.ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
@@ -5069,6 +5216,30 @@ impl Mux {
             return Ok(surface);
         };
 
+        self.new_browser_tab_in_pane(target, url, size, true).map(|(surface, _)| surface)
+    }
+
+    pub fn new_browser_tab_in_pane(
+        self: &Arc<Self>,
+        target: PaneId,
+        url: String,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        self.new_browser_tab_in_pane_at(target, url, size, usize::MAX, activate)
+    }
+
+    pub fn new_browser_tab_in_pane_at(
+        self: &Arc<Self>,
+        target: PaneId,
+        url: String,
+        size: Option<(u16, u16)>,
+        index: usize,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        if self.state.lock().unwrap().screen_of(target).is_none() {
+            anyhow::bail!("unknown pane {target}");
+        }
         let surface = self.spawn_browser_surface(url, size, None);
         let active_at = self.next_active_at();
         let notifications = self.surface_notifications();
@@ -5076,10 +5247,18 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
                 Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
-                    pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
+                    let previous_active = pane.active_surface();
+                    let index = index.min(pane.tabs.len());
+                    pane.tabs.insert(index, surface.id);
+                    if activate {
+                        pane.active_tab = index;
+                        pane.active_at = active_at;
+                    } else if let Some(previous_active) = previous_active
+                        && let Some(previous_index) =
+                            pane.tabs.iter().position(|candidate| *candidate == previous_active)
+                    {
+                        pane.active_tab = previous_index;
+                    }
                     let (wi, si) = state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[wi].id;
                     let screen = state.workspaces[wi].screens[si].id;
@@ -5111,9 +5290,15 @@ impl Mux {
             surface.kill();
             anyhow::bail!("pane disappeared while creating browser tab");
         };
-        self.emit_tree_delta(delta, true);
+        let placement = RunPlacement {
+            surface: surface.id,
+            pane: delta.pane.expect("browser tab delta has a pane"),
+            screen: delta.screen.expect("browser tab delta has a screen"),
+            workspace: delta.workspace,
+        };
+        self.emit_tree_delta(delta, activate);
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok((surface, placement))
     }
 
     fn create_browser_surface_in_workspace(
@@ -5330,7 +5515,28 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        self.split_with_viewport_width(target, dir, size, None)
+        self.split_with_activation(target, dir, size, true).map(|(surface, _)| surface)
+    }
+
+    pub fn split_with_activation(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        self.split_with_viewport_width(target, dir, size, None, None, activate)
+    }
+
+    pub fn split_browser_with_activation(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        url: String,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        self.split_with_viewport_width(target, dir, size, None, Some(url), activate)
     }
 
     /// Add a terminal as a viewport-width column after the target's column.
@@ -5344,12 +5550,45 @@ impl Mux {
         width: f32,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_right_with_activation(target, width, size, true).map(|(surface, _)| surface)
+    }
+
+    pub fn new_pane_right_with_activation(
+        self: &Arc<Self>,
+        target: PaneId,
+        width: f32,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
             return Err(ViewportWidthError::OutOfRange { width }.into());
         }
-        self.split_with_viewport_width(target, SplitDir::Right, size, Some(width))
+        self.split_with_viewport_width(target, SplitDir::Right, size, Some(width), None, activate)
+    }
+
+    pub fn new_browser_pane_right_with_activation(
+        self: &Arc<Self>,
+        target: PaneId,
+        width: f32,
+        url: String,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width }.into());
+        }
+        self.split_with_viewport_width(
+            target,
+            SplitDir::Right,
+            size,
+            Some(width),
+            Some(url),
+            activate,
+        )
     }
 
     fn split_with_viewport_width(
@@ -5358,18 +5597,23 @@ impl Mux {
         dir: SplitDir,
         size: Option<(u16, u16)>,
         viewport_width: Option<f32>,
-    ) -> anyhow::Result<Arc<Surface>> {
+        browser_url: Option<String>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         let cwd = self.pane_cwd(target);
         let workspace_key = self
             .workspace_key_for_pane(target)
             .ok_or_else(|| anyhow::anyhow!("pane {target} has no workspace"))?;
-        let surface = match self.spawn_surface_in_workspace(&workspace_key, cwd, size, None) {
-            Ok(surface) => surface,
-            Err(error) if viewport_width.is_some() => {
-                eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
-                return Err(anyhow::anyhow!("pane creation failed"));
-            }
-            Err(error) => return Err(error),
+        let surface = match browser_url {
+            Some(url) => self.spawn_browser_surface(url, size, None),
+            None => match self.spawn_surface_in_workspace(&workspace_key, cwd, size, None) {
+                Ok(surface) => surface,
+                Err(error) if viewport_width.is_some() => {
+                    eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
+                    return Err(anyhow::anyhow!("pane creation failed"));
+                }
+                Err(error) => return Err(error),
+            },
         };
         #[cfg(test)]
         if viewport_width.is_some()
@@ -5427,8 +5671,10 @@ impl Mux {
                         inserted
                     };
                     if split {
-                        screen.active_pane = pane_id;
-                        screen.zoomed_pane = None;
+                        if activate {
+                            screen.active_pane = pane_id;
+                            screen.zoomed_pane = None;
+                        }
                         screen.record_layout_change(before, vec![pane_id], None);
                         changed_screen = Some(screen.id);
                         changed_workspace = Some(ws.id);
@@ -5446,7 +5692,9 @@ impl Mux {
                     active_at,
                     focused_at: 0,
                 });
-                stamp_pane_focus(self, &mut state, pane_id);
+                if activate {
+                    stamp_pane_focus(self, &mut state, pane_id);
+                }
                 let entity = crate::server::tree_entity_json(
                     &state,
                     &notifications,
@@ -5470,7 +5718,7 @@ impl Mux {
             }
         }
         if !done {
-            if viewport_width.is_none() {
+            if viewport_width.is_none() && surface.kind() == SurfaceKind::Pty {
                 self.fail_hosted_terminal_attachment(
                     &surface,
                     "terminal-split-attach-failed",
@@ -5489,7 +5737,15 @@ impl Mux {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok((
+            surface.clone(),
+            RunPlacement {
+                surface: surface.id,
+                pane: pane_id,
+                screen: changed_screen.expect("successful split has a screen"),
+                workspace: changed_workspace.expect("successful split has a workspace"),
+            },
+        ))
     }
 
     /// Create a pane and reapply Zellij's default pane distribution to the
@@ -5501,6 +5757,15 @@ impl Mux {
         target: PaneId,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_pane_with_activation(target, size, true).map(|(surface, _)| surface)
+    }
+
+    pub fn new_pane_with_activation(
+        self: &Arc<Self>,
+        target: PaneId,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
         if self.state.lock().unwrap().screen_of(target).is_none() {
             anyhow::bail!("unknown pane {target}");
         }
@@ -5546,8 +5811,10 @@ impl Mux {
                             || self.next_id(),
                         );
                     }
-                    screen.active_pane = pane_id;
-                    screen.zoomed_pane = None;
+                    if activate {
+                        screen.active_pane = pane_id;
+                        screen.zoomed_pane = None;
+                    }
                     screen.record_layout_change(before, vec![pane_id], None);
                     changed_screen = Some(screen.id);
                     changed_workspace = Some(ws.id);
@@ -5563,7 +5830,9 @@ impl Mux {
                     active_at,
                     focused_at: 0,
                 });
-                stamp_pane_focus(self, &mut state, pane_id);
+                if activate {
+                    stamp_pane_focus(self, &mut state, pane_id);
+                }
                 Self::rebuild_split_screen_index(&mut state);
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -5593,7 +5862,15 @@ impl Mux {
         self.emit(MuxEvent::TreeDelta(delta.expect("successful new pane has a tree delta")));
         self.emit(MuxEvent::LayoutChanged(screen));
         self.reap_if_dead(&surface);
-        Ok(surface)
+        Ok((
+            surface.clone(),
+            RunPlacement {
+                surface: surface.id,
+                pane: pane_id,
+                screen,
+                workspace: changed_workspace.expect("successful new pane has a workspace"),
+            },
+        ))
     }
 
     /// Close one tab. When it was the pane's last tab, the pane collapses
@@ -7638,6 +7915,23 @@ impl Mux {
         terminal_id: &str,
         workspace_key: &str,
     ) -> anyhow::Result<(Option<RunPlacement>, bool)> {
+        self.project_terminal_to_workspace_at_in_state(
+            state,
+            terminal_id,
+            workspace_key,
+            None,
+            false,
+        )
+    }
+
+    fn project_terminal_to_workspace_at_in_state(
+        &self,
+        state: &mut State,
+        terminal_id: &str,
+        workspace_key: &str,
+        target_pane: Option<PaneId>,
+        activate: bool,
+    ) -> anyhow::Result<(Option<RunPlacement>, bool)> {
         let identity = unique_terminal_match(
             terminal_id,
             state.surfaces.values().filter_map(|surface| {
@@ -7664,38 +7958,49 @@ impl Mux {
         {
             return Ok((Some(current), false));
         }
-        let target_pane = state.workspaces[destination]
-            .active_screen_ref()
-            .map(|screen| screen.active_pane)
-            .unwrap_or_else(|| {
-                let pane = self.next_id();
-                let screen = self.next_id();
-                state.insert_pane(Pane {
-                    id: pane,
-                    name: None,
-                    tabs: Vec::new(),
-                    active_tab: 0,
-                    active_at,
-                    // The projection preserves the user's existing focus
-                    // identity below; this destination starts unfocused.
-                    focused_at: 0,
-                });
-                state.workspaces[destination].screens.push(Screen {
-                    id: screen,
-                    name: None,
-                    root: Node::Leaf(pane),
-                    active_pane: pane,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
-                state.workspaces[destination].active_screen = 0;
+        let target_pane = match target_pane {
+            Some(pane)
+                if state.screen_of(pane).is_some_and(|(workspace, _)| workspace == destination) =>
+            {
                 pane
-            });
+            }
+            Some(pane) => anyhow::bail!(
+                "pane {pane} is not in workspace {}",
+                state.workspaces[destination].id
+            ),
+            None => state.workspaces[destination]
+                .active_screen_ref()
+                .map(|screen| screen.active_pane)
+                .unwrap_or_else(|| {
+                    let pane = self.next_id();
+                    let screen = self.next_id();
+                    state.insert_pane(Pane {
+                        id: pane,
+                        name: None,
+                        tabs: Vec::new(),
+                        active_tab: 0,
+                        active_at,
+                        // The projection preserves the user's existing focus
+                        // identity below; this destination starts unfocused.
+                        focused_at: 0,
+                    });
+                    state.workspaces[destination].screens.push(Screen {
+                        id: screen,
+                        name: None,
+                        root: Node::Leaf(pane),
+                        active_pane: pane,
+                        zoomed_pane: None,
+                        zellij_auto_layout: Some(vec![pane]),
+                        viewport_splits: Default::default(),
+                        viewport_base_width: None,
+                        layout_columns: Vec::new(),
+                        layout_revision: 0,
+                        layout_undo: Default::default(),
+                    });
+                    state.workspaces[destination].active_screen = 0;
+                    pane
+                }),
+        };
         if state.pane_of(surface).is_some() {
             let (moved, topology_changed) =
                 move_tab_in_state(self, state, surface, target_pane, usize::MAX);
@@ -7711,9 +8016,17 @@ impl Mux {
                 .get_mut(&target_pane)
                 .ok_or_else(|| anyhow::anyhow!("destination pane disappeared"))?;
             pane.tabs.push(surface);
-            pane.active_tab = pane.tabs.len() - 1;
-            pane.active_at = active_at;
+            if activate {
+                pane.active_tab = pane.tabs.len() - 1;
+                pane.active_at = active_at;
+            }
         }
+        let preserved_focus = preserved_focus.map(|mut focus| {
+            if activate {
+                focus.surface = None;
+            }
+            focus
+        });
         restore_focus_identity(state, preserved_focus);
         let placement = run_placement_for_surface(state, surface)
             .ok_or_else(|| anyhow::anyhow!("terminal move did not produce a binding"))?;
@@ -7723,7 +8036,426 @@ impl Mux {
     /// Move an existing tab to `index` in `pane`. The surface is kept
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
+    pub fn move_tab_to_split_with_activation(
+        &self,
+        surface: SurfaceId,
+        target: PaneId,
+        dir: SplitDir,
+        insert_first: bool,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        let pane_id = self.next_id();
+        let split_id = self.next_id();
+        let active_at = self.next_active_at();
+        let (placement, screen_id) = {
+            let mut state = self.state.lock().unwrap();
+            let previous_focus = current_focus_identity(&state);
+            let source = state
+                .pane_of(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+            let source_path =
+                state.screen_of(source).ok_or_else(|| anyhow::anyhow!("orphan source pane"))?;
+            let target_path =
+                state.screen_of(target).ok_or_else(|| anyhow::anyhow!("unknown pane {target}"))?;
+            if source_path != target_path {
+                anyhow::bail!("source and target must belong to the same screen");
+            }
+            if source == target && state.panes.get(&source).is_some_and(|pane| pane.tabs.len() == 1)
+            {
+                anyhow::bail!("cannot split a pane's only tab out of itself");
+            }
+            let (workspace_index, screen_index) = target_path;
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            {
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                screen.invalidate_layout_undo();
+                let inserted = if screen.layout_columns_active() {
+                    let column = screen
+                        .layout_column_for_pane_mut(target)
+                        .expect("target screen has a canonical column");
+                    let inserted = column.root.split_leaf_ordered(
+                        target,
+                        split_id,
+                        dir,
+                        pane_id,
+                        insert_first,
+                    );
+                    if inserted {
+                        column.zellij_auto_layout = None;
+                    }
+                    inserted
+                } else {
+                    let inserted = screen.root.split_leaf_ordered(
+                        target,
+                        split_id,
+                        dir,
+                        pane_id,
+                        insert_first,
+                    );
+                    if inserted {
+                        screen.zellij_auto_layout = None;
+                    }
+                    inserted
+                };
+                if !inserted {
+                    anyhow::bail!("target pane disappeared");
+                }
+                if screen.layout_columns_active() {
+                    screen.sync_layout_column_projection();
+                }
+                screen.zoomed_pane = None;
+            }
+            state.insert_pane(Pane {
+                id: pane_id,
+                name: None,
+                tabs: Vec::new(),
+                active_tab: 0,
+                active_at,
+                focused_at: 0,
+            });
+            let (moved, _) = move_tab_in_state(self, &mut state, surface, pane_id, 0);
+            if !moved {
+                unreachable!("validated tab move into a newly inserted pane must succeed");
+            }
+            if activate {
+                stamp_pane_focus(self, &mut state, pane_id);
+            } else {
+                restore_focus_identity(&mut state, previous_focus);
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let placement = run_placement_for_surface(&state, surface)
+                .expect("moved tab has a canonical placement");
+            (placement, screen_id)
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(placement)
+    }
+
+    pub fn move_tab_to_new_column_with_activation(
+        &self,
+        surface: SurfaceId,
+        index: usize,
+        width: f32,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width }.into());
+        }
+        let pane_id = self.next_id();
+        let column_id = self.next_id();
+        let base_column_id = self.next_id();
+        let active_at = self.next_active_at();
+        let (placement, screen_id) = {
+            let mut state = self.state.lock().unwrap();
+            let previous_focus = current_focus_identity(&state);
+            let source = state
+                .pane_of(surface)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
+            let (workspace_index, screen_index) =
+                state.screen_of(source).ok_or_else(|| anyhow::anyhow!("orphan source pane"))?;
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            {
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                screen.invalidate_layout_undo();
+                let column = LayoutColumn {
+                    id: column_id,
+                    width,
+                    root: Node::Leaf(pane_id),
+                    zellij_auto_layout: Some(vec![pane_id]),
+                };
+                if screen.layout_columns_active() {
+                    let at = index.min(screen.layout_columns.len());
+                    screen.layout_columns.insert(at, column);
+                } else {
+                    let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+                    let base = LayoutColumn {
+                        id: base_column_id,
+                        width: screen.viewport_base_width.unwrap_or(1.0),
+                        root,
+                        zellij_auto_layout: screen.zellij_auto_layout.take(),
+                    };
+                    screen.layout_columns = vec![base];
+                    let at = index.min(screen.layout_columns.len());
+                    screen.layout_columns.insert(at, column);
+                }
+                screen.sync_layout_column_projection();
+                screen.zoomed_pane = None;
+            }
+            state.insert_pane(Pane {
+                id: pane_id,
+                name: None,
+                tabs: Vec::new(),
+                active_tab: 0,
+                active_at,
+                focused_at: 0,
+            });
+            let (moved, _) = move_tab_in_state(self, &mut state, surface, pane_id, 0);
+            if !moved {
+                unreachable!("validated tab move into a newly inserted column must succeed");
+            }
+            if activate {
+                stamp_pane_focus(self, &mut state, pane_id);
+            } else {
+                restore_focus_identity(&mut state, previous_focus);
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let placement = run_placement_for_surface(&state, surface)
+                .expect("moved tab has a canonical placement");
+            (placement, screen_id)
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(placement)
+    }
+
+    pub fn merge_pane_with_activation(
+        &self,
+        source: PaneId,
+        target: PaneId,
+        index: usize,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        if source == target {
+            anyhow::bail!("source and target panes must differ");
+        }
+        let (placement, screen_id) = {
+            let mut state = self.state.lock().unwrap();
+            let previous_focus = current_focus_identity(&state);
+            let source_path =
+                state.screen_of(source).ok_or_else(|| anyhow::anyhow!("unknown pane {source}"))?;
+            let target_path =
+                state.screen_of(target).ok_or_else(|| anyhow::anyhow!("unknown pane {target}"))?;
+            if source_path != target_path {
+                anyhow::bail!("source and target must belong to the same screen");
+            }
+            let (workspace_index, screen_index) = target_path;
+            {
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                detach_pane_layout_for_relocation(screen, source)
+                    .ok_or_else(|| anyhow::anyhow!("could not detach source pane"))?;
+                finish_relocated_screen_layout(screen);
+                if screen.active_pane == source {
+                    screen.active_pane = target;
+                }
+                screen.zoomed_pane = None;
+            }
+            let source_pane = state
+                .remove_pane(source)
+                .ok_or_else(|| anyhow::anyhow!("unknown pane {source}"))?;
+            let source_active = source_pane.active_surface();
+            let moved_surfaces = source_pane.tabs.clone();
+            let workspace_id = state.workspaces[workspace_index].id;
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            let target_pane =
+                state.panes.get_mut(&target).expect("validated target pane remains live");
+            let target_active = target_pane.active_surface();
+            let insert_at = index.min(target_pane.tabs.len());
+            target_pane.tabs.splice(insert_at..insert_at, source_pane.tabs);
+            if activate || previous_focus.is_some_and(|focus| focus.pane == source) {
+                target_pane.active_tab =
+                    insert_at + source_pane.active_tab.min(moved_surfaces.len().saturating_sub(1));
+            } else if let Some(target_active) = target_active
+                && let Some(active_index) =
+                    target_pane.tabs.iter().position(|surface| *surface == target_active)
+            {
+                target_pane.active_tab = active_index;
+            }
+            for surface in &moved_surfaces {
+                self.subscribers.update_surface_session_path(
+                    *surface,
+                    workspace_id,
+                    screen_id,
+                    target,
+                );
+            }
+            let rewritten_focus = previous_focus.map(|mut focus| {
+                if focus.pane == source {
+                    focus.pane = target;
+                    focus.surface = source_active;
+                }
+                focus
+            });
+            if activate {
+                state.active_workspace = workspace_index;
+                state.workspaces[workspace_index].active_screen = screen_index;
+                state.workspaces[workspace_index].screens[screen_index].active_pane = target;
+                stamp_pane_focus(self, &mut state, target);
+            } else {
+                restore_focus_identity(&mut state, rewritten_focus);
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let selection_surface = source_active
+                .or_else(|| moved_surfaces.first().copied())
+                .expect("a canonical pane always contains a surface");
+            let placement = run_placement_for_surface(&state, selection_surface)
+                .expect("merged pane surface has a canonical placement");
+            (placement, screen_id)
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(placement)
+    }
+
+    pub fn move_pane_to_split_with_activation(
+        &self,
+        source: PaneId,
+        target: PaneId,
+        dir: SplitDir,
+        insert_first: bool,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        if source == target {
+            anyhow::bail!("source and target panes must differ");
+        }
+        let split_id = self.next_id();
+        let (placement, screen_id) = {
+            let mut state = self.state.lock().unwrap();
+            let previous_focus = current_focus_identity(&state);
+            let source_path =
+                state.screen_of(source).ok_or_else(|| anyhow::anyhow!("unknown pane {source}"))?;
+            let target_path =
+                state.screen_of(target).ok_or_else(|| anyhow::anyhow!("unknown pane {target}"))?;
+            if source_path != target_path {
+                anyhow::bail!("source and target must belong to the same screen");
+            }
+            let (workspace_index, screen_index) = target_path;
+            {
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                detach_pane_layout_for_relocation(screen, source)
+                    .ok_or_else(|| anyhow::anyhow!("could not detach source pane"))?;
+                let inserted = if screen.layout_columns_active() {
+                    let column = screen
+                        .layout_column_for_pane_mut(target)
+                        .ok_or_else(|| anyhow::anyhow!("target pane disappeared"))?;
+                    let inserted =
+                        column.root.split_leaf_ordered(target, split_id, dir, source, insert_first);
+                    if inserted {
+                        column.zellij_auto_layout = None;
+                    }
+                    inserted
+                } else {
+                    let inserted =
+                        screen.root.split_leaf_ordered(target, split_id, dir, source, insert_first);
+                    if inserted {
+                        screen.zellij_auto_layout = None;
+                    }
+                    inserted
+                };
+                if !inserted {
+                    anyhow::bail!("target pane disappeared");
+                }
+                finish_relocated_screen_layout(screen);
+                screen.zoomed_pane = None;
+            }
+            if activate {
+                state.active_workspace = workspace_index;
+                state.workspaces[workspace_index].active_screen = screen_index;
+                state.workspaces[workspace_index].screens[screen_index].active_pane = source;
+                stamp_pane_focus(self, &mut state, source);
+            } else {
+                restore_focus_identity(&mut state, previous_focus);
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let placement = run_placement_for_pane(&state, source)
+                .expect("moved pane has a canonical placement");
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            (placement, screen_id)
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(placement)
+    }
+
+    pub fn move_pane_to_new_column_with_activation(
+        &self,
+        source: PaneId,
+        index: usize,
+        width: f32,
+        activate: bool,
+    ) -> anyhow::Result<RunPlacement> {
+        if !width.is_finite()
+            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
+        {
+            return Err(ViewportWidthError::OutOfRange { width }.into());
+        }
+        let column_id = self.next_id();
+        let base_column_id = self.next_id();
+        let (placement, screen_id) = {
+            let mut state = self.state.lock().unwrap();
+            let previous_focus = current_focus_identity(&state);
+            let (workspace_index, screen_index) =
+                state.screen_of(source).ok_or_else(|| anyhow::anyhow!("unknown pane {source}"))?;
+            {
+                let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let pre_count =
+                    if screen.layout_columns_active() { screen.layout_columns.len() } else { 1 };
+                let requested = index.min(pre_count);
+                let detached = detach_pane_layout_for_relocation(screen, source)
+                    .ok_or_else(|| anyhow::anyhow!("cannot move the screen's only pane"))?;
+                let source_column = detached.source_column;
+                let had_column = detached.column.is_some();
+                let mut column = match detached.column {
+                    Some(column) => column,
+                    None => LayoutColumn {
+                        id: column_id,
+                        width,
+                        root: Node::Leaf(source),
+                        zellij_auto_layout: Some(vec![source]),
+                    },
+                };
+                column.root = Node::Leaf(source);
+                column.zellij_auto_layout = Some(vec![source]);
+                let mut insert_at = requested;
+                if had_column && requested > source_column {
+                    insert_at = insert_at.saturating_sub(1);
+                }
+                if !screen.layout_columns_active() {
+                    let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+                    screen.layout_columns.push(LayoutColumn {
+                        id: base_column_id,
+                        width: screen.viewport_base_width.unwrap_or(1.0),
+                        root,
+                        zellij_auto_layout: screen.zellij_auto_layout.take(),
+                    });
+                }
+                insert_at = insert_at.min(screen.layout_columns.len());
+                screen.layout_columns.insert(insert_at, column);
+                screen.sync_layout_column_projection();
+                screen.zoomed_pane = None;
+            }
+            if activate {
+                state.active_workspace = workspace_index;
+                state.workspaces[workspace_index].active_screen = screen_index;
+                state.workspaces[workspace_index].screens[screen_index].active_pane = source;
+                stamp_pane_focus(self, &mut state, source);
+            } else {
+                restore_focus_identity(&mut state, previous_focus);
+            }
+            Self::rebuild_split_screen_index(&mut state);
+            let placement = run_placement_for_pane(&state, source)
+                .expect("moved pane has a canonical placement");
+            let screen_id = state.workspaces[workspace_index].screens[screen_index].id;
+            (placement, screen_id)
+        };
+        self.emit(MuxEvent::TreeChanged);
+        self.emit(MuxEvent::LayoutChanged(screen_id));
+        Ok(placement)
+    }
+
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
+        self.move_tab_with_activation(surface, pane, index, true)
+    }
+
+    pub fn move_tab_with_activation(
+        &self,
+        surface: SurfaceId,
+        pane: PaneId,
+        index: usize,
+        activate: bool,
+    ) -> bool {
         let move_tab = || {
             let hosted_identity =
                 self.surface(surface).and_then(|surface| surface.terminal_host_identity());
@@ -7731,6 +8463,7 @@ impl Mux {
                 hosted_identity.as_ref().map(|_| self.workspace_registry.lock().unwrap());
             let mut state = self.state.lock().unwrap();
             let workspace_count = state.workspaces.len();
+            let previous_focus = current_focus_identity(&state);
             let previous_active = state.active_pane();
             let source_pane = state.pane_of(surface);
             let source_screen = source_pane
@@ -7769,11 +8502,16 @@ impl Mux {
             let (moved, topology_changed) =
                 move_tab_in_state(self, &mut state, surface, pane, index);
             if moved {
-                let focused = previous_active != Some(pane) && state.active_pane() == Some(pane);
-                if focused {
-                    stamp_pane_focus(self, &mut state, pane);
-                } else if let Some(pane) = state.panes.get_mut(&pane) {
-                    pane.active_at = self.next_active_at();
+                if activate {
+                    let focused =
+                        previous_active != Some(pane) && state.active_pane() == Some(pane);
+                    if focused {
+                        stamp_pane_focus(self, &mut state, pane);
+                    } else if let Some(pane) = state.panes.get_mut(&pane) {
+                        pane.active_at = self.next_active_at();
+                    }
+                } else {
+                    restore_focus_identity(&mut state, previous_focus);
                 }
                 if state.workspaces.len() != workspace_count {
                     state.workspace_revision = state.workspace_revision.saturating_add(1);
@@ -8066,6 +8804,7 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
 /// workspace registry into a second secret store. Command arguments, cwd, and
 /// user-provided names can all contain credentials, so only their digest is
 /// persisted alongside the non-secret routing identity.
+#[allow(clippy::too_many_arguments)]
 fn terminal_create_fingerprint(
     workspace_key: &str,
     terminal_id: Option<&str>,
@@ -8073,12 +8812,16 @@ fn terminal_create_fingerprint(
     cwd: Option<&str>,
     name: Option<&str>,
     size: Option<(u16, u16)>,
+    target_pane: Option<PaneId>,
+    activate: bool,
 ) -> anyhow::Result<Value> {
     let request = serde_json::json!({
         "argv": argv,
         "cwd": cwd,
         "name": name,
         "size": size,
+        "target_pane": target_pane,
+        "activate": activate,
     });
     let digest = Sha256::digest(serde_json::to_vec(&request)?);
     let request_sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
@@ -8111,26 +8854,99 @@ fn run_placement_for_surface(state: &State, surface: SurfaceId) -> Option<RunPla
     })
 }
 
-type FocusIdentity = (WorkspaceId, ScreenId, PaneId);
+fn run_placement_for_pane(state: &State, pane: PaneId) -> Option<RunPlacement> {
+    let surface = state.panes.get(&pane)?.active_surface()?;
+    run_placement_for_surface(state, surface)
+}
+
+struct DetachedPaneLayout {
+    source_column: usize,
+    column: Option<LayoutColumn>,
+}
+
+/// Remove a pane id from one screen's layout without touching the pane or its
+/// surfaces. The caller must insert the same pane somewhere else before
+/// publishing the state. Keeping this separate from `collapse_empty_pane`
+/// makes pane relocation one atomic topology mutation.
+fn detach_pane_layout_for_relocation(
+    screen: &mut Screen,
+    pane: PaneId,
+) -> Option<DetachedPaneLayout> {
+    if screen.layout_columns_active() {
+        let source_column =
+            screen.layout_columns.iter().position(|column| column.root.contains(pane))?;
+        if screen.layout_columns[source_column].root.pane_ids_vec() == [pane] {
+            if screen.layout_columns.len() == 1 {
+                return None;
+            }
+            screen.invalidate_layout_undo();
+            let column = screen.layout_columns.remove(source_column);
+            return Some(DetachedPaneLayout { source_column, column: Some(column) });
+        }
+        screen.invalidate_layout_undo();
+        let column = &mut screen.layout_columns[source_column];
+        let root = std::mem::replace(&mut column.root, Node::Leaf(0));
+        column.root = root.remove_leaf(pane)?;
+        column.zellij_auto_layout = None;
+        return Some(DetachedPaneLayout { source_column, column: None });
+    }
+
+    if screen.root.pane_ids_vec() == [pane] {
+        return None;
+    }
+    screen.invalidate_layout_undo();
+    let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
+    let root = root.remove_leaf(pane)?;
+    screen.root = root;
+    screen.zellij_auto_layout = None;
+    Some(DetachedPaneLayout { source_column: 0, column: None })
+}
+
+fn finish_relocated_screen_layout(screen: &mut Screen) {
+    if screen.layout_columns_active() {
+        screen.collapse_single_layout_column();
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FocusIdentity {
+    workspace: WorkspaceId,
+    screen: ScreenId,
+    pane: PaneId,
+    surface: Option<SurfaceId>,
+}
 
 fn current_focus_identity(state: &State) -> Option<FocusIdentity> {
     let workspace = state.workspaces.get(state.active_workspace)?;
     let screen = workspace.active_screen_ref()?;
-    Some((workspace.id, screen.id, screen.active_pane))
+    let pane = state.panes.get(&screen.active_pane);
+    Some(FocusIdentity {
+        workspace: workspace.id,
+        screen: screen.id,
+        pane: screen.active_pane,
+        surface: pane.and_then(Pane::active_surface),
+    })
 }
 
 fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
-    let Some((workspace_id, screen_id, pane_id)) = focus else { return };
-    let Some(workspace_index) = state.workspace_index(workspace_id) else { return };
+    let Some(focus) = focus else { return };
+    let Some(workspace_index) = state.workspace_index(focus.workspace) else { return };
     state.active_workspace = workspace_index;
-    let Some(screen_index) =
-        state.workspaces[workspace_index].screens.iter().position(|screen| screen.id == screen_id)
+    let Some(screen_index) = state.workspaces[workspace_index]
+        .screens
+        .iter()
+        .position(|screen| screen.id == focus.screen)
     else {
         return;
     };
     state.workspaces[workspace_index].active_screen = screen_index;
-    if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
-        state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+    if state.workspaces[workspace_index].screens[screen_index].root.contains(focus.pane) {
+        state.workspaces[workspace_index].screens[screen_index].active_pane = focus.pane;
+        if let (Some(surface), Some(pane)) = (focus.surface, state.panes.get_mut(&focus.pane))
+            && let Some(index) = pane.tabs.iter().position(|candidate| *candidate == surface)
+        {
+            pane.active_tab = index;
+        }
     }
 }
 
@@ -8943,6 +9759,8 @@ mod tests {
             Some(&cwd),
             Some(&name),
             Some((80, 24)),
+            None,
+            true,
         )
         .unwrap();
         assert!(!serde_json::to_string(&fingerprint).unwrap().contains(sentinel));
@@ -11617,7 +12435,7 @@ mod tests {
             let pane = &s.panes[&pane];
             assert_eq!(pane.tabs.len(), 451);
             for surface in pane.tabs.iter().filter_map(|id| s.surfaces.get(id)) {
-                assert_eq!(surface.kind(), crate::surface::SurfaceKind::Pty);
+                assert_eq!(surface.kind(), SurfaceKind::Pty);
                 assert_eq!(surface.size(), (120, 40));
                 assert!(!surface.is_dead());
             }
@@ -11869,6 +12687,104 @@ mod tests {
         assert!(events.try_iter().all(
             |event| !matches!(event, MuxEvent::LayoutChanged(screen) if screen == source_screen)
         ));
+    }
+
+    #[test]
+    fn detached_tab_relocations_are_atomic_and_preserve_owner_focus() {
+        let mux = test_mux();
+        let owner_surface = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner_surface.id).unwrap());
+        let moving = mux.new_tab(Some(owner_pane), None, None).unwrap();
+        let target_surface = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target_surface.id).unwrap());
+        assert!(mux.focus_pane(owner_pane));
+        mux.select_tab(Some(owner_pane), Some(0), None);
+        let owner_focus = mux.with_state(current_focus_identity);
+
+        let split = mux
+            .move_tab_to_split_with_activation(moving.id, target_pane, SplitDir::Right, true, false)
+            .unwrap();
+        assert_ne!(split.pane, owner_pane);
+        assert_ne!(split.pane, target_pane);
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            let (_, screen_index) = state.screen_of(split.pane).unwrap();
+            let root = &state.workspaces[0].screens[screen_index].root;
+            let Node::Split { b, .. } = root else { panic!("expected original vertical split") };
+            let Node::Split { a, b, .. } = b.as_ref() else {
+                panic!("target should be replaced by the requested horizontal split");
+            };
+            assert!(matches!(a.as_ref(), Node::Leaf(pane) if *pane == split.pane));
+            assert!(matches!(b.as_ref(), Node::Leaf(pane) if *pane == target_pane));
+        });
+
+        let column = mux.move_tab_to_new_column_with_activation(moving.id, 0, 0.6, false).unwrap();
+        assert_ne!(column.pane, split.pane);
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            let (_, screen_index) = state.screen_of(column.pane).unwrap();
+            let screen = &state.workspaces[0].screens[screen_index];
+            assert!(screen.layout_columns_active());
+            assert_eq!(screen.layout_columns[0].root.pane_ids_vec(), vec![column.pane]);
+            assert_eq!(screen.layout_columns[0].width, 0.6);
+            assert!(screen.layout_column_projection_is_consistent());
+            assert!(!state.panes.contains_key(&split.pane));
+        });
+    }
+
+    #[test]
+    fn detached_pane_relocations_preserve_identity_tabs_and_owner_focus() {
+        let mux = test_mux();
+        let owner_surface = mux.new_workspace(None, None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner_surface.id).unwrap());
+        let source_surface = mux.split(owner_pane, SplitDir::Right, None).unwrap();
+        let source_pane = mux.with_state(|state| state.pane_of(source_surface.id).unwrap());
+        let source_extra = mux.new_tab(Some(source_pane), None, None).unwrap();
+        let target_surface = mux.split(source_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target_surface.id).unwrap());
+        assert!(mux.focus_pane(owner_pane));
+        let owner_focus = mux.with_state(current_focus_identity);
+
+        let split = mux
+            .move_pane_to_split_with_activation(
+                source_pane,
+                target_pane,
+                SplitDir::Right,
+                true,
+                false,
+            )
+            .unwrap();
+        assert_eq!(split.pane, source_pane);
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            assert_eq!(state.panes[&source_pane].tabs, vec![source_surface.id, source_extra.id]);
+        });
+
+        let column =
+            mux.move_pane_to_new_column_with_activation(source_pane, 0, 0.7, false).unwrap();
+        assert_eq!(column.pane, source_pane);
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            let (_, screen_index) = state.screen_of(source_pane).unwrap();
+            let screen = &state.workspaces[0].screens[screen_index];
+            assert!(screen.layout_columns_active());
+            assert_eq!(screen.layout_columns[0].root.pane_ids_vec(), vec![source_pane]);
+            assert!(screen.layout_column_projection_is_consistent());
+        });
+
+        let merged = mux.merge_pane_with_activation(source_pane, target_pane, 0, false).unwrap();
+        assert_eq!(merged.pane, target_pane);
+        mux.with_state(|state| {
+            assert_eq!(current_focus_identity(state), owner_focus);
+            assert!(!state.panes.contains_key(&source_pane));
+            assert_eq!(
+                state.panes[&target_pane].tabs,
+                vec![source_surface.id, source_extra.id, target_surface.id]
+            );
+            let (_, screen_index) = state.screen_of(target_pane).unwrap();
+            let screen = &state.workspaces[0].screens[screen_index];
+            assert!(screen.layout_column_projection_is_consistent());
+        });
     }
 
     #[test]
@@ -13067,6 +13983,87 @@ mod tests {
         }
         assert_eq!(mux.with_state(current_focus_identity), before);
         assert_eq!(mux.with_state(|state| state.pane_of(moving.id)), Some(destination_pane));
+    }
+
+    #[test]
+    fn detached_terminal_create_targets_pane_without_stealing_owner_selection() {
+        let mux = test_mux();
+        let owner = mux.new_workspace(Some("owner".into()), None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner.id).unwrap());
+        let target = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        assert!(mux.focus_pane(owner_pane));
+        let before = mux.with_state(current_focus_identity);
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+
+        let result = mux
+            .create_terminal_in_workspace_at(
+                workspace,
+                None,
+                None,
+                Some("detached".into()),
+                None,
+                Some(target_pane),
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(result.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&owner_pane].active_surface(), Some(owner.id));
+            assert_eq!(state.panes[&target_pane].active_surface(), Some(target.id));
+            assert_eq!(state.panes[&target_pane].tabs.last(), Some(&result.surface));
+        });
+    }
+
+    #[test]
+    fn detached_structural_mutations_preserve_owner_selection() {
+        let mux = test_mux();
+        let owner = mux.new_workspace(Some("owner".into()), None).unwrap();
+        let owner_pane = mux.with_state(|state| state.pane_of(owner.id).unwrap());
+        let target = mux.split(owner_pane, SplitDir::Down, None).unwrap();
+        let target_pane = mux.with_state(|state| state.pane_of(target.id).unwrap());
+        assert!(mux.focus_pane(owner_pane));
+        let before = mux.with_state(current_focus_identity);
+
+        let (_, automatic) = mux.new_pane_with_activation(target_pane, None, false).unwrap();
+        assert_ne!(automatic.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+
+        let (_, split) =
+            mux.split_with_activation(target_pane, SplitDir::Down, None, false).unwrap();
+        assert_ne!(split.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+
+        let (_, column) = mux
+            .new_pane_right_with_activation(target_pane, DEFAULT_VIEWPORT_PANE_WIDTH, None, false)
+            .unwrap();
+        assert_ne!(column.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+
+        let (browser, browser_placement) = mux
+            .new_browser_tab_in_pane(target_pane, "about:blank#detached".into(), None, false)
+            .unwrap();
+        assert_eq!(browser_placement.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+        let (browser_first, browser_first_placement) = mux
+            .new_browser_tab_in_pane_at(target_pane, "about:blank#first".into(), None, 0, false)
+            .unwrap();
+        assert_eq!(browser_first_placement.pane, target_pane);
+        assert_eq!(mux.with_state(current_focus_identity), before);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&target_pane].tabs.first(), Some(&browser_first.id));
+            assert_eq!(state.panes[&target_pane].active_surface(), Some(target.id));
+        });
+
+        assert!(mux.move_tab_with_activation(browser.id, owner_pane, usize::MAX, false,));
+        assert_eq!(mux.with_state(current_focus_identity), before);
+        mux.with_state(|state| {
+            assert_eq!(state.panes[&owner_pane].active_surface(), Some(owner.id));
+            assert_eq!(state.pane_of(browser.id), Some(owner_pane));
+        });
+        mux.shutdown();
     }
 
     #[test]

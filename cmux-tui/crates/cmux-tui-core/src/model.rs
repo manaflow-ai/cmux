@@ -286,33 +286,44 @@ impl Node {
         dir: SplitDir,
         new_pane: PaneId,
     ) -> bool {
+        self.split_leaf_ordered(target, split_id, dir, new_pane, false)
+    }
+
+    pub(crate) fn split_leaf_ordered(
+        &mut self,
+        target: PaneId,
+        split_id: SplitId,
+        dir: SplitDir,
+        new_pane: PaneId,
+        insert_first: bool,
+    ) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
                 let old = Node::Leaf(*id);
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
+                let (a, b) = if insert_first {
+                    (Node::Leaf(new_pane), old)
+                } else {
+                    (old, Node::Leaf(new_pane))
                 };
+                *self =
+                    Node::Split { id: split_id, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Leaf(_) => false,
             Node::Split { a, b, .. } => {
-                a.split_leaf(target, split_id, dir, new_pane)
-                    || b.split_leaf(target, split_id, dir, new_pane)
+                a.split_leaf_ordered(target, split_id, dir, new_pane, insert_first)
+                    || b.split_leaf_ordered(target, split_id, dir, new_pane, insert_first)
             }
             Node::Stack { panes, expanded } if panes.contains(&target) => {
                 *expanded = target;
                 let old = std::mem::replace(self, Node::Leaf(target));
-                *self = Node::Split {
-                    id: split_id,
-                    dir,
-                    ratio: 0.5,
-                    a: Box::new(old),
-                    b: Box::new(Node::Leaf(new_pane)),
+                let (a, b) = if insert_first {
+                    (Node::Leaf(new_pane), old)
+                } else {
+                    (old, Node::Leaf(new_pane))
                 };
+                *self =
+                    Node::Split { id: split_id, dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) };
                 true
             }
             Node::Stack { .. } => false,
@@ -516,6 +527,21 @@ mod tests {
 
         let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
         assert_eq!(id, 11);
+    }
+
+    #[test]
+    fn ordered_split_places_a_new_leaf_on_the_requested_side() {
+        let mut first = Node::Leaf(1);
+        assert!(first.split_leaf_ordered(1, 10, SplitDir::Right, 2, true));
+        let Node::Split { a, b, .. } = first else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(2)));
+        assert!(matches!(*b, Node::Leaf(1)));
+
+        let mut second = Node::Leaf(1);
+        assert!(second.split_leaf_ordered(1, 11, SplitDir::Down, 2, false));
+        let Node::Split { a, b, .. } = second else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(1)));
+        assert!(matches!(*b, Node::Leaf(2)));
     }
 
     #[test]
