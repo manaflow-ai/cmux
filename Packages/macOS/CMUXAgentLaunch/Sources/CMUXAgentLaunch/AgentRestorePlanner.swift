@@ -186,8 +186,10 @@ public struct AgentRestorePlanner: Sendable {
         let shimKey = request.kind == "claude"
             ? "CMUX_CLAUDE_WRAPPER_SHIM"
             : "CMUX_CODEX_WRAPPER_SHIM"
-        let routedExecutable = normalized(environment[shimKey])
-            .flatMap { isExecutableFile($0) ? $0 : nil }
+        let routedExecutable =
+            normalized(environment[shimKey])
+                .flatMap { isExecutableFile($0) ? $0 : nil }
+            ?? (first.contains("/") && isExecutableFile(first) ? first : nil)
             ?? restoreLaunch.executableName
         return [routedExecutable] + Array(arguments.dropFirst())
     }

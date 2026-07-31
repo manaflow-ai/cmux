@@ -140,6 +140,34 @@ import Testing
         )
     }
 
+    @Test func managedRestoreUsesCapturedExecutableWhenWrapperShimIsUnavailable() throws {
+        let executable = "/opt/custom tools/codex"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--model", "gpt-5.6-sol"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == executable }
+        ).invocation(
+            for: request,
+            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+        ))
+
+        #expect(invocation.arguments.first == executable)
+        #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
+    }
+
     @Test func directBindingPreservesLongAndShortStructuredArgumentsIdentically() throws {
         let hazards = [
             "space value",

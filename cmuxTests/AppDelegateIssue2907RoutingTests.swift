@@ -869,6 +869,94 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
     }
 
+    func testSurfaceRestoreRecordAppliesBindingEnvironmentAndRestoreTimeCwd() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sessionID = "cwd-session"
+        let savedDirectory = "/tmp/saved-project"
+        let restoredDirectory = "/tmp/restored-project"
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: "cwd-agent",
+            executablePath: "/opt/cwd-agent",
+            arguments: ["/opt/cwd-agent"],
+            workingDirectory: savedDirectory,
+            environment: ["RESTORE_OVERRIDE": "captured"]
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "cwd-agent",
+                command: "/opt/cwd-agent --cwd \(savedDirectory) --session \(sessionID)",
+                cwd: savedDirectory,
+                checkpointId: sessionID,
+                source: "agent-hook",
+                environment: ["RESTORE_OVERRIDE": "binding"],
+                launchCommand: launch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
+            kind: .custom("cwd-agent"),
+            sessionId: sessionID,
+            workingDirectory: savedDirectory,
+            launchCommand: launch,
+            registration: CmuxVaultAgentRegistration(
+                id: "cwd-agent",
+                name: "CWD Agent",
+                detect: CmuxVaultAgentDetectRule(processName: "cwd-agent"),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --cwd {{cwd}} --session {{sessionId}}",
+                cwd: .preserve
+            )
+        )
+        workspace.restoredResumeSessionWorkingDirectoriesByPanelId[panelId] =
+            restoredDirectory
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["working_directory"] as? String, restoredDirectory)
+        let environment = try XCTUnwrap(restoreRecord["environment"] as? [String: Any])
+        XCTAssertEqual(environment["RESTORE_OVERRIDE"] as? String, "binding")
+        let preparedArguments = try XCTUnwrap(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
+        XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
+    }
+
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

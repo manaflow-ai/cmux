@@ -54,6 +54,15 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    var restoredResumeWorkingDirectory: String? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
+        case .dock(_, let dock, let surfaceID):
+            dock.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
+        }
+    }
+
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         switch self {
@@ -270,6 +279,12 @@ extension TerminalController {
             resumeBinding: binding
         )
         if let agent = compatibleAgent {
+            let launchCommand = binding?.launchCommand ?? agent.launchCommand
+            let workingDirectory = target.restoredResumeWorkingDirectory
+                ?? binding?.cwd
+                ?? agent.workingDirectory
+                ?? launchCommand?.workingDirectory
+            let permissionMode = binding?.permissionMode ?? agent.permissionMode
             let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
                 ? .relaunchAgent
                 : .resumeAgent
@@ -277,10 +292,10 @@ extension TerminalController {
                 ? AgentResumeCommandBuilder.resumeArguments(
                     kind: agent.kind,
                     sessionId: agent.sessionId,
-                    launchCommand: agent.launchCommand,
-                    workingDirectory: agent.workingDirectory,
+                    launchCommand: launchCommand,
+                    workingDirectory: workingDirectory,
                     customRegistration: agent.registration,
-                    observedPermissionMode: agent.permissionMode
+                    observedPermissionMode: permissionMode
                 )
                 : nil
             return ControlSurfaceRestoreRecord(
@@ -288,12 +303,12 @@ extension TerminalController {
                 kind: agent.kind.rawValue,
                 checkpointID: agent.sessionId,
                 source: "session-snapshot",
-                workingDirectory: agent.workingDirectory ?? agent.launchCommand?.workingDirectory,
-                environment: [:],
-                launchCommand: agent.launchCommand.map(controlAgentLaunchCommand),
+                workingDirectory: workingDirectory,
+                environment: binding?.environment ?? [:],
+                launchCommand: launchCommand.map(controlAgentLaunchCommand),
                 preparedArguments: preparedArguments,
-                permissionMode: agent.permissionMode,
-                legacyCommand: nil
+                permissionMode: permissionMode,
+                legacyCommand: binding?.inlineStartupInput
             )
         }
         guard let binding else { return nil }
@@ -307,7 +322,9 @@ extension TerminalController {
             kind: normalizedKind,
             checkpointID: binding.checkpointId,
             source: binding.source,
-            workingDirectory: binding.cwd ?? binding.launchCommand?.workingDirectory,
+            workingDirectory: target.restoredResumeWorkingDirectory
+                ?? binding.cwd
+                ?? binding.launchCommand?.workingDirectory,
             environment: binding.environment ?? [:],
             launchCommand: binding.launchCommand.map(controlAgentLaunchCommand),
             preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,

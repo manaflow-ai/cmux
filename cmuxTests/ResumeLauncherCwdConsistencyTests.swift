@@ -56,6 +56,34 @@ struct ResumeLauncherCwdConsistencyTests {
                 includingPropertiesForKeys: nil
             ).map(\.lastPathComponent) == ["restored"]
         )
+
+        let preparedArguments = try #require(
+            AgentResumeCommandBuilder.resumeArguments(
+                kind: snapshot.kind,
+                sessionId: snapshot.sessionId,
+                launchCommand: snapshot.launchCommand,
+                workingDirectory: restoredDirectory.path,
+                customRegistration: registration,
+                observedPermissionMode: nil
+            )
+        )
+        let invocation = try #require(AgentRestorePlanner().invocation(
+            for: AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: snapshot.kind.rawValue,
+                checkpointID: snapshot.sessionId,
+                source: "session-snapshot",
+                workingDirectory: restoredDirectory.path,
+                environment: [:],
+                launchCommand: snapshot.launchCommand,
+                preparedArguments: preparedArguments,
+                observedPermissionMode: nil
+            ),
+            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+        ))
+        #expect(invocation.workingDirectory == restoredDirectory.path)
+        #expect(invocation.arguments.contains(restoredDirectory.path))
+        #expect(!invocation.arguments.contains(savedDirectory.path))
     }
 
     @Test("restored logical cwd survives physical-path shell reports")
