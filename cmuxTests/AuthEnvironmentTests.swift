@@ -397,6 +397,9 @@ struct AuthEnvironmentTests {
         #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
             try #require(URL(string: "cmux://enterprise?cmux_external_browser=1"))
         ))
+        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://attacker.example/?cmux_external_browser=1"))
+        ))
     }
 
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")
