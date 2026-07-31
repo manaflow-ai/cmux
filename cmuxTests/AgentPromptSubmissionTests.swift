@@ -91,7 +91,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func mobileChatAdmissionLeavesTerminalHumanDraftUnchanged() {
+    @Test func exactMobileChatSubmissionRejectsWithoutChangingHumanDraft() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
         panel.surface.releaseSurfaceForTesting()
@@ -99,11 +99,15 @@ struct AgentPromptSubmissionTests {
         panel.surface.synchronizePromptInputAgentScope(agentScope)
         panel.surface.recordHumanPromptInput(.unknown)
 
-        let isBusy = panel.terminalComposerIsBusy(
-            agentInputScope: agentScope
+        let result = panel.sendPromptSubmissionResult(
+            "mobile message",
+            submitKey: "return",
+            agentInputScope: agentScope,
+            rejectIfHumanComposerBusy: true,
+            hookRecordingSource: "workspace.prompt_submit"
         )
 
-        #expect(isBusy)
+        #expect(result == .composerBusy)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
         #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }

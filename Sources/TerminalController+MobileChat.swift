@@ -340,7 +340,10 @@ extension TerminalController {
         }
         var pasteParams = terminalParams
         pasteParams["text"] = promptComponents.joined(separator: " ")
-        let result = v2MobileTerminalPaste(params: pasteParams)
+        let result = v2MobileTerminalPaste(
+            params: pasteParams,
+            rejectIfHumanComposerBusy: true
+        )
         if case .err = result {
             GhosttyApp.terminalPasteboard
                 .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)

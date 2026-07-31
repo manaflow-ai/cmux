@@ -3,7 +3,10 @@ import Foundation
 extension TerminalController {
     /// Delivers one mobile-composer block through the compound prompt
     /// primitive, or stages it without submitting when `submit_key=none`.
-    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalPaste(
+        params: [String: Any],
+        rejectIfHumanComposerBusy: Bool = false
+    ) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(
                 code: "invalid_params",
@@ -77,10 +80,10 @@ extension TerminalController {
                 text,
                 submitKey: submitKeyName,
                 agentInputScope: agentInputScope,
-                // This request is the human-owned mobile composer itself. The
-                // automation-only rejection policy must not wedge it behind
-                // stale physical-terminal ownership.
-                rejectIfHumanComposerBusy: false,
+                // Low-level mobile.terminal.paste is the human-owned composer
+                // itself. Exact-message callers such as mobile.chat.send opt
+                // into rejection so they cannot concatenate with that draft.
+                rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
                 hookRecordingSource:
                     TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
