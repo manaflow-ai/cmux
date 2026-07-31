@@ -195,6 +195,7 @@ extension SessionRemoteWorkspaceSnapshot {
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions,
                     terminalProfile: restoredTerminalProfile,
+                    configuredRemoteCommand: effectiveConfiguredRemoteCommand,
                     remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
                     sshFallbackCommand: sshFallbackCommand
                 )
@@ -394,6 +395,7 @@ extension SessionRemoteWorkspaceSnapshot {
         port normalizedPort: Int?,
         sshOptions reconnectSSHOptions: [String],
         terminalProfile: WorkspaceRemoteTerminalProfile,
+        configuredRemoteCommand: String?,
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
