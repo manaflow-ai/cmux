@@ -271,6 +271,42 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
+    func canceledSelectionTransactionDoesNotBlockSourceRetirement() {
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _ in },
+            endRendererProtection: { _ in }
+        )
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: nil,
+            targetTerminalView: nil,
+            targetRendererPresented: false,
+            targetRenderedFrameSequence: 0
+        )
+        coordinator.cancel()
+
+        coordinator.beginPresentation(
+            WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .passive,
+                terminalSurfaceID: nil,
+                terminalView: nil,
+                terminalRendererPresented: false,
+                terminalRenderedFrameSequence: 0,
+                browserWebView: nil,
+                portalPresented: true,
+                interactionReady: true,
+                requiresInteraction: false
+            )
+        )
+
+        #expect(coordinator.isReadyForSourceRetirement)
+    }
+
+    @Test
     func presentationProtectedRendererIsNeverSelectedForReclamation() {
         let now: TimeInterval = 1_000
         let warmSurfaceID = UUID()
