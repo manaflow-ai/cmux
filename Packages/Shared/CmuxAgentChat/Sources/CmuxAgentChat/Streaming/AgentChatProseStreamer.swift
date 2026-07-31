@@ -55,10 +55,13 @@ public final class AgentChatProseStreamer {
 
     private let extractionWorker = AgentChatProseExtractionWorker()
     private var turns: [String: ActiveTurn] = [:]
+    private var activeUnsettledTurnCount = 0
+    private var unsettledSessionIDsBySurfaceID: [UUID: Set<String>] = [:]
     private var pendingSurfaceIDs = Set<UUID>()
     private var hasPendingGlobalWakeup = false
     private var isFlushScheduled = false
     private var isFlushRunning = false
+    private var flushTask: Task<Void, Never>?
 
     private let emit: @MainActor (ChatSessionEventFrame) -> Void
     private let snapshot: @MainActor (UUID) async -> [String]?
@@ -89,7 +92,7 @@ public final class AgentChatProseStreamer {
     /// wakeups. Owners use this to retain and release upstream render/tick
     /// notification demand.
     public var hasActiveUnsettledTurns: Bool {
-        turns.values.contains { !$0.settled }
+        activeUnsettledTurnCount > 0
     }
 
     /// Begins (or re-arms) streaming for a session's in-flight turn.
@@ -103,7 +106,11 @@ public final class AgentChatProseStreamer {
     public func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) -> TurnToken {
         let previous = turns[sessionID]
         let generation = (previous?.generation ?? -1) + 1
+        if let previous, !previous.settled {
+            unregisterUnsettledTurn(sessionID: sessionID, surfaceID: previous.surfaceID)
+        }
         turns[sessionID] = ActiveTurn(generation: generation, surfaceID: surfaceID, agentKind: agentKind)
+        registerUnsettledTurn(sessionID: sessionID, surfaceID: surfaceID)
         if previous?.lastEmitted != nil {
             clearPreview(sessionID: sessionID)
         }
@@ -114,7 +121,7 @@ public final class AgentChatProseStreamer {
     /// wakeups for the same surface coalesce into one newest-value snapshot.
     public func surfaceDidChange(_ surfaceID: UUID) {
         guard hasSubscribers(),
-              turns.values.contains(where: { !$0.settled && $0.surfaceID == surfaceID }) else {
+              unsettledSessionIDsBySurfaceID[surfaceID]?.isEmpty == false else {
             return
         }
         pendingSurfaceIDs.insert(surfaceID)
@@ -137,6 +144,9 @@ public final class AgentChatProseStreamer {
     public func authoritativeProseArrived(_ token: TurnToken) {
         guard let turn = turns[token.sessionID],
               turn.generation == token.generation else { return }
+        if !turn.settled {
+            unregisterUnsettledTurn(sessionID: token.sessionID, surfaceID: turn.surfaceID)
+        }
         turns[token.sessionID]?.settled = true
         turns[token.sessionID]?.lastEmitted = nil
         removePendingWork(sessionID: token.sessionID, turn: turn)
@@ -147,6 +157,9 @@ public final class AgentChatProseStreamer {
     public func turnEnded(sessionID: String) {
         let turn = turns[sessionID]
         let wasActive = turn != nil
+        if let turn, !turn.settled {
+            unregisterUnsettledTurn(sessionID: sessionID, surfaceID: turn.surfaceID)
+        }
         turns[sessionID] = nil
         if let turn {
             removePendingWork(sessionID: sessionID, turn: turn)
@@ -157,8 +170,11 @@ public final class AgentChatProseStreamer {
     /// Tears down every active stream (app teardown / subscriber loss).
     public func stopAll() {
         for sessionID in Array(turns.keys) { turnEnded(sessionID: sessionID) }
+        activeUnsettledTurnCount = 0
+        unsettledSessionIDsBySurfaceID.removeAll()
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalWakeup = false
+        cancelFlushTask()
     }
 
     // MARK: - Internals
@@ -173,8 +189,9 @@ public final class AgentChatProseStreamer {
     private func scheduleFlush() {
         guard !isFlushScheduled, !isFlushRunning else { return }
         isFlushScheduled = true
-        Task { @MainActor [weak self] in
-            await self?.flushPendingChanges()
+        flushTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.flushPendingChanges()
         }
     }
 
@@ -183,13 +200,17 @@ public final class AgentChatProseStreamer {
         isFlushRunning = true
         defer {
             isFlushRunning = false
-            if hasPendingGlobalWakeup || !pendingSurfaceIDs.isEmpty {
+            flushTask = nil
+            if hasActiveUnsettledTurns, hasSubscribers(),
+               hasPendingGlobalWakeup || !pendingSurfaceIDs.isEmpty {
                 scheduleFlush()
             }
         }
 
+        guard !Task.isCancelled else { return }
         let targets = drainFlushTargets()
         for target in targets {
+            guard !Task.isCancelled else { return }
             await emitPreviewIfChanged(target)
         }
     }
@@ -201,11 +222,21 @@ public final class AgentChatProseStreamer {
         pendingSurfaceIDs.removeAll()
 
         guard hasSubscribers() else { return [] }
-        return turns.compactMap { entry in
-            let sessionID = entry.key
-            let turn = entry.value
+        var sessionIDs = Set<String>()
+        if shouldFlushAll {
+            for surfaceSessionIDs in unsettledSessionIDsBySurfaceID.values {
+                sessionIDs.formUnion(surfaceSessionIDs)
+            }
+        } else {
+            for surfaceID in surfaceIDs {
+                if let surfaceSessionIDs = unsettledSessionIDsBySurfaceID[surfaceID] {
+                    sessionIDs.formUnion(surfaceSessionIDs)
+                }
+            }
+        }
+        return sessionIDs.compactMap { sessionID in
+            guard let turn = turns[sessionID] else { return nil }
             guard !turn.settled else { return nil }
-            guard shouldFlushAll || surfaceIDs.contains(turn.surfaceID) else { return nil }
             return FlushTarget(
                 sessionID: sessionID,
                 generation: turn.generation,
@@ -237,16 +268,39 @@ public final class AgentChatProseStreamer {
     }
 
     private func removePendingWork(sessionID: String, turn: ActiveTurn) {
-        if !turns.contains(where: { entry in
-            let session = entry.key
-            let candidate = entry.value
-            return session != sessionID && !candidate.settled && candidate.surfaceID == turn.surfaceID
-        }) {
+        if unsettledSessionIDsBySurfaceID[turn.surfaceID]?.isEmpty != false {
             pendingSurfaceIDs.remove(turn.surfaceID)
         }
         if !hasActiveUnsettledTurns {
             hasPendingGlobalWakeup = false
+            cancelFlushTask()
         }
+    }
+
+    private func registerUnsettledTurn(sessionID: String, surfaceID: UUID) {
+        var sessionIDs = unsettledSessionIDsBySurfaceID[surfaceID] ?? []
+        if sessionIDs.insert(sessionID).inserted {
+            activeUnsettledTurnCount += 1
+        }
+        unsettledSessionIDsBySurfaceID[surfaceID] = sessionIDs
+    }
+
+    private func unregisterUnsettledTurn(sessionID: String, surfaceID: UUID) {
+        guard var sessionIDs = unsettledSessionIDsBySurfaceID[surfaceID] else { return }
+        if sessionIDs.remove(sessionID) != nil {
+            activeUnsettledTurnCount = max(0, activeUnsettledTurnCount - 1)
+        }
+        if sessionIDs.isEmpty {
+            unsettledSessionIDsBySurfaceID.removeValue(forKey: surfaceID)
+        } else {
+            unsettledSessionIDsBySurfaceID[surfaceID] = sessionIDs
+        }
+    }
+
+    private func cancelFlushTask() {
+        flushTask?.cancel()
+        flushTask = nil
+        isFlushScheduled = false
     }
 
     private func clearPreview(sessionID: String) {
