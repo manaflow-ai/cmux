@@ -20,20 +20,14 @@ final class BrowserScreenshotDOMProbeCollector {
         self.javaScriptTimeout = javaScriptTimeout
     }
 
-    func synchronize(waitForAnimationFrame: Bool) async {
+    func synchronize(waitForAnimationFrame: Bool) async throws {
         guard let webView else { return }
         forceAppKitLayout(for: webView)
 
         if waitForAnimationFrame {
-            await waitForAnimationFrames(in: webView)
+            try await waitForAnimationFrames(in: webView)
         } else {
-            do {
-                _ = try await evaluate(layoutFlushScript, in: webView)
-            } catch {
-#if DEBUG
-                cmuxDebugLog("browser.screenshot.synchronize.failed error=\(error.localizedDescription)")
-#endif
-            }
+            _ = try await evaluate(layoutFlushScript, in: webView)
         }
 
         forceAppKitLayout(for: webView)
@@ -158,8 +152,8 @@ final class BrowserScreenshotDOMProbeCollector {
         CATransaction.flush()
     }
 
-    private func waitForAnimationFrames(in webView: WKWebView) async {
-        _ = try? await BrowserScreenshotAnimationFrameWaiter(
+    private func waitForAnimationFrames(in webView: WKWebView) async throws {
+        try await BrowserScreenshotAnimationFrameWaiter(
             webView: webView,
             timeout: animationFrameTimeout
         ).wait(script: animationFrameFlushScript)

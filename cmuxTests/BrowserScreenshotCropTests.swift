@@ -273,6 +273,23 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func animationFrameDeadlineReportsScreenshotTimeout() async {
+        let waiter = BrowserScreenshotAnimationFrameWaiter(
+            timeout: 0,
+            startFrame: { _, _ in }
+        )
+
+        do {
+            try await waiter.wait(script: "return true;")
+            Issue.record("Expected the animation-frame deadline to fail")
+        } catch BrowserScreenshotError.automationTimedOut {
+            // Expected: do not misreport a stalled compositor as a pixel mismatch.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
     func javaScriptRequestCancellationResumesExactlyOnce() async throws {
         var evaluationCompletion: (
             @MainActor (Result<Any?, Error>) -> Void
@@ -307,8 +324,13 @@ struct BrowserScreenshotCropTests {
             startEvaluation: { _, _ in }
         )
 
-        await #expect(throws: NSError.self) {
-            try await request.evaluate(script: "return true;")
+        do {
+            _ = try await request.evaluate(script: "return true;")
+            Issue.record("Expected the JavaScript deadline to fail")
+        } catch BrowserScreenshotError.automationTimedOut {
+            // Expected: the capture owner receives an actionable timeout signal.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -376,6 +398,32 @@ struct BrowserScreenshotCropTests {
 
         #expect(captureCount == 2)
         #expect(synchronizationRetries == [false, true])
+    }
+
+    @Test
+    func verifiedCaptureDoesNotMisreportSynchronizationTimeoutAsPixelMismatch() async {
+        var captureCount = 0
+        let service = BrowserScreenshotCaptureService(
+            synchronize: { _ in
+                throw BrowserScreenshotError.automationTimedOut
+            },
+            collectProbes: { self.textProbeSet() },
+            snapshot: {
+                captureCount += 1
+                return try self.makeBlankBitmapImage(width: 100, height: 100)
+            },
+            makePixelSource: { _ in nil }
+        )
+
+        do {
+            _ = try await service.capture()
+            Issue.record("Expected the synchronization timeout")
+        } catch BrowserScreenshotError.automationTimedOut {
+            // Expected: no snapshot was taken and no mismatch was fabricated.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(captureCount == 0)
     }
 
     @Test

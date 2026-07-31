@@ -5,7 +5,7 @@ import WebKit
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
-    typealias Synchronizer = @MainActor (_ isRetry: Bool) async -> Void
+    typealias Synchronizer = @MainActor (_ isRetry: Bool) async throws -> Void
     typealias ProbeCollector = @MainActor () async -> BrowserScreenshotProbeSet?
     typealias SnapshotProvider = @MainActor () async throws -> NSImage
     typealias PixelSourceProvider = @MainActor (
@@ -28,7 +28,7 @@ struct BrowserScreenshotCaptureService {
         self.init(
             maximumAttempts: maximumAttempts,
             synchronize: { isRetry in
-                await probeCollector.synchronize(
+                try await probeCollector.synchronize(
                     waitForAnimationFrame: presentation.waitsForAnimationFrame(
                         isRetry: isRetry
                     )
@@ -70,7 +70,7 @@ struct BrowserScreenshotCaptureService {
 
         for attempt in 1...maximumAttempts {
             try Task.checkCancellation()
-            await synchronize(attempt > 1)
+            try await synchronize(attempt > 1)
             try Task.checkCancellation()
             let before = await collectProbes()
             try Task.checkCancellation()

@@ -65,25 +65,23 @@ final class BrowserScreenshotAnimationFrameWaiter {
     private func start(script: String) {
         let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.finish(.success(()))
+                self?.finish(.failure(BrowserScreenshotError.automationTimedOut))
             }
         }
         timeoutTimer = timer
         RunLoop.main.add(timer, forMode: .common)
 
         startFrame(script) { [weak self] error in
-            _ = error
 #if DEBUG
-            let errorDescription = error?.localizedDescription
+            if let error {
+                cmuxDebugLog(
+                    "browser.screenshot.synchronize.failed error=\(error.localizedDescription)"
+                )
+            }
 #endif
-            Task { @MainActor [weak self] in
-#if DEBUG
-                if let errorDescription {
-                    cmuxDebugLog(
-                        "browser.screenshot.synchronize.failed error=\(errorDescription)"
-                    )
-                }
-#endif
+            if let error {
+                self?.finish(.failure(error))
+            } else {
                 self?.finish(.success(()))
             }
         }

@@ -69,10 +69,7 @@ final class BrowserScreenshotJavaScriptRequest {
     private func start(script: String) {
         let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.finish(.failure(NSError(
-                    domain: "BrowserScreenshotJavaScriptRequest",
-                    code: 1
-                )))
+                self?.finish(.failure(BrowserScreenshotError.automationTimedOut))
             }
         }
         timeoutTimer = timer
