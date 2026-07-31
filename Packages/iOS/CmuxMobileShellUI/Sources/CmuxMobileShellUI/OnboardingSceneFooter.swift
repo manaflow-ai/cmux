@@ -30,7 +30,7 @@ struct OnboardingSceneFooter: View {
         }
         .frame(maxWidth: 520)
         .padding(.horizontal, 24)
-        .padding(.top, 10)
+        .padding(.top, 16)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)

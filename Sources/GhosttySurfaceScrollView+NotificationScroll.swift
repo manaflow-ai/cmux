@@ -376,7 +376,6 @@ extension GhosttySurfaceScrollView {
 
     func terminalSurfaceDidReceiveExplicitInput() {
         cancelPendingNotificationScrollRestoreForUserInput()
-        onExplicitTerminalInput?()
     }
 
     func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {

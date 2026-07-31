@@ -77,7 +77,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedWorkspace:
             return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
-        case .reopenClosedBrowserPanel: return "Reopen Last Closed"
+        case .reopenClosedBrowserPanel:
+            return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
@@ -95,6 +96,21 @@ extension ShortcutAction {
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .increaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Increase Font Size for Workspace Terminals"
+            )
+        case .decreaseWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                defaultValue: "Decrease Font Size for Workspace Terminals"
+            )
+        case .resetWorkspaceTerminalFontSize:
+            return String(
+                localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                defaultValue: "Reset Font Size for Workspace Terminals"
+            )
         case .equalizeSplits: return "Equalize Splits"
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"

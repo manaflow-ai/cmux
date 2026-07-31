@@ -292,6 +292,9 @@
       "eyebrow": "cmux Vault",
       "title": "Approve CLI access",
       "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Approve Subrouter access",
+      "subrouterDescription": "Confirm the code shown by sr to connect this device to your signed-in cmux team.",
       "codeLabel": "User code",
       "approveButton": "Approve access",
       "approving": "Approving...",
@@ -373,6 +376,7 @@
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
+    "companyInformation": "Company information",
     "privacy": "Privacy",
     "terms": "Terms",
     "eula": "EULA",
@@ -969,6 +973,21 @@
     "metaTitle": "Blog",
     "metaDescription": "News and updates from the cmux team",
     "description": "News and updates from the cmux team",
+    "tokenMultitasking": {
+      "metaTitle": "How I used 367 billion tokens in 30 days",
+      "metaDescription": "I used 367 billion tokens in 30 days by running Codex and Claude Code in parallel with cmux, then reviewing each completion through Cmd+Shift+U.",
+      "metaKeywords": [
+        "367 billion tokens",
+        "GPT 5.6 Sol",
+        "Codex CLI",
+        "Claude Code",
+        "cmux",
+        "AI coding agents",
+        "parallel coding agents",
+        "Cmd+Shift+U",
+        "CodexBar"
+      ]
+    },
     "passkeyAuth": {
       "metaTitle": "Passkey auth in the cmux browser",
       "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
@@ -1073,6 +1092,28 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "tokenMultitasking": {
+        "title": "How I used 367 billion tokens in 30 days",
+        "summary": "My cmux loop is Cmd+Shift+U, review the next finished agent, reply, repeat, then start another task when the notification queue is empty.",
+        "date": "July 29, 2026",
+        "p1": "I used 367 billion tokens in the last 30 days. My peak day was 37 billion tokens on GPT 5.6 Sol.",
+        "videoTitle": "How I used 367 billion tokens in 30 days with Codex CLI and cmux",
+        "watchVideo": "<link>Watch the video on YouTube</link>.",
+        "workflowTitle": "The entire workflow",
+        "workflowIntro": "I run one task per cmux workspace with vanilla Codex or Claude Code. Each agent notifies me when it needs a review.",
+        "workflowJump": "Press <shortcut>Cmd+Shift+U</shortcut>. cmux jumps to the newest unread notification and focuses the exact workspace and pane.",
+        "workflowReview": "Review the dev build, artifact, or bug fix. Reply to the agent.",
+        "workflowRepeat": "Press Cmd+Shift+U again and repeat.",
+        "workflowStart": "When no notifications are waiting, create a workspace and start another task.",
+        "workflowClose": "That loop is the 80/20. cmux keeps active work visible and turns completed agent work into a review queue.",
+        "simpleTitle": "No custom harness",
+        "simpleP1": "I use vanilla Claude Code and Codex. Their built-in subagents handle the occasional delegated task.",
+        "simpleP2": "I do not use a custom agent harness or external orchestration. I do not use <code>/loop</code>, and I rarely use <code>/goal</code>.",
+        "economicsTitle": "The economics",
+        "economicsP1": "At API prices, this usage would have cost about $85,000. We paid $7,400 for 37 ChatGPT Pro 20x accounts and used the quota resets Tibo issued. <codexBar>CodexBar</codexBar> produced the local token and API-cost estimates.",
+        "economicsP2": "The 367-billion figure still understates the accounts' total usage. <subrouter>Subrouter</subrouter> lets my cofounder share the same account pool, while CodexBar records only the local token usage on my machine.",
+        "closing": "The workflow keeps my attention on decisions. I review completed work and unblock agents; when the queue clears, I start another task."
+      },
       "passkeyAuth": {
         "title": "Passkey auth in the cmux browser",
         "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",
@@ -1772,7 +1813,8 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
-          "autoRetryAgentSessions": "Automatically resume a managed agent session when its active command exits with a nonzero, non-signal error status. Retries are bounded and use exponential backoff; normal completion and explicit user termination are never retried.",
+          "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
+          "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
@@ -2582,6 +2624,7 @@
     },
     "navItems": {
       "gettingStarted": "Getting Started",
+      "tui": "cmux TUI",
       "concepts": "Concepts",
       "base": "Base",
       "workspaceGroups": "Workspace Groups",
@@ -4777,6 +4820,140 @@
       "submitting": "Submitting...",
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI: a terminal workspace for agents",
+      "metaDescription": "Run workspaces, split panes, browser tabs, and remote machines from a fast open-source terminal UI for macOS, Linux, and Windows.",
+      "eyebrow": "cmux TUI · open source",
+      "title": "A terminal workspace that runs anywhere.",
+      "intro": "cmux TUI brings the workspace model built for coding agents to macOS, Linux, and Windows. Keep shells, browsers, tests, and long-running agents in one keyboard-first tree.",
+      "runButton": "Install cmux",
+      "docsButton": "Read the docs",
+      "sourceButton": "View source",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A real cmux-tui session inside cmux on macOS. The TUI workspace rail is visible; the macOS app sidebar is hidden.",
+      "facts": {
+        "platforms": {
+          "label": "Runs on",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "Terminal engine",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "Source",
+          "value": "Open source"
+        }
+      },
+      "workflowEyebrow": "One tree for the whole job",
+      "workflowTitle": "Keep every agent and tool in view.",
+      "workflowBody": "Workspaces hold screens, screens hold split panes, and panes hold terminal or browser tabs. The same live tree can be attached locally, reached over SSH, rendered on the web, or controlled through the socket API.",
+      "features": {
+        "tree": {
+          "number": "01 / WORKSPACES",
+          "title": "Organize by task",
+          "body": "Give each feature, investigation, or agent team its own workspace. Switch without losing terminal state or layout."
+        },
+        "agents": {
+          "number": "02 / AGENTS",
+          "title": "See parallel work",
+          "body": "Place coding agents beside tests, logs, and review commands. Notifications and agent state stay attached to their surfaces."
+        },
+        "browser": {
+          "number": "03 / BROWSER",
+          "title": "Open real browser tabs",
+          "body": "Drive Chrome targets as tabs beside terminal processes, with persistent profiles, keyboard input, mouse input, and live frames."
+        },
+        "remote": {
+          "number": "04 / MACHINES",
+          "title": "Move across machines",
+          "body": "Use the optional machine rail to switch between local sessions, Unix sockets, SSH hosts, and cmux Cloud connections."
+        }
+      },
+      "keyboardEyebrow": "Fast by default",
+      "keyboardTitle": "tmux muscle memory, a richer model.",
+      "keyboardBody": "The default Ctrl-b prefix keeps familiar pane commands while adding workspaces, tabs, browser surfaces, a scrollable viewport, layout undo, and mouse controls.",
+      "keys": {
+        "split": "Split the active pane right",
+        "tab": "Open a tab in the pane",
+        "workspace": "Create a workspace",
+        "viewport": "Add a scrollable pane to the right"
+      },
+      "installEyebrow": "Start now",
+      "installTitle": "One command. No app window required.",
+      "installBody": "The installer selects the native binary for your platform, verifies its SHA-256 checksum, and adds the cmux command to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
+      },
+      "installNpx": "Already have Node.js? You can also run",
+      "fullDocs": "Installation, keys, remote sessions, and automation",
+      "browseSource": "Browse cmux-tui on GitHub"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI documentation",
+      "metaDescription": "Install cmux TUI, learn its workspace model and keyboard controls, attach to sessions, connect remote machines, and automate it.",
+      "title": "cmux TUI",
+      "intro": "cmux TUI is a Rust terminal multiplexer for macOS, Linux, and Windows. It combines workspaces, screens, split panes, terminal tabs, browser tabs, remote sessions, and a control socket in one process.",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A live session with Neovim, OpenCode, and the Hunk review TUI.",
+      "installTitle": "Install and run",
+      "installIntro": "The install scripts select the native binary for your operating system and architecture, verify its SHA-256 checksum, and add cmux to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
+      },
+      "installNpx": "If Node.js is already installed, you can run cmux without installing it permanently:",
+      "platforms": "Packaged builds support Apple Silicon and Intel Macs, x64 and Arm64 Linux, and x64 Windows. Windows on Arm runs the x64 build through emulation. Building from source requires Rust, Zig 0.15.2, and the repository's Ghostty submodule.",
+      "modelTitle": "The workspace model",
+      "modelIntro": "cmux TUI keeps one durable tree instead of flattening every process into an unrelated terminal tab.",
+      "modelBody": "A session owns one control socket. Each workspace can contain multiple screens; each screen owns a pane layout; each pane can contain terminal and browser tabs. Closing a tab does not close its pane when other tabs remain.",
+      "keyboardTitle": "Keyboard and mouse",
+      "keyboardIntro": "The default prefix is Ctrl-b. Press it twice to send a literal Ctrl-b to the active terminal.",
+      "keyTable": {
+        "keys": "Keys",
+        "action": "Action"
+      },
+      "keys": {
+        "splitRight": "Split the active pane right",
+        "splitDown": "Split the active pane down",
+        "newTab": "Create a terminal tab",
+        "newWorkspace": "Create a workspace",
+        "sidebar": "Show or hide the workspace rail",
+        "detach": "Quit locally or detach from a server"
+      },
+      "mouse": "Click pane borders, tabs, workspaces, and screens directly. Right-click a pane for actions. Hold Shift while right-clicking when the application inside the pane owns mouse input.",
+      "sessionsTitle": "Headless sessions and attach",
+      "sessionsIntro": "Headless mode keeps the mux backend and its terminals running without a local interface. Attach from another terminal when you need the UI.",
+      "sessionsBody": "The default session is main. Named sessions use separate Unix sockets. Detaching leaves a headless server running, so a later attach restores the same tree and terminal state.",
+      "remoteTitle": "Remote machines",
+      "remoteIntro": "Enable the machine rail to switch between the current session and configured Unix-socket or SSH targets.",
+      "remoteBody": "The remote machine must already run a headless cmux session, and noninteractive SSH must find the cmux binary. cmux uses strict host-key checking and disables agent forwarding and port forwarding.",
+      "browserTitle": "Browser tabs",
+      "browserBody": "A browser tab controls a real Chrome or Chromium target through the Chrome DevTools Protocol. Profiles persist between sessions, so cookies and sign-ins can remain available. Open a browser tab with:",
+      "automationTitle": "Automation and the control socket",
+      "automationIntro": "Every tree mutation and inspection used by the TUI is also available through the command line and JSON-lines control socket.",
+      "automationBody": "Commands can create workspaces, run processes, split panes, send input, read visible terminal text, subscribe to events, and report agent state. Typed bindings live in the repository for TypeScript, Python, Go, Java, and Rust.",
+      "configTitle": "Configuration",
+      "configBody": "Configure keys, sidebar width, machines, browser behavior, startup commands, and theme values in the TUI config file. CMUX_TUI_CONFIG overrides the default path.",
+      "moreTitle": "More",
+      "links": {
+        "product": "cmux TUI product page",
+        "sourceDocs": "Complete source documentation",
+        "source": "cmux-tui source code"
+      }
     }
   },
   "appProWelcome": {

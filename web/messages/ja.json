@@ -292,6 +292,9 @@
       "eyebrow": "cmux Vault",
       "title": "CLIアクセスを承認",
       "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "Subrouterアクセスを承認",
+      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
       "codeLabel": "ユーザーコード",
       "approveButton": "アクセスを承認",
       "approving": "承認中...",
@@ -373,6 +376,7 @@
     "community": "コミュニティ",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
     "eula": "EULA",
@@ -970,6 +974,28 @@
     "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
     "posts": {
+      "tokenMultitasking": {
+        "title": "30日で3670億トークンを使った方法",
+        "summary": "cmuxでのループは、Cmd+Shift+U、完了したエージェントの確認、返信、繰り返しです。通知が空になったら次のタスクを始めます。",
+        "date": "2026年7月29日",
+        "p1": "直近30日間で3670億トークンを使いました。1日のピークはGPT 5.6 Solで370億トークンでした。",
+        "videoTitle": "Codex CLIとcmuxで30日間に3670億トークンを使った方法",
+        "watchVideo": "<link>YouTubeで動画を見る</link>。",
+        "workflowTitle": "ワークフローのすべて",
+        "workflowIntro": "cmuxのワークスペースごとに、通常のCodexまたはClaude Codeで一つのタスクを実行します。エージェントはレビューが必要になると通知します。",
+        "workflowJump": "<shortcut>Cmd+Shift+U</shortcut>を押します。cmuxが最新の未読通知へ移動し、該当するワークスペースとペインにフォーカスします。",
+        "workflowReview": "devビルド、成果物、またはバグ修正を確認し、エージェントに返信します。",
+        "workflowRepeat": "もう一度Cmd+Shift+Uを押して繰り返します。",
+        "workflowStart": "通知が残っていなければ、新しいワークスペースを作って次のタスクを始めます。",
+        "workflowClose": "このループが成果の大半を生みます。cmuxは実行中の作業を見える状態に保ち、完了したエージェントの作業をレビューキューに変えます。",
+        "simpleTitle": "カスタムハーネスは使っていません",
+        "simpleP1": "通常のClaude CodeとCodexを使っています。委任が必要な場合は、それぞれに組み込まれたサブエージェントだけを使います。",
+        "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
+        "economicsTitle": "費用",
+        "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
@@ -1216,6 +1242,21 @@
         "p4": "cmuxはワークフローを押し付けるのではなく、あなたのワークフローに合わせるべきです。cmuxを自分の居場所のように感じてほしいのです。",
         "p5": "<link>cmux-home</link>はその一例です。ClaudeとCodexのワークスペースを起動してライブ状態を監視する小さなRust製TUIで、すべてcmuxのプリミティブの上に作られています。ランチャーはコマンドテンプレートを使うので、ワークツリーの作成、チェックアウトの選択、VMへのSSH接続などを自分のスクリプトに差し替えられます。フォークして自分のものにしてください。"
       }
+    },
+    "tokenMultitasking": {
+      "metaTitle": "30日で3670億トークンを使った方法",
+      "metaDescription": "cmuxでCodexとClaude Codeを並行実行し、Cmd+Shift+Uで完了通知を確認することで、30日間に3670億トークンを使いました。",
+      "metaKeywords": [
+        "3670億トークン",
+        "GPT 5.6 Sol",
+        "Codex CLI",
+        "Claude Code",
+        "cmux",
+        "AIコーディングエージェント",
+        "並列コーディングエージェント",
+        "Cmd+Shift+U",
+        "CodexBar"
+      ]
     },
     "zenOfCmux": {
       "metaTitle": "cmuxの禅",
@@ -1695,7 +1736,8 @@
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
         },
         "terminal": {
-          "autoRetryAgentSessions": "アクティブな管理対象エージェントのコマンドが、シグナル以外の 0 でないエラーステータスで終了した場合に、セッションを自動的に再開します。再試行は回数制限付きの指数バックオフで行い、正常終了やユーザーによる明示的な終了は再試行しません。",
+          "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
+          "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "sessionContentMaxWidth": "ターミナルと組み込みエージェントチャットのコンテンツ幅の上限をポイント単位で指定します。ペインの全幅を使うには false を設定します。",
@@ -2433,6 +2475,7 @@
     },
     "navItems": {
       "gettingStarted": "はじめに",
+      "tui": "cmux TUI",
       "concepts": "コンセプト",
       "workspaceGroups": "ワークスペースグループ",
       "configuration": "設定",
@@ -4687,6 +4730,140 @@
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI：エージェント向けターミナルワークスペース",
+      "metaDescription": "macOS、Linux、Windows で動く高速なオープンソース TUI から、ワークスペース、分割ペイン、ブラウザタブ、リモートマシンを操作できます。",
+      "eyebrow": "cmux TUI · オープンソース",
+      "title": "どこでも動くターミナルワークスペース。",
+      "intro": "cmux TUI は、コーディングエージェント向けのワークスペースモデルを macOS、Linux、Windows に提供します。シェル、ブラウザ、テスト、長時間動くエージェントを、キーボード中心の一つのツリーで管理できます。",
+      "runButton": "cmux をインストール",
+      "docsButton": "ドキュメントを読む",
+      "sourceButton": "ソースを見る",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "macOS の cmux 内で動く実際の cmux-tui セッション。TUI のワークスペースレールは表示し、macOS アプリのサイドバーは非表示にしています。",
+      "facts": {
+        "platforms": {
+          "label": "対応環境",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "ターミナルエンジン",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "ソース",
+          "value": "オープンソース"
+        }
+      },
+      "workflowEyebrow": "作業全体を一つのツリーに",
+      "workflowTitle": "すべてのエージェントとツールを見渡せます。",
+      "workflowBody": "ワークスペースにはスクリーン、スクリーンには分割ペイン、ペインにはターミナルまたはブラウザのタブが入ります。同じライブツリーへローカルからアタッチし、SSH 経由で接続し、Web で描画し、ソケット API から操作できます。",
+      "features": {
+        "tree": {
+          "number": "01 / ワークスペース",
+          "title": "タスク単位で整理",
+          "body": "機能、調査、エージェントチームごとにワークスペースを分けられます。ターミナル状態やレイアウトを失わずに切り替えられます。"
+        },
+        "agents": {
+          "number": "02 / エージェント",
+          "title": "並行作業を把握",
+          "body": "コーディングエージェントの横にテスト、ログ、レビューコマンドを配置できます。通知とエージェント状態は各サーフェスに紐づきます。"
+        },
+        "browser": {
+          "number": "03 / ブラウザ",
+          "title": "実ブラウザをタブで開く",
+          "body": "Chrome ターゲットをターミナルプロセスの隣で操作できます。プロファイル、キーボード、マウス、ライブフレームに対応します。"
+        },
+        "remote": {
+          "number": "04 / マシン",
+          "title": "マシン間を移動",
+          "body": "オプションのマシンレールから、ローカルセッション、Unix ソケット、SSH ホスト、cmux Cloud 接続を切り替えられます。"
+        }
+      },
+      "keyboardEyebrow": "最初から高速",
+      "keyboardTitle": "tmux の操作感と、より豊かなモデル。",
+      "keyboardBody": "標準の Ctrl-b プレフィックスは馴染みのあるペイン操作を保ちつつ、ワークスペース、タブ、ブラウザ、スクロール可能なビューポート、レイアウトの取り消し、マウス操作を追加します。",
+      "keys": {
+        "split": "アクティブペインを右に分割",
+        "tab": "ペイン内にタブを開く",
+        "workspace": "ワークスペースを作成",
+        "viewport": "右側にスクロール可能なペインを追加"
+      },
+      "installEyebrow": "今すぐ開始",
+      "installTitle": "コマンド一つ。アプリウィンドウは不要です。",
+      "installBody": "インストーラーがプラットフォームに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux コマンドを PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "インストールスクリプトを見る",
+        "copy": "インストールコマンドをコピー",
+        "copied": "コピーしました"
+      },
+      "installNpx": "Node.js がある場合は、次のコマンドでも実行できます。",
+      "fullDocs": "インストール、キー、リモートセッション、自動化",
+      "browseSource": "GitHub で cmux-tui を見る"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI ドキュメント",
+      "metaDescription": "cmux TUI のインストール、ワークスペースモデル、キーボード操作、セッションへのアタッチ、リモート接続、自動化を説明します。",
+      "title": "cmux TUI",
+      "intro": "cmux TUI は macOS、Linux、Windows 向けの Rust 製ターミナルマルチプレクサです。ワークスペース、スクリーン、分割ペイン、ターミナルタブ、ブラウザタブ、リモートセッション、制御ソケットを一つのプロセスにまとめます。",
+      "screenshotAlt": "macOS の cmux 内で TUI ワークスペースレールの横に Neovim、OpenCode、Hunk を3つのペインで表示する cmux TUI",
+      "screenshotCaption": "Neovim、OpenCode、Hunk レビュー TUI を表示するライブセッション。",
+      "installTitle": "インストールと実行",
+      "installIntro": "インストールスクリプトが OS とアーキテクチャに合うネイティブバイナリを選び、SHA-256 チェックサムを検証して、cmux を PATH に追加します。",
+      "installTabs": {
+        "label": "オペレーティングシステム",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "インストールスクリプトを見る",
+        "copy": "インストールコマンドをコピー",
+        "copied": "コピーしました"
+      },
+      "installNpx": "Node.js がインストール済みなら、恒久的にインストールせずに実行できます。",
+      "platforms": "配布ビルドは Apple Silicon と Intel Mac、x64 と Arm64 Linux、x64 Windows に対応します。Windows on Arm では x64 ビルドをエミュレーションで実行します。ソースからのビルドには Rust、Zig 0.15.2、リポジトリの Ghostty サブモジュールが必要です。",
+      "modelTitle": "ワークスペースモデル",
+      "modelIntro": "cmux TUI は各プロセスを無関係なターミナルタブへ平坦化せず、一つの永続ツリーで管理します。",
+      "modelBody": "セッションは一つの制御ソケットを持ちます。各ワークスペースには複数のスクリーン、各スクリーンにはペインレイアウト、各ペインにはターミナルとブラウザのタブを置けます。他のタブが残っていれば、タブを閉じてもペインは閉じません。",
+      "keyboardTitle": "キーボードとマウス",
+      "keyboardIntro": "標準プレフィックスは Ctrl-b です。Ctrl-b を2回押すと、リテラルの Ctrl-b をアクティブなターミナルへ送ります。",
+      "keyTable": {
+        "keys": "キー",
+        "action": "操作"
+      },
+      "keys": {
+        "splitRight": "アクティブペインを右に分割",
+        "splitDown": "アクティブペインを下に分割",
+        "newTab": "ターミナルタブを作成",
+        "newWorkspace": "ワークスペースを作成",
+        "sidebar": "ワークスペースレールを表示または非表示",
+        "detach": "ローカルでは終了、サーバーからはデタッチ"
+      },
+      "mouse": "ペイン境界、タブ、ワークスペース、スクリーンを直接クリックできます。ペインを右クリックすると操作メニューが開きます。ペイン内のアプリがマウス入力を所有している場合は、Shift を押しながら右クリックします。",
+      "sessionsTitle": "ヘッドレスセッションとアタッチ",
+      "sessionsIntro": "ヘッドレスモードはローカル UI なしで mux バックエンドとターミナルを実行し続けます。UI が必要なときに別のターミナルからアタッチできます。",
+      "sessionsBody": "標準セッション名は main です。名前付きセッションは別々の Unix ソケットを使います。デタッチ後もヘッドレスサーバーは動き続けるため、後から同じツリーとターミナル状態を復元できます。",
+      "remoteTitle": "リモートマシン",
+      "remoteIntro": "マシンレールを有効にすると、現在のセッションと設定済みの Unix ソケットまたは SSH ターゲットを切り替えられます。",
+      "remoteBody": "リモートマシンではヘッドレス cmux セッションを事前に実行し、非対話 SSH から cmux バイナリを見つけられるようにします。cmux は厳格なホスト鍵確認を使い、エージェント転送とポート転送を無効にします。",
+      "browserTitle": "ブラウザタブ",
+      "browserBody": "ブラウザタブは Chrome DevTools Protocol を通じて実際の Chrome または Chromium ターゲットを操作します。プロファイルはセッション間で維持されるため、Cookie とサインインを保持できます。次のキーでブラウザタブを開きます。",
+      "automationTitle": "自動化と制御ソケット",
+      "automationIntro": "TUI が使うすべてのツリー操作と検査は、コマンドラインと JSON Lines 制御ソケットからも利用できます。",
+      "automationBody": "コマンドはワークスペース作成、プロセス実行、ペイン分割、入力送信、表示テキスト取得、イベント購読、エージェント状態報告に対応します。TypeScript、Python、Go、Java、Rust の型付きバインディングがリポジトリに含まれます。",
+      "configTitle": "設定",
+      "configBody": "TUI 設定ファイルでキー、サイドバー幅、マシン、ブラウザ動作、起動コマンド、テーマ値を設定できます。CMUX_TUI_CONFIG で標準パスを上書きできます。",
+      "moreTitle": "関連情報",
+      "links": {
+        "product": "cmux TUI 製品ページ",
+        "sourceDocs": "ソース内の完全なドキュメント",
+        "source": "cmux-tui ソースコード"
+      }
     }
   },
   "appProWelcome": {

@@ -54,9 +54,9 @@ struct OnboardingScreenshot: View {
 
     private var frameHeight: CGFloat {
         if dynamicTypeSize.isAccessibilitySize {
-            return 360
+            return 420
         }
-        return horizontalSizeClass == .regular ? 520 : 440
+        return horizontalSizeClass == .regular ? 660 : 560
     }
 
     private var language: OnboardingScreenshotLanguage {
@@ -154,7 +154,14 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
                 cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
                 style: .continuous
             )
+            .fill(titaniumRim)
+
+            RoundedRectangle(
+                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.glassCornerRadius,
+                style: .continuous
+            )
             .fill(Color.black)
+            .padding(OnboardingIPhoneScreenshotFrameMetrics.rimWidth)
 
             ZStack {
                 Color(.systemBackground)
@@ -165,33 +172,73 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
                     )
             }
             .clipShape(screenShape)
-            .padding(8)
+            .padding(OnboardingIPhoneScreenshotFrameMetrics.screenInset)
 
             screenShape
-                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                .padding(8)
+                .stroke(
+                    Color.white.opacity(0.16),
+                    lineWidth: 1
+                )
+                .padding(OnboardingIPhoneScreenshotFrameMetrics.screenInset)
 
             RoundedRectangle(
                 cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
                 style: .continuous
             )
-            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+            .stroke(outerHighlight, lineWidth: 1)
+
+            RoundedRectangle(
+                cornerRadius: OnboardingIPhoneScreenshotFrameMetrics.outerCornerRadius,
+                style: .continuous
+            )
+            .stroke(Color.black.opacity(0.42), lineWidth: 1)
+            .padding(1)
+        }
+        .overlay(alignment: .top) {
+            OnboardingDynamicIsland()
+                .padding(.top, OnboardingIPhoneScreenshotFrameMetrics.dynamicIslandTopInset)
         }
         .overlay(alignment: .leading) {
-            sideButton(height: 46)
-                .offset(x: -3, y: -82)
+            OnboardingIPhoneSideButton(height: 48, edge: .leading)
+                .offset(x: -4, y: -104)
         }
         .overlay(alignment: .leading) {
-            sideButton(height: 62)
-                .offset(x: -3, y: -12)
+            OnboardingIPhoneSideButton(height: 66, edge: .leading)
+                .offset(x: -4, y: -24)
         }
         .overlay(alignment: .trailing) {
-            sideButton(height: 86)
-                .offset(x: 3, y: 34)
+            OnboardingIPhoneSideButton(height: 96, edge: .trailing)
+                .offset(x: 4, y: 48)
         }
         .aspectRatio(
             OnboardingIPhoneScreenshotFrameMetrics.outerAspectRatio,
             contentMode: .fit
+        )
+    }
+
+    private var titaniumRim: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: Color(white: 0.70), location: 0.00),
+                .init(color: Color(white: 0.16), location: 0.06),
+                .init(color: Color(white: 0.04), location: 0.48),
+                .init(color: Color(white: 0.30), location: 0.94),
+                .init(color: Color(white: 0.68), location: 1.00),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var outerHighlight: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.54),
+                Color.white.opacity(0.06),
+                Color.black.opacity(0.26),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
         )
     }
 
@@ -201,19 +248,82 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             style: .continuous
         )
     }
-
-    private func sideButton(height: CGFloat) -> some View {
-        Capsule()
-            .fill(Color.black)
-            .frame(width: 4, height: height)
-    }
 }
 
 private enum OnboardingIPhoneScreenshotFrameMetrics {
-    static let outerAspectRatio: CGFloat = 0.49
+    static let outerAspectRatio: CGFloat = 78.0 / 163.4
     static let screenAspectRatio: CGFloat = 1206 / 2622
-    static let outerCornerRadius: CGFloat = 48
-    static let screenCornerRadius: CGFloat = 40
+    static let outerCornerRadius: CGFloat = 62
+    static let glassCornerRadius: CGFloat = 58
+    static let screenCornerRadius: CGFloat = 51
+    static let rimWidth: CGFloat = 4
+    static let screenInset: CGFloat = 9
+    static let dynamicIslandTopInset: CGFloat = 15
+}
+
+private struct OnboardingDynamicIsland: View {
+    var body: some View {
+        Capsule()
+            .fill(Color.black)
+            .frame(width: 76, height: 22)
+            .overlay(alignment: .trailing) {
+                Circle()
+                    .fill(cameraLensGradient)
+                    .frame(width: 8, height: 8)
+                    .padding(.trailing, 12)
+            }
+            .overlay {
+                Capsule()
+                    .stroke(Color.white.opacity(0.05), lineWidth: 1)
+            }
+    }
+
+    private var cameraLensGradient: RadialGradient {
+        RadialGradient(
+            colors: [
+                Color(red: 0.05, green: 0.12, blue: 0.20),
+                Color(red: 0.00, green: 0.03, blue: 0.07),
+                Color.black,
+            ],
+            center: .center,
+            startRadius: 1,
+            endRadius: 5
+        )
+    }
+}
+
+private struct OnboardingIPhoneSideButton: View {
+    enum Edge {
+        case leading
+        case trailing
+    }
+
+    let height: CGFloat
+    let edge: Edge
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(buttonGradient)
+            .frame(width: 4, height: height)
+            .overlay(alignment: edge == .leading ? .leading : .trailing) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.24))
+                    .frame(width: 1)
+                    .padding(.vertical, 3)
+            }
+    }
+
+    private var buttonGradient: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color(white: 0.38),
+                Color(white: 0.05),
+                Color(white: 0.22),
+            ],
+            startPoint: edge == .leading ? .leading : .trailing,
+            endPoint: edge == .leading ? .trailing : .leading
+        )
+    }
 }
 
 enum OnboardingScreenshotLanguage: String, CaseIterable, Equatable, Sendable {
