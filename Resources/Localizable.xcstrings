@@ -31680,6 +31680,23 @@
         }
       }
     },
+    "browser.screenshot.error.captureInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another browser screenshot is already in progress."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のブラウザのスクリーンショットを取得中です。"
+          }
+        }
+      }
+    },
     "browser.screenshot.error.emptySnapshot": {
       "extractionState": "manual",
       "localizations": {

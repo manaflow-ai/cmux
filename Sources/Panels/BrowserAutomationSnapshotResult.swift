@@ -3,7 +3,7 @@ import Foundation
 enum BrowserAutomationSnapshotResult: Sendable {
     case success(Data)
     case failure(code: String, message: String)
-    case timedOut
+    case timedOut(message: String)
 
     /// Preserves the public wire contract for a failed browser capture.
     static func captureFailure(_ error: Error) -> Self {
@@ -14,8 +14,8 @@ enum BrowserAutomationSnapshotResult: Sendable {
             )
         }
         switch screenshotError {
-        case .automationTimedOut:
-            return .timedOut
+        case .automationTimedOut, .captureInProgress:
+            return .timedOut(message: screenshotError.localizedDescription)
         case .renderedContentMismatch:
             return .failure(
                 code: "screenshot_mismatch",

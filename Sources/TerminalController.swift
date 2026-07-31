@@ -8066,9 +8066,9 @@ class TerminalController {
             imageData = data
         case .failure(let code, let message):
             return .err(code: code, message: message, data: nil)
-        case .timedOut:
+        case .timedOut(let originalMessage):
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
-                originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
+                originalMessage: originalMessage,
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,

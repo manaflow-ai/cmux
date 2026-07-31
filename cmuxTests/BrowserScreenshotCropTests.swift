@@ -408,6 +408,7 @@ struct BrowserScreenshotCropTests {
             (error: Error, expectedCode: String?, expectedTimedOut: Bool)
         ] = [
             (BrowserScreenshotError.automationTimedOut, nil, true),
+            (BrowserScreenshotError.captureInProgress, nil, true),
             (mismatch, "screenshot_mismatch", false),
             (BrowserScreenshotError.captureAreaTooLarge, "internal_error", false),
             (NSError(domain: "test", code: 1), "internal_error", false),
@@ -422,9 +423,10 @@ struct BrowserScreenshotCropTests {
                 #expect(!item.expectedTimedOut)
                 #expect(code == item.expectedCode)
                 #expect(!message.isEmpty)
-            case .timedOut:
+            case .timedOut(let message):
                 #expect(item.expectedTimedOut)
                 #expect(item.expectedCode == nil)
+                #expect(message == item.error.localizedDescription)
             }
         }
     }

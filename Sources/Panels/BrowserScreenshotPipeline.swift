@@ -3,6 +3,7 @@ import AppKit
 enum BrowserScreenshotError: LocalizedError {
     case automationTimedOut
     case captureAreaTooLarge
+    case captureInProgress
     case emptySnapshot
     case invalidSelection
     case invalidImageRepresentation
@@ -21,6 +22,11 @@ enum BrowserScreenshotError: LocalizedError {
             return String(
                 localized: "browser.screenshot.error.captureAreaTooLarge",
                 defaultValue: "The page is too large to capture."
+            )
+        case .captureInProgress:
+            return String(
+                localized: "browser.screenshot.error.captureInProgress",
+                defaultValue: "Another browser screenshot is already in progress."
             )
         case .emptySnapshot:
             return String(localized: "browser.screenshot.error.emptySnapshot", defaultValue: "No screenshot was returned.")
