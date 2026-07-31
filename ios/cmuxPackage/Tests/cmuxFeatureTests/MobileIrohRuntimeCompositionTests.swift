@@ -179,17 +179,13 @@ struct MobileIrohRuntimeCompositionTests {
         let readiness = MobileIrohConnectionReadinessOwner(
             jitterUnitInterval: { 0 }
         )
+        let clock = MobileIrohReadinessTestClock(startedAt)
         readiness.begin(revision: 1)
 
-        var activationSettled = false
-        var clockReadCount = 0
-        async let outcome = readiness.wait(now: {
-            clockReadCount += 1
-            return activationSettled ? settledAt : startedAt
-        })
+        async let outcome = readiness.wait(now: { clock.read() })
         await Task.yield()
-        #expect(clockReadCount == 0)
-        activationSettled = true
+        #expect(clock.readCount == 0)
+        clock.set(settledAt)
         let failure = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
@@ -200,7 +196,7 @@ struct MobileIrohRuntimeCompositionTests {
         let settledOutcome = await outcome
 
         #expect(failure.retryAfterSeconds == 30)
-        #expect(clockReadCount == 1)
+        #expect(clock.readCount == 1)
         #expect(
             settledOutcome == .failed(MobileIrohRuntimePreparationError(
                 diagnosticFailureKind: .endpointUnavailable,
@@ -1123,6 +1119,25 @@ struct MobileIrohRuntimeCompositionTests {
 
         // The activation-pinned source fails closed instead.
         #expect(await source.credentialPair() == nil)
+    }
+}
+
+@MainActor
+private final class MobileIrohReadinessTestClock {
+    private var date: Date
+    private(set) var readCount = 0
+
+    init(_ date: Date) {
+        self.date = date
+    }
+
+    func read() -> Date {
+        readCount += 1
+        return date
+    }
+
+    func set(_ date: Date) {
+        self.date = date
     }
 }
 
