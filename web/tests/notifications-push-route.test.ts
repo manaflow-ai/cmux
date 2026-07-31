@@ -130,8 +130,9 @@ describe("notifications push route", () => {
     expect(pushRoute.maxDuration * 1_000)
       .toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
     expect(PUSH_SEND_LEASE_MS)
-      .toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
-    expect(pushRoute.maxDuration).toBeLessThan(120);
+      .toBeGreaterThan(pushRoute.maxDuration * 1_000);
+    expect(pushRoute.DEFAULT_PUSH_TTL_SECONDS * 1_000)
+      .toBeGreaterThan(PUSH_SEND_LEASE_MS);
   });
 
   test("uses the database user limiter as the only in-code limiter", async () => {
@@ -540,5 +541,59 @@ describe("notifications push route", () => {
     expect(stored?.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(stored?.rowText).not.toContain("secret original body");
     expect(stored?.rowText).not.toContain("different secret body");
+  });
+
+  dbTest("delivers to healthy rows and removes an impossible stored environment", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production'),
+        ('user-1', ${"b".repeat(64)}, 'ios', 'com.cmux.app', 'corrupt')
+    `;
+    scriptedSendOutcomes = [[
+      { deviceToken: "a".repeat(64), status: 200, prune: false },
+      {
+        deviceToken: "b".repeat(64),
+        status: 400,
+        reason: "invalid_stored_environment",
+        prune: true,
+      },
+    ]];
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId: "e9228cf1-bf4e-4f1a-9a89-2962d1882c4d",
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(await response.json()).toMatchObject({
+      sent: 1,
+      devices: 2,
+      pruned: 1,
+      permanentFailures: 1,
+    });
+    const registered = await sql<{ deviceToken: string }[]>`
+      select device_token as "deviceToken"
+      from device_tokens
+      where user_id = 'user-1'
+    `;
+    expect(registered).toEqual([{ deviceToken: "a".repeat(64) }]);
   });
 });

@@ -645,11 +645,83 @@ describe("apns sender transport", () => {
         deviceToken: "b".repeat(64),
         status: 400,
         reason: "invalid_stored_environment",
-        prune: false,
+        prune: true,
       },
     ]);
     expect(JSON.stringify(results)).not.toContain("private key");
     expect(connections).toBe(0);
+  });
+
+  test("defers 429 and 503 Retry-After responses instead of clamping and hammering", async () => {
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    for (const status of [429, 503]) {
+      let requests = 0;
+      let inProcessDelays = 0;
+      class FakeRequest extends EventEmitter {
+        setTimeout() {
+          return this;
+        }
+        close() {
+          return this;
+        }
+        end() {
+          requests += 1;
+          this.emit("response", {
+            ":status": status,
+            "retry-after": "30",
+          });
+          this.emit("data", Buffer.from(JSON.stringify({
+            reason: status === 429 ? "TooManyRequests" : "ServiceUnavailable",
+          })));
+          this.emit("end");
+          return this;
+        }
+      }
+      class FakeSession extends EventEmitter {
+        request() {
+          return new FakeRequest();
+        }
+        close() {}
+      }
+      const transport = {
+        connect: () => new FakeSession(),
+      } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+      const results = await sendApnsNotificationReliably(
+        {
+          keyP8: p8,
+          keyId: `RETRY-AFTER-${status}`,
+          teamId: "TEAM456",
+        },
+        [{
+          deviceToken: "a".repeat(64),
+          bundleId: "com.cmux.app",
+          environment: "production",
+        }],
+        {
+          title: "agent",
+          body: "done",
+          expirationEpochSeconds: Math.floor(Date.now() / 1_000) + 120,
+        },
+        {
+          retryDelay: async () => {
+            inProcessDelays += 1;
+          },
+        },
+        1_000,
+        transport,
+      );
+
+      expect(requests).toBe(1);
+      expect(inProcessDelays).toBe(0);
+      expect(results[0]?.retryAfterSeconds).toBe(30);
+      expect(summarizeApnsSendResults(results)).toMatchObject({
+        transientFailures: 1,
+        retryAfterSeconds: 30,
+      });
+    }
   });
 
   test("retries only unresolved devices after a partial APNs result", async () => {

@@ -52,9 +52,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 
   const db = cloudDb();
 
-  let registered: boolean;
+  let registration: { limitReached: boolean };
   try {
-    registered = await db.transaction(async (tx) => {
+    registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
@@ -70,7 +70,12 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .from(deviceTokens)
           .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
         if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-          return false;
+          // Never guess that an old-looking token is dead. Only an APNs
+          // terminal response proves that and the send route prunes it there.
+          // Re-registering a known current token still succeeds above; a new
+          // token receives a typed repair rather than silently evicting a
+          // potentially live device.
+          return { limitReached: true };
         }
       }
 
@@ -94,7 +99,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           },
         });
 
-      return true;
+      return { limitReached: false };
     });
   } catch (error) {
     if (error instanceof AccountDeletionMutationBlockedError) {
@@ -103,10 +108,16 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     throw error;
   }
 
-  if (!registered) {
-    return jsonResponse({ error: "too_many_devices" }, 429);
+  if (registration.limitReached) {
+    return jsonResponse(
+      {
+        error: "too_many_devices",
+        limit: MAX_DEVICE_TOKENS_PER_USER,
+        action: "disable_push_on_another_device",
+      },
+      429,
+    );
   }
-
   return jsonResponse({ ok: true });
 }
 

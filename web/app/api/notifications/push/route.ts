@@ -3,26 +3,50 @@
 // forwarding. No-ops (no APNs traffic) when the user has no registered devices.
 // Auth: Stack Bearer from the Mac's signed-in user; routing is by that user id.
 
-import { checkRateLimit } from "@vercel/firewall";
+import crypto from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { env } from "../../../env";
 import { cloudDb } from "../../../../db/client";
 import { deviceTokens } from "../../../../db/schema";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
-import { recordPushSendOrThrow, PushRateLimitExceededError } from "../../../../services/apns/rateLimit";
-import { withApnsApiRoute } from "../../../../services/apns/routeHandler";
+import {
+  completePushSend,
+  recordPushSendOrThrow,
+  PushCorrelationConflictError,
+  PushRateLimitExceededError,
+} from "../../../../services/apns/rateLimit";
+import {
+  mergePushDeliveryOutcomes,
+  unresolvedPushTargets,
+} from "../../../../services/apns/deliveryState";
+import {
+  recordApnsRouteOutcome,
+  withApnsApiRoute,
+} from "../../../../services/apns/routeHandler";
 import {
   MAX_DEVICE_TOKENS_PER_USER,
   MAX_PUSH_REQUEST_BYTES,
   parsePushPayload,
   readBoundedJsonObject,
+  type PushPayload,
 } from "../../../../services/apns/routePolicy";
-import { sendApnsNotification, type ApnsConfig } from "../../../../services/apns/sender";
-import { summarizeApnsSendResults } from "../../../../services/apns/response";
+import {
+  sendApnsNotificationReliably,
+  type ApnsConfig,
+  type ApnsSendResult,
+  type ApnsTarget,
+} from "../../../../services/apns/sender";
+import {
+  summarizeApnsSendResults,
+  type PushSendSummary,
+} from "../../../../services/apns/response";
 
 export const runtime = "nodejs"; // http2 + node:crypto, not edge
 export const dynamic = "force-dynamic";
+// The default APNs loop is bounded to ~28s. Keep the platform request alive
+// through that loop while staying comfortably below the 120s event TTL.
+export const maxDuration = 45;
 
 function apnsConfig(): ApnsConfig | null {
   const keyP8 = env.CMUX_APNS_KEY_P8;
@@ -45,29 +69,72 @@ function rateLimitResponse(error: PushRateLimitExceededError): Response {
   );
 }
 
-export async function POST(request: Request): Promise<Response> {
-  return withApnsApiRoute(request, "/api/notifications/push", "send", async () => sendPush(request));
+export const DEFAULT_PUSH_TTL_SECONDS = 120;
+const MAX_PUSH_TTL_SECONDS = 300;
+
+function pushPayloadFingerprint(payload: PushPayload): string {
+  const canonicalPayload = {
+    kind: payload.kind,
+    title: payload.title,
+    subtitle: payload.subtitle,
+    body: payload.body,
+    workspaceId: payload.workspaceId,
+    surfaceId: payload.surfaceId,
+    retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
+    macDeviceId: payload.macDeviceId,
+    notificationId: payload.notificationId,
+    expirationEpochSeconds: payload.expirationEpochSeconds,
+    dismissedIds: payload.dismissedIds,
+    badgeCount: payload.badgeCount,
+    hideContent: payload.hideContent,
+  };
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(canonicalPayload))
+    .digest("hex");
 }
 
-async function sendPush(request: Request): Promise<Response> {
+function summaryResponse(
+  summary: PushSendSummary,
+  correlationId: string,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(
+    JSON.stringify({ ...summary, correlationId }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-cmux-push-correlation-id": correlationId,
+        ...extraHeaders,
+      },
+    },
+  );
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return withApnsApiRoute(
+    request,
+    "/api/notifications/push",
+    "send",
+    async () => sendPush(request, { send: sendApnsNotificationReliably }),
+  );
+}
+
+/** Test seam for the APNs transport; production always uses the real sender. */
+export async function sendPushWithTransport(
+  request: Request,
+  send: typeof sendApnsNotificationReliably,
+): Promise<Response> {
+  return sendPush(request, { send });
+}
+
+async function sendPush(
+  request: Request,
+  dependencies: { send: typeof sendApnsNotificationReliably },
+): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
-
-  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
-    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
-      request,
-      rateLimitKey: user.id,
-    });
-    if (rateLimited || error === "blocked") {
-      return new Response(JSON.stringify({ error: "rate_limited" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
-    }
-    if (error === "not-found") {
-      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
-    }
-  }
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) {
@@ -76,6 +143,29 @@ async function sendPush(request: Request): Promise<Response> {
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
+  const correlationId =
+    payload.value.correlationId ?? crypto.randomUUID();
+  const payloadFingerprint = pushPayloadFingerprint(payload.value);
+  const nowEpochSeconds = Math.floor(Date.now() / 1000);
+  if (
+    payload.value.expirationEpochSeconds != null
+    && payload.value.expirationEpochSeconds <= nowEpochSeconds
+  ) {
+    return jsonResponse(
+      { error: "push_event_expired", correlationId },
+      410,
+    );
+  }
+  const expirationEpochSeconds = Math.min(
+    payload.value.expirationEpochSeconds
+      ?? nowEpochSeconds + DEFAULT_PUSH_TTL_SECONDS,
+    nowEpochSeconds + MAX_PUSH_TTL_SECONDS,
+  );
+  const deliveryPayload = {
+    ...payload.value,
+    correlationId,
+    expirationEpochSeconds,
+  };
 
   const db = cloudDb();
   const tokens = await db
@@ -88,8 +178,117 @@ async function sendPush(request: Request): Promise<Response> {
     .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios")))
     .limit(MAX_DEVICE_TOKENS_PER_USER);
 
-  if (tokens.length === 0) {
-    return jsonResponse(summarizeApnsSendResults([]));
+  let priorOutcomes: ApnsSendResult[] = [];
+  let sendTargets: ApnsTarget[] = tokens;
+  try {
+    const claim = await recordPushSendOrThrow(
+      db,
+      user.id,
+      tokens.length,
+      correlationId,
+      new Date(nowEpochSeconds * 1000),
+      new Date(expirationEpochSeconds * 1000),
+      deliveryPayload.kind,
+      tokens,
+      payloadFingerprint,
+    );
+    if (claim.kind === "busy") {
+      return new Response(
+        JSON.stringify({ error: "push_event_in_progress", correlationId }),
+        {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "1",
+            "x-cmux-push-correlation-id": correlationId,
+          },
+        },
+      );
+    }
+    const existing = claim.previous;
+    if (existing?.summary) {
+      const isExpired =
+        existing.expiresAt != null && existing.expiresAt.getTime() <= Date.now();
+      if (existing.summary.transientFailures === 0 || isExpired) {
+        await completePushSend(
+          db,
+          user.id,
+          correlationId,
+          existing.summary,
+          existing.outcomes,
+        );
+        recordApnsRouteOutcome(existing.summary, correlationId);
+        return summaryResponse(existing.summary, correlationId, {
+          "x-cmux-push-replayed": "true",
+        });
+      }
+      priorOutcomes = [...existing.outcomes];
+      const currentByToken = new Map(
+        tokens.map((target) => [target.deviceToken, target]),
+      );
+      const originalTargets =
+        existing.initialTargets.length > 0
+          ? existing.initialTargets
+          : tokens;
+      const unresolvedOriginalTargets = unresolvedPushTargets(
+        originalTargets,
+        priorOutcomes,
+      );
+      const removedOutcomes = unresolvedOriginalTargets
+        .filter((target) => !currentByToken.has(target.deviceToken))
+        .map((target): ApnsSendResult => ({
+          deviceToken: target.deviceToken,
+          status: 404,
+          reason: "target_no_longer_registered",
+          prune: false,
+        }));
+      priorOutcomes = mergePushDeliveryOutcomes(
+        priorOutcomes,
+        removedOutcomes,
+      );
+      const stillRegisteredOriginalTargets = originalTargets.flatMap(
+        (target) => {
+          const current = currentByToken.get(target.deviceToken);
+          return current ? [current] : [];
+        },
+      );
+      sendTargets = unresolvedPushTargets(
+        stillRegisteredOriginalTargets,
+        priorOutcomes,
+      );
+      if (sendTargets.length === 0) {
+        const reconciledSummary = summarizeApnsSendResults(priorOutcomes);
+        await completePushSend(
+          db,
+          user.id,
+          correlationId,
+          reconciledSummary,
+          priorOutcomes,
+        );
+        recordApnsRouteOutcome(reconciledSummary, correlationId);
+        return summaryResponse(reconciledSummary, correlationId, {
+          "x-cmux-push-replayed": "true",
+        });
+      }
+    }
+  } catch (error) {
+    if (error instanceof PushCorrelationConflictError) {
+      return jsonResponse(
+        { error: "correlation_payload_mismatch", correlationId },
+        409,
+      );
+    }
+    if (error instanceof PushRateLimitExceededError) {
+      return rateLimitResponse(error);
+    }
+    throw error;
+  }
+
+  if (sendTargets.length === 0) {
+    const summary = summarizeApnsSendResults(priorOutcomes);
+    await completePushSend(db, user.id, correlationId, summary, priorOutcomes);
+    recordApnsRouteOutcome(summary, correlationId);
+    return summaryResponse(summary, correlationId);
   }
 
   const config = apnsConfig();
@@ -97,16 +296,11 @@ async function sendPush(request: Request): Promise<Response> {
     return jsonResponse({ error: "push_service_not_configured" }, 503);
   }
 
-  try {
-    await recordPushSendOrThrow(db, user.id, tokens.length);
-  } catch (error) {
-    if (error instanceof PushRateLimitExceededError) {
-      return rateLimitResponse(error);
-    }
-    throw error;
-  }
-
-  const results = await sendApnsNotification(config, tokens, payload.value);
+  const results = await dependencies.send(
+    config,
+    sendTargets,
+    deliveryPayload,
+  );
 
   const dead = results.filter((r) => r.prune).map((r) => r.deviceToken);
   if (dead.length > 0) {
@@ -115,5 +309,9 @@ async function sendPush(request: Request): Promise<Response> {
       .where(and(eq(deviceTokens.userId, user.id), eq(deviceTokens.platform, "ios"), inArray(deviceTokens.deviceToken, dead)));
   }
 
-  return jsonResponse(summarizeApnsSendResults(results));
+  const outcomes = mergePushDeliveryOutcomes(priorOutcomes, results);
+  const summary = summarizeApnsSendResults(outcomes);
+  await completePushSend(db, user.id, correlationId, summary, outcomes);
+  recordApnsRouteOutcome(summary, correlationId);
+  return summaryResponse(summary, correlationId);
 }

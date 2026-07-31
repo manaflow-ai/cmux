@@ -28,7 +28,21 @@ export interface ApnsSendResult {
   readonly deviceToken: string;
   readonly status: number; // 0 = transport error / timeout
   readonly reason?: string;
+  /** Provider-requested retry delay, never surfaced to clients verbatim. */
+  readonly retryAfterSeconds?: number;
   readonly prune: boolean;
+}
+
+export interface ApnsRetryOptions {
+  /** Total attempts per unresolved token, including the first. */
+  readonly maxAttempts?: number;
+  /** Clock seam used to enforce the absolute event expiry. */
+  readonly nowEpochSeconds?: () => number;
+  /** Backoff seam. The route default is bounded below the event TTL. */
+  readonly retryDelay?: (
+    attempt: number,
+    retryAfterSeconds: number | undefined,
+  ) => Promise<void>;
 }
 
 interface ApnsHttp2Session {
@@ -77,15 +91,40 @@ export function signApnsJwt(config: ApnsConfig, nowSeconds: number): string {
 
 // APNs allows reusing a provider token for up to 1h; refresh well before that.
 const JWT_TTL_SECONDS = 50 * 60;
-let cachedJwt: { token: string; issuedAt: number; keyId: string } | null = null;
+export const APNS_DEFAULT_TIMEOUT_MS = 8_000;
+const APNS_DEFAULT_MAX_ATTEMPTS = 3;
+const APNS_MAX_RETRY_DELAY_MS = 2_000;
+export const APNS_DEFAULT_MAX_DELIVERY_DURATION_MS =
+  APNS_DEFAULT_TIMEOUT_MS * APNS_DEFAULT_MAX_ATTEMPTS
+  + APNS_MAX_RETRY_DELAY_MS * (APNS_DEFAULT_MAX_ATTEMPTS - 1);
 
-function providerToken(config: ApnsConfig): string {
+let cachedJwt: {
+  token: string;
+  issuedAt: number;
+  credentialIdentity: string;
+} | null = null;
+
+function apnsCredentialIdentity(config: ApnsConfig): string {
+  const keyDigest = crypto
+    .createHash("sha256")
+    .update(normalizeP8(config.keyP8))
+    .digest("base64url");
+  return `${config.teamId}\0${config.keyId}\0${keyDigest}`;
+}
+
+function providerToken(config: ApnsConfig, forceRefresh = false): string {
   const now = Math.floor(Date.now() / 1000);
-  if (cachedJwt && cachedJwt.keyId === config.keyId && now - cachedJwt.issuedAt < JWT_TTL_SECONDS) {
+  const credentialIdentity = apnsCredentialIdentity(config);
+  if (
+    !forceRefresh
+    && cachedJwt
+    && cachedJwt.credentialIdentity === credentialIdentity
+    && now - cachedJwt.issuedAt < JWT_TTL_SECONDS
+  ) {
     return cachedJwt.token;
   }
   const token = signApnsJwt(config, now);
-  cachedJwt = { token, issuedAt: now, keyId: config.keyId };
+  cachedJwt = { token, issuedAt: now, credentialIdentity };
   return token;
 }
 
@@ -98,11 +137,11 @@ export async function sendApnsNotification(
   config: ApnsConfig,
   targets: readonly ApnsTarget[],
   input: ApnsNotificationInput,
-  timeoutMs = 8000,
+  timeoutMs = APNS_DEFAULT_TIMEOUT_MS,
   transport: ApnsTransport = nodeApnsTransport,
+  forceProviderTokenRefresh = false,
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
-  const jwt = providerToken(config);
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
   // The collapse-id coalesces repeated updates for the same notification into
   // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
@@ -113,7 +152,14 @@ export async function sendApnsNotification(
   // Never set on a dismiss push: a collapse would try to REPLACE the delivered
   // banner with the invisible dismiss payload instead of leaving removal to the
   // app's background handler.
-  const collapseId = input.kind === "dismiss" ? undefined : collapseIdFor(input.notificationId);
+  const collapseId =
+    input.kind === "dismiss"
+      ? undefined
+      : collapseIdFor(input.notificationId ?? input.correlationId);
+  const expiration =
+    typeof input.expirationEpochSeconds === "number"
+      ? String(input.expirationEpochSeconds)
+      : undefined;
   // A dismiss push carries badge + content-available but nothing visible:
   // priority 5 (power-friendly, may coalesce) instead of the default 10, which
   // Apple reserves for pushes that present UI immediately. Still push-type
@@ -122,19 +168,209 @@ export async function sendApnsNotification(
   const priority = input.kind === "dismiss" ? "5" : undefined;
 
   const byHost = new Map<string, ApnsTarget[]>();
+  const invalidEnvironmentResults: ApnsSendResult[] = [];
   for (const t of targets) {
     const host = apnsHostForEnvironment(t.environment);
+    if (!host) {
+      invalidEnvironmentResults.push({
+        deviceToken: t.deviceToken,
+        status: 400,
+        reason: "invalid_stored_environment",
+        // Registration policy can never create this row. Removing only the
+        // corrupt row lets the device self-heal on its next registration.
+        prune: true,
+      });
+      continue;
+    }
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
+  }
+
+  if (byHost.size === 0) return invalidEnvironmentResults;
+
+  let jwt: string;
+  try {
+    jwt = providerToken(config, forceProviderTokenRefresh);
+  } catch {
+    const providerFailures = [...byHost.values()]
+      .flat()
+      .map((target): ApnsSendResult => ({
+        deviceToken: target.deviceToken,
+        status: 503,
+        reason: "provider_auth_unavailable",
+        prune: false,
+      }));
+    const byToken = new Map(
+      [...providerFailures, ...invalidEnvironmentResults].map((result) => [
+        result.deviceToken,
+        result,
+      ]),
+    );
+    return targets.flatMap((target) => {
+      const result = byToken.get(target.deviceToken);
+      return result ? [result] : [];
+    });
   }
 
   const results = await Promise.all(
     [...byHost.entries()].map(([host, hostTargets]) =>
-      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs, collapseId, priority).catch(() =>
-        connectionErrorResults(hostTargets),
-      ),
+      sendHostGroup(
+        transport,
+        host,
+        hostTargets,
+        jwt,
+        body,
+        timeoutMs,
+        collapseId,
+        priority,
+        expiration,
+      ).catch(() => connectionErrorResults(hostTargets)),
     ),
   );
-  return results.flat();
+  const byToken = new Map(
+    [...results.flat(), ...invalidEnvironmentResults].map((result) => [
+      result.deviceToken,
+      result,
+    ]),
+  );
+  return targets.flatMap((target) => {
+    const result = byToken.get(target.deviceToken);
+    return result ? [result] : [];
+  });
+}
+
+/**
+ * Delivers one logical source event with bounded, per-token retries.
+ *
+ * Successful/permanent targets are removed after each attempt, so a partial
+ * APNs result never re-alerts devices that already accepted the event. The
+ * opaque correlation id is also the collapse fallback, and every attempt
+ * carries one absolute expiry so queued retries cannot become stale alerts.
+ */
+export async function sendApnsNotificationReliably(
+  config: ApnsConfig,
+  targets: readonly ApnsTarget[],
+  input: ApnsNotificationInput,
+  options: ApnsRetryOptions = {},
+  timeoutMs = 8000,
+  transport: ApnsTransport = nodeApnsTransport,
+): Promise<ApnsSendResult[]> {
+  const maxAttempts = Math.max(
+    1,
+    Math.min(options.maxAttempts ?? APNS_DEFAULT_MAX_ATTEMPTS, APNS_DEFAULT_MAX_ATTEMPTS),
+  );
+  const nowEpochSeconds =
+    options.nowEpochSeconds ?? (() => Math.floor(Date.now() / 1000));
+  const retryDelay = options.retryDelay ?? defaultRetryDelay;
+  const finalByToken = new Map<string, ApnsSendResult>();
+  let unresolved = [...targets];
+  let forceProviderTokenRefresh = false;
+
+  for (let attempt = 1; attempt <= maxAttempts && unresolved.length > 0; attempt += 1) {
+    if (
+      typeof input.expirationEpochSeconds === "number"
+      && nowEpochSeconds() >= input.expirationEpochSeconds
+    ) {
+      for (const target of unresolved) {
+        finalByToken.set(target.deviceToken, {
+          deviceToken: target.deviceToken,
+          status: 0,
+          reason: "event_expired",
+          prune: false,
+        });
+      }
+      break;
+    }
+
+    const results = await sendApnsNotification(
+      config,
+      unresolved,
+      input,
+      timeoutMs,
+      transport,
+      forceProviderTokenRefresh,
+    );
+    forceProviderTokenRefresh = false;
+    const targetByToken = new Map(
+      unresolved.map((target) => [target.deviceToken, target]),
+    );
+    const retryTargets: ApnsTarget[] = [];
+    let retryAfterSeconds: number | undefined;
+
+    for (const result of results) {
+      finalByToken.set(result.deviceToken, result);
+      if (isTransientApnsResult(result)) {
+        const target = targetByToken.get(result.deviceToken);
+        if (target) retryTargets.push(target);
+        retryAfterSeconds = maxDefined(
+          retryAfterSeconds,
+          result.retryAfterSeconds,
+        );
+        if (isProviderTokenFailure(result)) {
+          forceProviderTokenRefresh = true;
+        }
+      }
+    }
+
+    unresolved = retryTargets;
+    if (unresolved.length === 0 || attempt === maxAttempts) break;
+    if (
+      retryAfterSeconds != null
+      && retryAfterSeconds * 1_000 > APNS_MAX_RETRY_DELAY_MS
+    ) {
+      // Persist the transient outcomes and let the caller schedule the same
+      // correlation later. Clamping a provider-requested delay would hammer
+      // APNs and still consume the in-request retry budget.
+      break;
+    }
+    await retryDelay(attempt, retryAfterSeconds);
+  }
+
+  return targets.map(
+    (target) =>
+      finalByToken.get(target.deviceToken) ?? {
+        deviceToken: target.deviceToken,
+        status: 0,
+        reason: "missing_result",
+        prune: false,
+      },
+  );
+}
+
+function isProviderTokenFailure(result: ApnsSendResult): boolean {
+  return result.status === 403
+    && (
+      result.reason === "ExpiredProviderToken"
+      || result.reason === "InvalidProviderToken"
+    );
+}
+
+export function isTransientApnsResult(result: ApnsSendResult): boolean {
+  return result.status === 0
+    || result.status === 429
+    || result.status >= 500
+    || isProviderTokenFailure(result);
+}
+
+function maxDefined(
+  lhs: number | undefined,
+  rhs: number | undefined,
+): number | undefined {
+  if (lhs == null) return rhs;
+  if (rhs == null) return lhs;
+  return Math.max(lhs, rhs);
+}
+
+async function defaultRetryDelay(
+  attempt: number,
+  retryAfterSeconds: number | undefined,
+): Promise<void> {
+  const serverDelayMs =
+    retryAfterSeconds == null ? 0 : retryAfterSeconds * 1000;
+  const delayMs = Math.min(
+    Math.max(serverDelayMs, 250 * 2 ** (attempt - 1)),
+    APNS_MAX_RETRY_DELAY_MS,
+  );
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 /** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
@@ -162,6 +398,7 @@ async function sendHostGroup(
   timeoutMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
+  expiration: string | undefined,
 ): Promise<ApnsSendResult[]> {
   let client: ApnsHttp2Session | null = null;
   try {
@@ -172,7 +409,19 @@ async function sendHostGroup(
       connectedClient.once("error", () => resolve(null));
     });
     return await Promise.all(
-      hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError, collapseId, priority)),
+      hostTargets.map((t) =>
+        sendOne(
+          connectedClient,
+          jwt,
+          t,
+          body,
+          timeoutMs,
+          connError,
+          collapseId,
+          priority,
+          expiration,
+        )
+      ),
     );
   } catch {
     return connectionErrorResults(hostTargets);
@@ -190,13 +439,24 @@ function sendOne(
   connError: Promise<null>,
   collapseId: string | undefined,
   priority: string | undefined,
+  expiration: string | undefined,
 ): Promise<ApnsSendResult> {
   return new Promise<ApnsSendResult>((resolve) => {
     let settled = false;
-    const finish = (status: number, reason?: string) => {
+    const finish = (
+      status: number,
+      reason?: string,
+      retryAfterSeconds?: number,
+    ) => {
       if (settled) return;
       settled = true;
-      resolve({ deviceToken: target.deviceToken, status, reason, prune: shouldPruneToken(status, reason) });
+      resolve({
+        deviceToken: target.deviceToken,
+        status,
+        reason,
+        ...(retryAfterSeconds == null ? {} : { retryAfterSeconds }),
+        prune: shouldPruneToken(status, reason),
+      });
     };
     void connError.then(() => finish(0, "connection_error"));
 
@@ -215,6 +475,7 @@ function sendOne(
       // delivered banner.
       if (collapseId) headers["apns-collapse-id"] = collapseId;
       if (priority) headers["apns-priority"] = priority;
+      if (expiration) headers["apns-expiration"] = expiration;
       req = client.request(headers);
     } catch (err) {
       finish(0, err instanceof Error ? err.message : "request_error");
@@ -226,9 +487,11 @@ function sendOne(
     });
 
     let status = 0;
+    let retryAfterSeconds: number | undefined;
     let data = "";
     req.on("response", (headers) => {
       status = Number(headers[":status"]) || 0;
+      retryAfterSeconds = parseRetryAfter(headers["retry-after"]);
     });
     req.on("data", (chunk) => {
       data += chunk;
@@ -242,9 +505,24 @@ function sendOne(
           // non-JSON body (success has empty body); leave reason undefined
         }
       }
-      finish(status, reason);
+      finish(status, reason, retryAfterSeconds);
     });
     req.on("error", (err) => finish(0, err instanceof Error ? err.message : "request_error"));
     req.end(body);
   });
+}
+
+function parseRetryAfter(value: unknown): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string" && typeof raw !== "number") return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(Math.ceil(seconds), 60);
+  }
+  const dateMs = Date.parse(String(raw));
+  if (!Number.isFinite(dateMs)) return undefined;
+  return Math.min(
+    Math.max(Math.ceil((dateMs - Date.now()) / 1000), 0),
+    60,
+  );
 }
