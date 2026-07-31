@@ -783,6 +783,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
     private var ghosttyGotoSplitNextShortcut: StoredShortcut?
+
+#if DEBUG
+    /// Test seam: unit tests can install the mirrored Ghostty
+    /// goto_split:previous/next triggers without loading a Ghostty config
+    /// (Ghostty's macOS defaults put them on ⌘[ / ⌘], colliding with the
+    /// focus-history defaults this dispatch must win).
+    func debugSetGhosttyGotoSplitCycleShortcuts(previous: StoredShortcut?, next: StoredShortcut?) {
+        ghosttyGotoSplitPreviousShortcut = previous
+        ghosttyGotoSplitNextShortcut = next
+    }
+#endif
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
