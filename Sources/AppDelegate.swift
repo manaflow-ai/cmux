@@ -532,6 +532,15 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
+private final class WeakTerminalKeyReleaseOwner {
+    weak var view: GhosttyNSView?
+
+    init(_ view: GhosttyNSView) {
+        self.view = view
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
@@ -781,6 +790,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
+    private var shortcutKeyPressLifecycle = ShortcutKeyPressLifecycleTracker()
+    private var zeroTimestampShortcutEventsByKeyCode: [UInt16: NSEvent] = [:]
+    private var terminalKeyReleaseOwners: [UInt16: WeakTerminalKeyReleaseOwner] = [:]
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
@@ -2135,6 +2147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp else { return }
         PortScanner.shared.setTrackedAgentScanningPaused(true)
         clearConfiguredShortcutChordState()
+        resetShortcutPressOwnership()
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
@@ -12727,6 +12740,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             matching: [.keyDown, .keyUp, .flagsChanged, .systemDefined]
         ) { [weak self] event in
             guard let self else { return event }
+            self.prepareTerminalKeyReleaseOwnership(for: event)
             if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
                 event,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow
@@ -12759,8 +12773,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutTimingStart = CmuxTypingTiming.start()
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
-                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
-                    || self.handleCustomShortcut(event: event)
+                var handledByShortcut = false
+                let consumedByShortcut = self.shortcutConsumesKeyDown(event) {
+                    handledByShortcut =
+                        cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
+                        || self.handleCustomShortcut(event: event)
+                    return handledByShortcut
+                }
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(
@@ -12788,7 +12807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     extra: "handled=\(handledByShortcut ? 1 : 0)"
                 )
 #endif
-                if handledByShortcut {
+                if consumedByShortcut {
 #if DEBUG
                     cmuxDebugLog("  → consumed by handleCustomShortcut")
 #endif
@@ -12796,12 +12815,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return event // Pass through
             }
-            self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-            if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
+            if self.shortcutMonitorConsumesLifecycleEvent(event) {
                 return nil
             }
             return event
         }
+    }
+
+    private func shortcutConsumesKeyDown(
+        _ event: NSEvent,
+        dispatchShortcut: () -> Bool
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let zeroTimestampEventToken: UInt
+        if event.timestamp.isZero {
+            zeroTimestampEventToken = UInt(bitPattern: ObjectIdentifier(event))
+            // Retain the prior zero-timestamp event until its replacement token
+            // has been captured, preventing allocator reuse from collapsing two
+            // distinct synthetic key-downs into one dispatch identity.
+            zeroTimestampShortcutEventsByKeyCode[event.keyCode] = event
+        } else {
+            zeroTimestampEventToken = 0
+            zeroTimestampShortcutEventsByKeyCode.removeValue(
+                forKey: event.keyCode
+            )
+        }
+        let decision = shortcutKeyPressLifecycle.prepareKeyDown(
+            keyCode: event.keyCode,
+            eventIdentity: ShortcutKeyEventIdentity(
+                timestampBitPattern: event.timestamp.bitPattern,
+                windowNumber: event.windowNumber,
+                zeroTimestampEventToken: zeroTimestampEventToken
+            ),
+            isRepeat: event.isARepeat
+        )
+        switch decision {
+        case .passThrough:
+            return false
+        case .consume:
+            return true
+        case .dispatch(let dispatch):
+            let handled = dispatchShortcut()
+            return shortcutKeyPressLifecycle.completeKeyDownDispatch(
+                dispatch,
+                handled: handled
+            )
+        }
+    }
+
+    private func shortcutConsumesKeyUp(_ event: NSEvent) -> Bool {
+        guard event.type == .keyUp else { return false }
+        zeroTimestampShortcutEventsByKeyCode.removeValue(forKey: event.keyCode)
+        return shortcutKeyPressLifecycle.shortcutConsumesKeyUp(
+            keyCode: event.keyCode
+        )
+    }
+
+    private func shortcutMonitorConsumesLifecycleEvent(_ event: NSEvent) -> Bool {
+        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        let terminalReleaseOwner = takeTerminalKeyReleaseOwner(for: event)
+        let consumedShortcutRelease = shortcutConsumesKeyUp(event)
+        let consumedEscapeRelease = clearEscapeSuppressionForKeyUp(
+            event: event,
+            consumeIfSuppressed: true
+        )
+        if consumedShortcutRelease || consumedEscapeRelease {
+            return true
+        }
+        guard event.type == .keyUp else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command) else { return false }
+        guard let terminalReleaseOwner else { return false }
+
+        // AppKit does not reliably continue Command-modified key-up events
+        // through the responder chain. The local monitor is the one guaranteed
+        // delivery point. Route only to the view that recorded terminal
+        // ownership for this physical press, regardless of focus at release.
+        terminalReleaseOwner.keyUp(with: event)
+        return true
+    }
+
+    private func prepareTerminalKeyReleaseOwnership(for event: NSEvent) {
+        guard event.type == .keyDown, !event.isARepeat else { return }
+        terminalKeyReleaseOwners.removeValue(forKey: event.keyCode)
+    }
+
+    private func takeTerminalKeyReleaseOwner(for event: NSEvent) -> GhosttyNSView? {
+        guard event.type == .keyUp else { return nil }
+        return terminalKeyReleaseOwners.removeValue(forKey: event.keyCode)?.view
+    }
+
+    func recordTerminalKeyReleaseOwner(
+        _ view: GhosttyNSView,
+        forKeyDown keyCode: UInt16
+    ) {
+        terminalKeyReleaseOwners[keyCode] = WeakTerminalKeyReleaseOwner(view)
+    }
+
+    func clearTerminalKeyReleaseOwner(
+        _ view: GhosttyNSView,
+        forKey keyCode: UInt16
+    ) {
+        guard terminalKeyReleaseOwners[keyCode]?.view === view else { return }
+        terminalKeyReleaseOwners.removeValue(forKey: keyCode)
+    }
+
+    func clearTerminalKeyReleaseOwners(for view: GhosttyNSView) {
+        terminalKeyReleaseOwners = terminalKeyReleaseOwners.filter { _, owner in
+            guard let recordedView = owner.view else { return false }
+            return recordedView !== view
+        }
+    }
+
+    func resetShortcutPressOwnership() {
+        shortcutKeyPressLifecycle.reset()
+        zeroTimestampShortcutEventsByKeyCode.removeAll(keepingCapacity: true)
+        terminalKeyReleaseOwners.removeAll(keepingCapacity: true)
     }
 
     private func installShortcutDefaultsObserver() {
@@ -13085,7 +13214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if event.cmuxIsOptionTextInputCandidate {
             let shortcutWindow = resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
             if shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
                 clearConfiguredShortcutChordState()
@@ -15235,7 +15364,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// dispatcher as the local key monitor before any stale menu item can run.
     @discardableResult
     func handleConfiguredShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
-        handleCustomShortcut(event: event)
+        shortcutConsumesKeyDown(event) {
+            handleCustomShortcut(event: event)
+        }
     }
 
     /// Route numbered workspace/surface key-equivalent fallbacks through the same
@@ -15249,7 +15380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
             return false
         }
-        return handleCustomShortcut(event: event)
+        return handleConfiguredShortcutKeyEquivalent(event)
     }
 
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
@@ -15257,14 +15388,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
-        if matchConfiguredShortcut(event: event, action: .find) {
-            let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+        shortcutConsumesKeyDown(event) {
+            if matchConfiguredShortcut(event: event, action: .find) {
+                let shortcutWindow = resolvedShortcutEventWindow(event)
+                cmuxRememberFindSelectionBeforePanelFocusMove(
+                    tabManager: tabManager,
+                    window: shortcutWindow ?? shortcutRoutingKeyWindow
+                )
+                return performFindShortcutInActiveMainWindow(
+                    preferredWindow: shortcutWindow
+                )
+            }
+            if matchConfiguredShortcut(event: event, action: .findInDirectory) {
+                return focusFileSearchInActiveMainWindow(
+                    preferredWindow: resolvedShortcutEventWindow(event)
+                )
+            }
+            return false
         }
-        if matchConfiguredShortcut(event: event, action: .findInDirectory) {
-            return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
-        }
-        return false
     }
 
     @discardableResult
@@ -15377,14 +15518,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
     func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        prepareTerminalKeyReleaseOwnership(for: event)
         if event.type == .systemDefined {
             return false
         }
         if event.type == .keyDown {
-            return handleCustomShortcut(event: event)
+            return shortcutConsumesKeyDown(event) {
+                handleCustomShortcut(event: event)
+            }
         }
-        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
-        return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+        return shortcutMonitorConsumesLifecycleEvent(event)
     }
 
     func debugMatchesConfiguredShortcut(
@@ -15464,6 +15607,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func handleBrowserPopupCloseShortcutKeyEquivalent(event: NSEvent, popupWindow: NSWindow) -> Bool {
+        shortcutConsumesKeyDown(event) {
+            dispatchBrowserPopupCloseShortcutKeyEquivalent(
+                event: event,
+                popupWindow: popupWindow
+            )
+        }
+    }
+
+    private func dispatchBrowserPopupCloseShortcutKeyEquivalent(
+        event: NSEvent,
+        popupWindow: NSWindow
+    ) -> Bool {
         guard event.type == .keyDown else {
             clearConfiguredShortcutChordState()
             return false
@@ -15541,7 +15696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// effective `when` clause.
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? event.window ?? shortcutRoutingActiveWindow
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event),
+        if event.cmuxIsOptionTextInputCandidate,
            shortcutResponderHasMarkedText(shortcutWindow?.firstResponder) {
             return nil
         }
@@ -17429,17 +17584,25 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if event.cmuxIsOptionTextInputCandidate {
             if browserWebKitKeyDownReentry { return false }
-            if !firstResponderHasMarkedText,
-               AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
-                return true
+            if !firstResponderHasMarkedText {
+                if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                    return true
+                }
+                if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+                    return true
+                }
             }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "unmatched Option input") {
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: textInputTarget,
+                    reason: "unmatched Option input"
+                ) {
                     return true
                 }
                 // Same event already in flight on this stack (WebKit replay /

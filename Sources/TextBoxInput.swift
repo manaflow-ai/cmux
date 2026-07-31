@@ -4788,8 +4788,7 @@ final class TextBoxInputTextView: NSTextView {
               !RecorderHostButton.isActivelyRecording else {
             return false
         }
-        if hasMarkedText(),
-           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if hasMarkedText(), event.cmuxIsOptionTextInputCandidate {
             return false
         }
         if textBoxShortcut(event, matches: .focusTextBoxInput) {

@@ -140,58 +140,281 @@ import Testing
         #expect(!translated.contains(.option))
     }
 
-    // MARK: Option composition per keyboard layout (issue #5993 acceptance)
+    @Test func optionNUsesGhosttyTranslatedEventWhenAltIsEnabled() throws {
+        let view = GhosttyNSView(frame: .zero)
+        let original = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_N)
+        ))
+        let translated = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: original.timestamp,
+            windowNumber: original.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: original.keyCode
+        ))
 
-    @Test func usLayoutOptionSemicolonComposesEllipsis() throws {
-        try expectOptionComposes(
-            layoutID: "com.apple.keylayout.US",
-            keyCode: UInt16(kVK_ANSI_Semicolon),
-            expected: "…"
+        let interpreted = view.textInputInterpretationEvent(
+            original: original,
+            translated: translated
         )
+
+        #expect(!interpreted.modifierFlags.contains(.option))
+        #expect(interpreted.characters == "n")
     }
 
-    @Test func germanLayoutOptionLComposesAtSign() throws {
-        try expectOptionComposes(
-            layoutID: "com.apple.keylayout.German",
-            keyCode: UInt16(kVK_ANSI_L),
-            expected: "@"
+    @Test func unshiftedCodepointUsesUniformResolverForC0ControlEvent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            eventCharacterProvider: { candidateEvent in
+                #expect(candidateEvent === event)
+                return "c"
+            }
         )
+
+        #expect(codepoint == UnicodeScalar("c").value)
     }
 
-    @Test func polishProLayoutOptionAComposesAOgonek() throws {
-        try expectOptionComposes(
-            layoutID: "com.apple.keylayout.PolishPro",
-            keyCode: UInt16(kVK_ANSI_A),
-            expected: "ą"
+    @Test func controlTextRecoveryAcceptsAnyPrintableLayoutResult() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control, .shift],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001B}",
+            charactersIgnoringModifiers: "x",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_X)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { candidateEvent, modifiers in
+                #expect(candidateEvent === event)
+                #expect(modifiers == [.shift])
+                return "\u{001B}"
+            },
+            layoutCharacterProvider: { keyCode, modifiers in
+                #expect(keyCode == UInt16(kVK_ANSI_X))
+                #expect(modifiers == [.shift])
+                return "Ж"
+            }
         )
+
+        #expect(recovered == "Ж")
     }
 
-    @Test func canadianCSALayoutOptionComposesSlash() throws {
-        // On Canadian-CSA the key at the ANSI-slash position types "é";
-        // Option/AltGr must still produce "/" (issue #5025).
-        try expectOptionComposes(
-            layoutID: "com.apple.keylayout.Canadian-CSA",
-            keyCode: UInt16(kVK_ANSI_Slash),
-            expected: "/"
+    @Test func controlTextRecoveryFallsThroughRawDELToLayout() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{007F}",
+            charactersIgnoringModifiers: "\u{007F}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_X)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { candidateEvent, modifiers in
+                #expect(candidateEvent === event)
+                #expect(modifiers.isEmpty)
+                return "\u{007F}"
+            },
+            layoutCharacterProvider: { keyCode, modifiers in
+                #expect(keyCode == UInt16(kVK_ANSI_X))
+                #expect(modifiers.isEmpty)
+                return "x"
+            }
         )
+
+        #expect(recovered == "x")
     }
 
-    private func expectOptionComposes(
-        layoutID: String,
-        keyCode: UInt16,
-        expected: String
-    ) throws {
-        let composed = try #require(
-            KeyboardLayout.textInputCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: .option,
-                inputSourceID: layoutID
-            ),
-            Comment(rawValue: "input source \(layoutID) unavailable or produced no character")
+    @Test func controlTextRecoveryPrefersAppKitReinterpretation() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{0001}",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_A)
+        ))
+        var consultedLayout = false
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { _, modifiers in
+                #expect(modifiers.isEmpty)
+                return "α"
+            },
+            layoutCharacterProvider: { _, _ in
+                consultedLayout = true
+                return "a"
+            }
         )
+
+        #expect(recovered == "α")
+        #expect(!consultedLayout)
+    }
+
+    @Test func controlTextRecoveryDoesNotInventTextForEscape() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001B}",
+            charactersIgnoringModifiers: "\u{001B}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_Escape)
+        ))
+
+        let recovered = KeyboardLayout.recoveredTextForControlCharacterEvent(
+            event,
+            appKitCharacterProvider: { _, _ in "\u{001B}" },
+            layoutCharacterProvider: { _, _ in nil }
+        )
+
+        #expect(recovered == nil)
+    }
+
+    @Test func unshiftedCodepointUsesProductionAppKitResolverForC0ControlEvent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "\u{001A}",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+        let expectedText = try #require(event.characters(byApplyingModifiers: []))
+        let expectedScalar = try #require(expectedText.unicodeScalars.first)
+
         #expect(
-            composed == expected,
-            Comment(rawValue: "Option translation on \(layoutID) produced \(composed) instead of \(expected)")
+            KeyboardLayout.unshiftedCodepoint(for: event) == expectedScalar.value
         )
     }
+
+    @Test func unshiftedCodepointPreservesAlternateASCIIKeyboardLayout() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{000C}",
+            charactersIgnoringModifiers: "q",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Q)
+        ))
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            eventCharacterProvider: { _ in "'" }
+        )
+
+        #expect(codepoint == UnicodeScalar("'").value)
+    }
+
+    @Test func unshiftedCodepointPreservesOrdinaryUnicodeLayoutIdentity() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "с",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+        var resolverCallCount = 0
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            eventCharacterProvider: { _ in
+                resolverCallCount += 1
+                return "с"
+            }
+        )
+
+        #expect(resolverCallCount == 1)
+        #expect(codepoint == UnicodeScalar("с").value)
+    }
+
+    @Test func unshiftedCodepointUsesUniformUnicodeResolverForC0ControlEvent() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 1,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{001A}",
+            charactersIgnoringModifiers: "с",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+        var resolverCallCount = 0
+
+        let codepoint = KeyboardLayout.unshiftedCodepoint(
+            for: event,
+            eventCharacterProvider: { _ in
+                resolverCallCount += 1
+                return "с"
+            }
+        )
+
+        #expect(
+            resolverCallCount == 1,
+            "Binding identity must use exactly one layout-independent AppKit resolver"
+        )
+        #expect(codepoint == UnicodeScalar("с").value)
+    }
+
 }

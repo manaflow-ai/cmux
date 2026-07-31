@@ -255,6 +255,18 @@ extension GlobalSearchShortcutBehaviorTests {
         )
     }
 
+    @Test func queryEditingOwnershipExcludesOptionFunctionKey() throws {
+        let functionKey = String(UnicodeScalar(NSF1FunctionKey)!)
+        let event = try makeKeyDownEvent(
+            key: functionKey,
+            modifiers: [.option, .function],
+            keyCode: 122,
+            windowNumber: 0
+        )
+
+        #expect(!GlobalSearchKeyEvent(event).queryOwnsEditingShortcut)
+    }
+
     @Test func visibleGlobalSearchQueryOwnsBareSpaceShortcut() throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
@@ -327,6 +339,41 @@ extension GlobalSearchShortcutBehaviorTests {
             GlobalSearchCoordinator.shared.isPaletteVisible(),
             "Starting Option dead-key composition must not close Global Search"
         )
+#else
+        Issue.record("Global Search visible-popover routing requires a DEBUG build")
+#endif
+    }
+
+    @Test func visibleGlobalSearchClosesFromOptionFunctionShortcut() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeHarness(appDelegate: appDelegate)
+        defer { closeHarness(harness, appDelegate: appDelegate) }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "f1",
+                command: false,
+                shift: false,
+                option: true,
+                control: false,
+                keyCode: 122
+            ),
+            for: .globalSearch
+        )
+        appDelegate.toggleGlobalSearchPalette()
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        let functionKey = String(UnicodeScalar(NSF1FunctionKey)!)
+        let event = try makeKeyDownEvent(
+            key: functionKey,
+            modifiers: [.option, .function],
+            keyCode: 122,
+            windowNumber: harness.auxiliaryWindow.windowNumber
+        )
+
+        #expect(appDelegate.debugHandleCustomShortcut(event: event))
+        #expect(waitUntilGlobalSearchCloses())
 #else
         Issue.record("Global Search visible-popover routing requires a DEBUG build")
 #endif

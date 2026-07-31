@@ -78,7 +78,7 @@ extension GlobalSearchShortcutBehaviorTests {
         )
         let appDelegate = AppDelegate.shared ?? AppDelegate()
 
-        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: event))
+        #expect(event.cmuxIsOptionTextInputCandidate)
         #expect(shortcut.matches(event: event))
         #expect(appDelegate.matchGlobalSearchShortcut(event: event))
     }
@@ -168,7 +168,7 @@ extension GlobalSearchShortcutBehaviorTests {
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
 
-        #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: prefixEvent))
+        #expect(prefixEvent.cmuxIsOptionTextInputCandidate)
         #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
         didTogglePalette = appDelegate.debugHandleCustomShortcut(event: suffixEvent)
         #expect(didTogglePalette)

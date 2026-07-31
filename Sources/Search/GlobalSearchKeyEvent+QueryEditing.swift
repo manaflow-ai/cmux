@@ -17,7 +17,12 @@ extension GlobalSearchKeyEvent {
             return isControlEditingCharacter
         }
         if commandControlOption == [.option] {
-            return isPrintableTextInput
+            // Native field editors own Option-only input. AppKit decides
+            // whether the active layout starts composition, navigates by word,
+            // or inserts text. Function and media keys remain available to
+            // configured application shortcuts.
+            return isPrintableTextInput ||
+                Self.isPrintableText(charactersIgnoringModifiers)
         }
         if commandControlOption.isEmpty {
             return isPrintableTextInput
@@ -46,15 +51,7 @@ extension GlobalSearchKeyEvent {
     }
 
     private var isPrintableTextInput: Bool {
-        if Self.isPrintableText(characters) {
-            return true
-        }
-        return Self.isPrintableText(
-            KeyboardLayout.textInputCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: modifierFlags
-            )
-        )
+        Self.isPrintableText(characters)
     }
 
     private static func isPrintableText(_ text: String?) -> Bool {

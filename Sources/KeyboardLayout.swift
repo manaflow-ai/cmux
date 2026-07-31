@@ -2,112 +2,90 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
-    private enum ModifierTranslationMode {
-        case shortcut
-        case textInput
+    /// Retains the selected platform input source across one native key event.
+    struct InputSourceSnapshot {
+        fileprivate let source: TISInputSource
     }
 
-    /// Test-only override for the current input source ID.
-    #if DEBUG
-    static var debugInputSourceIdOverride: String?
-    #endif
-
-    /// Return a string ID of the current keyboard input source.
-    static var id: String? {
-        #if DEBUG
-        if let override = debugInputSourceIdOverride { return override }
-        #endif
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let sourceIdPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) {
-            let sourceId = Unmanaged<CFString>.fromOpaque(sourceIdPointer).takeUnretainedValue()
-            return sourceId as String
+    /// Captures the selected input source without inspecting its identifier,
+    /// language, script, or display name.
+    static func inputSourceSnapshot() -> InputSourceSnapshot? {
+        guard let source = TISCopyCurrentKeyboardInputSource()?
+            .takeRetainedValue() else {
+            return nil
         }
+        return InputSourceSnapshot(source: source)
+    }
 
-        return nil
+    /// Whether the selected platform input source changed since a snapshot.
+    static func inputSourceChanged(since snapshot: InputSourceSnapshot?) -> Bool {
+        guard let current = inputSourceSnapshot() else {
+            return snapshot != nil
+        }
+        guard let snapshot else { return true }
+        return !CFEqual(snapshot.source, current.source)
     }
 
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
-    /// preserving command-aware layouts such as "Dvorak - QWERTY Command".
-    /// Some CJK input sources lack kTISPropertyUnicodeKeyLayoutData, and others (Korean
-    /// 두벌식) have it but UCKeyTranslate still returns non-ASCII characters. In either
-    /// case we fall back to TISCopyCurrentASCIICapableKeyboardInputSource().
+    /// preserving command-aware layouts. Sources without a directly usable ASCII
+    /// character fall back to the system's ASCII-capable shortcut layout.
     static func character(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+        if let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
            let result = characterFromInputSource(
                source,
                forKeyCode: keyCode,
                modifierFlags: modifierFlags,
-               mode: .shortcut
+               includeTextModifiers: false
            ),
            result.allSatisfy(\.isASCII) {
-            return result
+            return result.lowercased()
         }
-        // Current input source has no Unicode layout data or returned a non-ASCII
-        // character (e.g. Korean 두벌식 has layout data but UCKeyTranslate still
-        // produces Hangul). Fall back to the ASCII-capable source so shortcut
-        // matching still works.
-        if let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue(),
+        // Current input source has no Unicode layout data or returned a
+        // non-ASCII character. Fall back to the ASCII-capable source so
+        // shortcut matching remains independent of the active writing system.
+        if let asciiSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
            let result = characterFromInputSource(
                asciiSource,
                forKeyCode: keyCode,
                modifierFlags: modifierFlags,
-               mode: .shortcut
+               includeTextModifiers: false
            ) {
-            return result
+            return result.lowercased()
         }
         return nil
     }
 
-    /// Translate a physical keyCode using the current input source exactly as
-    /// text input would, including Option/Shift and without ASCII fallback.
-    static func textInputCharacter(
-        forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags
+    /// Recovers printable text when AppKit reports a single C0 or DEL payload
+    /// for a physical key. AppKit gets the first retry with Control removed;
+    /// if it still returns control input, the active keyboard layout resolves
+    /// the same physical key and modifiers without classifying a language or key.
+    static func recoveredTextForControlCharacterEvent(
+        _ event: NSEvent,
+        appKitCharacterProvider: (NSEvent, NSEvent.ModifierFlags) -> String? = {
+            $0.characters(byApplyingModifiers: $1)
+        },
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? =
+            KeyboardLayout.textCharacter(forKeyCode:modifierFlags:)
     ) -> String? {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
+        let modifiersWithoutControl = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting(.control)
+
+        if let text = appKitCharacterProvider(event, modifiersWithoutControl),
+           isPrintableFallbackText(text) {
+            return text
+        }
+        guard let text = layoutCharacterProvider(
+            event.keyCode,
+            modifiersWithoutControl
+        ), isPrintableFallbackText(text) else {
             return nil
         }
-        return characterFromInputSource(
-            source,
-            forKeyCode: keyCode,
-            modifierFlags: modifierFlags,
-            mode: .textInput,
-            lowercased: false
-        )
+        return text
     }
-
-    #if DEBUG
-    /// Translate a physical keyCode against a specific keyboard input source
-    /// exactly as text input would (Option/Shift applied, no ASCII fallback).
-    /// Resolves the source from all installed input sources, so layouts that
-    /// are not enabled on the host (e.g. German on a US machine) still
-    /// translate. Test-only seam for Option-composition regression coverage.
-    static func textInputCharacter(
-        forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags,
-        inputSourceID: String
-    ) -> String? {
-        guard let source = installedInputSource(forID: inputSourceID) else { return nil }
-        return characterFromInputSource(
-            source,
-            forKeyCode: keyCode,
-            modifierFlags: modifierFlags,
-            mode: .textInput,
-            lowercased: false
-        )
-    }
-
-    private static func installedInputSource(forID inputSourceID: String) -> TISInputSource? {
-        let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
-        guard let list = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource] else {
-            return nil
-        }
-        return list.first
-    }
-    #endif
 
     /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
     /// falling back through the ASCII-capable input source for non-Latin input methods.
@@ -121,12 +99,31 @@ class KeyboardLayout {
         return raw
     }
 
+    /// Returns the current layout's unmodified code point for libghostty.
+    ///
+    /// This deliberately follows Ghostty's AppKit implementation and uses one
+    /// uniform translation path for every layout and input source. Shortcut
+    /// normalization is a separate concern and must not affect binding identity.
+    static func unshiftedCodepoint(
+        for event: NSEvent,
+        eventCharacterProvider: (NSEvent) -> String? = {
+            $0.characters(byApplyingModifiers: [])
+        }
+    ) -> UInt32 {
+        guard event.type == .keyDown || event.type == .keyUp else { return 0 }
+
+        guard let text = eventCharacterProvider(event),
+              let scalar = text.unicodeScalars.first else {
+            return 0
+        }
+        return scalar.value
+    }
+
     private static func characterFromInputSource(
         _ source: TISInputSource,
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        mode: ModifierTranslationMode,
-        lowercased: Bool = true
+        includeTextModifiers: Bool
     ) -> String? {
         guard let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
@@ -144,7 +141,10 @@ class KeyboardLayout {
             keyboardLayout,
             keyCode,
             UInt16(kUCKeyActionDisplay),
-            translationModifierKeyState(for: modifierFlags, mode: mode),
+            carbonModifierKeyState(
+                for: modifierFlags,
+                includeTextModifiers: includeTextModifiers
+            ),
             UInt32(LMGetKbdType()),
             UInt32(kUCKeyTranslateNoDeadKeysBit),
             &deadKeyState,
@@ -154,37 +154,70 @@ class KeyboardLayout {
         )
 
         guard status == noErr, length > 0 else { return nil }
-        let result = String(utf16CodeUnits: chars, count: length)
-        return lowercased ? result.lowercased() : result
+        return String(utf16CodeUnits: chars, count: length)
     }
 
-    private static func translationModifierKeyState(
+    private static func textCharacter(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> String? {
+        if let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+           let result = characterFromInputSource(
+               source,
+               forKeyCode: keyCode,
+               modifierFlags: modifierFlags,
+               includeTextModifiers: true
+           ) {
+            return result
+        }
+        if let asciiSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() {
+            return characterFromInputSource(
+                asciiSource,
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags,
+                includeTextModifiers: true
+            )
+        }
+        return nil
+    }
+
+    private static func isPrintableFallbackText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        let scalars = text.unicodeScalars
+        guard let scalar = scalars.first,
+              scalars.index(after: scalars.startIndex) == scalars.endIndex else {
+            return true
+        }
+        return scalar.value >= 0x20 &&
+            scalar.value != 0x7F &&
+            !(scalar.value >= 0xF700 && scalar.value <= 0xF8FF)
+    }
+
+    private static func carbonModifierKeyState(
         for modifierFlags: NSEvent.ModifierFlags,
-        mode: ModifierTranslationMode
+        includeTextModifiers: Bool
     ) -> UInt32 {
-        let translatedModifiers: NSEvent.ModifierFlags = {
-            switch mode {
-            case .shortcut:
-                return [.shift, .command]
-            case .textInput:
-                return [.shift, .option]
-            }
-        }()
+        var supportedFlags: NSEvent.ModifierFlags = [.shift, .command]
+        if includeTextModifiers {
+            supportedFlags.formUnion([.option, .capsLock])
+        }
         let normalized = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
-            .intersection(translatedModifiers)
+            .intersection(supportedFlags)
 
         var carbonModifiers: Int = 0
         if normalized.contains(.shift) {
             carbonModifiers |= shiftKey
         }
-        if normalized.contains(.command) {
-            carbonModifiers |= cmdKey
-        }
         if normalized.contains(.option) {
             carbonModifiers |= optionKey
         }
-
+        if normalized.contains(.command) {
+            carbonModifiers |= cmdKey
+        }
+        if normalized.contains(.capsLock) {
+            carbonModifiers |= alphaLock
+        }
         return UInt32((carbonModifiers >> 8) & 0xFF)
     }
 }

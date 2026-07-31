@@ -35,7 +35,7 @@ private final class MarkedOptionTextView: NSTextView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
-    func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
+    func optionDigitWorkspaceNumberShortcutBeatsUnmatchedOptionRouting() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
@@ -54,7 +54,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
                 #expect(
                     appDelegate.debugHandleCustomShortcut(event: event),
-                    "Explicit Option+digit workspace bindings should route before printable Option text bypass"
+                    "Explicit Option+digit workspace bindings should route before unmatched Option input"
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
@@ -479,14 +479,14 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                 )
                 #expect(
                     manager.selectedTabId == secondWorkspace.id,
-                    "Option+2 should select workspace 2 before the terminal fast path receives printable Option text"
+                    "Option+2 should select workspace 2 before unmatched Option input reaches the terminal"
                 )
             }
         }
     }
 
     @Test
-    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
+    func inactiveOptionDigitWorkspaceWhenClauseStillForwardsOptionInput() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let directoryURL = FileManager.default.temporaryDirectory
@@ -537,10 +537,331 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             #expect(
                 testWindow.performKeyEquivalent(with: event),
-                "Inactive Option+digit workspace bindings should leave printable Option text forwarding intact"
+                "Inactive Option+digit workspace bindings should leave Option input forwarding intact"
             )
-            #expect(focusableView.keyDownCallCount == 1, "Printable Option text should be forwarded to the text responder")
+            #expect(focusableView.keyDownCallCount == 1, "Option input should be forwarded to the text responder")
             #expect(focusableView.lastKeyDownCharactersIgnoringModifiers == "2")
+        }
+    }
+
+    @Test
+    func configuredOptionTextShortcutBeatsUnmatchedOptionRouting() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: keyDown.timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyDown),
+                    "An exact Option+Q binding must route before unmatched Option text reaches AppKit"
+                )
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(
+                    manager.tabs.count == workspaceCountBefore + 1,
+                    "The configured cmux shortcut must win even when the layout gives Option+Q printable text"
+                )
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyUp),
+                    "A shortcut-owned key press must also own its matching physical key release"
+                )
+            }
+        }
+    }
+
+    @Test
+    func configuredKeyEquivalentOwnsMatchingRelease() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let timestamp = ProcessInfo.processInfo.systemUptime
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: timestamp,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(keyDown))
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyUp),
+                    "A key-equivalent shortcut press must own the matching release"
+                )
+            }
+        }
+    }
+
+    @Test
+    func modalShortcutOwnsReleaseWhileItsActionIsRunning() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let openFolderShortcut = StoredShortcut(
+                key: "o",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .openFolder, shortcut: openFolderShortcut) {
+                let timestamp = ProcessInfo.processInfo.systemUptime
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.command],
+                    timestamp: timestamp,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "o",
+                    charactersIgnoringModifiers: "o",
+                    isARepeat: false,
+                    keyCode: 31
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.command],
+                    timestamp: timestamp + 0.01,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "o",
+                    charactersIgnoringModifiers: "o",
+                    isARepeat: false,
+                    keyCode: 31
+                ))
+
+                var nestedReleaseConsumed: Bool?
+                RunLoop.main.perform(inModes: [.modalPanel]) {
+                    nestedReleaseConsumed = appDelegate.debugHandleShortcutMonitorEvent(event: keyUp)
+                    NSApp.abortModal()
+                }
+                defer {
+                    if NSApp.modalWindow != nil {
+                        NSApp.abortModal()
+                    }
+                }
+
+                #expect(
+                    appDelegate.debugHandleShortcutMonitorEvent(event: keyDown),
+                    "The modal shortcut press should be consumed"
+                )
+                #expect(
+                    nestedReleaseConsumed == true,
+                    "A release delivered by the modal run loop should retain shortcut ownership"
+                )
+            }
+        }
+    }
+
+    @Test
+    func distinctZeroTimestampShortcutEventsDispatchIndependently() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                let firstKeyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: 0,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let secondKeyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: 0,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(appDelegate.debugHandleShortcutMonitorEvent(event: firstKeyDown))
+                #expect(appDelegate.debugHandleShortcutMonitorEvent(event: secondKeyDown))
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(
+                    manager.tabs.count == workspaceCountBefore + 2,
+                    "Distinct synthetic key-downs must not collapse into one shortcut dispatch"
+                )
+            }
+        }
+    }
+
+    @Test
+    func repeatCannotAcquireShortcutOwnershipAfterResponderOwnedPress() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspaceCountBefore = manager.tabs.count
+            let textView = MarkedOptionTextView(
+                frame: NSRect(x: 0, y: 0, width: 120, height: 24)
+            )
+            testWindow.contentView?.addSubview(textView)
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(textView))
+
+            let optionQShortcut = StoredShortcut(
+                key: "q",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+
+            try withTemporaryShortcut(action: .newTab, shortcut: optionQShortcut) {
+                textView.setMarkedText(
+                    "q",
+                    selectedRange: NSRange(location: 0, length: 1),
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+
+                let timestamp = ProcessInfo.processInfo.systemUptime
+                let keyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: timestamp,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+                let repeatKeyDown = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: timestamp + 0.1,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: true,
+                    keyCode: 12
+                ))
+                let keyUp = try #require(NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: .zero,
+                    modifierFlags: [.option],
+                    timestamp: timestamp + 0.2,
+                    windowNumber: testWindow.windowNumber,
+                    context: nil,
+                    characters: "@",
+                    charactersIgnoringModifiers: "q",
+                    isARepeat: false,
+                    keyCode: 12
+                ))
+
+                #expect(!appDelegate.debugHandleShortcutMonitorEvent(event: keyDown))
+                textView.unmarkText()
+
+                #expect(
+                    !appDelegate.debugHandleShortcutMonitorEvent(event: repeatKeyDown),
+                    "A repeat must preserve the original responder owner"
+                )
+                #expect(
+                    !appDelegate.debugHandleShortcutMonitorEvent(event: keyUp),
+                    "The responder-owned release must remain unconsumed"
+                )
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+                #expect(manager.tabs.count == workspaceCountBefore)
+            }
         }
     }
 

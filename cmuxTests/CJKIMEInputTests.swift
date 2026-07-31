@@ -191,16 +191,16 @@ final class CJKIMEMarkedTextTests: XCTestCase {
         // with a real event context, verify accumulation.
         view.setKeyTextAccumulatorForTesting([])
 
-        // Directly test unmarkText + accumulator (the core of insertText's behavior)
+        // unmarkText makes provisional document text permanent, so the
+        // terminal must receive it exactly once.
         view.unmarkText()
-        XCTAssertFalse(view.hasMarkedText(), "unmarkText should clear marked text (as insertText does)")
+        XCTAssertFalse(view.hasMarkedText(), "unmarkText should clear marked text")
         XCTAssertEqual(view.markedRange(), NSRange(location: NSNotFound, length: 0))
-
-        // Verify the accumulator would receive the text
-        var acc = view.keyTextAccumulatorForTesting ?? []
-        acc.append("한")
-        view.setKeyTextAccumulatorForTesting(acc)
-        XCTAssertEqual(view.keyTextAccumulatorForTesting, ["한"], "Committed Korean text should be accumulated")
+        XCTAssertEqual(
+            view.keyTextAccumulatorForTesting,
+            ["한"],
+            "Committed text should be accumulated"
+        )
         view.setKeyTextAccumulatorForTesting(nil)
     }
 
@@ -983,58 +983,6 @@ final class ExternalCommittedTextSanitizationTests: XCTestCase {
     }
 }
 
-// MARK: - Shift+Space fallback suppression (IME source-switch shortcut)
-
-final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
-    func testSuppressesShiftSpaceFallbackWhenNoMarkedTextAndNoIMECommit() {
-        let view = GhosttyNSView(frame: .zero)
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.shift],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: " ",
-            charactersIgnoringModifiers: " ",
-            isARepeat: false,
-            keyCode: 49
-        ) else {
-            XCTFail("Failed to create Shift+Space event")
-            return
-        }
-
-        XCTAssertTrue(
-            view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
-            "Shift+Space should suppress synthesized space fallback when IME did not commit text"
-        )
-    }
-
-    func testDoesNotSuppressRegularSpaceFallback() {
-        let view = GhosttyNSView(frame: .zero)
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            characters: " ",
-            charactersIgnoringModifiers: " ",
-            isARepeat: false,
-            keyCode: 49
-        ) else {
-            XCTFail("Failed to create Space event")
-            return
-        }
-
-        XCTAssertFalse(
-            view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
-            "Only Shift+Space should be suppressed"
-        )
-    }
-}
-
 // MARK: - Space release regression (Codex hold-to-talk in cmux)
 
 @MainActor
@@ -1101,196 +1049,6 @@ final class GhosttySpaceReleaseRegressionTests: XCTestCase {
         XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
         XCTAssertFalse(releaseEvent.composing)
         XCTAssertNil(releaseEvent.text)
-    }
-}
-
-@MainActor
-final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
-    func testReturnAfterKoreanCommitAlsoSendsReturnToSurface() {
-        _ = NSApplication.shared
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            window.orderOut(nil)
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let view = findGhosttyNSView(in: hostedView) else {
-            XCTFail("Expected hosted GhosttyNSView")
-            return
-        }
-
-        view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
-
-        // Simulate Korean input source so shouldSendCommittedIMEConfirmKey fires
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === view else { return false }
-            candidateView.insertText("한", replacementRange: NSRange(location: NSNotFound, length: 0))
-            return true
-        }
-        defer {
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
-        }
-
-        var sawReturnPress = false
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
-                  keyEvent.keycode == 36,
-                  keyEvent.text == nil else { return }
-            sawReturnPress = true
-        }
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "\r",
-            charactersIgnoringModifiers: "\r",
-            isARepeat: false,
-            keyCode: 36
-        ) else {
-            XCTFail("Failed to create Return event")
-            return
-        }
-
-        window.makeFirstResponder(view)
-        view.keyDown(with: event)
-
-        XCTAssertFalse(view.hasMarkedText(), "Return should commit the active Hangul composition")
-        XCTAssertTrue(sawReturnPress, "Return should still be forwarded after IME commit so the command executes once")
-    }
-}
-
-@MainActor
-final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
-    func testKeyDownDoesNotLeakJamoWhileMarkedTextIsActive() {
-        _ = NSApplication.shared
-
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
-            KeyboardLayout.debugInputSourceIdOverride = nil
-            cjkIMEInterpretKeyEventsHook = nil
-            window.orderOut(nil)
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let view = findGhosttyNSView(in: hostedView) else {
-            XCTFail("Expected hosted GhosttyNSView")
-            return
-        }
-
-        view.setMarkedText(
-            "하",
-            selectedRange: NSRange(location: 0, length: 1),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === view else { return false }
-            return true
-        }
-
-        var capturedEvent: ghostty_input_key_s?
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 45 else { return }
-            capturedEvent = keyEvent
-        }
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "ㄴ",
-            charactersIgnoringModifiers: "ㄴ",
-            isARepeat: false,
-            keyCode: 45
-        ) else {
-            XCTFail("Failed to create Hangul jamo event")
-            return
-        }
-
-        window.makeFirstResponder(view)
-        view.keyDown(with: event)
-
-        guard let capturedEvent else {
-            XCTFail(
-                "Expected a composing key event to be forwarded to Ghostty with text=nil; no event was received"
-            )
-            return
-        }
-
-        XCTAssertTrue(capturedEvent.composing, "Hangul composition keyDown should stay in composing mode")
-        XCTAssertNil(capturedEvent.text, "Uncommitted Hangul jamo must not be encoded into the terminal surface")
-        XCTAssertTrue(view.hasMarkedText(), "Composition should remain active until the IME commits or cancels")
     }
 }
 
@@ -1479,6 +1237,27 @@ final class AccessibilityInsertTextRegressionTests: XCTestCase {
 
 @MainActor
 final class GhosttyBackquoteRegressionTests: XCTestCase {
+    private final class BackquoteSurfaceView: GhosttyNSView {
+        override func handleTextInputEvent(_ event: NSEvent) -> Bool {
+            true
+        }
+    }
+
+    private struct BackquoteSurfaceViewFactory: TerminalSurfaceViewProviding {
+        func makeSurfaceViews(
+            initialFrame: NSRect
+        ) -> (
+            surfaceView: any TerminalSurfaceNativeViewing,
+            paneHost: any TerminalSurfacePaneHosting
+        ) {
+            let surfaceView = BackquoteSurfaceView(frame: initialFrame)
+            return (
+                surfaceView,
+                GhosttySurfaceScrollView(surfaceView: surfaceView)
+            )
+        }
+    }
+
     func testShiftBackquoteEscFallbackSendsLiteralTilde() {
         _ = NSApplication.shared
 
@@ -1486,7 +1265,8 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            dependencies: runtimeDependencies()
         )
         let hostedView = surface.hostedView
 
@@ -1496,10 +1276,8 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
@@ -1519,21 +1297,40 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        // In a host without an active input context, interpretKeyEvents consumes the
-        // synthetic ESC as insertText("\u{1B}"); the lone control byte fills the key
-        // accumulator and the textForKeyEvent tilde fallback under test never runs.
-        // Route around AppKit interpretation the way the focus-reassertion suite does.
-        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
+        let recoveryProbe = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1B}",
+            charactersIgnoringModifiers: "`",
+            isARepeat: false,
+            keyCode: 50
+        )
+        let appKitRecoveredText = recoveryProbe?.characters(
+            byApplyingModifiers: [.shift]
+        )
+        let layoutRecoveredText = recoveryProbe.flatMap {
+            KeyboardLayout.recoveredTextForControlCharacterEvent($0)
+        }
 
-        var pressText: String?
-        var pressUnshiftedCodepoint: UInt32?
+        var observedPresses: [String] = []
+        var backquotePressTexts: [String?] = []
+        var backquoteUnshiftedCodepoints: [UInt32] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 50 else { return }
-            pressUnshiftedCodepoint = keyEvent.unshifted_codepoint
-            if let text = keyEvent.text {
-                pressText = String(cString: text)
-            } else {
-                pressText = nil
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            let text = keyEvent.text.map { String(cString: $0) }
+            observedPresses.append(
+                "keycode=\(keyEvent.keycode) text=\(String(describing: text)) " +
+                    "unshifted=\(keyEvent.unshifted_codepoint) composing=\(keyEvent.composing)"
+            )
+            if keyEvent.keycode == 50 {
+                backquotePressTexts.append(text)
+                backquoteUnshiftedCodepoints.append(
+                    keyEvent.unshifted_codepoint
+                )
             }
         }
 
@@ -1544,8 +1341,40 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             modifierFlags: [.shift]
         )
         XCTAssertTrue(sent, "Expected synthetic Shift+backquote event to be dispatched")
-        XCTAssertEqual(pressText, "~")
-        XCTAssertEqual(pressUnshiftedCodepoint, "`".unicodeScalars.first?.value)
+        XCTAssertEqual(
+            layoutRecoveredText,
+            "~",
+            "General layout recovery failed; AppKit returned \(String(describing: appKitRecoveredText))"
+        )
+        XCTAssertEqual(
+            backquotePressTexts,
+            ["~"],
+            "Expected exactly one translated backquote press; observed \(observedPresses)"
+        )
+        XCTAssertEqual(
+            backquoteUnshiftedCodepoints,
+            ["`".unicodeScalars.first?.value].compactMap { $0 }
+        )
+    }
+
+    private func runtimeDependencies() -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: BackquoteSurfaceViewFactory(),
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: live.runtimeFilesystem,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: live.globalFontMagnificationPercent
+        )
     }
 }
 
@@ -2139,7 +1968,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
 @MainActor
 final class DeadKeyCompositionRegressionTests: XCTestCase {
-    func testOptionTildeDeadKeyUsesOriginalEventBeforeAltTranslation() {
+    func testOptionTildeRespectsGhosttyAltTranslationBeforeAppKit() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -2213,11 +2042,13 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
         }
 
         var pressedText: [String] = []
+        var pressedModifiers: [UInt32] = []
         var pressedKeycodes: [UInt32] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
             if let text = keyEvent.text {
                 pressedText.append(String(cString: text))
+                pressedModifiers.append(keyEvent.mods.rawValue)
             } else {
                 pressedKeycodes.append(keyEvent.keycode)
             }
@@ -2256,9 +2087,23 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             view.keyDown(with: aKey)
         }
 
-        XCTAssertEqual(pressedText, ["ã"])
-        XCTAssertEqual(pressedKeycodes, [], "Dead-key composition should not leak raw Alt-N key events")
-        XCTAssertFalse(view.hasMarkedText(), "Composition should clear after the composed character commits")
+        XCTAssertEqual(
+            pressedText,
+            ["n", "a"],
+            "macos-option-as-alt should send Ghostty's translated text instead of restoring AppKit dead-key composition"
+        )
+        XCTAssertEqual(
+            pressedModifiers.first.map {
+                $0 & GHOSTTY_MODS_ALT.rawValue
+            },
+            GHOSTTY_MODS_ALT.rawValue,
+            "Ghostty must retain Alt for terminal encoding after removing it from AppKit character translation"
+        )
+        XCTAssertEqual(pressedKeycodes, [])
+        XCTAssertFalse(
+            view.hasMarkedText(),
+            "Ghostty's Alt translation must not leave an AppKit dead-key composition armed"
+        )
     }
 }
 
