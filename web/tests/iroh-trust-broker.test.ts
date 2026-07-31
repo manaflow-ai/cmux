@@ -291,9 +291,12 @@ describe("Iroh discovery and grants", () => {
         USER_A,
         NOW,
         { pageSize: "128", ...(cursor ? { cursor } : {}) },
-      )) as { bindings: IrohBindingRecord[]; next_cursor: string | null };
+      )) as {
+        bindings: Array<{ binding_id: string }>;
+        next_cursor: string | null;
+      };
       pageCounts.push(page.bindings.length);
-      page.bindings.forEach((record) => bindingIds.add(record.id));
+      page.bindings.forEach((record) => bindingIds.add(record.binding_id));
       cursor = page.next_cursor ?? undefined;
     } while (cursor);
 
@@ -315,7 +318,7 @@ describe("Iroh discovery and grants", () => {
 
     const legacy = await Effect.runPromise(
       fixture.broker.discover(USER_A, NOW),
-    ) as { bindings: IrohBindingRecord[]; next_cursor?: string };
+    ) as { bindings: Array<{ binding_id: string }>; next_cursor?: string };
 
     expect(legacy.bindings).toHaveLength(256);
     expect(legacy.next_cursor).toBeUndefined();
@@ -838,7 +841,7 @@ class MemoryRepository implements IrohRepositoryShape {
     // a peer host that denied the old id can't strand the resurrected slot. In the
     // real repository the retired row's live pair grants are revoked and the LAN
     // discovery generation rotates; this fake does not model the grant table,
-    // but does mirror the generation bump, staleness gate, and active-slot cap.
+    // but does mirror the generation bump and staleness gate.
     if (existing) {
       existing.revokedAt = input.now;
       existing.revokedReason = "slot_reincarnated";
@@ -871,15 +874,36 @@ class MemoryRepository implements IrohRepositoryShape {
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
+    if (!existing) {
+      this.lanGenerations.set(
+        input.userId,
+        (this.lanGenerations.get(input.userId) ?? 0) + 1,
+      );
+    }
     return Effect.succeed({ binding: inserted, created: true });
   }
 
-  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+  discoveryPage(input: Parameters<IrohRepositoryShape["discoveryPage"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
+      const generation = this.lanGenerations.get(input.userId) ?? 1;
+      if (input.cursor && input.cursor.generation !== generation) {
+        throw new IrohConflictError({ code: "discovery_cursor_stale" });
+      }
+      const rows = this.bindings
+        .filter((row) =>
+          row.userId === input.userId &&
+          !row.revokedAt &&
+          (!input.cursor || row.id > input.cursor.afterBindingId))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const bindings = rows.slice(0, input.pageSize);
+      const last = bindings.at(-1);
       return {
-        bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
-        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        bindings,
+        lanDiscoveryGeneration: generation,
+        nextCursor: rows.length > input.pageSize && last
+          ? { generation, afterBindingId: last.id }
+          : null,
       };
     });
   }

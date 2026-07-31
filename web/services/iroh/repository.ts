@@ -23,6 +23,7 @@ import {
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
 import type { IrohChallengeQuota } from "./config";
+import type { IrohDiscoveryCursor } from "./discoveryPagination";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
@@ -36,23 +37,6 @@ export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
 export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
-// A backstop on how many active (non-revoked) endpoint bindings one account may
-// accumulate. Under the unique(user, device, tag) slot key a normal user holds a
-// handful of bindings and a heavy multi-tag developer at most low hundreds, so
-// this only trips on a stuck registration loop or abuse. When a genuinely new
-// slot would push the count over the cap, that registration is REJECTED
-// (`enforceActiveBindingSanityCap` throws IrohConflictError); the row set is
-// never evicted, so a churning client can never shed the account's real hosts.
-//
-// The cap is pinned to the client's discovery-snapshot wire limit: the iOS
-// decoder (CmxIrohDiscoveryResponse.maximumBindingCount) rejects any snapshot
-// carrying MORE than 256 bindings, and discoverySnapshot returns every active
-// binding for the account uncapped. Admitting a 257th active binding would make
-// the account's own discovery response undecodable on every client, wedging all
-// of that user's devices, so the broker refuses to grow past what the client can
-// receive. It still sits far above any legitimate multi-tag developer's slot
-// count while catching a runaway registration loop, which blows past it at once.
-export const IROH_ACTIVE_BINDING_SANITY_CAP = 256;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -111,12 +95,15 @@ export type IrohRepositoryShape = {
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
   }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
-  readonly discoverySnapshot: (input: {
+  readonly discoveryPage: (input: {
     readonly userId: string;
     readonly now: Date;
+    readonly pageSize: number;
+    readonly cursor?: IrohDiscoveryCursor;
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
     readonly lanDiscoveryGeneration: number;
+    readonly nextCursor: IrohDiscoveryCursor | null;
   }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
@@ -440,13 +427,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             now: input.now,
             reason: "slot_reincarnated",
           });
-        } else {
-          // Only a genuinely new slot grows the account's active-binding count,
-          // so the sanity cap is enforced on this path alone.
-          await enforceActiveBindingSanityCap(tx, {
-            userId: input.userId,
-            now: input.now,
-          });
         }
 
         const [binding] = await tx
@@ -489,10 +469,27 @@ function makeLiveRepository(): IrohRepositoryShape {
         // audit point at a binding it was never signed for. The retired slot's live
         // grants were already marked revoked by revokeActiveBindings above.
 
-        await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoNothing({ target: irohAccountSecurityStates.userId });
+        if (!existingSlot) {
+          // A new active row changes the set traversed by discovery. Rotate the
+          // generation so a cursor cannot combine pages around the insertion.
+          // Reincarnation already rotates through revokeActiveBindings above.
+          await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .onConflictDoUpdate({
+              target: irohAccountSecurityStates.userId,
+              set: {
+                lanDiscoveryGeneration:
+                  sql`${irohAccountSecurityStates.lanDiscoveryGeneration} + 1`,
+                updatedAt: input.now,
+              },
+            });
+        }
         await tx
           .update(irohRegistrationChallenges)
           .set({ consumedAt: input.now })
@@ -504,7 +501,7 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
 
-    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+    discoveryPage: (input) => repositoryEffect("discovery_page", async () => {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
@@ -517,17 +514,32 @@ function makeLiveRepository(): IrohRepositoryShape {
           })
           .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
         if (!state) throw new Error("account security state returned no row");
-        const bindings = await tx
+        if (input.cursor && input.cursor.generation !== state.generation) {
+          throw new IrohConflictError({ code: "discovery_cursor_stale" });
+        }
+        const rows = await tx
           .select()
           .from(irohEndpointBindings)
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
             isNull(irohEndpointBindings.revokedAt),
+            input.cursor
+              ? gt(irohEndpointBindings.id, input.cursor.afterBindingId)
+              : undefined,
           ))
-          .orderBy(asc(irohEndpointBindings.registeredAt));
+          .orderBy(asc(irohEndpointBindings.id))
+          .limit(input.pageSize + 1);
+        const bindings = rows.slice(0, input.pageSize);
+        const last = bindings.at(-1);
         return {
           bindings,
           lanDiscoveryGeneration: state.generation,
+          nextCursor: rows.length > input.pageSize && last
+            ? {
+              generation: state.generation,
+              afterBindingId: last.id,
+            }
+            : null,
         };
       });
     }),
@@ -1014,30 +1026,6 @@ async function revokeActiveBindings(
       },
     });
   return revokedIds;
-}
-
-// Reject a genuinely-new slot once the account already holds
-// IROH_ACTIVE_BINDING_SANITY_CAP active bindings. Called only on the
-// genuinely-new-slot path, so admitting one more would exceed the cap. Rejecting
-// (rather than evicting the oldest) is deliberate: a stuck client spamming fresh
-// device/tag tuples must not be able to make its own churn the newest rows and
-// shed the account's real, older hosts and phones. No normal account approaches
-// the cap; hitting it means something is wrong, and the fix is to revoke stale
-// bindings, not to let new registrations destroy existing ones.
-async function enforceActiveBindingSanityCap(
-  tx: CloudDbTransaction,
-  input: { readonly userId: string; readonly now: Date },
-): Promise<void> {
-  const [row] = await tx
-    .select({ total: count() })
-    .from(irohEndpointBindings)
-    .where(and(
-      eq(irohEndpointBindings.userId, input.userId),
-      isNull(irohEndpointBindings.revokedAt),
-    ));
-  const active = row?.total ?? 0;
-  if (active < IROH_ACTIVE_BINDING_SANITY_CAP) return;
-  throw new IrohConflictError({ code: "active_binding_limit" });
 }
 
 type RetentionBatchOperation = {

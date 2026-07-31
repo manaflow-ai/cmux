@@ -2,9 +2,8 @@ import CryptoKit
 public import CMUXMobileCore
 public import Foundation
 
-/// Stores a bounded set of signed pair authorities for connectivity-only fallback.
+/// Stores signed pair authorities for connectivity-only fallback.
 public actor CmxIrohClientOfflinePolicyCache {
-    public static let maximumTargetCount = CmxIrohDiscoveryResponse.maximumBindingCount
     private static let storageAccount = "active-client-policies"
 
     private let secureStore: any CmxIrohSecureCredentialStoring
@@ -24,7 +23,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         self.verifier = verifier
     }
 
-    /// Merges one online-verified target into the bounded active-account cache.
+    /// Merges one online-verified target into the active-account cache.
     public func save(
         localBinding: CmxIrohBrokerBinding,
         targetBinding: CmxIrohBrokerBinding,
@@ -94,9 +93,6 @@ public actor CmxIrohClientOfflinePolicyCache {
                 && $0.binding.endpointID != targetBinding.endpointID
                 && $0.binding.bindingID != targetBinding.bindingID
         })
-        if merged.count > Self.maximumTargetCount {
-            merged.removeLast(merged.count - Self.maximumTargetCount)
-        }
         let record = CmxIrohStoredClientPolicyRecord(
             version: CmxIrohStoredClientPolicyRecord.currentVersion,
             scopeDigest: Self.scopeDigest(for: expectation),
@@ -265,7 +261,6 @@ public actor CmxIrohClientOfflinePolicyCache {
             let record = try JSONDecoder().decode(CmxIrohStoredClientPolicyRecord.self, from: data)
             guard record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
                   record.scopeDigest == Self.scopeDigest(for: expectation),
-                  record.targets.count <= Self.maximumTargetCount,
                   Set(record.relayFleet) == expectation.managedRelayURLs,
                   record.relayFleet.count == expectation.managedRelayURLs.count,
                   expectation.localBindingExpectation.matches(record.localBinding),
@@ -318,7 +313,7 @@ public actor CmxIrohClientOfflinePolicyCache {
             relayFleet: record.relayFleet,
             grantVerificationKeys: keys,
             lanRendezvous: lanRendezvous,
-            targets: Array(targets.prefix(Self.maximumTargetCount))
+            targets: targets
         )
     }
 

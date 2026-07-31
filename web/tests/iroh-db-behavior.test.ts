@@ -300,7 +300,7 @@ describe("Iroh trust broker database behavior", () => {
     const operations: Array<Effect.Effect<unknown, unknown>> = [
       repository.findActiveBindings(userId, [iosId, macId]),
       repository.revokeBinding({ userId, bindingId: macId, now: NOW }),
-      repository.discoverySnapshot({ userId, now: NOW }),
+      repository.discoveryPage({ userId, now: NOW, pageSize: 256 }),
       repository.pruneExpiredState({ userId, now: NOW }),
       repository.finalizeEndpointAttestation({
         userId,
@@ -1479,10 +1479,15 @@ describe("Iroh trust broker database behavior", () => {
       endpointId: "46".repeat(32),
     });
 
-    const initial = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
-    const otherInitial = await Effect.runPromise(repo.discoverySnapshot({
+    const initial = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
+    const otherInitial = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(initial.lanDiscoveryGeneration).toBe(1);
     expect(initial.bindings.map((binding) => binding.id).sort()).toEqual([
@@ -1499,7 +1504,11 @@ describe("Iroh trust broker database behavior", () => {
       bindingId: firstBindingId,
       now: NOW,
     }))).toBe(true);
-    const afterFirstRevoke = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+    const afterFirstRevoke = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
     expect(afterFirstRevoke.lanDiscoveryGeneration).toBe(2);
     expect(afterFirstRevoke.bindings.map((binding) => binding.id)).toEqual([secondBindingId]);
     expect(await Effect.runPromise(repo.revokeBinding({
@@ -1513,7 +1522,11 @@ describe("Iroh trust broker database behavior", () => {
       where id = ${firstBindingId}
     `;
     expect(retriedBinding?.revokedAt).toEqual(NOW);
-    expect((await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }))).lanDiscoveryGeneration).toBe(2);
+    expect((await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }))).lanDiscoveryGeneration).toBe(2);
     expect(await Effect.runPromise(repo.revokeBinding({
       userId: "user-lan-other",
       bindingId: firstBindingId,
@@ -1541,7 +1554,11 @@ describe("Iroh trust broker database behavior", () => {
         set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+        userId,
+        now: NOW,
+        pageSize: 256,
+      }));
       await waitForAdvisoryLockWaiter();
     });
     if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
@@ -1550,9 +1567,10 @@ describe("Iroh trust broker database behavior", () => {
       lanDiscoveryGeneration: 3,
       bindings: [],
     });
-    const otherAfter = await Effect.runPromise(repo.discoverySnapshot({
+    const otherAfter = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(otherAfter).toMatchObject({
       lanDiscoveryGeneration: 1,
