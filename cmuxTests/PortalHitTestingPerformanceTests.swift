@@ -294,6 +294,95 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func terminalSplitDividerCacheRefreshesAfterDeepContainerSubviewInsertion() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let outerContainer = NSView(frame: contentView.bounds)
+        contentView.addSubview(outerContainer)
+        let innerContainer = NSView(frame: outerContainer.bounds)
+        outerContainer.addSubview(innerContainer)
+
+        let hostedView = CapturingView(frame: contentView.bounds)
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let warmPointInWindow = contentView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
+
+        // The inner container is two levels below the content root and holds no split
+        // when the cache warms up, so nothing observes it. A split inserted there later
+        // must still invalidate the cached (empty) divider regions.
+        let insertedSplitView = CountingSplitView(frame: innerContainer.bounds)
+        insertedSplitView.isVertical = true
+        let insertedSplitDelegate = SplitDelegate()
+        insertedSplitView.delegate = insertedSplitDelegate
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: innerContainer.bounds.height)))
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: innerContainer.bounds.height)))
+        innerContainer.addSubview(insertedSplitView)
+
+        let insertedDividerPointInWindow = insertedSplitView.convert(
+            NSPoint(x: insertedSplitView.arrangedSubviews[0].frame.maxX + (insertedSplitView.dividerThickness * 0.5), y: insertedSplitView.bounds.midY),
+            to: nil
+        )
+        let insertedEvent = makeMouseEvent(type: .mouseMoved, at: insertedDividerPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent) == nil)
+    }
+
+    @Test
+    func terminalSplitDividerCacheInvalidatesWhenContentRootIsReplaced() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let oldRoot = try #require(window.contentView)
+        let container = try #require(oldRoot.superview)
+
+        let host = WindowTerminalHostView(frame: container.convert(oldRoot.bounds, from: oldRoot))
+        let hostedView = CapturingView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: oldRoot)
+
+        let warmPointInWindow = oldRoot.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
+
+        // Swap in a fresh content root while the old one stays alive and unmutated.
+        // A snapshot that never checks which root it was built from still validates
+        // against the detached tree and keeps returning the stale empty regions.
+        let newRoot = NSView(frame: oldRoot.frame)
+        window.contentView = newRoot
+
+        let splitView = CountingSplitView(frame: newRoot.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: newRoot.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: newRoot.bounds.height)))
+        newRoot.addSubview(splitView)
+
+        let dividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) == nil)
+        withExtendedLifetime(oldRoot) {}
+    }
+
+    @Test
     func terminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
