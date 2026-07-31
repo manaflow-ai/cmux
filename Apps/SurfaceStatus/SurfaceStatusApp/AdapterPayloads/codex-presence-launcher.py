@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import shutil
 import stat
 import sys
 import tempfile
@@ -39,9 +38,11 @@ def resolve_codex(launcher: pathlib.Path) -> pathlib.Path:
     explicit = os.environ.get("CMUX_SURFACE_STATUS_CODEX_REAL", "").strip()
     if explicit:
         candidates.append(pathlib.Path(explicit).expanduser())
-    found = shutil.which("codex")
-    if found:
-        candidates.append(pathlib.Path(found))
+    # cmux prepends its per-surface shim directory to PATH. `shutil.which`
+    # returns only that first shim, so inspect every PATH entry and continue
+    # after rejecting it; otherwise npm/nvm/asdf-installed Codex binaries later
+    # in PATH become unreachable as soon as this helper is enabled.
+    candidates.extend(pathlib.Path(entry or os.curdir).expanduser() / "codex" for entry in os.get_exec_path())
     candidates.extend((
         pathlib.Path("/opt/homebrew/bin/codex"),
         pathlib.Path("/usr/local/bin/codex"),
@@ -133,7 +134,8 @@ def main() -> int:
         print(f"codex: {error}", file=sys.stderr)
         return 127
 
-    args = [str(codex), "-c", "suppress_unstable_features_warning=true", *sys.argv[1:]]
+    # This helper is attribution-only: preserve the user's Codex argv exactly.
+    args = [str(codex), *sys.argv[1:]]
     env = dict(os.environ)
     env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
     env["CMUX_CODEX_PID"] = str(os.getpid())

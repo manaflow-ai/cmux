@@ -179,6 +179,47 @@ struct SurfaceStatusTests {
         #expect(try Data(contentsOf: hooks) == nativeHooks)
     }
 
+    @Test func bundledCodexPresenceLauncherPreservesArgumentsAndSearchesPastCmuxShim() throws {
+        let launcherURL = try #require(Bundle.main.url(
+            forResource: "codex-presence-launcher",
+            withExtension: "py",
+            subdirectory: "AdapterPayloads"
+        ) ?? Bundle.main.url(forResource: "codex-presence-launcher", withExtension: "py"))
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "surface-status-codex-launcher-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shimDirectory = root.appending(path: "cmux-cli-shims/surface", directoryHint: .isDirectory)
+        let realDirectory = root.appending(path: "custom-bin", directoryHint: .isDirectory)
+        let home = root.appending(path: "home", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let shim = shimDirectory.appending(path: "codex")
+        let real = realDirectory.appending(path: "codex")
+        try Data("#!/bin/sh\nexit 99\n".utf8).write(to: shim)
+        try Data("#!/bin/sh\nprintf '%s\\n' \"$@\"\n".utf8).write(to: real)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: real.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [launcherURL.path, "--model", "test model", "--flag=value"]
+        process.environment = [
+            "HOME": home.path,
+            "PATH": "\(shimDirectory.path):\(realDirectory.path)",
+        ]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let lines = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .split(separator: "\n").map(String.init)
+        #expect(lines == ["--model", "test model", "--flag=value"])
+    }
+
     @Test func codexPresenceUninstallPreservesPreexistingEmptyZshrc() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
