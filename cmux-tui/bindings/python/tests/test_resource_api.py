@@ -2110,13 +2110,13 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertIs(raised.exception, expected)
                 self.assertTrue(client.closed)
                 self.assertTrue(client._connection._wire.closed)
-                self.assertTrue(disconnected.wait(0.5))
 
                 started = time.monotonic()
                 with self.assertRaises(CmuxConnectionError):
                     session.ping()
                 self.assertLess(time.monotonic() - started, 0.1)
 
+        self.assertTrue(disconnected.is_set())
         self.assertEqual(
             [request["operation"] for request in observed],
             ["session.events"],
