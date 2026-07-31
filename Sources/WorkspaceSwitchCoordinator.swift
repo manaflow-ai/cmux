@@ -100,6 +100,8 @@ final class WorkspaceSwitchCoordinator {
         self.endRendererProtection = endRendererProtection
     }
 
+    isolated deinit { cancel() }
+
     /// The current destination's visual diagnostic state.
     ///
     /// This value never gates selection or mount ownership.
@@ -108,6 +110,7 @@ final class WorkspaceSwitchCoordinator {
         return active.readiness?.presentationIsReady == true
     }
 
+    @discardableResult
     func selectionWillCommit(
         from sourceWorkspaceID: UUID?,
         to targetWorkspaceID: UUID?,
@@ -115,13 +118,10 @@ final class WorkspaceSwitchCoordinator {
         targetTerminalView: GhosttyNSView?,
         targetRendererPresented: Bool,
         targetRenderedFrameSequence: UInt64
-    ) {
-        guard sourceWorkspaceID != targetWorkspaceID else { return }
+    ) -> UUID? {
+        guard sourceWorkspaceID != targetWorkspaceID else { return nil }
         cancel()
-        guard let sourceWorkspaceID,
-              let targetWorkspaceID else {
-            return
-        }
+        guard let sourceWorkspaceID, let targetWorkspaceID else { return nil }
 
         let requestID = UUID()
         let details = Self.details(
@@ -158,6 +158,7 @@ final class WorkspaceSwitchCoordinator {
             )
         }
         active = transaction
+        return requestID
     }
 
     func selectionDidCommit(from sourceWorkspaceID: UUID?, to targetWorkspaceID: UUID?) {
@@ -264,8 +265,9 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func noteFirstFrame(surfaceID: UUID) {
+    func noteFirstFrame(surfaceID: UUID, requestID: UUID) {
         guard var transaction = active,
+              transaction.requestID == requestID,
               transaction.targetSurfaceID == surfaceID else {
             return
         }
@@ -419,13 +421,14 @@ final class WorkspaceSwitchCoordinator {
             details
         )
         guard let targetView = view else { return }
+        let requestID = transaction.requestID
         transaction.frameObserver = notificationCenter.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: targetView,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.noteFirstFrame(surfaceID: surfaceID)
+                self?.noteFirstFrame(surfaceID: surfaceID, requestID: requestID)
             }
         }
         transaction.frameNotificationRelease =

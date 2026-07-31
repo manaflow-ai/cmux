@@ -181,10 +181,9 @@ final class RendererRealizationController {
         surface.retryRendererPresentationAfterActivity()
     }
 
-    /// Protects a selected destination from renderer reclamation during the
-    /// selection-to-portal gap. Portal visibility becomes authoritative as soon
-    /// as the destination is shown, at which point the coordinator releases
-    /// this request-scoped lease.
+    /// Protects a selected destination from renderer reclamation until mount
+    /// reconciliation makes that destination authoritative and retires the
+    /// source workspace.
     func beginWorkspaceSwitchPresentationProtection(
         surfaceID: UUID,
         requestID: UUID

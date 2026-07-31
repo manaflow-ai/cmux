@@ -1,13 +1,11 @@
 import Foundation
 import Testing
 import CmuxSettings
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 @MainActor
 struct WorkspaceSwitchCoordinatorTests {
     @Test
@@ -57,7 +55,7 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func frameObservedBeforePortalPresentationIsPreserved() {
+    func frameObservedBeforePortalPresentationIsPreserved() throws {
         let sourceWorkspaceID = UUID()
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
@@ -65,7 +63,7 @@ struct WorkspaceSwitchCoordinatorTests {
             beginRendererProtection: { _, _ in },
             endRendererProtection: { _ in }
         )
-        coordinator.selectionWillCommit(
+        let pendingRequestID = coordinator.selectionWillCommit(
             from: sourceWorkspaceID,
             to: targetWorkspaceID,
             targetSurfaceID: targetSurfaceID,
@@ -73,27 +71,25 @@ struct WorkspaceSwitchCoordinatorTests {
             targetRendererPresented: true,
             targetRenderedFrameSequence: 0
         )
+        let requestID = try #require(pendingRequestID)
         coordinator.selectionDidCommit(
             from: sourceWorkspaceID,
             to: targetWorkspaceID
         )
         coordinator.beginPresentation(
-            WorkspaceSwitchCoordinator.PresentationTarget(
+            terminalTarget(
                 workspaceID: targetWorkspaceID,
-                contentKind: .terminal,
-                terminalSurfaceID: targetSurfaceID,
-                terminalView: nil,
-                terminalRendererPresented: true,
-                terminalRenderedFrameSequence: 0,
-                browserWebView: nil,
+                surfaceID: targetSurfaceID,
                 portalPresented: false,
-                interactionReady: true,
-                requiresInteraction: true
+                interactionReady: true
             ),
             retiringWorkspaceID: sourceWorkspaceID
         )
 
-        coordinator.noteFirstFrame(surfaceID: targetSurfaceID)
+        coordinator.noteFirstFrame(
+            surfaceID: targetSurfaceID,
+            requestID: requestID
+        )
         #expect(!coordinator.isPresentationReady)
 
         coordinator.noteTerminalPortalPresented(
@@ -122,17 +118,13 @@ struct WorkspaceSwitchCoordinatorTests {
             targetRenderedFrameSequence: 4
         )
         coordinator.beginPresentation(
-            WorkspaceSwitchCoordinator.PresentationTarget(
+            terminalTarget(
                 workspaceID: targetWorkspaceID,
-                contentKind: .terminal,
-                terminalSurfaceID: targetSurfaceID,
-                terminalView: nil,
-                terminalRendererPresented: false,
-                terminalRenderedFrameSequence: 4,
-                browserWebView: nil,
+                surfaceID: targetSurfaceID,
+                rendererPresented: false,
+                renderedFrameSequence: 4,
                 portalPresented: false,
-                interactionReady: true,
-                requiresInteraction: true
+                interactionReady: true
             ),
             retiringWorkspaceID: sourceWorkspaceID
         )
@@ -211,17 +203,12 @@ struct WorkspaceSwitchCoordinatorTests {
         #expect(protectedRequestIDs.count == 1)
         #expect(releasedRequestIDs.isEmpty)
         coordinator.beginPresentation(
-            WorkspaceSwitchCoordinator.PresentationTarget(
+            terminalTarget(
                 workspaceID: targetWorkspaceID,
-                contentKind: .terminal,
-                terminalSurfaceID: targetSurfaceID,
-                terminalView: nil,
-                terminalRendererPresented: true,
-                terminalRenderedFrameSequence: 1,
-                browserWebView: nil,
+                surfaceID: targetSurfaceID,
+                renderedFrameSequence: 1,
                 portalPresented: false,
-                interactionReady: true,
-                requiresInteraction: true
+                interactionReady: true
             ),
             retiringWorkspaceID: sourceWorkspaceID
         )
@@ -274,6 +261,41 @@ struct WorkspaceSwitchCoordinatorTests {
         #expect(releasedRequestIDs == [protectedRequestIDs[0]])
         coordinator.cancel()
         #expect(releasedRequestIDs == protectedRequestIDs)
+    }
+
+    @Test
+    func staleFrameCallbackCannotFinishLaterTransactionForSameSurface() throws {
+        let targetWorkspaceID = UUID(), targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _ in },
+            endRendererProtection: { _ in }
+        )
+        let staleRequestID = try #require(coordinator.selectionWillCommit(
+            from: UUID(), to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true, targetRenderedFrameSequence: 0
+        ))
+        let currentRequestID = try #require(coordinator.selectionWillCommit(
+            from: UUID(), to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true, targetRenderedFrameSequence: 0
+        ))
+        coordinator.beginPresentation(
+            terminalTarget(
+                workspaceID: targetWorkspaceID,
+                surfaceID: targetSurfaceID,
+                portalPresented: true, interactionReady: true
+            ),
+            retiringWorkspaceID: UUID()
+        )
+
+        coordinator.noteFirstFrame(surfaceID: targetSurfaceID, requestID: staleRequestID)
+        #expect(!coordinator.isPresentationReady)
+
+        coordinator.noteFirstFrame(surfaceID: targetSurfaceID, requestID: currentRequestID)
+        #expect(coordinator.isPresentationReady)
     }
 
     @Test
@@ -343,14 +365,10 @@ struct WorkspaceSwitchCoordinatorTests {
             to: targetWorkspaceID
         )
         coordinator.beginPresentation(
-            WorkspaceSwitchCoordinator.PresentationTarget(
+            terminalTarget(
                 workspaceID: targetWorkspaceID,
-                contentKind: .terminal,
-                terminalSurfaceID: targetSurfaceID,
-                terminalView: nil,
-                terminalRendererPresented: false,
-                terminalRenderedFrameSequence: 0,
-                browserWebView: nil,
+                surfaceID: targetSurfaceID,
+                rendererPresented: false,
                 portalPresented: false,
                 interactionReady: false,
                 requiresInteraction: true
@@ -367,6 +385,26 @@ struct WorkspaceSwitchCoordinatorTests {
         #expect(protectedRequestIDs.count == 1)
         #expect(releasedRequestIDs == protectedRequestIDs)
         coordinator.cancel()
+        #expect(releasedRequestIDs == protectedRequestIDs)
+    }
+
+    @Test
+    func coordinatorDeinitReleasesRendererProtection() {
+        var protectedRequestIDs: [UUID] = [], releasedRequestIDs: [UUID] = []
+        var coordinator: WorkspaceSwitchCoordinator? = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, requestID in protectedRequestIDs.append(requestID) },
+            endRendererProtection: { requestID in releasedRequestIDs.append(requestID) }
+        )
+        coordinator?.selectionWillCommit(
+            from: UUID(), to: UUID(),
+            targetSurfaceID: UUID(),
+            targetTerminalView: nil,
+            targetRendererPresented: true, targetRenderedFrameSequence: 1
+        )
+
+        coordinator = nil
+
+        #expect(protectedRequestIDs.count == 1)
         #expect(releasedRequestIDs == protectedRequestIDs)
     }
 
@@ -434,5 +472,28 @@ struct WorkspaceSwitchCoordinatorTests {
         )
 
         #expect(!selected.contains(switchTargetID))
+    }
+
+    private func terminalTarget(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        rendererPresented: Bool = true,
+        renderedFrameSequence: UInt64 = 0,
+        portalPresented: Bool,
+        interactionReady: Bool,
+        requiresInteraction: Bool = true
+    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
+        WorkspaceSwitchCoordinator.PresentationTarget(
+            workspaceID: workspaceID,
+            contentKind: .terminal,
+            terminalSurfaceID: surfaceID,
+            terminalView: nil,
+            terminalRendererPresented: rendererPresented,
+            terminalRenderedFrameSequence: renderedFrameSequence,
+            browserWebView: nil,
+            portalPresented: portalPresented,
+            interactionReady: interactionReady,
+            requiresInteraction: requiresInteraction
+        )
     }
 }
