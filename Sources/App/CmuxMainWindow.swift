@@ -97,7 +97,7 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 final class CmuxMainWindow: NSWindow {
     override func becomeKey() {
         let switchInterval = workspaceSwitchSignposts.begin(
-            "ws.switch.window-interactive",
+            "ws.switch.window-become-key",
             "window=\(identifier?.rawValue ?? "unknown")"
         )
         super.becomeKey()
