@@ -713,6 +713,42 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func bitmapPixelSourceConvertsDisplayP3ToSRGB() throws {
+        let sourceBitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 2,
+            pixelsHigh: 2,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: sourceBitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).setFill()
+        NSRect(x: 0, y: 0, width: 2, height: 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let bitmap = try #require(sourceBitmap.converting(
+            to: .displayP3,
+            renderingIntent: .default
+        ))
+        bitmap.size = NSSize(width: 2, height: 2)
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+        let color = try #require(source.color(at: NSPoint(x: 0.5, y: 0.5)))
+
+        #expect(color.red > 0.9)
+        #expect(color.green < 0.1)
+        #expect(color.blue < 0.1)
+    }
+
+    @Test
     func domProbeCollectorCompositesNestedSolidBackgrounds() async throws {
         let probes = try await collectDOMProbes(
             html: """
@@ -811,12 +847,58 @@ struct BrowserScreenshotCropTests {
         #expect(outcome == .accepted)
     }
 
+    @Test
+    func domProbeCollectorSkipsPendingFontsAndMaskedText() async throws {
+        let configuration = WKWebViewConfiguration()
+        let pendingFontHandler = BrowserScreenshotPendingFontSchemeHandler()
+        configuration.setURLSchemeHandler(
+            pendingFontHandler,
+            forURLScheme: "cmux-pending-font"
+        )
+        let pendingFont = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              @font-face {
+                font-family: Pending;
+                src: url("cmux-pending-font://fixture/font.woff2");
+                font-display: block;
+              }
+              html, body { margin: 0; background: black; }
+              p { color: white; font: 20px Pending, sans-serif; }
+            </style>
+            <p>MMMM</p>
+            """,
+            configuration: configuration
+        )
+        let masked = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; background: black; }
+              #masked {
+                -webkit-mask-image: linear-gradient(transparent, transparent);
+                mask-image: linear-gradient(transparent, transparent);
+              }
+              p { color: white; font: 20px sans-serif; }
+            </style>
+            <div id="masked"><p>MMMM</p></div>
+            """
+        )
+
+        withExtendedLifetime(pendingFontHandler) {
+            #expect(pendingFont.probes.isEmpty)
+        }
+        #expect(masked.probes.isEmpty)
+    }
+
     private func collectDOMProbes(
-        html: String
+        html: String,
+        configuration: WKWebViewConfiguration = WKWebViewConfiguration()
     ) async throws -> BrowserScreenshotFrameVerifier.ProbeSet {
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 400, height: 300),
-            configuration: WKWebViewConfiguration()
+            configuration: configuration
         )
         let navigation = BrowserScreenshotTestNavigation()
         try await navigation.load(html: html, in: webView)
@@ -1042,4 +1124,10 @@ private final class BrowserScreenshotTestNavigation: NSObject, WKNavigationDeleg
         self.continuation = nil
         continuation.resume(with: result)
     }
+}
+
+private final class BrowserScreenshotPendingFontSchemeHandler: NSObject, WKURLSchemeHandler {
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {}
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 }

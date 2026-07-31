@@ -108,10 +108,15 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             respectFlipped: false,
             hints: [.interpolation: NSImageInterpolation.none]
         )
-        guard supportsDirectAccess(bitmap) else {
+        guard let converted = bitmap.converting(
+            to: .sRGB,
+            renderingIntent: .default
+        ),
+            supportsDirectAccess(converted) else {
             return nil
         }
-        return bitmap
+        converted.size = outputSize
+        return converted
     }
 
     /// Returns the direct byte offsets for a supported packed RGB(A) bitmap.
@@ -144,7 +149,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             && bitmap.pixelsHigh > 0
             && bitmap.bitsPerSample == 8
             && !bitmap.isPlanar
-            && bitmap.colorSpace.colorSpaceModel == .rgb
+            && bitmap.colorSpace == .sRGB
             && channelOffsets(for: bitmap) != nil
             && bitmap.bitsPerPixel == samplesPerPixel * 8
             && bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel

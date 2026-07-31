@@ -213,6 +213,9 @@ final class BrowserScreenshotDOMProbeCollector {
           if (!document.body || viewportWidth <= 0 || viewportHeight <= 0) {
             return { viewportWidth, viewportHeight, probes: [] };
           }
+          if (document.fonts && document.fonts.status !== "loaded") {
+            return { viewportWidth, viewportHeight, probes: [] };
+          }
 
           // This cache lives only for this synchronous script invocation, so
           // computed styles cannot survive a DOM/style mutation or a later collection.
@@ -272,6 +275,9 @@ final class BrowserScreenshotDOMProbeCollector {
                 || style.mixBlendMode !== "normal"
                 || style.backgroundClip === "text"
                 || style.webkitBackgroundClip === "text"
+                || (style.maskImage && style.maskImage !== "none")
+                || (style.webkitMaskImage && style.webkitMaskImage !== "none")
+                || (style.clipPath && style.clipPath !== "none")
               ) {
                 return true;
               }
