@@ -9967,9 +9967,9 @@ struct ContentView: View {
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                let openedEmbedded = !BrowserLinkOpenSettings.linkEscapesToSystemBrowser(pullRequest.url)
+                    && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
+                if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -11749,7 +11749,11 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
+            // The external-open rules outrank the embedded-browser preference
+            // here just like on the SwiftUI sidebar path: rule-listed sites
+            // cannot work in the embedded web view at all.
             if preferBrowser,
+               !BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url),
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -13762,7 +13766,12 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
+        // The external-open rules outrank the embedded-browser preference:
+        // a matching link goes to the system browser even when the setting
+        // prefers embedded, because rule-listed sites cannot work in the
+        // embedded web view at all.
         if opensInCmuxBrowser,
+           !BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url),
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
