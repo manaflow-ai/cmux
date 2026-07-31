@@ -90,7 +90,10 @@ struct ConnectionStatusToastPresenter: ViewModifier {
         let explicitSelection = store.explicitlySelectedWorkspace
         Task {
             if let explicitSelection {
-                await store.reconnectToMac(macDeviceID: explicitSelection.macDeviceID)
+                await store.reconnectToMac(
+                    macDeviceID: explicitSelection.macDeviceID,
+                    instanceTag: explicitSelection.macInstanceTag
+                )
             } else {
                 // No explicit selection: the capsule showed the aggregate
                 // list status, so the action follows the list recovery

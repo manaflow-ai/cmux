@@ -48,6 +48,7 @@ enum BrowserExternalNavigationIntent {
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
+    weak var owner: BrowserPanel?
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -193,11 +194,12 @@ enum BrowserExternalNavigationIntent {
 
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { [presentAlert] finishPrompt, registerCancelPrompt in
+            startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView,
                     challenge: challenge,
                     presentAlert: presentAlert,
+                    browserPanel: owner,
                     registerCancelPrompt: registerCancelPrompt,
                     completionHandler: finishPrompt
                 )
@@ -210,7 +212,18 @@ enum BrowserExternalNavigationIntent {
         if clientCertificateAuthenticationController.handle(
             challenge: challenge,
             in: webView,
-            presentAlert: presentAlert,
+            presentAlert: { [weak owner, presentAlert] alert, webView, completion, cancel in
+                if let owner {
+                    owner.presentMobileClientCertificateAlert(
+                        alert,
+                        webView: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                } else {
+                    presentAlert(alert, webView, completion, cancel)
+                }
+            },
             completionHandler: completionHandler
         ) {
             return

@@ -101,6 +101,87 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func visibleRowClickWhileRevealApplyIsPendingReplaysWhenActionsReturn() async throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let initiallySelectedWorkspace = try #require(tabManager.selectedWorkspace)
+        let clickedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            workspaceId: clickedWorkspace.id
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                workspace: clickedWorkspace,
+                tabManager: tabManager
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.setPresentationActive(false, workspaceIds: [clickedWorkspace.id])
+        controller.setPresentationActive(true, workspaceIds: [clickedWorkspace.id])
+
+        let table = container.tableView
+        let clickPoint = NSPoint(x: table.bounds.midX, y: table.rect(ofRow: 0).midY)
+        #expect(!table.isHidden)
+        #expect(table.row(at: clickPoint) == 0)
+        #expect(table.hitTest(clickPoint) != nil)
+        let action = try #require(table.action)
+        let target = try #require(table.target)
+        table.setValue(0, forKey: "clickedRow")
+        defer { table.setValue(-1, forKey: "clickedRow") }
+        #expect(table.sendAction(action, to: target))
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            tabManager.selectedTabId == clickedWorkspace.id,
+            "A completed click on a visible reveal-time row must replay once live row actions return."
+        )
+    }
+
+    @Test
     func hidingRetiresNativeReorderSession() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -150,16 +231,16 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func cellDetachmentDefersInlineEditCommitThroughControllerScheduler() async throws {
+    func atomicReorderReloadAndDetachmentDeferInlineEditCommits() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let model = SidebarWorkspaceRowSuspensionTests.makeModel()
-        var committedTitle: String?
-        let row = SidebarWorkspaceTableRowConfiguration(
+        var committedTitles: [String] = []
+        let editableRow = SidebarWorkspaceTableRowConfiguration(
             workspaceRowModel: model,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(
                 model: model,
-                onCommitRename: { committedTitle = $0 }
+                onCommitRename: { committedTitles.append($0) }
             ),
             groupId: nil,
             isPinned: false,
@@ -169,6 +250,10 @@ struct SidebarWorkspaceTableSuspensionTests {
                 lazyContractProbe: SidebarLazyContractProbe()
             )
         )
+        let firstId = UUID()
+        let lastId = UUID()
+        let firstRow = makeRowConfiguration(workspaceId: firstId, fixedHeight: 24)
+        let lastRow = makeRowConfiguration(workspaceId: lastId, fixedHeight: 24)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.borderless],
@@ -178,9 +263,9 @@ struct SidebarWorkspaceTableSuspensionTests {
         window.contentView = container
         defer { window.close() }
         controller.apply(
-            rows: [row],
+            rows: [firstRow, editableRow, lastRow],
             actions: makeTableActions(),
-            workspaceIds: [model.workspaceId],
+            workspaceIds: [firstId, model.workspaceId, lastId],
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
@@ -188,20 +273,44 @@ struct SidebarWorkspaceTableSuspensionTests {
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
+                as? SidebarWorkspaceRowTableCellView
+        )
+        cell.isEditing = true
+        cell.renameField.stringValue = "Atomic reload rename"
+
+        let resizedFirstRow = makeRowConfiguration(
+            workspaceId: firstId,
+            contentToken: 1,
+            fixedHeight: 96
+        )
+        controller.apply(
+            rows: [editableRow, lastRow, resizedFirstRow],
+            actions: makeTableActions(),
+            workspaceIds: [model.workspaceId, lastId, firstId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+
+        #expect(committedTitles.isEmpty)
+        await flushStagedTableMutations()
+        await flushStagedTableMutations()
+        #expect(committedTitles == ["Atomic reload rename"])
+
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let reloadedCell = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
-        )
-        field.stringValue = "Detached rename"
+        reloadedCell.isEditing = true
+        reloadedCell.renameField.stringValue = "Detached rename"
 
         controller.dismantleContainerView(container)
 
-        #expect(committedTitle == nil)
+        #expect(committedTitles == ["Atomic reload rename"])
         await flushStagedTableMutations()
-        #expect(committedTitle == "Detached rename")
+        #expect(committedTitles == ["Atomic reload rename", "Detached rename"])
     }
 
     @Test
@@ -387,7 +496,8 @@ struct SidebarWorkspaceTableSuspensionTests {
 
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
-        contentToken: Int = 0
+        contentToken: Int = 0,
+        fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .light,
@@ -401,9 +511,9 @@ struct SidebarWorkspaceTableSuspensionTests {
             isGroupHeader: false,
             isPinned: false,
             environment: environment,
-            equivalenceValue: TestRowContent(token: contentToken)
+            equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)
         ) { _, _ in
-            AnyView(TestRowContent(token: contentToken))
+            AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
     }
 
@@ -480,8 +590,11 @@ struct SidebarWorkspaceTableSuspensionTests {
 
     private struct TestRowContent: View, Equatable {
         let token: Int
+        let fixedHeight: CGFloat?
 
-        var body: some View { EmptyView() }
+        var body: some View {
+            Color.clear.frame(height: fixedHeight)
+        }
     }
 }
 #endif
