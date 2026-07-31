@@ -788,8 +788,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var ghosttyGotoSplitRightShortcut: StoredShortcut?
     var ghosttyGotoSplitUpShortcut: StoredShortcut?
     var ghosttyGotoSplitDownShortcut: StoredShortcut?
-    private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
-    private var ghosttyGotoSplitNextShortcut: StoredShortcut?
+    var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
+    var ghosttyGotoSplitNextShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
@@ -3433,6 +3433,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
+        primaryContext.tabManager.prepareLegacyWorkspaceCustomizationMigration(
+            afterRestoring: startupSnapshot?.windows.flatMap(\.tabManager.workspaces) ?? []
+        )
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
             if !isApplyingSessionRestore {
@@ -3547,6 +3550,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard !snapshotWindows.isEmpty else { return false }
 
+        (tabManager ?? mainWindowContexts.values.first?.tabManager)?
+            .prepareLegacyWorkspaceCustomizationMigration(
+                afterRestoring: snapshotWindows.flatMap(\.tabManager.workspaces)
+            )
         if !isApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.beginRestorePass()
         }
@@ -7380,7 +7387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: url,
             initialBrowserOmnibarVisible: false,
             initialBrowserTransparentBackground: true,
-            workspaceDirectoryCustomizationMode: .disabled,
+            applyCreationTitleAsCustomTitle: false,
             focusInitialBrowserAddressBarOnCreate: false,
             createdWorkspaceHandler: { workspace in
                 createdWorkspace = workspace
@@ -7430,7 +7437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
@@ -7474,7 +7481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         initialBrowserURL: initialBrowserURL,
                         initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                         initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                        workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                        applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
                     )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
@@ -7523,7 +7530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else {
                 return false
             }
@@ -7542,7 +7549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
             createdWorkspaceHandler?(workspace)
             if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
@@ -7557,7 +7564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode,
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             event: event,
             debugSource: debugSource
         ) {
@@ -8341,7 +8348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8397,7 +8404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: true,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
@@ -8406,13 +8413,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialTerminalInput: initialTerminalInput,
                 select: true,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if title != nil {
             workspace = context.tabManager.addWorkspace(
                 title: title,
                 select: true,
-                workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+                applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
             workspace = context.tabManager.addTab(select: true)
@@ -8761,9 +8768,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
-            workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore(
-                defaults: .standard
-            ),
+            workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
+                ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -13972,7 +13978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .left) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.left)) {
             if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -13987,7 +13993,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .right) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.right)) {
             if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14002,7 +14008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .up) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.up)) {
             if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14017,7 +14023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .down) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.down)) {
             if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14028,7 +14034,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14044,7 +14050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitNextShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .next) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
@@ -15806,19 +15812,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        return matchesGhosttyGotoSplitPreviousShortcut(event)
-            || matchesGhosttyGotoSplitNextShortcut(event)
-    }
-
-    private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitPreviousShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitPreviousShortcut)
-    }
-
-    private func matchesGhosttyGotoSplitNextShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitNextShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitNextShortcut)
+        matchesGhosttyGotoSplitFallback(event: event, route: .previous)
+            || matchesGhosttyGotoSplitFallback(event: event, route: .next)
     }
 
     private func matchesKeyboardShortcutEvent(
