@@ -72,7 +72,7 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
         let context = PushRegistrationLoadingContext(
             loadingProtocol: self
         )
-        Task { [capturedRequest, context] in
+        Task.detached { [capturedRequest, context] in
             let loadingProtocol = context.loadingProtocol
             let stub = await Self.script.take(capturedRequest)
             await stub.started?.markStarted()
