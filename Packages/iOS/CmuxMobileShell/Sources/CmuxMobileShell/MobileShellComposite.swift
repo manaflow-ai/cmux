@@ -807,6 +807,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// The pre-adoption client owned by the current `connect` generation.
+    ///
+    /// A newer generation retires this client and awaits route-lease handoff
+    /// before dialing. The physical close stays asynchronous in the shared
+    /// registry, so supersession cannot fail `busy` or wait on socket teardown.
+    private var inFlightConnectionAttempt: (
+        generation: UUID,
+        client: MobileCoreRPCClient
+    )?
+    /// Teardown registration shared by sign-out and overlapping connects.
+    /// New generations await this exact task before consulting the route gate.
+    private var inFlightConnectionAttemptRetirement: (
+        id: UUID,
+        task: Task<Void, Never>
+    )?
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -1590,6 +1605,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        scheduleInFlightConnectionAttemptRetirement()
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -7696,6 +7712,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        scheduleInFlightConnectionAttemptRetirement()
+        await awaitInFlightConnectionAttemptRetirement()
+        guard isConnectCurrent() else { return nil }
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -7941,6 +7960,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver
             )
+            inFlightConnectionAttempt = (generation, client)
+            defer {
+                if inFlightConnectionAttempt?.generation == generation,
+                   inFlightConnectionAttempt?.client === client {
+                    inFlightConnectionAttempt = nil
+                }
+            }
             for workspaceListRequest in workspaceListRequests {
                 do {
                     let requestTimeoutNanoseconds: UInt64
@@ -8152,9 +8178,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             await client.disconnect()
                             return nil
                         }
+                        guard transferInFlightConnectionAttemptToForeground(
+                            client,
+                            generation: generation
+                        ) else {
+                            await client.disconnect()
+                            return nil
+                        }
                         liveConnectionGeneration =
                             adoptPooledRemoteClient(client)
                     } else {
+                        guard transferInFlightConnectionAttemptToForeground(
+                            client,
+                            generation: generation
+                        ) else {
+                            await client.disconnect()
+                            return nil
+                        }
                         replaceRemoteClient(with: client)
                     }
                     activeTicket = candidateTicket
@@ -8553,6 +8593,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        scheduleInFlightConnectionAttemptRetirement()
         // Capture the tagged foreground key BEFORE the identity clears below:
         // `foregroundMacKey` derives from `activeMacInstanceTag`, which
         // `clearActiveConnectionContext()` nils, and the offline retention
@@ -8621,6 +8662,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             removeFocusedConnection(ifMatching: focused)
         }
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
+    }
+
+    /// Synchronously revoke one pre-adoption client's shell ownership.
+    ///
+    /// The caller awaits `disconnect()` when it must observe route-lease
+    /// transfer before redialing. Clearing the slot first makes this safe under
+    /// MainActor reentrancy: a third generation can never be erased by the
+    /// superseded generation's deferred cleanup.
+    private func retireInFlightConnectionAttempt() -> MobileCoreRPCClient? {
+        let client = inFlightConnectionAttempt?.client
+        inFlightConnectionAttempt = nil
+        client?.retire()
+        return client
+    }
+
+    /// Start one exact pre-adoption teardown without awaiting physical close.
+    ///
+    /// The stored task settles after `disconnect()` has transferred the route
+    /// lease into shared cleanup. Sign-out can trigger it synchronously, while a
+    /// later connection generation awaits the same task before redialing.
+    private func scheduleInFlightConnectionAttemptRetirement() {
+        guard inFlightConnectionAttemptRetirement == nil,
+              let client = retireInFlightConnectionAttempt() else {
+            return
+        }
+        let id = UUID()
+        let task = Task {
+            await client.disconnect()
+        }
+        inFlightConnectionAttemptRetirement = (id, task)
+        Task { @MainActor [weak self] in
+            await task.value
+            guard let self,
+                  self.inFlightConnectionAttemptRetirement?.id == id else {
+                return
+            }
+            self.inFlightConnectionAttemptRetirement = nil
+        }
+    }
+
+    /// Observe the route-lease handoff started by this or an earlier lifecycle
+    /// owner. Exact-ID clearing keeps a stale completion from erasing a newer
+    /// retirement task under MainActor reentrancy.
+    private func awaitInFlightConnectionAttemptRetirement() async {
+        guard let retirement = inFlightConnectionAttemptRetirement else {
+            return
+        }
+        await retirement.task.value
+        if inFlightConnectionAttemptRetirement?.id == retirement.id {
+            inFlightConnectionAttemptRetirement = nil
+        }
+    }
+
+    /// Transfer one exact pre-adoption client into foreground ownership.
+    ///
+    /// Clearing the pending slot before publishing `remoteClient` prevents a
+    /// reentrant third generation from retiring an already-adopted client as if
+    /// it still belonged to the older connection attempt.
+    private func transferInFlightConnectionAttemptToForeground(
+        _ client: MobileCoreRPCClient,
+        generation: UUID
+    ) -> Bool {
+        guard inFlightConnectionAttempt?.generation == generation,
+              inFlightConnectionAttempt?.client === client else {
+            return false
+        }
+        inFlightConnectionAttempt = nil
+        return true
     }
 
     /// Publish one remote-client ownership change synchronously. Callers choose
