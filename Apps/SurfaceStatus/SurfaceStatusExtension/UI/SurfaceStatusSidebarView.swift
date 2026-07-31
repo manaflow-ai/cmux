@@ -6,11 +6,10 @@ struct SurfaceStatusSidebarView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // ExtensionKit renders in a separate remote surface, so use one
-            // opaque semantic fill from the first extension-owned frame. This
-            // follows macOS appearance without adding material, blur, alpha
-            // compositing, animation, or continuous rendering work.
-            Color(nsColor: .controlBackgroundColor)
+            // The ExtensionKit scene owns content only. Leave its remote surface
+            // clear so cmux remains the single owner of sidebar material, tint,
+            // blur, terminal-background matching, and future appearance changes.
+            Color.clear
                 .ignoresSafeArea()
 
             if let snapshot = model.snapshot {
