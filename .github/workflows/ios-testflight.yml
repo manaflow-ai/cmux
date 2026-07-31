@@ -1,14 +1,12 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Scheduled batching instead of per-merge uploads: App Store Connect enforces a
-  # per-app upload quota that merge bursts exhausted. The decide job skips a
-  # scheduled run when main has not changed since the variant's last upload or
-  # when the changes touch no iOS-relevant paths. Manual dispatch remains
-  # available for intentional rebuilds.
+  # Poll main every 20 minutes and batch merges into one upload. The decide job
+  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # Manual dispatch remains available for intentional rebuilds.
   schedule:
-    # Hourly cmux INTERNAL upload of current main.
-    - cron: "7 * * * *"
+    # Check current main for a cmux INTERNAL upload every 20 minutes.
+    - cron: "7,27,47 * * * *"
     # Twice-daily (every 12 hours) cmux DEMO upload of current main.
     - cron: "37 5,17 * * *"
   workflow_dispatch:
@@ -146,10 +144,10 @@ jobs:
             }
 
             // Resolve the most recent successful canonical upload as the base for
-            // this build's "What to Test" commit range. Key off the upload job,
-            // not whole-workflow success, because internal-group assignment happens
-            // after the IPA is already in App Store Connect. Restrict the lookup to
-            // main so a blocked feature-branch dispatch cannot poison the notes base.
+            // this build's "What to Test" commit range. Metadata artifacts are
+            // written only after the upload succeeds, and the repository artifact
+            // response includes the originating run's branch and head SHA. Looking
+            // them up directly keeps skipped schedule runs out of this history scan.
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
@@ -166,46 +164,66 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
+            let uploadHistoryKnown = true;
             try {
-              for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: 'ios-testflight.yml',
-                  branch: 'main',
-                  per_page: 100,
-                  page,
-                });
-                for (const run of runs.data.workflow_runs) {
-                  if (run.id === context.runId) continue;
-                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
-                    owner,
-                    repo,
-                    run_id: run.id,
-                    per_page: 100,
-                  });
-                  const uploadJob = jobs.data.jobs.find((job) => job.name === 'Upload to TestFlight');
-                  if (uploadJob?.conclusion === 'success') {
-                    const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-                      owner,
-                      repo,
-                      run_id: run.id,
-                      per_page: 100,
-                    });
-                    const artifactNames = new Set(
-                      (artifacts.data.artifacts || []).map((artifact) => artifact.name)
-                    );
-                    if (!artifactNames.has(canonicalArtifactName)) {
-                      continue;
-                    }
-                    lastUploadedSha = run.head_sha;
-                    break;
+              const perPage = 100;
+              const firstPage = await github.rest.actions.listArtifactsForRepo({
+                owner,
+                repo,
+                name: canonicalArtifactName,
+                per_page: perPage,
+                page: 1,
+              });
+              const totalCount = Number(firstPage.data.total_count);
+              if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+                throw new Error('invalid artifact count');
+              }
+              const pageCount = Math.max(1, Math.ceil(totalCount / perPage));
+              let latestArtifact = null;
+              const considerArtifacts = (artifacts) => {
+                for (const artifact of artifacts) {
+                  const run = artifact.workflow_run;
+                  if (
+                    artifact.name !== canonicalArtifactName ||
+                    run?.head_branch !== 'main' ||
+                    !run.head_sha ||
+                    Number(run.id) === Number(context.runId)
+                  ) {
+                    continue;
+                  }
+                  const createdAt = Date.parse(artifact.created_at);
+                  if (!Number.isFinite(createdAt)) {
+                    throw new Error('invalid artifact creation time');
+                  }
+                  if (
+                    !latestArtifact ||
+                    createdAt > latestArtifact.createdAt ||
+                    (createdAt === latestArtifact.createdAt &&
+                      Number(artifact.id) > Number(latestArtifact.id))
+                  ) {
+                    latestArtifact = {
+                      id: artifact.id,
+                      createdAt,
+                      headSha: run.head_sha,
+                    };
                   }
                 }
-                if (runs.data.workflow_runs.length < 100) break;
+              };
+              considerArtifacts(firstPage.data.artifacts || []);
+              for (let page = 2; page <= pageCount; page += 1) {
+                const response = await github.rest.actions.listArtifactsForRepo({
+                  owner,
+                  repo,
+                  name: canonicalArtifactName,
+                  per_page: perPage,
+                  page,
+                });
+                considerArtifacts(response.data.artifacts || []);
               }
-            } catch (e) {
-              core.warning(`could not resolve last uploaded sha: ${e.message}`);
+              lastUploadedSha = latestArtifact?.headSha || null;
+            } catch {
+              uploadHistoryKnown = false;
+              core.warning('could not resolve last uploaded sha; skipping scheduled upload');
             }
 
             // Manual runs are intentional rebuilds and always build. Scheduled
@@ -235,7 +253,10 @@ jobs:
             let shouldBuild = true;
             let reason = 'manual dispatch';
             if (context.eventName === 'schedule') {
-              if (!lastUploadedSha) {
+              if (!uploadHistoryKnown) {
+                shouldBuild = false;
+                reason = 'upload history unavailable';
+              } else if (!lastUploadedSha) {
                 reason = 'no prior upload found for this variant';
               } else if (lastUploadedSha === context.sha) {
                 shouldBuild = false;
