@@ -66,10 +66,9 @@ public final class BrowserSurfaceStore {
     ///
     /// If the workspace already has a browser surface, that same surface is
     /// returned so the current page is restored when switching away and back
-    /// (the surface's `currentURL` is reloaded into a fresh web view on
-    /// re-attach). In P1, full back/forward history is not preserved across
-    /// remounts; persisting the live WebKit session and history is P2. A new
-    /// surface loads ``defaultURL``.
+    /// (the surface's saved WebKit interaction state, including the page and
+    /// back/forward stack, is restored into a fresh web view on re-attach, with
+    /// `currentURL` as the fallback). A new surface loads ``defaultURL``.
     ///
     /// - Parameter workspaceID: The workspace's raw identifier string.
     /// - Returns: The active browser surface for the workspace.

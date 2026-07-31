@@ -38,8 +38,8 @@ import Testing
         let first = store.openBrowser(for: "ws-1")
         let second = store.openBrowser(for: "ws-1")
         // Same instance, so the current page is restored when switching away and
-        // back (the surface's currentURL is reloaded on re-attach). Full live
-        // WebKit history persistence across remounts is P2.
+        // back. WebKit session snapshots are stored on that surface across
+        // remounts.
         #expect(first === second)
     }
 

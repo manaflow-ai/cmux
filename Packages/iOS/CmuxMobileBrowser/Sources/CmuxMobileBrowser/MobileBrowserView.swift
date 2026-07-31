@@ -97,16 +97,44 @@ public struct MobileBrowserView: UIViewRepresentable {
         func attach(webView: WKWebView) {
             self.webView = webView
             observe(webView)
+            // WebKit's `.recommended` content mode resolves to desktop on
+            // iPad-class devices. Inject that resolution so the desktop-site
+            // menu label and toggle direction are correct on first use.
+            state.recommendedContentModeIsDesktop =
+                UIDevice.current.userInterfaceIdiom == .pad
+            // A fresh web view starts idle, but the surface may still carry
+            // `isLoading` from a navigation that was in flight when the old
+            // web view was torn down. Mirror the new web view's state so the
+            // progress line does not persist; the loads below drive it again
+            // through the navigation delegate.
+            state.isLoading = webView.isLoading
+            state.estimatedProgress = webView.estimatedProgress
+
+            // An explicit pending load (first mount's initial URL, or a load
+            // queued while unmounted) wins outright. A command queued before
+            // the remount targeted the old web view's history and would cancel
+            // or no-op against this fresh load, so drop it.
+            if let url = state.consumeLoadRequest() {
+                webView.load(URLRequest(url: url))
+                _ = state.consumeCommand()
+                return
+            }
+
             // A surface can be re-attached to a fresh WKWebView when SwiftUI
             // remounts the representable (switching workspaces, hiding/showing
             // the browser). The surface state survives, but the web view does
-            // not, so restore the last committed URL on re-attach to honor the
-            // "current page is restored on return" promise. First mount already
-            // has a pending initial-URL load, so guard against a double-load.
-            let hadPendingLoad = state.loadRequest != nil
-            applyPendingWork()
-            if !hadPendingLoad, webView.url == nil, let restore = state.currentURL {
+            // not, so restore the saved WebKit interaction state to preserve
+            // the page and back/forward stack. If WebKit rejects that state,
+            // fall back to the last committed URL.
+            if !restoreInteractionState(on: webView), let restore = state.currentURL {
                 webView.load(URLRequest(url: restore))
+            }
+
+            // Apply a command queued while no web view was attached (e.g. the
+            // desktop-site toggle's reload) after the session is restored so
+            // it acts on the restored page, not an empty web view.
+            if let command = state.consumeCommand() {
+                run(command, on: webView)
             }
         }
 
@@ -123,6 +151,11 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func run(_ command: BrowserSurfaceState.NavigationCommand, on webView: WKWebView) {
+            // No interaction-state capture here: right after `goBack()`/
+            // `goForward()` the snapshot still reflects the previous history
+            // position. `didFinish` captures the committed result, and
+            // `detach()` captures whatever WebKit has if the pane is torn
+            // down mid-navigation.
             switch command {
             case .goBack:
                 webView.goBack()
@@ -138,6 +171,9 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// Cancels all observations and releases the web view. Called on
         /// dismantle so the surface leaves no dangling KVO registrations.
         func detach() {
+            if let webView {
+                captureInteractionState(from: webView)
+            }
             observations.forEach { $0.invalidate() }
             observations.removeAll()
             webView?.navigationDelegate = nil
@@ -182,6 +218,23 @@ public struct MobileBrowserView: UIViewRepresentable {
             ]
         }
 
+        private func restoreInteractionState(on webView: WKWebView) -> Bool {
+            guard let savedInteractionState = state.savedInteractionState else { return false }
+            webView.interactionState = savedInteractionState
+            // WebKit populates the back/forward list synchronously when it
+            // accepts a snapshot but may commit the page load asynchronously,
+            // so `webView.url` alone can still be nil for a successful
+            // restore. Only report failure (triggering the `currentURL`
+            // fallback) when WebKit rejected the snapshot outright.
+            return webView.url != nil || webView.backForwardList.currentItem != nil
+        }
+
+        private func captureInteractionState(from webView: WKWebView) {
+            // `interactionState` is documented as an opaque value; hold it
+            // as-is (no cast) and only ever hand it back to WebKit.
+            state.saveInteractionState(webView.interactionState)
+        }
+
         // MARK: - WKNavigationDelegate
 
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -193,6 +246,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             if let title = webView.title, !title.isEmpty {
                 state.title = title
             }
+            captureInteractionState(from: webView)
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
@@ -218,6 +272,18 @@ public struct MobileBrowserView: UIViewRepresentable {
             state.navigationDidFail(message: error.localizedDescription)
         }
 
+        /// Applies the surface's content-mode preference (mobile/desktop/
+        /// recommended) to every navigation and allows it to proceed.
+        public func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            preferences: WKWebpagePreferences,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+        ) {
+            preferences.preferredContentMode = state.contentModePreference.webKitContentMode
+            decisionHandler(.allow, preferences)
+        }
+
         // MARK: - WKUIDelegate
 
         public func webView(
@@ -235,6 +301,17 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.load(navigationAction.request)
             }
             return nil
+        }
+    }
+}
+
+extension BrowserSurfaceState.ContentModePreference {
+    /// The WebKit content mode this preference requests for page loads.
+    var webKitContentMode: WKWebpagePreferences.ContentMode {
+        switch self {
+        case .recommended: .recommended
+        case .mobile: .mobile
+        case .desktop: .desktop
         }
     }
 }

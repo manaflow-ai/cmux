@@ -30,6 +30,9 @@ import Testing
         #expect(state.canGoBack == false)
         #expect(state.canGoForward == false)
         #expect(state.isAddressEditing == false)
+        #expect(state.savedInteractionState == nil)
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite == false)
     }
 
     @Test func consumeHelpersAreIdempotentWhenEmpty() {
@@ -50,7 +53,32 @@ import Testing
         state.load(url)
         #expect(state.addressText == "https://cmux.dev")
         #expect(state.lastErrorMessage == nil)
+        #expect(state.savedInteractionState == nil)
         #expect(state.consumeLoadRequest() == url)
+    }
+
+    @Test func saveInteractionStateKeepsLatestNonNilSnapshot() {
+        let state = makeState()
+        let first = Data([1, 2, 3])
+        let second = Data([4, 5, 6])
+
+        state.saveInteractionState(first)
+        #expect(state.savedInteractionState as? Data == first)
+
+        state.saveInteractionState(nil)
+        #expect(state.savedInteractionState as? Data == first)
+
+        state.saveInteractionState(second)
+        #expect(state.savedInteractionState as? Data == second)
+    }
+
+    @Test func loadClearsSavedInteractionState() {
+        let state = makeState()
+        state.saveInteractionState(Data([1, 2, 3]))
+
+        state.load(URL(string: "https://cmux.dev")!)
+
+        #expect(state.savedInteractionState == nil)
     }
 
     @Test func submitAddressResolvesAndRequestsLoad() {
@@ -103,5 +131,76 @@ import Testing
         state.request(.goBack)
         state.request(.goForward)
         #expect(state.consumeCommand() == .goForward)
+    }
+
+    @Test func contentModeDefaultsToRecommended() {
+        let state = makeState()
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite == false)
+    }
+
+    @Test func recommendedResolvesToDesktopOnPadClassDevices() {
+        // On iPad, WebKit's recommended mode already loads desktop sites, so
+        // the effective preference must report desktop while .recommended and
+        // the first toggle must request the MOBILE site, not no-op to desktop.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+        state.recommendedContentModeIsDesktop = true
+
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func desktopSiteToggleReloadsCurrentPage() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .desktop)
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func toggleBackForcesMobileNotRecommended() {
+        // On iPads the recommended mode is desktop, so "Request Mobile Site"
+        // must force .mobile rather than fall back to the device default.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+        #expect(state.consumeCommand() == .reload)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func desktopSiteToggleBeforeFirstLoadDoesNotDoubleLoad() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == nil)
+        #expect(state.consumeLoadRequest()?.absoluteString == "https://example.com")
+    }
+
+    @Test func settingSameContentModePreferenceIsNoOp() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.setContentModePreference(.recommended)
+
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == nil)
     }
 }
