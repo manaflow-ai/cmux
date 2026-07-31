@@ -307,6 +307,58 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
+    func sourceRetirementReleasesRendererProtectionBeforePresentationReadiness() {
+        var protectedRequestIDs: [UUID] = []
+        var releasedRequestIDs: [UUID] = []
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, requestID in
+                protectedRequestIDs.append(requestID)
+            },
+            endRendererProtection: { requestID in
+                releasedRequestIDs.append(requestID)
+            }
+        )
+
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: false,
+            targetRenderedFrameSequence: 0
+        )
+        coordinator.selectionDidCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID
+        )
+        coordinator.beginPresentation(
+            WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID,
+                terminalView: nil,
+                terminalRendererPresented: false,
+                terminalRenderedFrameSequence: 0,
+                browserWebView: nil,
+                portalPresented: false,
+                interactionReady: false,
+                requiresInteraction: true
+            )
+        )
+
+        coordinator.sourceWillRetire()
+        coordinator.sourceDidRetire()
+
+        #expect(protectedRequestIDs.count == 1)
+        #expect(releasedRequestIDs == protectedRequestIDs)
+        coordinator.cancel()
+        #expect(releasedRequestIDs == protectedRequestIDs)
+    }
+
+    @Test
     func presentationProtectedRendererIsNeverSelectedForReclamation() {
         let now: TimeInterval = 1_000
         let warmSurfaceID = UUID()
