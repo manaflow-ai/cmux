@@ -4309,8 +4309,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func updateSurfaceSize(
-        size: CGSize? = nil,
-        bypassLiveResizeCoalescing: Bool = false
+        size: CGSize? = nil, bypassLiveResizeCoalescing: Bool = false, caller: StaticString = #function
     ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
@@ -4444,7 +4443,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // would hold it at the pre-drag (larger) size and paint past the
             // shrinking pane. Re-pins at rest when the interactive flag clears.
             suppressAssignedGridPin: isWindowLiveResizeActive
-                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            caller: caller
         )
         return didChange || surfaceSizeChanged
     }
