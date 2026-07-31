@@ -568,6 +568,97 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func sameGenerationWakeEvictsSilentIdleDeathBeforeFirstReuse() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .privateNetwork,
+            reportsClosureToWaiters: false
+        )
+        let replacementConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(replacementConnection),
+            ]
+        )
+        let clock = HoldingWakeValidationClock()
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            clock: clock
+        )
+        let firstSession = try await pool.session(for: fixture.request)
+
+        await firstConnection.setObservedSelectedPath(.unavailable)
+        let wakeStartedAt = clock.now()
+        await pool.activate(runtimeGeneration: 1)
+        let postWakeSession = try await pool.session(for: fixture.request)
+
+        #expect(postWakeSession !== firstSession)
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await firstConnection.observedCloseCallCount() == 1)
+        #expect(
+            clock.now().timeIntervalSince(wakeStartedAt) <= 3,
+            "wake validation must not consume the 30s retry ladder"
+        )
+        await pool.deactivate()
+        await clock.releaseAll()
+    }
+
+    @Test
+    func overlappingPostWakeReconnectsCoalesceBehindOneReplacementDial() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .privateNetwork,
+            reportsClosureToWaiters: false
+        )
+        let replacementConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .relay(url: "https://relay.example.com/")
+        )
+        let endpoint = TestGatedDialEndpoint(localIdentity: fixture.localIdentity)
+        let clock = HoldingWakeValidationClock()
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            clock: clock
+        )
+        let initialTask = Task {
+            try await pool.session(for: fixture.request)
+        }
+        #expect(await waitForDialCount(endpoint, atLeast: 1))
+        await endpoint.releaseNextDial(with: firstConnection)
+        let firstSession = try await initialTask.value
+
+        await firstConnection.setObservedSelectedPath(.unavailable)
+        await pool.activate(runtimeGeneration: 1)
+
+        async let firstReconnect = pool.session(for: fixture.request)
+        async let secondReconnect = pool.session(for: fixture.request)
+        #expect(await waitForDialCount(endpoint, atLeast: 2))
+        await endpoint.releaseNextDial(with: replacementConnection)
+        let (firstReplacement, secondReplacement) =
+            try await (firstReconnect, secondReconnect)
+
+        #expect(firstReplacement !== firstSession)
+        #expect(firstReplacement === secondReplacement)
+        #expect(await endpoint.observedDialCount() == 2)
+        #expect(await firstConnection.observedCloseCallCount() == 1)
+        await pool.deactivate()
+        await clock.releaseAll()
+    }
+
+    @Test
     func pooledSessionStartsPublicThenRefreshesAndValidatesLANFallback() async throws {
         let fixture = try PoolFixture()
         let now = Date()
@@ -981,6 +1072,34 @@ private func waitForSelectedPathChangeCount(
     return false
 }
 
+private func waitForDialCount(
+    _ endpoint: TestGatedDialEndpoint,
+    atLeast expectedCount: Int
+) async -> Bool {
+    for _ in 0 ..< 1_000 {
+        if await endpoint.observedDialCount() >= expectedCount { return true }
+        await Task.yield()
+    }
+    return false
+}
+
+private actor HoldingWakeValidationClock: CmxIrohRelayClock {
+    private static let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    nonisolated func now() -> Date { Self.fixedNow }
+
+    func sleep(until _: Date) async throws {
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func releaseAll() {
+        let resumable = waiters
+        waiters = []
+        for waiter in resumable { waiter.resume() }
+    }
+}
+
 private struct PoolFixture {
     let localIdentity: CmxIrohPeerIdentity
     let remoteIdentity: CmxIrohPeerIdentity
@@ -1013,7 +1132,8 @@ private struct PoolFixture {
         endpoint: any CmxIrohEndpoint,
         generation: UInt64,
         contextProvider: (any CmxIrohClientContextProvider)? = nil,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        clock: (any CmxIrohRelayClock)? = nil
     ) async throws -> CmxIrohClientSessionPool {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
@@ -1031,7 +1151,8 @@ private struct PoolFixture {
             contextProvider: contextProvider
                 ?? TestIrohClientContextProvider(context: context),
             protocolConfiguration: .testApplicationLanes,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            clock: clock ?? CmxIrohSystemRelayClock()
         )
         await pool.activate(runtimeGeneration: generation)
         return pool
