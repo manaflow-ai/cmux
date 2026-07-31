@@ -34,14 +34,17 @@ extension CmxIrohClientRuntime {
                 )
             }
 
+        // A revision is what orders this read-only snapshot against the signed
+        // registration refresh that follows activation. Older brokers may
+        // return discovery without one; keep that response off the fast path
+        // and fall back to the full registration flow instead of stranding an
+        // otherwise valid cached installation.
         if let cachedBinding = configuration.cachedBinding,
-           let prefetchedDiscovery {
+           let prefetchedDiscovery,
+           prefetchedDiscovery.revision != nil {
             guard prefetchedDiscovery.routeContractVersion
                     == CmxIrohRegistrationPayload.currentRouteContractVersion else {
                 throw CmxIrohClientRuntimeError.routeContractMismatch
-            }
-            guard prefetchedDiscovery.revision != nil else {
-                throw CmxIrohTrustBrokerClientError.invalidResponse
             }
             try validateRelayFleet(prefetchedDiscovery.relayFleet)
             authoritativeDiscovery = prefetchedDiscovery
