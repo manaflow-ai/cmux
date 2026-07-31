@@ -1,5 +1,6 @@
 /// Validates that a terminal replay was captured after the host applied the
 /// viewport accepted for the requesting client.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum MobileTerminalReplayViewportFence {
     /// Legacy replay requests do not carry a viewport and remain accepted.
     /// Viewport-aware requests are accepted only when both cell dimensions

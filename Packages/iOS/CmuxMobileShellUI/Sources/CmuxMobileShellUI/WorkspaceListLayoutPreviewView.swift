@@ -514,6 +514,7 @@ public struct WorkspaceListLayoutPreviewView: View {
 /// Pairing rows for the store-free workspace-list fixture. Lives in this
 /// DEBUG-only file so the production view exposes no fixture storage; the
 /// picker reads it only when `UITestConfig.workspaceListLayoutPreviewEnabled`.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum WorkspaceListLayoutPreviewFixture {
     static var displayPairedMacs: [MobilePairedMac] {
         WorkspaceListLayoutPreviewView.previewPairedMacs

@@ -13,6 +13,7 @@ enum TranscriptMarkdownImageSegment: Hashable, Sendable {
     case image(TranscriptMarkdownImageReference)
 }
 
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum TranscriptMarkdownImageReferenceExtractor {
     static func segments(in markdown: String) -> [TranscriptMarkdownImageSegment] {
         guard markdown.contains("]("), markdown.contains("![") else {

@@ -13,6 +13,7 @@ public struct TranscriptImageMetadataProbeResult: Equatable, Sendable {
     }
 }
 
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum TranscriptImageMetadataProbe {
     public static func metadata(
         hostPath: String?,

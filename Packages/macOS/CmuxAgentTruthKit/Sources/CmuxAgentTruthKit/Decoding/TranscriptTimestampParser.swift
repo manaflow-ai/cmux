@@ -1,5 +1,6 @@
 import Foundation
 
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum TranscriptTimestampParser {
     static func milliseconds(_ value: JSONValue?) -> Int64? {
         if let number = value?.number {

@@ -3,6 +3,7 @@ import Foundation
 
 /// Process-scoped configuration and claim gate for the DEBUG typing probe.
 @MainActor
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum MobileLatencyProbe {
     struct Configuration {
         let count: Int

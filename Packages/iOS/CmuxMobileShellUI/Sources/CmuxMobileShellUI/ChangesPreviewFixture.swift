@@ -139,6 +139,7 @@ struct ChangesPreviewFixture: Sendable {
 
     private static let truncatedDiff = """
     @@ -1,3 +1,8 @@
+     // lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
      enum GeneratedSchema {
     +    static let field0001 = "value"
     +    static let field0002 = "value"

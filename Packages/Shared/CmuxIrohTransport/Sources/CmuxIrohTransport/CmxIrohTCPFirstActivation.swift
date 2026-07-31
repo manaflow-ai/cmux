@@ -4,6 +4,7 @@
 /// `scheduleIroh` must enqueue asynchronous activation and return immediately.
 /// Keeping that boundary synchronous makes it impossible for a relay-policy or
 /// Keychain suspension to delay the existing TCP listener.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum CmxIrohTCPFirstActivation {
     public static func start(
         startTCP: () -> Void,

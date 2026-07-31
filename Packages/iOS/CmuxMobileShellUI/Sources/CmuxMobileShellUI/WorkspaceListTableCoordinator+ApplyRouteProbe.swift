@@ -33,6 +33,7 @@ extension WorkspaceListTableCoordinator {
 /// so nothing accumulates over a DEBUG session and a new coordinator reusing
 /// a freed address can never read a predecessor's route.
 @MainActor
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 private enum WorkspaceListApplyRouteProbe {
     private final class RouteBox {
         let route: WorkspaceListTableCoordinator.PayloadApplyRoute
