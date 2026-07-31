@@ -172,6 +172,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
+        layout = try container.decodeIfPresent(MobileWorkspaceLayout.self, forKey: .layout)
     }
 
     private enum CodingKeys: String, CodingKey {

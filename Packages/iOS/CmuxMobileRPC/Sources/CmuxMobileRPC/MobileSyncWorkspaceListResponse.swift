@@ -134,7 +134,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             lastActivityAt: Double?,
             hasUnread: Bool?,
             terminals: [Terminal],
-            layout: MobileWorkspaceLayout?
+            layout: MobileWorkspaceLayout? = nil
         ) {
             self.id = id
             self.windowID = windowID
