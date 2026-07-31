@@ -85,6 +85,27 @@ import Testing
         ])
     }
 
+    @Test func signOutAnnouncesOneSessionTransition() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSessionWillTransition: {
+                recorder.record("will-transition")
+            }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(recorder.events == ["will-transition"])
+
+        await coordinator.signOut()
+        #expect(recorder.events == [
+            "will-transition",
+            "will-transition",
+        ])
+    }
+
     @Test func magicLinkRequiresPriorNonce() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         await #expect(throws: AuthError.invalidCode) {

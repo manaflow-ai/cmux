@@ -517,7 +517,7 @@ public final class AuthCoordinator {
         await client.clearLocalSession()
         finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState()
+        clearAuthState(sessionTransitionAlreadyAnnounced: true)
         await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
@@ -675,8 +675,11 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    func clearAuthState(preservePendingCode: Bool = false) {
-        advanceSessionGeneration()
+    func clearAuthState(
+        preservePendingCode: Bool = false,
+        sessionTransitionAlreadyAnnounced: Bool = false
+    ) {
+        advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
@@ -686,8 +689,10 @@ public final class AuthCoordinator {
         apply(.cleared())
     }
 
-    private func advanceSessionGeneration() {
-        onSessionWillTransition()
+    private func advanceSessionGeneration(notifySessionWillTransition: Bool = true) {
+        if notifySessionWillTransition {
+            onSessionWillTransition()
+        }
         sessionGeneration &+= 1
     }
 
