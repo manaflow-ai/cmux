@@ -78,6 +78,10 @@ require_value \
 
 if [[ -n "$PRESENCE_BASE_URL" ]]; then
   require_value \
+    "Mac app presence configuration" \
+    "$(read_plist "$MAC_INFO_PLIST" "LSEnvironment:CMUX_PRESENCE_BASE_URL")" \
+    "$PRESENCE_BASE_URL"
+  require_value \
     "iOS app presence configuration" \
     "$(read_plist "$IOS_INFO_PLIST" "CMUXPresenceBaseURL")" \
     "$PRESENCE_BASE_URL"
