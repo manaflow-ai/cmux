@@ -108,11 +108,24 @@ const Deadline = struct {
     }
 };
 
+const UnixWaitTestHook = struct {
+    entered_poll: std.Thread.ResetEvent = .{},
+    returned_from_poll: std.Thread.ResetEvent = .{},
+    continue_wait: std.Thread.ResetEvent = .{},
+};
+
+const UnixCloseTestHook = struct {
+    shutdown_complete: std.Thread.ResetEvent = .{},
+    continue_close: std.Thread.ResetEvent = .{},
+};
+
 const UnixConnection = struct {
     allocator: std.mem.Allocator,
     stream: std.net.Stream,
     mutex: std.Thread.Mutex = .{},
     closed: bool = false,
+    test_wait_hook: ?*UnixWaitTestHook = null,
+    test_close_hook: ?*UnixCloseTestHook = null,
 
     fn wait(self: *UnixConnection, events: i16, timeout_ms: ?u32) !void {
         var poll_fds = [_]std.posix.pollfd{.{
@@ -124,7 +137,13 @@ const UnixConnection = struct {
             @intCast(@min(milliseconds, @as(u32, std.math.maxInt(i32))))
         else
             -1;
-        if (try std.posix.poll(&poll_fds, timeout) == 0) return error.Timeout;
+        if (self.test_wait_hook) |hook| hook.entered_poll.set();
+        const ready = try std.posix.poll(&poll_fds, timeout);
+        if (self.test_wait_hook) |hook| {
+            hook.returned_from_poll.set();
+            hook.continue_wait.wait();
+        }
+        if (ready == 0) return error.Timeout;
         if (poll_fds[0].revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0) {
             return error.ConnectionClosed;
         }
@@ -179,6 +198,10 @@ const UnixConnection = struct {
         if (self.closed) return;
         self.closed = true;
         std.posix.shutdown(self.stream.handle, .both) catch {};
+        if (self.test_close_hook) |hook| {
+            hook.shutdown_complete.set();
+            hook.continue_close.wait();
+        }
         self.stream.close();
     }
 
@@ -555,4 +578,112 @@ test "large Unix write to a nonreading peer honors its deadline" {
         write_failure orelse return error.ExpectedTimeout,
     );
     try std.testing.expect(elapsed_ns < 100 * std.time.ns_per_ms);
+}
+
+test "closing a pending Unix read cannot consume a reused descriptor" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/close-read.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+    var connection = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer connection.deinit();
+    const peer = try server.accept();
+    defer peer.stream.close();
+
+    const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
+    const original_fd = state.stream.handle;
+    var hook = UnixWaitTestHook{};
+    state.test_wait_hook = &hook;
+    var close_hook = UnixCloseTestHook{};
+    state.test_close_hook = &close_hook;
+
+    const PendingRead = struct {
+        connection: *Connection,
+        bytes: [32]u8 = undefined,
+        count: usize = 0,
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            self.count = self.connection.read(&self.bytes, null) catch |failure| {
+                self.failure = failure;
+                return;
+            };
+        }
+    };
+    var pending = PendingRead{ .connection = &connection };
+    const read_thread = try std.Thread.spawn(.{}, PendingRead.run, .{&pending});
+    var read_joined = false;
+    defer if (!read_joined) {
+        hook.continue_wait.set();
+        read_thread.join();
+    };
+
+    try hook.entered_poll.timedWait(std.time.ns_per_s);
+    const Closer = struct {
+        connection: *Connection,
+
+        fn run(self: @This()) void {
+            self.connection.close();
+        }
+    };
+    const close_thread = try std.Thread.spawn(
+        .{},
+        Closer.run,
+        .{Closer{ .connection = &connection }},
+    );
+    var close_joined = false;
+    defer if (!close_joined) {
+        close_hook.continue_close.set();
+        close_thread.join();
+    };
+    try close_hook.shutdown_complete.timedWait(std.time.ns_per_s);
+    try hook.returned_from_poll.timedWait(std.time.ns_per_s);
+    close_hook.continue_close.set();
+    close_thread.join();
+    close_joined = true;
+
+    var reused_reader: ?std.posix.fd_t = null;
+    var reused_writer: ?std.posix.fd_t = null;
+    defer {
+        if (reused_reader) |fd| std.posix.close(fd);
+        if (reused_writer) |fd| std.posix.close(fd);
+    }
+    const pipe_fds = try std.posix.pipe();
+    if (pipe_fds[0] == original_fd) {
+        reused_reader = pipe_fds[0];
+        reused_writer = pipe_fds[1];
+    } else if (pipe_fds[1] == original_fd) {
+        const writer_copy = try std.posix.dup(pipe_fds[1]);
+        errdefer std.posix.close(writer_copy);
+        try std.posix.dup2(pipe_fds[0], original_fd);
+        std.posix.close(pipe_fds[0]);
+        reused_reader = original_fd;
+        reused_writer = writer_copy;
+    } else {
+        std.posix.close(pipe_fds[0]);
+        std.posix.close(pipe_fds[1]);
+    }
+    if (reused_writer) |fd| {
+        const marker = "unrelated-descriptor";
+        try std.testing.expectEqual(marker.len, try std.posix.write(fd, marker));
+    }
+
+    hook.continue_wait.set();
+    read_thread.join();
+    read_joined = true;
+
+    const failure = pending.failure orelse return error.ReadUnrelatedDescriptor;
+    try std.testing.expectEqual(error.ConnectionClosed, failure);
+    try std.testing.expectEqual(@as(usize, 0), pending.count);
 }
