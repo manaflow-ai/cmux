@@ -2786,6 +2786,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
+            // SwiftUI may deliver an earlier selection after the model has
+            // already advanced again. Only the authoritative value may mutate
+            // mounted workspace and handoff state.
+            guard newValue == tabManager.selectedTabId else { return }
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2799,7 +2803,9 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
-            completeWorkspaceHandoffIfReady(reason: "mount_reconciled")
+            // Mount state is authoritative. Presentation milestones continue
+            // as diagnostics, but never retain the source workspace.
+            completeWorkspaceHandoff(reason: "mount_reconciled")
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -2833,10 +2839,6 @@ struct ContentView: View {
                 cmuxDebugLog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
             }
 #endif
-            reconcileMountedWorkspaceIds()
-        })
-
-        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -2903,7 +2905,6 @@ struct ContentView: View {
             }
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             attemptCommandPaletteFocusRestoreIfNeeded(focusTransactionId: focusTransactionId)
             scheduleTitlebarTextRefresh()
         })
@@ -2962,7 +2963,6 @@ struct ContentView: View {
             )
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
                 ?? tabManager.selectedWorkspace?.activeFocusTransactionId
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
             attemptCommandPaletteFocusRestoreIfNeeded(focusTransactionId: focusTransactionId)
         })
 
@@ -2982,7 +2982,6 @@ struct ContentView: View {
                 panelId: focusedPanelId,
                 in: observedWindow ?? webView.window
             )
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
@@ -2996,7 +2995,6 @@ struct ContentView: View {
                 workspaceID: selectedTabId,
                 webView: webView
             )
-            completeWorkspaceHandoffIfReady(reason: "browser_click")
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedBrowser.id,
@@ -3019,7 +3017,6 @@ struct ContentView: View {
                 panelId: panelId,
                 in: observedWindow ?? focusedBrowser.webView.window
             )
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
@@ -3045,14 +3042,6 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
-            for: .workspaceSwitchPresentationDidBecomeReady,
-            object: tabManager.workspaceSwitchCoordinator
-        )) { _ in
-            noteSelectedTerminalPortalPresentedIfReady()
-            completeWorkspaceHandoffIfReady(reason: "presentation_ready")
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: .browserPortalRegistryDidChange
         )) { notification in
             guard let webView = notification.object as? WKWebView,
@@ -3063,7 +3052,6 @@ struct ContentView: View {
                 return
             }
             tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
-            completeWorkspaceHandoffIfReady(reason: "browser_portal_presented")
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -3077,7 +3065,11 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didResignKeyNotification,
             object: observedWindow
-        )) { _ in
+        )) { notification in
+            guard let observedWindow,
+                  (notification.object as? NSWindow) === observedWindow else {
+                return
+            }
             tabManager.workspaceSwitchCoordinator.noteInteractionNoLongerRequired()
         })
 
@@ -3649,7 +3641,8 @@ struct ContentView: View {
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackScheduler.cancel()
         tabManager.workspaceSwitchCoordinator.beginPresentation(
-            workspaceSwitchPresentationTarget(for: newSelectedId)
+            workspaceSwitchPresentationTarget(for: newSelectedId),
+            retiringWorkspaceID: oldSelectedId
         )
 
 #if DEBUG
@@ -3670,34 +3663,26 @@ struct ContentView: View {
         }
     }
 
-    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        completeWorkspaceHandoffIfReady(reason: reason)
-    }
-
-    private func completeWorkspaceHandoffIfReady(reason: String) {
-        guard retiringWorkspaceId != nil,
-              tabManager.workspaceSwitchCoordinator.isReadyForSourceRetirement else {
-            return
-        }
-        completeWorkspaceHandoff(reason: reason)
-    }
-
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackScheduler.cancel()
-        let retiring = retiringWorkspaceId
-        tabManager.workspaceSwitchCoordinator.sourceWillRetire()
+        guard let retiring = retiringWorkspaceId else { return }
+        tabManager.workspaceSwitchCoordinator.sourceWillRetire(
+            workspaceID: retiring
+        )
 
         // Disable before clearing retiringWorkspaceId: unmount teardown does not
         // hide portals during transient rebuilds or cancel stale layout follow-ups.
-        if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
+        if let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
             workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
             lastReconciledPortalRenderingStatesByWorkspaceId[workspace.id] = false
         }
 
         retiringWorkspaceId = nil
+        reconcileMountedWorkspaceIds()
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
-        tabManager.workspaceSwitchCoordinator.sourceDidRetire()
+        tabManager.workspaceSwitchCoordinator.sourceDidRetire(
+            workspaceID: retiring
+        )
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3862,7 +3847,6 @@ struct ContentView: View {
             surfaceID: surface.id,
             renderedFrameSequence: hostedView.surfaceView.renderedFrameSequence
         )
-        completeWorkspaceHandoffIfReady(reason: "portal_presented")
     }
 
     private static func terminalPortalIsPresented(_ hostedView: GhosttySurfaceScrollView) -> Bool {

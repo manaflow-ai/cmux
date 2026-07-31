@@ -1,14 +1,15 @@
 import AppKit
 import Foundation
 import WebKit
+
 extension Notification.Name {
     static let terminalPortalDidBecomePresentable = Notification.Name("cmux.terminalPortalDidBecomePresentable")
-    static let workspaceSwitchPresentationDidBecomeReady =
-        Notification.Name("cmux.workspaceSwitchPresentationDidBecomeReady")
 }
-/// Owns one window's workspace-switch transaction from selection commit through
-/// presentation and input readiness. The destination's frame observer is scoped
-/// to that terminal and is installed before selection mutates the mounted tree.
+
+/// Records one window's selection, presentation, and input-readiness intervals.
+/// Mount reconciliation remains authoritative; these diagnostic milestones
+/// never delay source retirement. The target frame observer is installed before
+/// selection mutates the mounted tree.
 @MainActor
 final class WorkspaceSwitchCoordinator {
     enum ContentKind: String, Equatable {
@@ -22,9 +23,10 @@ final class WorkspaceSwitchCoordinator {
         var portalPresented: Bool
         var firstFramePresented: Bool
         var interactionReady: Bool
-        /// Source retirement is a visual handoff. Focus can settle afterward,
-        /// and must never keep the old workspace mounted over a ready destination.
-        var isReadyForSourceRetirement: Bool {
+        /// Visual presentation readiness is diagnostic only. Mount reconciliation
+        /// owns source retirement, so a missed frame or portal signal cannot
+        /// strand the previous workspace in the live view graph.
+        var presentationIsReady: Bool {
             switch contentKind {
             case .terminal:
                 return portalPresented && firstFramePresented
@@ -53,7 +55,7 @@ final class WorkspaceSwitchCoordinator {
 
     private struct ActiveTransaction {
         let requestID: UUID
-        let sourceWorkspaceID: UUID
+        var sourceWorkspaceID: UUID
         let targetWorkspaceID: UUID
         var targetSurfaceID: UUID?
         var targetTerminalViewID: ObjectIdentifier?
@@ -97,10 +99,13 @@ final class WorkspaceSwitchCoordinator {
         self.beginRendererProtection = beginRendererProtection
         self.endRendererProtection = endRendererProtection
     }
-    /// No transaction means there is no coordinated presentation to wait for.
-    var isReadyForSourceRetirement: Bool {
+
+    /// The current destination's visual diagnostic state.
+    ///
+    /// This value never gates selection or mount ownership.
+    var isPresentationReady: Bool {
         guard let active else { return true }
-        return active.readiness?.isReadyForSourceRetirement == true
+        return active.readiness?.presentationIsReady == true
     }
 
     func selectionWillCommit(
@@ -166,12 +171,19 @@ final class WorkspaceSwitchCoordinator {
         active = transaction
     }
 
-    func beginPresentation(_ target: PresentationTarget) {
+    func beginPresentation(
+        _ target: PresentationTarget,
+        retiringWorkspaceID: UUID
+    ) {
         guard var transaction = active,
               transaction.targetWorkspaceID == target.workspaceID else {
             return
         }
 
+        // SwiftUI can coalesce rapid model selections. The mounted source is
+        // therefore the last selection this view actually reconciled, not
+        // necessarily the model value immediately preceding the target.
+        transaction.sourceWorkspaceID = retiringWorkspaceID
         reconcileTerminalTarget(
             surfaceID: target.terminalSurfaceID,
             view: target.terminalView,
@@ -207,8 +219,6 @@ final class WorkspaceSwitchCoordinator {
                 "ws.switch.portal-show",
                 details
             )
-        } else {
-            releaseRendererProtection(&transaction)
         }
         if firstFramePresented {
             finishFrameObservation(&transaction)
@@ -229,7 +239,6 @@ final class WorkspaceSwitchCoordinator {
               var readiness = transaction.readiness else {
             return
         }
-        let wasReady = readiness.isReadyForSourceRetirement
         if renderedFrameSequence > transaction.frameSequenceAtSelection {
             transaction.observedFrameAfterSelection = true
             readiness.firstFramePresented = true
@@ -239,10 +248,7 @@ final class WorkspaceSwitchCoordinator {
         transaction.readiness = readiness
         workspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
-        releaseRendererProtection(&transaction)
-        let becameReady = !wasReady && readiness.isReadyForSourceRetirement
         finishIfPossible(&transaction)
-        notifyPresentationReadyIfNeeded(becameReady)
     }
 
     func noteBrowserPortalPresented(webView: WKWebView) {
@@ -251,14 +257,11 @@ final class WorkspaceSwitchCoordinator {
               var readiness = transaction.readiness else {
             return
         }
-        let wasReady = readiness.isReadyForSourceRetirement
         readiness.portalPresented = true
         transaction.readiness = readiness
         workspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
-        let becameReady = !wasReady && readiness.isReadyForSourceRetirement
         finishIfPossible(&transaction)
-        notifyPresentationReadyIfNeeded(becameReady)
     }
 
     func noteFirstFrame(surfaceID: UUID) {
@@ -266,18 +269,13 @@ final class WorkspaceSwitchCoordinator {
               transaction.targetSurfaceID == surfaceID else {
             return
         }
-        let wasReady = transaction.readiness?.isReadyForSourceRetirement == true
         transaction.observedFrameAfterSelection = true
         if var readiness = transaction.readiness {
             readiness.firstFramePresented = true
             transaction.readiness = readiness
         }
         finishFrameObservation(&transaction)
-        let becameReady =
-            !wasReady &&
-            transaction.readiness?.isReadyForSourceRetirement == true
         finishIfPossible(&transaction)
-        notifyPresentationReadyIfNeeded(becameReady)
     }
 
     func noteInteractionReady(workspaceID: UUID, surfaceID: UUID? = nil) {
@@ -311,8 +309,11 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func sourceWillRetire() {
-        guard var transaction = active else { return }
+    func sourceWillRetire(workspaceID: UUID) {
+        guard var transaction = active,
+              transaction.sourceWorkspaceID == workspaceID else {
+            return
+        }
         if transaction.portalHideInterval == nil {
             transaction.portalHideInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.portal-hide",
@@ -326,11 +327,18 @@ final class WorkspaceSwitchCoordinator {
         active = transaction
     }
 
-    func sourceDidRetire() {
-        guard var transaction = active else { return }
+    func sourceDidRetire(workspaceID: UUID) {
+        guard var transaction = active,
+              transaction.sourceWorkspaceID == workspaceID else {
+            return
+        }
         workspaceSwitchSignposts.end(transaction.portalHideInterval)
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
+        // Once mount reconciliation has made the destination authoritative,
+        // normal portal visibility owns renderer reclamation again. Visual
+        // diagnostics may continue without extending the switch-path lease.
+        releaseRendererProtection(&transaction)
         finishIfPossible(&transaction)
     }
 
@@ -442,12 +450,8 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func finishIfPossible(_ transaction: inout ActiveTransaction) {
-        guard transaction.readiness?.isReadyForSourceRetirement == true else {
-            active = transaction
-            return
-        }
-        releaseRendererProtection(&transaction)
         guard transaction.sourceRetired,
+              transaction.readiness?.presentationIsReady == true,
               transaction.readiness?.interactionIsReady == true else {
             active = transaction
             return
@@ -461,14 +465,6 @@ final class WorkspaceSwitchCoordinator {
         guard transaction.rendererProtectionActive else { return }
         endRendererProtection(transaction.requestID)
         transaction.rendererProtectionActive = false
-    }
-
-    private func notifyPresentationReadyIfNeeded(_ becameReady: Bool) {
-        guard becameReady else { return }
-        notificationCenter.post(
-            name: .workspaceSwitchPresentationDidBecomeReady,
-            object: self
-        )
     }
 
     private static func endAllIntervals(in transaction: ActiveTransaction) {
