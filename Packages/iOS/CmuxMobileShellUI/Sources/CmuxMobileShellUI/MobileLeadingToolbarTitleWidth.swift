@@ -17,7 +17,6 @@ struct MobileLeadingToolbarTitleWidth {
     static let barMarginsAndSpacing: CGFloat = 84
     static let unmeasuredFallback: CGFloat = 140
     static let maximumMeasuredCap: CGFloat = unmeasuredFallback
-    static let floor: CGFloat = 96
 
     var cap: CGFloat {
         guard contentWidth > 0 else { return Self.unmeasuredFallback }

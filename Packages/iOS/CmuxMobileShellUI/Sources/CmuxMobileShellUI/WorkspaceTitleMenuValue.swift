@@ -15,4 +15,13 @@ struct WorkspaceTitleMenuValue: Equatable {
     let canCloseWorkspace: Bool
     let labelToken: WorkspaceTitleMenuLabelToken
     let terminalTheme: TerminalTheme
+
+    var titleWidth: CGFloat {
+        MobileLeadingToolbarTitleWidth(
+            contentWidth: contentWidth,
+            hasBackButton: hasBackButton,
+            hasTrailingCluster: hasTrailingCluster,
+            hasChatToggle: hasChatToggle
+        ).cap
+    }
 }

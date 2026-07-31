@@ -29,18 +29,10 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
     }
 
     private var fittedLabel: some View {
-        let cap = MobileLeadingToolbarTitleWidth(
-            contentWidth: value.contentWidth,
-            hasBackButton: value.hasBackButton,
-            hasTrailingCluster: value.hasTrailingCluster,
-            hasChatToggle: value.hasChatToggle
-        ).cap
-
         return label()
-            .frame(
-                minWidth: min(MobileLeadingToolbarTitleWidth.floor, cap),
-                maxWidth: cap,
-                alignment: .leading
-            )
+            // Terminal and pane-map subtitles have different intrinsic widths.
+            // Pin the shared title shell to geometry-derived space so navigating
+            // between those endpoints cannot move or resize the toolbar title.
+            .frame(width: value.titleWidth, alignment: .leading)
     }
 }

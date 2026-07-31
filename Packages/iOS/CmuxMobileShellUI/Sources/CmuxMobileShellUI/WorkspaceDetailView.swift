@@ -318,7 +318,9 @@ struct WorkspaceDetailView: View {
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: mode == .terminal && shouldShowChatToggle,
+            // Reserve the same leading-title geometry in both endpoints even
+            // though the chat control itself only appears in terminal mode.
+            hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,

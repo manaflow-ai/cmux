@@ -45,6 +45,17 @@ import Testing
         #expect(available != unavailable)
     }
 
+    @Test func titleWidthDoesNotDependOnEndpointSubtitle() {
+        let terminal = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "claude")
+        )
+        let paneMap = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "4 panes")
+        )
+
+        #expect(terminal.titleWidth == paneMap.titleWidth)
+    }
+
     private func menuValue(
         labelToken: WorkspaceTitleMenuLabelToken,
         canCustomizeWorkspace: Bool = true
