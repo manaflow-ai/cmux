@@ -592,6 +592,29 @@ import Testing
         #expect(store.read() == .found(seeded))
     }
 
+    @Test func simulatorSeedSurvivesRelaunchWithoutEnvironmentSeed() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let seeded = "simulator-device-id-\(UUID().uuidString.lowercased())"
+        let firstLaunchStore = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: seeded
+        )
+
+        let firstLaunchID = DeviceRegistryService.durableDeviceID(
+            store: firstLaunchStore,
+            defaults: defaults,
+            evidence: StaticEvidenceProbe(.absent)
+        )
+        let springBoardRelaunchStore = SimulatorDeviceIdentityStore(
+            defaults: defaults
+        )
+
+        #expect(firstLaunchID == seeded)
+        #expect(springBoardRelaunchStore.read() == .found(seeded))
+    }
+
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

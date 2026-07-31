@@ -10,8 +10,6 @@ import Observation
 /// policy, and cancellation path.
 @MainActor
 final class ConnectivityInvalidationSubscriberCoordinator {
-    static let shared = ConnectivityInvalidationSubscriberCoordinator()
-
     private struct Scope {
         let key: String
         let baseURL: URL
@@ -20,37 +18,46 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     private weak var auth: AuthCoordinator?
     private var subscriber: CmxConnectivityInvalidationSubscriber?
     private var reconfigureTask: Task<Void, Never>?
+    private var terminationTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var activeScopeKey: String?
+    private var authObservationGeneration: UInt64 = 0
 
-    private init() {}
+    init() {}
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        authObservationGeneration &+= 1
+        let observationGeneration = authObservationGeneration
         if defaultsObserver == nil {
             defaultsObserver = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
                 queue: .main
-            ) { _ in
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    ConnectivityInvalidationSubscriberCoordinator.shared.evaluate()
+                    self?.evaluate()
                 }
             }
         }
-        armAuthScopeObservation()
+        armAuthScopeObservation(generation: observationGeneration)
         evaluate()
     }
 
-    private func armAuthScopeObservation() {
+    private func armAuthScopeObservation(generation: UInt64) {
+        guard generation == authObservationGeneration else { return }
         guard let auth else { return }
         withObservationTracking {
             _ = auth.isAuthenticated
             _ = auth.currentUser?.id
-        } onChange: {
-            Task { @MainActor in
-                ConnectivityInvalidationSubscriberCoordinator.shared.evaluate()
-                ConnectivityInvalidationSubscriberCoordinator.shared.armAuthScopeObservation()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      generation == self.authObservationGeneration else {
+                    return
+                }
+                self.evaluate()
+                self.armAuthScopeObservation(generation: generation)
             }
         }
     }
@@ -102,12 +109,19 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     func appWillTerminate() {
+        authObservationGeneration &+= 1
         reconfigureTask?.cancel()
         reconfigureTask = nil
+        terminationTask?.cancel()
+        terminationTask = nil
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+            self.defaultsObserver = nil
+        }
         let subscriber = subscriber
         self.subscriber = nil
         activeScopeKey = nil
-        Task {
+        terminationTask = Task {
             await subscriber?.stop()
         }
     }

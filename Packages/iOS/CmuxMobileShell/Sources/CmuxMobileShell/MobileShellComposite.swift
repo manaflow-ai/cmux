@@ -765,6 +765,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tracking it separately from `remoteClient` lets a newer connect retire
     /// the exact candidate that still owns a physical-route lease.
     private var connectionAttemptClient: MobileCoreRPCClient?
+    /// Teardowns for retired pre-authentication clients. Keeping ownership
+    /// until disconnect finishes prevents a fire-and-forget cleanup from
+    /// disappearing while it still holds a physical-route lease.
+    private var connectionAttemptCleanupTasks: [UUID: Task<Void, Never>] = [:]
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -8556,7 +8560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         if let attemptClient =
             replaceConnectionAttemptClientOwnership(with: nil) {
-            Task { await attemptClient.disconnect() }
+            scheduleConnectionAttemptClientCleanup(attemptClient)
         }
         replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
@@ -8627,11 +8631,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await previous?.disconnect()
     }
 
+    /// Stop tracking a candidate without retiring it. The success-path defer
+    /// runs after the candidate can become `remoteClient`, so retiring here
+    /// would tear down the live foreground connection.
     private func clearConnectionAttemptClient(
         ifMatching client: MobileCoreRPCClient
     ) {
         guard connectionAttemptClient === client else { return }
         connectionAttemptClient = nil
+    }
+
+    private func scheduleConnectionAttemptClientCleanup(
+        _ client: MobileCoreRPCClient
+    ) {
+        let cleanupID = UUID()
+        connectionAttemptCleanupTasks[cleanupID] = Task { @MainActor [weak self] in
+            await client.disconnect()
+            self?.connectionAttemptCleanupTasks.removeValue(forKey: cleanupID)
+        }
     }
 
     private func replaceConnectionAttemptClientOwnership(

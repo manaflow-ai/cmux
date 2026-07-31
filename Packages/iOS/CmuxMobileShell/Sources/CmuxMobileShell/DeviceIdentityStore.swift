@@ -63,6 +63,10 @@ protocol DeviceIdentityStoring: Sendable {
 /// guarded by `targetEnvironment(simulator)`. Physical devices continue to use
 /// ``KeychainDeviceIdentityStore`` and its fail-closed semantics.
 final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Sendable {
+    // DeviceIdentityStoring deliberately exposes synchronous methods so callers
+    // can resolve identity before starting async registration. Actor isolation
+    // is therefore not a drop-in replacement; this lock makes the shared
+    // UserDefaults read-or-create transaction safe across concurrent callers.
     private static let processLock = NSLock()
     private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
 
