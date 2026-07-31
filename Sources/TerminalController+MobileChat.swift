@@ -279,40 +279,13 @@ extension TerminalController {
             requireTerminal: true
         ),
               let surfaceID = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(
+              resolved.workspace.terminalInputTarget(
                   forPanelID: surfaceID
-              )?.panel else {
+              )?.panel != nil else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        guard let agentInputScope = resolved.workspace.agentPromptInputScope(
-            forPanelId: terminalPanel.id
-        ) else {
-            return .err(
-                code: "agent_not_found",
-                message: Self.chatTerminalBindingErrorMessage,
-                data: [
-                    "session_id": sessionID,
-                    "surface_id": surfaceID.uuidString,
-                ]
-            )
-        }
-        guard !terminalPanel.terminalComposerIsBusy(
-            agentInputScope: agentInputScope
-        ) else {
-            return .err(
-                code: "rejected_composer_busy",
-                message: Self.agentPromptComposerBusyMessage,
-                data: [
-                    "surface_id": surfaceID.uuidString,
-                    "retryable": true,
-                    "retry_after":
-                        "human_prompt_submit_or_agent_restart",
-                ]
-            )
-        }
-
         // Materialize every attachment before the first terminal write. Once
         // preparation succeeds, paths and text enter the same compound
         // paste-and-submit transaction, so a failed attachment cannot leave a
