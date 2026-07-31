@@ -1144,7 +1144,9 @@ impl AuthDatabase {
             .invitations
             .get_mut(invitation_id)
             .ok_or_else(|| IdentityError::InvitationExpired(invitation_id.into()))?;
-        if invitation.expires_at_unix <= now {
+        let approval_deadline =
+            pending.request.requested_at_unix.saturating_add(APPROVAL_TIMEOUT.as_secs());
+        if approval_deadline <= now {
             return Err(IdentityError::InvitationExpired(invitation_id.into()));
         }
         let fingerprint = public_key_fingerprint(&pending.device_public_key);
