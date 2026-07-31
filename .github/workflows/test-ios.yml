@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "Comma-separated target/class or target/class/method selectors passed to -only-testing"
         required: false
         default: ""
       device_family:
@@ -373,7 +373,10 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
-            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+            IFS=',' read -r -a TEST_FILTERS <<< "$TEST_FILTER"
+            for filter in "${TEST_FILTERS[@]}"; do
+              [ -n "$filter" ] && XCODEBUILD_ARGS+=(-only-testing:"$filter")
+            done
           else
             # Full UI tests currently exceed the pull-request simulator budget
             # on macos-26. Keep them runnable via workflow_dispatch +
