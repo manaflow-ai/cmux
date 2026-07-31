@@ -263,7 +263,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 
-  test("syncs checkout metadata under a fresh account deletion lock", async () => {
+  test("releases the database transaction before syncing checkout metadata", async () => {
     let transactionOpen = false;
     let lockCount = 0;
     const baseDb = fakeDb();
@@ -286,7 +286,7 @@ describe("recordCheckoutCompletion", () => {
       },
     };
     const update = mock(async () => {
-      expect(transactionOpen).toBe(true);
+      expect(transactionOpen).toBe(false);
       expect(lockCount).toBe(2);
     });
     const user = {
@@ -304,7 +304,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
-    expect(lockCount).toBe(2);
+    expect(lockCount).toBeGreaterThanOrEqual(2);
   });
 
   test("skips checkout metadata sync when deletion starts after checkout rows commit", async () => {
@@ -1080,7 +1080,24 @@ describe("recordCheckoutCompletion", () => {
 
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
     const update = mock(async () => undefined);
-    const removeTester = mock(async () => undefined);
+    let transactionDepth = 0;
+    const baseDb = fakeDb();
+    const trackedDb = {
+      ...baseDb,
+      transaction: async <T>(
+        callback: (tx: typeof baseDb) => Promise<T>,
+      ) => {
+        transactionDepth += 1;
+        try {
+          return await callback(baseDb);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
+    };
+    const removeTester = mock(async () => {
+      expect(transactionDepth).toBe(0);
+    });
     const user = {
       id: "user_123",
       primaryEmail: "buyer@example.com",
@@ -1092,7 +1109,7 @@ describe("recordCheckoutCompletion", () => {
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
       {
-        db: fakeDb() as never,
+        db: trackedDb as never,
         stackApp: { getUser: async () => user } as never,
         testflight: {
           isAscConfigured: () => true,

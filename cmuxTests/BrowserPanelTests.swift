@@ -936,6 +936,29 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelProfileIsolationTests: XCTestCase {
+    func testExplicitEphemeralPanelDoesNotUsePersistentProfileHistory() throws {
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let persistentStore = BrowserProfileStore.shared.historyStore(for: profileID)
+        persistentStore.clearHistory()
+        defer { persistentStore.clearHistory() }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            renderInitialNavigation: false,
+            websiteDataStore: .nonPersistent()
+        )
+        let privateURL = try XCTUnwrap(
+            URL(string: "https://example.com/account-private-history")
+        )
+
+        panel.historyStore.recordVisit(url: privateURL, title: "Private")
+
+        XCTAssertFalse(panel.historyStore === persistentStore)
+        XCTAssertEqual(panel.historyStore.entries.map(\.url), [privateURL.absoluteString])
+        XCTAssertTrue(persistentStore.entries.isEmpty)
+    }
+
     func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
         let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Switched")
         let defaultStore = BrowserHistoryStore.shared

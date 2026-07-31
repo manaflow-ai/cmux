@@ -20,6 +20,7 @@ let useStubDb = false;
 let accountMutationLockActive = false;
 let accountMutationTransactionCount = 0;
 let ascMutationLockStates: boolean[] = [];
+let eligibilityMutationLockStates: boolean[] = [];
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown, init?: unknown) => {
@@ -43,9 +44,10 @@ const ascFetch = mock(async (path: unknown, init?: unknown) => {
   return {};
 });
 const captureAscError = mock(() => undefined);
-const isTestflightEligible = mock(async (candidate: unknown) =>
-  testflightUserEligibility(candidate) ?? false,
-);
+const isTestflightEligible = mock(async (candidate: unknown) => {
+  eligibilityMutationLockStates.push(accountMutationLockActive);
+  return testflightUserEligibility(candidate) ?? false;
+});
 
 mock.module("../services/billing/pro", () => ({
   ...billingProModule,
@@ -128,13 +130,15 @@ describe("TestFlight route", () => {
     getUser.mockClear();
     mockImplementation(getUser, async () => user);
     isTestflightEligible.mockClear();
-    mockImplementation(isTestflightEligible, async (candidate: unknown) =>
-      testflightUserEligibility(candidate) ?? false,
-    );
+    mockImplementation(isTestflightEligible, async (candidate: unknown) => {
+      eligibilityMutationLockStates.push(accountMutationLockActive);
+      return testflightUserEligibility(candidate) ?? false;
+    });
     ascFetch.mockClear();
     accountMutationLockActive = false;
     accountMutationTransactionCount = 0;
     ascMutationLockStates = [];
+    eligibilityMutationLockStates = [];
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
       ascMutationLockStates.push(accountMutationLockActive);
@@ -257,13 +261,15 @@ describe("TestFlight route", () => {
     expect(ascFetch).not.toHaveBeenCalled();
   });
 
-  test("serializes eligibility and ASC enrollment under the account mutation lock", async () => {
+  test("releases the database transaction before eligibility and ASC enrollment", async () => {
     const response = await postAction("join");
 
     expect(response.status).toBe(303);
     expect(accountMutationTransactionCount).toBe(1);
+    expect(eligibilityMutationLockStates.length).toBeGreaterThan(0);
+    expect(eligibilityMutationLockStates.every((active) => !active)).toBe(true);
     expect(ascMutationLockStates.length).toBeGreaterThan(0);
-    expect(ascMutationLockStates.every(Boolean)).toBe(true);
+    expect(ascMutationLockStates.every((active) => !active)).toBe(true);
   });
 
   test("compensates when Pro eligibility lapses before enrollment completes", async () => {
