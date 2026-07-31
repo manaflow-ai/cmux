@@ -8,6 +8,11 @@ struct DynamicTracingSignposts {
     }
 
     @inline(__always)
+    var isEnabled: Bool {
+        signposter.isEnabled
+    }
+
+    @inline(__always)
     func begin(_ name: StaticString, _ message: @autoclosure () -> String) -> DynamicTracingSignpostInterval? {
         guard signposter.isEnabled else { return nil }
         let details = message()

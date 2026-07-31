@@ -141,6 +141,12 @@ final class MainWindowVisibilityController {
         unhide: Bool = true,
         respectActivationSuppression: Bool = true
     ) -> Bool {
+        let switchInterval = WorkspaceSwitchProfilingSignposts.begin(
+            "ws.switch.window-focus",
+            "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
+        )
+        defer { WorkspaceSwitchProfilingSignposts.end(switchInterval) }
+
         if respectActivationSuppression, dependencies.isActivationSuppressed() {
             dependencies.setActiveMainWindow(window)
             log("focus.suppressed", reason: reason, windows: [window])
@@ -191,6 +197,12 @@ final class MainWindowVisibilityController {
     }
 
     func focusForInWindowCommand(_ window: NSWindow, reason: Reason) {
+        let switchInterval = WorkspaceSwitchProfilingSignposts.begin(
+            "ws.switch.window-focus",
+            "window=\(window.identifier?.rawValue ?? "unknown") reason=\(reason.rawValue)"
+        )
+        defer { WorkspaceSwitchProfilingSignposts.end(switchInterval) }
+
         dependencies.setActiveMainWindow(window)
         guard !dependencies.windowOperations.isKeyWindow(window) else {
             log("focus.inWindow.key", reason: reason, windows: [window])

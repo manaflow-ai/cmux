@@ -6,6 +6,21 @@ struct RendererRealizationPlannerInput: Sendable {
     let isVisible: Bool
     let isRealized: Bool
     let lastVisibleAt: TimeInterval
+    let isProtectedForPresentation: Bool
+
+    init(
+        surfaceId: UUID,
+        isVisible: Bool,
+        isRealized: Bool,
+        lastVisibleAt: TimeInterval,
+        isProtectedForPresentation: Bool = false
+    ) {
+        self.surfaceId = surfaceId
+        self.isVisible = isVisible
+        self.isRealized = isRealized
+        self.lastVisibleAt = lastVisibleAt
+        self.isProtectedForPresentation = isProtectedForPresentation
+    }
 }
 
 /// Pure policy for which offscreen terminal surfaces should release their GPU
