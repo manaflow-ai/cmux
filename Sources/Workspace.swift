@@ -3960,39 +3960,48 @@ final class Workspace: Identifiable, ObservableObject {
         from sourcePanel: BrowserPanel
     ) -> Bool {
         guard currentBrowserPanel(sourcePanel) else { return false }
-        if let targetPane = preferredRightSideTargetPane(
-            fromPanelId: sourcePanel.id
-        ), newBrowserSurface(
-            inPane: targetPane,
-            initialRequest: navigation.request,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil {
-            return true
-        }
-        if newBrowserSplit(
-            from: sourcePanel.id,
-            orientation: .horizontal,
-            initialRequest: navigation.request,
-            preferredProfileID: sourcePanel.profileID,
-            focus: true,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil {
-            return true
-        }
-        if let sourcePane = paneId(forPanelId: sourcePanel.id),
-           newBrowserSurface(
-                inPane: sourcePane,
-                initialRequest: navigation.request,
-                focus: true,
-                insertAtEnd: true,
-                preferredProfileID: sourcePanel.profileID,
-                websiteDataStore: navigation.websiteDataStore
-           ) != nil {
-            return true
-        }
-        return false
+        return BrowserAppLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { request, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { request, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    initialRequest: request,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { request, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    initialRequest: request,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
@@ -4006,40 +4015,48 @@ final class Workspace: Identifiable, ObservableObject {
         _ destinationURL: URL,
         from sourcePanel: BrowserPanel
     ) -> Bool {
-        openAppLinkInIsolatedBrowser(destinationURL, from: sourcePanel)
-            || NSWorkspace.shared.open(destinationURL)
-    }
-
-    /// Opens a handoff recovery page in a fresh cookie store so a failed
-    /// exchange cannot fall through to an unrelated signed-in browser profile.
-    private func openAppLinkInIsolatedBrowser(
-        _ destinationURL: URL,
-        from sourcePanel: BrowserPanel
-    ) -> Bool {
-        guard let mountedSource = panels[sourcePanel.id] as? BrowserPanel,
-              mountedSource === sourcePanel else {
-            return false
-        }
-        let isolatedStore = WKWebsiteDataStore.nonPersistent()
-        if let targetPane = preferredRightSideTargetPane(
-            fromPanelId: sourcePanel.id
-        ), newBrowserSurface(
-            inPane: targetPane,
-            url: destinationURL,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: isolatedStore
-        ) != nil {
-            return true
-        }
-        return newBrowserSplit(
-            from: sourcePanel.id,
-            orientation: .horizontal,
-            url: destinationURL,
-            preferredProfileID: sourcePanel.profileID,
-            focus: true,
-            websiteDataStore: isolatedStore
-        ) != nil
+        BrowserAppLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { url, websiteDataStore in
+                guard let targetPane = self.preferredRightSideTargetPane(
+                    fromPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { url, websiteDataStore in
+                self.newBrowserSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    url: url,
+                    preferredProfileID: sourcePanel.profileID,
+                    focus: true,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openInSourcePane: { url, websiteDataStore in
+                guard let sourcePane = self.paneId(
+                    forPanelId: sourcePanel.id
+                ) else {
+                    return false
+                }
+                return self.newBrowserSurface(
+                    inPane: sourcePane,
+                    url: url,
+                    focus: true,
+                    insertAtEnd: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {

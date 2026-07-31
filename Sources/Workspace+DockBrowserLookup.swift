@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxPanes
 import WebKit
 
 extension Workspace {
@@ -185,39 +186,48 @@ extension DockSplitStore {
               let sourcePane = paneId(forPanelId: sourcePanel.id) else {
             return false
         }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ), newSurface(
-            kind: .browser,
-            inPane: targetPane,
-            initialRequest: navigation.request,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil {
-            return true
-        }
-        if newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: sourcePanel.id,
-            initialRequest: navigation.request,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: navigation.websiteDataStore,
-            focus: true
-        ) != nil {
-            return true
-        }
-        return newSurface(
-            kind: .browser,
-            inPane: sourcePane,
-            initialRequest: navigation.request,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil
+        return BrowserAppLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { request, websiteDataStore in
+                guard let targetPane = BrowserRightSidePaneResolver()
+                    .preferredPane(
+                        from: sourcePane,
+                        in: self.bonsplitController
+                    ) else {
+                    return false
+                }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: targetPane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { request, websiteDataStore in
+                self.newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: sourcePanel.id,
+                    initialRequest: request,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore,
+                    focus: true
+                ) != nil
+            },
+            openInSourcePane: { request, websiteDataStore in
+                self.newSurface(
+                    kind: .browser,
+                    inPane: sourcePane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
@@ -228,52 +238,54 @@ extension DockSplitStore {
         _ destinationURL: URL,
         from sourcePanel: BrowserPanel
     ) -> Bool {
-        openAppLinkInIsolatedBrowser(destinationURL, from: sourcePanel)
-            || NSWorkspace.shared.open(destinationURL)
-    }
-
-    private func openAppLinkInIsolatedBrowser(
-        _ destinationURL: URL,
-        from sourcePanel: BrowserPanel
-    ) -> Bool {
-        guard currentBrowserPanel(sourcePanel),
-              let sourcePane = paneId(forPanelId: sourcePanel.id) else {
-            return false
-        }
-        let isolatedStore = WKWebsiteDataStore.nonPersistent()
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ), newSurface(
-            kind: .browser,
-            inPane: targetPane,
-            url: destinationURL,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: isolatedStore
-        ) != nil {
-            return true
-        }
-        if newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: sourcePanel.id,
-            url: destinationURL,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: isolatedStore,
-            focus: true
-        ) != nil {
-            return true
-        }
-        return newSurface(
-            kind: .browser,
-            inPane: sourcePane,
-            url: destinationURL,
-            focus: true,
-            preferredProfileID: sourcePanel.profileID,
-            websiteDataStore: isolatedStore
-        ) != nil
+        let sourcePane = currentBrowserPanel(sourcePanel)
+            ? paneId(forPanelId: sourcePanel.id)
+            : nil
+        return BrowserAppLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { url, websiteDataStore in
+                guard let sourcePane,
+                      let targetPane = BrowserRightSidePaneResolver()
+                    .preferredPane(
+                        from: sourcePane,
+                        in: self.bonsplitController
+                    ) else {
+                    return false
+                }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { url, websiteDataStore in
+                guard sourcePane != nil else { return false }
+                return self.newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: sourcePanel.id,
+                    url: url,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore,
+                    focus: true
+                ) != nil
+            },
+            openInSourcePane: { url, websiteDataStore in
+                guard let sourcePane else { return false }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: sourcePane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            }
+        )
     }
 
     @discardableResult

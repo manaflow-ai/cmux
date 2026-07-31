@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import WebKit
 
 /// Runs app-link authentication and recovery independently of the browser's
 /// current host so Workspace and Dock panels share one lifecycle contract.
@@ -77,7 +79,13 @@ final class BrowserAppLinkHandoffCoordinator {
                 )
                 return
             }
-            guard case let .navigation(navigation) = outcome else { return }
+            guard case let .navigation(navigation) = outcome else {
+                recoverIfCurrent(
+                    isCurrent: isCurrent,
+                    openRecovery: openRecovery
+                )
+                return
+            }
             guard auth.browserAppSession.isCurrent(
                 generation: navigation.generation,
                 authSessionGeneration: navigation.authSessionGeneration
@@ -98,5 +106,51 @@ final class BrowserAppLinkHandoffCoordinator {
     ) {
         guard !Task.isCancelled, isCurrent() else { return }
         _ = openRecovery()
+    }
+}
+
+/// Keeps authenticated placement and isolated recovery ordering identical
+/// across Workspace and Dock browser hosts.
+@MainActor
+enum BrowserAppLinkPlacementPolicy {
+    typealias RequestPlacement = (URLRequest, WKWebsiteDataStore) -> Bool
+    typealias URLPlacement = (URL, WKWebsiteDataStore) -> Bool
+
+    static func openNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        openInPreferredPane: RequestPlacement,
+        openHorizontalSplit: RequestPlacement,
+        openInSourcePane: RequestPlacement
+    ) -> Bool {
+        openInPreferredPane(
+            navigation.request,
+            navigation.websiteDataStore
+        ) || openHorizontalSplit(
+            navigation.request,
+            navigation.websiteDataStore
+        ) || openInSourcePane(
+            navigation.request,
+            navigation.websiteDataStore
+        )
+    }
+
+    static func recover(
+        _ destinationURL: URL,
+        openInPreferredPane: URLPlacement,
+        openHorizontalSplit: URLPlacement,
+        openInSourcePane: URLPlacement,
+        openInSystemBrowser: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) -> Bool {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        return openInPreferredPane(
+            destinationURL,
+            websiteDataStore
+        ) || openHorizontalSplit(
+            destinationURL,
+            websiteDataStore
+        ) || openInSourcePane(
+            destinationURL,
+            websiteDataStore
+        ) || openInSystemBrowser(destinationURL)
     }
 }
