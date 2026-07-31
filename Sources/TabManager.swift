@@ -287,13 +287,18 @@ class TabManager: ObservableObject {
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
         if !isRestoringSessionSnapshot {
-            let targetSurfaceID = newValue
+            let terminalTarget = newValue
                 .flatMap { workspacesById[$0] }
-                .flatMap { $0.focusedTerminalInputTarget()?.surfaceID }
+                .flatMap { $0.focusedTerminalInputTarget() }
             workspaceSwitchCoordinator.selectionWillCommit(
                 from: selectedTabId,
                 to: newValue,
-                targetSurfaceID: targetSurfaceID
+                targetSurfaceID: terminalTarget?.surfaceID,
+                targetTerminalView: terminalTarget?.panel.hostedView.surfaceView,
+                targetRendererPresented:
+                    terminalTarget?.panel.surface.isRendererPresented == true,
+                targetRenderedFrameSequence:
+                    terminalTarget?.panel.hostedView.surfaceView.renderedFrameSequence ?? 0
             )
         } else {
             workspaceSwitchCoordinator.cancel()

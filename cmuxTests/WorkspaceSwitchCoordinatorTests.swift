@@ -15,7 +15,6 @@ struct WorkspaceSwitchCoordinatorTests {
         let readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: true,
-            nativeSurfaceLoaded: true,
             portalPresented: false,
             firstFramePresented: false,
             interactionReady: false
@@ -29,7 +28,6 @@ struct WorkspaceSwitchCoordinatorTests {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: true,
-            nativeSurfaceLoaded: true,
             portalPresented: false,
             firstFramePresented: false,
             interactionReady: false
@@ -50,7 +48,6 @@ struct WorkspaceSwitchCoordinatorTests {
         let readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: true,
-            nativeSurfaceLoaded: true,
             portalPresented: true,
             firstFramePresented: true,
             interactionReady: false
@@ -64,11 +61,17 @@ struct WorkspaceSwitchCoordinatorTests {
         let sourceWorkspaceID = UUID()
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
-        let coordinator = WorkspaceSwitchCoordinator()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _ in },
+            endRendererProtection: { _ in }
+        )
         coordinator.selectionWillCommit(
             from: sourceWorkspaceID,
             to: targetWorkspaceID,
-            targetSurfaceID: targetSurfaceID
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 0
         )
         coordinator.selectionDidCommit(
             from: sourceWorkspaceID,
@@ -80,11 +83,10 @@ struct WorkspaceSwitchCoordinatorTests {
                 contentKind: .terminal,
                 terminalSurfaceID: targetSurfaceID,
                 terminalView: nil,
+                terminalRendererPresented: true,
+                terminalRenderedFrameSequence: 0,
                 browserWebView: nil,
-                nativeSurfaceLoaded: true,
-                rendererPresented: true,
                 portalPresented: false,
-                firstFramePresented: false,
                 interactionReady: true,
                 requiresInteraction: true
             )
@@ -93,7 +95,56 @@ struct WorkspaceSwitchCoordinatorTests {
         coordinator.noteFirstFrame(surfaceID: targetSurfaceID)
         #expect(!coordinator.isReadyForSourceRetirement)
 
-        coordinator.noteTerminalPortalPresented(surfaceID: targetSurfaceID)
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 0
+        )
+        #expect(coordinator.isReadyForSourceRetirement)
+        coordinator.cancel()
+    }
+
+    @Test
+    func reclaimedRendererRequiresFrameSequenceAdvance() {
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, _ in },
+            endRendererProtection: { _ in }
+        )
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: false,
+            targetRenderedFrameSequence: 4
+        )
+        coordinator.beginPresentation(
+            WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID,
+                terminalView: nil,
+                terminalRendererPresented: false,
+                terminalRenderedFrameSequence: 4,
+                browserWebView: nil,
+                portalPresented: false,
+                interactionReady: true,
+                requiresInteraction: true
+            )
+        )
+
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 4
+        )
+        #expect(!coordinator.isReadyForSourceRetirement)
+
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 5
+        )
         #expect(coordinator.isReadyForSourceRetirement)
         coordinator.cancel()
     }
@@ -103,7 +154,6 @@ struct WorkspaceSwitchCoordinatorTests {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: false,
-            nativeSurfaceLoaded: true,
             portalPresented: true,
             firstFramePresented: false,
             interactionReady: false
@@ -115,11 +165,10 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func browserRequiresPortalAndInteraction() {
+    func browserRetiresSourceAtPortalWhileTrackingInteractionSeparately() {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .browser,
             requiresInteraction: true,
-            nativeSurfaceLoaded: true,
             portalPresented: false,
             firstFramePresented: false,
             interactionReady: false
@@ -127,15 +176,105 @@ struct WorkspaceSwitchCoordinatorTests {
 
         #expect(!readiness.isReadyForSourceRetirement)
         readiness.portalPresented = true
-        #expect(!readiness.isReadyForSourceRetirement)
-        readiness.interactionReady = true
         #expect(readiness.isReadyForSourceRetirement)
+        #expect(!readiness.interactionIsReady)
+        readiness.interactionReady = true
+        #expect(readiness.interactionIsReady)
+    }
+
+    @Test
+    func rendererProtectionIsReleasedAtPortalPresentation() {
+        var protectedRequestIDs: [UUID] = []
+        var releasedRequestIDs: [UUID] = []
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, requestID in
+                protectedRequestIDs.append(requestID)
+            },
+            endRendererProtection: { requestID in
+                releasedRequestIDs.append(requestID)
+            }
+        )
+
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 1
+        )
+        #expect(protectedRequestIDs.count == 1)
+        #expect(releasedRequestIDs.isEmpty)
+        coordinator.beginPresentation(
+            WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID,
+                terminalView: nil,
+                terminalRendererPresented: true,
+                terminalRenderedFrameSequence: 1,
+                browserWebView: nil,
+                portalPresented: false,
+                interactionReady: true,
+                requiresInteraction: true
+            )
+        )
+
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 1
+        )
+
+        #expect(releasedRequestIDs == protectedRequestIDs)
+        coordinator.cancel()
+    }
+
+    @Test
+    func rapidSwitchCancelsPreviousRendererProtection() {
+        var protectedRequestIDs: [UUID] = []
+        var releasedRequestIDs: [UUID] = []
+        let coordinator = WorkspaceSwitchCoordinator(
+            beginRendererProtection: { _, requestID in
+                protectedRequestIDs.append(requestID)
+            },
+            endRendererProtection: { requestID in
+                releasedRequestIDs.append(requestID)
+            }
+        )
+        let firstTargetSurfaceID = UUID()
+        let secondTargetSurfaceID = UUID()
+
+        coordinator.selectionWillCommit(
+            from: UUID(),
+            to: UUID(),
+            targetSurfaceID: firstTargetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 1
+        )
+        coordinator.selectionWillCommit(
+            from: UUID(),
+            to: UUID(),
+            targetSurfaceID: secondTargetSurfaceID,
+            targetTerminalView: nil,
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 1
+        )
+
+        #expect(protectedRequestIDs.count == 2)
+        #expect(releasedRequestIDs == [protectedRequestIDs[0]])
+        coordinator.cancel()
+        #expect(releasedRequestIDs == protectedRequestIDs)
     }
 
     @Test
     func presentationProtectedRendererIsNeverSelectedForReclamation() {
         let now: TimeInterval = 1_000
         let warmSurfaceID = UUID()
+        let reclaimableSurfaceID = UUID()
         let switchTargetID = UUID()
         let settings = RendererRealizationSettings.Values(
             enabled: true,
@@ -146,6 +285,12 @@ struct WorkspaceSwitchCoordinatorTests {
             inputs: [
                 RendererRealizationPlannerInput(
                     surfaceId: warmSurfaceID,
+                    isVisible: false,
+                    isRealized: true,
+                    lastVisibleAt: now - 1
+                ),
+                RendererRealizationPlannerInput(
+                    surfaceId: reclaimableSurfaceID,
                     isVisible: false,
                     isRealized: true,
                     lastVisibleAt: now - 10
@@ -162,7 +307,7 @@ struct WorkspaceSwitchCoordinatorTests {
             now: now
         )
 
-        #expect(!selected.contains(switchTargetID))
+        #expect(selected == [reclaimableSurfaceID])
     }
 
     @Test
