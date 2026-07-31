@@ -30,6 +30,7 @@ on:
           - macos
           - ios
           - ios-simulator
+          - ios-shellui-test
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -116,7 +117,7 @@ jobs:
       # source refs that predate the crate are a no-op (scripts come from
       # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
-        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-simulator' }}
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-simulator' || inputs.platform == 'ios-shellui-test' }}
         run: |
           set -euo pipefail
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
@@ -206,6 +207,16 @@ jobs:
           mkdir -p artifact
           ditto -c -k --sequesterRsrc --keepParent "$app" artifact/simulator-app.zip
 
+      - name: Run focused injected-attach startup tests
+        if: ${{ inputs.platform == 'ios-shellui-test' }}
+        run: |
+          set -o pipefail
+          mkdir -p artifact
+          swift test \
+            --package-path Packages/iOS/CmuxMobileShellUI \
+            --filter MobileInjectedAttachStartupTests \
+            2>&1 | tee artifact/test.log
+
       - name: Write timings.json
         if: ${{ always() }}
         run: |
@@ -236,6 +247,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
