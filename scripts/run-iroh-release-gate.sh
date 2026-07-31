@@ -178,20 +178,6 @@ PY
   )
 }
 
-verify_ios_presence_backend() {
-  [[ -n "$PRESENCE_BASE_URL" ]] || return 0
-  local baked
-  baked="$(
-    /usr/libexec/PlistBuddy \
-      -c "Print :CMUXPresenceBaseURL" \
-      "$IOS_APP/Info.plist" 2>/dev/null || true
-  )"
-  if [[ "$baked" != "$PRESENCE_BASE_URL" ]]; then
-    echo "error: tagged iOS app does not contain the requested presence backend; rebuild without --skip-build" >&2
-    return 1
-  fi
-}
-
 cleanup() {
   local exit_code=$?
   local cleanup_code=0
@@ -392,7 +378,11 @@ else
 fi
 
 [[ -d "$MAC_APP" ]] || { echo "error: tagged Mac app is missing: $MAC_APP" >&2; exit 1; }
-verify_ios_presence_backend
+"$SCRIPT_DIR/lib/verify-iroh-release-gate-builds.sh" \
+  --mac-app "$MAC_APP" \
+  --ios-app "$IOS_APP" \
+  --backend-base-url "$STAGING_BASE_URL" \
+  --presence-base-url "$PRESENCE_BASE_URL"
 
 if [[ "$PRODUCTION" -eq 1 ]]; then
   PRODUCTION_RELAY_POLICY_XCCONFIG="$REPO_ROOT/config/IrohRelayPolicyProduction.xcconfig"
