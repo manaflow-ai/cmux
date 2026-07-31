@@ -8,9 +8,14 @@ struct CmxIrohHostRuntimeTests {
     @Test
     func startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip() async throws {
         let fixture = try HostRuntimeFixture()
+        let discovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            revision: 1
+        )
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
-            discovery: fixture.discovery,
+            discovery: discovery,
             embedDiscoveryInRegistration: true
         )
         let runtime = CmxIrohHostRuntime(
