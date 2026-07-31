@@ -1,7 +1,6 @@
 import { env } from "../../app/env";
+import { DEFAULT_HOSTED_SUBROUTER_URL } from "./constants";
 import type { SubrouterAccount, SubrouterAccountInput } from "./types";
-
-const DEFAULT_HOSTED_SUBROUTER_URL = "https://sr.cmux.dev";
 
 export type HostedTenant = {
   readonly tenantId: string;
@@ -155,6 +154,7 @@ function parseHostedAccount(value: unknown): SubrouterAccount {
     id: value.id,
     kind,
     label: label.startsWith(apiKeyPrefix) ? label.slice(apiKeyPrefix.length) : label,
+    ...parseHealth(value.health),
   };
 }
 
@@ -166,6 +166,19 @@ function parseAccountEnvelope(value: Record<string, unknown>): SubrouterAccount 
     id: value.id,
     kind: value.kind,
     label: isString(value.label) ? value.label : undefined,
+    ...parseHealth(value.health),
+  };
+}
+
+function parseHealth(
+  value: unknown,
+): Pick<SubrouterAccount, "health"> {
+  if (!isRecord(value) || typeof value.ok !== "boolean") return {};
+  return {
+    health: {
+      ok: value.ok,
+      ...(isString(value.message) ? { message: value.message } : {}),
+    },
   };
 }
 
