@@ -70,7 +70,7 @@ struct CMUXSidebarExtensionConnectionTests {
     }
 }
 
-private enum DisconnectPath: CaseIterable, Sendable {
+enum DisconnectPath: CaseIterable, Sendable {
     case interruption
     case invalidation
 
