@@ -65,6 +65,7 @@ private actor MobileIrohDurableDeviceIDResolver {
     }
 }
 
+#if DEBUG
 /// DEBUG same-device evidence: dev builds keep iroh endpoint identities in a
 /// development FILE store, not the Keychain, so continuity is proven by any
 /// record in that store. The filesystem is always readable, so the verdict is
@@ -82,6 +83,7 @@ struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
         return exists ? .present : .absent
     }
 }
+#endif
 
 /// Resolves connection waiters only when the latest lifecycle revision settles.
 @MainActor
