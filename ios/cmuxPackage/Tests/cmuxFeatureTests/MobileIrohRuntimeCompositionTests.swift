@@ -181,7 +181,15 @@ struct MobileIrohRuntimeCompositionTests {
         )
         readiness.begin(revision: 1)
 
-        async let outcome = readiness.wait(now: { settledAt })
+        var activationSettled = false
+        var clockReadCount = 0
+        async let outcome = readiness.wait(now: {
+            clockReadCount += 1
+            return activationSettled ? settledAt : startedAt
+        })
+        await Task.yield()
+        #expect(clockReadCount == 0)
+        activationSettled = true
         let failure = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
@@ -189,10 +197,12 @@ struct MobileIrohRuntimeCompositionTests {
             retryAfterSeconds: nil,
             now: settledAt
         ))
+        let settledOutcome = await outcome
 
         #expect(failure.retryAfterSeconds == 30)
+        #expect(clockReadCount == 1)
         #expect(
-            await outcome == .failed(MobileIrohRuntimePreparationError(
+            settledOutcome == .failed(MobileIrohRuntimePreparationError(
                 diagnosticFailureKind: .endpointUnavailable,
                 retryAfterSeconds: 30
             ))
