@@ -172,14 +172,14 @@ import Testing
 
     @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {
         var reconnectCount = 0
-        let blocked = WorkspaceDetailConnectionChrome.reconnectAction(
+        let blocked = WorkspaceDetailView.reconnectAction(
             connectionRequiresReauth: true
         ) {
             reconnectCount += 1
         }
         #expect(blocked == nil)
 
-        let available = WorkspaceDetailConnectionChrome.reconnectAction(
+        let available = WorkspaceDetailView.reconnectAction(
             connectionRequiresReauth: false
         ) {
             reconnectCount += 1
