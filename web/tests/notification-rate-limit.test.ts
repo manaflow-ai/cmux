@@ -45,6 +45,20 @@ describe("notification rate limit", () => {
     await expect(recordPushSendOrThrow(db, "push-user-1", 1, "event-over-limit", now)).rejects.toBeInstanceOf(
       PushRateLimitExceededError,
     );
+    const nearWindowEnd = new Date(now.getTime() + 10 * 60 * 1000 - 250);
+    try {
+      await recordPushSendOrThrow(
+        db,
+        "push-user-1",
+        1,
+        "event-over-limit-near-window-end",
+        nearWindowEnd,
+      );
+      throw new Error("expected the rate limit to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PushRateLimitExceededError);
+      expect((error as PushRateLimitExceededError).retryAfterSeconds).toBe(1);
+    }
 
     await recordPushSendOrThrow(
       db,

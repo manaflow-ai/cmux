@@ -602,6 +602,56 @@ describe("apns sender transport", () => {
     expect(claims.map((claim) => claim.iss)).toEqual(["TEAM-A", "TEAM-B"]);
   });
 
+  test("sanitizes malformed signing credentials into per-target failures", async () => {
+    let connections = 0;
+    const transport = {
+      connect: () => {
+        connections += 1;
+        throw new Error("transport must not be reached");
+      },
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const results = await sendApnsNotification(
+      {
+        keyP8: "definitely not a private key",
+        keyId: "BROKEN-KID",
+        teamId: "TEAM456",
+      },
+      [
+        {
+          deviceToken: "a".repeat(64),
+          bundleId: "com.cmux.app",
+          environment: "production",
+        },
+        {
+          deviceToken: "b".repeat(64),
+          bundleId: "com.cmux.app",
+          environment: "corrupt",
+        },
+      ],
+      { title: "agent", body: "done" },
+      1_000,
+      transport,
+    );
+
+    expect(results).toEqual([
+      {
+        deviceToken: "a".repeat(64),
+        status: 503,
+        reason: "provider_auth_unavailable",
+        prune: false,
+      },
+      {
+        deviceToken: "b".repeat(64),
+        status: 400,
+        reason: "invalid_stored_environment",
+        prune: false,
+      },
+    ]);
+    expect(JSON.stringify(results)).not.toContain("private key");
+    expect(connections).toBe(0);
+  });
+
   test("retries only unresolved devices after a partial APNs result", async () => {
     const attemptsByToken = new Map<string, number>();
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
@@ -729,7 +779,7 @@ describe("apns sender transport", () => {
 
   test("starts sandbox and production host groups concurrently", async () => {
     const sandboxHost = apnsHostForEnvironment("sandbox");
-    const productionHost = apnsHostForEnvironment("production");
+    const productionHost = apnsHostForEnvironment("production")!;
     const started: string[] = [];
     const closed: string[] = [];
     let releaseSandbox!: () => void;
@@ -812,7 +862,7 @@ describe("apns sender transport", () => {
 
   test("keeps healthy host results when another host cannot connect", async () => {
     const sandboxHost = apnsHostForEnvironment("sandbox");
-    const productionHost = apnsHostForEnvironment("production");
+    const productionHost = apnsHostForEnvironment("production")!;
     const closed: string[] = [];
 
     class FakeRequest extends EventEmitter {
@@ -880,7 +930,7 @@ describe("apns sender transport", () => {
   });
 
   test("keeps same-host successes when another request fails to start", async () => {
-    const productionHost = apnsHostForEnvironment("production");
+    const productionHost = apnsHostForEnvironment("production")!;
     const closed: string[] = [];
 
     class FakeRequest extends EventEmitter {

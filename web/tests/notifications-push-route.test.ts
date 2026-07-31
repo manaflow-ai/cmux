@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
+import { PUSH_SEND_LEASE_MS } from "../services/apns/rateLimit";
+import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -124,6 +126,14 @@ beforeEach(() => {
 });
 
 describe("notifications push route", () => {
+  test("budgets enough platform and lease time for the bounded APNs retry loop", () => {
+    expect(pushRoute.maxDuration * 1_000)
+      .toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
+    expect(PUSH_SEND_LEASE_MS)
+      .toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
+    expect(pushRoute.maxDuration).toBeLessThan(120);
+  });
+
   test("uses the database user limiter as the only in-code limiter", async () => {
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: "blocked" });
     const response = await pushRoute.POST(
@@ -439,5 +449,96 @@ describe("notifications push route", () => {
     });
     expect(stored?.outcomes.some((result) => result.deviceToken === "c".repeat(64)))
       .toBe(false);
+  });
+
+  dbTest("binds a correlation id to one content-safe logical payload fingerprint", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production')
+    `;
+    const correlationId = "f57948e6-4456-4057-8820-b56af13faee9";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1000) + 120;
+    const makeRequest = (body: Record<string, unknown>) => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          correlationId,
+          expirationEpochSeconds,
+          ...body,
+        }),
+      },
+    );
+    const original = {
+      title: "agent",
+      body: "secret original body",
+      notificationId: "notice-1",
+    };
+
+    expect((await pushRoute.sendPushWithTransport(
+      makeRequest(original),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    )).status).toBe(200);
+    const replay = await pushRoute.sendPushWithTransport(
+      makeRequest(original),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("x-cmux-push-replayed")).toBe("true");
+
+    const changedBody = await pushRoute.sendPushWithTransport(
+      makeRequest({ ...original, body: "different secret body" }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(changedBody.status).toBe(409);
+    expect(await changedBody.json()).toEqual({
+      error: "correlation_payload_mismatch",
+      correlationId,
+    });
+    const changedKind = await pushRoute.sendPushWithTransport(
+      makeRequest({
+        kind: "dismiss",
+        title: "",
+        body: "",
+        notificationIds: ["notice-1"],
+        badgeCount: 0,
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(changedKind.status).toBe(409);
+    expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
+
+    const [stored] = await sql<{
+      fingerprint: string;
+      rowText: string;
+    }[]>`
+      select
+        payload_fingerprint as fingerprint,
+        row_to_json(notification_send_events)::text as "rowText"
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(stored?.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored?.rowText).not.toContain("secret original body");
+    expect(stored?.rowText).not.toContain("different secret body");
   });
 });
