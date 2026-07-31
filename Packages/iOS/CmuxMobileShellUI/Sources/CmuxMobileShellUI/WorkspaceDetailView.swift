@@ -306,8 +306,21 @@ struct WorkspaceDetailView: View {
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            workspaceToolbarTrailingContent(mode: mode)
+        switch mode {
+        case .terminal:
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                workspaceToolbarTrailingContent
+            }
+        case .paneMap:
+            ToolbarItem(id: "pane-map-refresh", placement: .topBarTrailing) {
+                PaneMapRefreshToolbarButton(
+                    isRefreshing: isPaneMapRefreshing,
+                    refresh: refreshPaneMapFromToolbar
+                )
+            }
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                PaneMapDoneToolbarButton(done: returnToTerminalFromPaneMap)
+            }
         }
     }
 
@@ -414,33 +427,18 @@ struct WorkspaceDetailView: View {
     }
 
     @ViewBuilder
-    private func workspaceToolbarTrailingContent(
-        mode: WorkspaceDetailToolbarMode
-    ) -> some View {
-        switch mode {
-        case .terminal:
-            HStack(spacing: 8) {
-                if let selectedTerminalID,
-                   store.isAlternateScreen(surfaceID: selectedTerminalID),
-                   displaySettings.showAltScreenNotice {
-                    AltScreenNoticeButton {
-                        displaySettings.showAltScreenNotice = false
-                    }
-                    .frame(width: 44, height: 44)
+    private var workspaceToolbarTrailingContent: some View {
+        HStack(spacing: 8) {
+            if let selectedTerminalID,
+               store.isAlternateScreen(surfaceID: selectedTerminalID),
+               displaySettings.showAltScreenNotice {
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
                 }
-                toolbarTrailingCluster
+                .frame(width: 44, height: 44)
             }
-        case .paneMap:
-            paneMapToolbarControls
+            toolbarTrailingCluster
         }
-    }
-
-    private var paneMapToolbarControls: some View {
-        PaneMapToolbarControls(
-            isRefreshing: isPaneMapRefreshing,
-            refresh: refreshPaneMapFromToolbar,
-            done: returnToTerminalFromPaneMap
-        )
     }
     #endif
 

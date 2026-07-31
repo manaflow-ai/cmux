@@ -258,8 +258,21 @@ struct PanesTabsPreviewHost: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             previewWorkspaceTitleMenu(mode: mode)
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            previewToolbarTrailingContent(mode: mode)
+        switch mode {
+        case .paneMap:
+            ToolbarItem(id: "pane-map-refresh", placement: .topBarTrailing) {
+                PaneMapRefreshToolbarButton(
+                    isRefreshing: isPaneMapRefreshing,
+                    refresh: { paneMapRefreshTrigger &+= 1 }
+                )
+            }
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                PaneMapDoneToolbarButton(done: returnToTerminalFromPaneMap)
+            }
+        case .terminal:
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                previewToolbarTrailingContent
+            }
         }
     }
 
@@ -326,26 +339,16 @@ struct PanesTabsPreviewHost: View {
         }
     }
 
-    @ViewBuilder
-    private func previewToolbarTrailingContent(mode: PreviewToolbarMode) -> some View {
-        switch mode {
-        case .paneMap:
-            PaneMapToolbarControls(
-                isRefreshing: isPaneMapRefreshing,
-                refresh: { paneMapRefreshTrigger &+= 1 },
-                done: returnToTerminalFromPaneMap
-            )
-        case .terminal:
-            WorkspaceUtilitiesMenu(
-                showsViewAsText: false,
-                showsPaneMap: true,
-                terminalTheme: terminalTheme,
-                presentPaneMap: presentPaneMap,
-                openTextSheet: {},
-                copyDebugLogs: {},
-                sendFeedback: {}
-            )
-        }
+    private var previewToolbarTrailingContent: some View {
+        WorkspaceUtilitiesMenu(
+            showsViewAsText: false,
+            showsPaneMap: true,
+            terminalTheme: terminalTheme,
+            presentPaneMap: presentPaneMap,
+            openTextSheet: {},
+            copyDebugLogs: {},
+            sendFeedback: {}
+        )
     }
 
     private var fixtureLayout: MobilePaneLayout? {
