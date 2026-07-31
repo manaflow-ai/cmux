@@ -141,7 +141,62 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        #expect(await readiness.wait(now: Date()) == .ready)
+        #expect(
+            await readiness.wait(
+                now: Date(timeIntervalSince1970: 0)
+            ) == .ready
+        )
+    }
+
+    @Test
+    func connectionReadinessIgnoresStaleLifecycleBegin() {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 2)
+        readiness.begin(revision: 1)
+
+        #expect(readiness.complete(revision: 2))
+        #expect(readiness.isPending == false)
+    }
+
+    @Test
+    func newerLifecycleCompletionRetiresAbandonedReadiness() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+
+        #expect(readiness.complete(revision: 2, outcome: .inactive))
+        #expect(readiness.isPending == false)
+        #expect(
+            await readiness.wait(
+                now: Date(timeIntervalSince1970: 0)
+            ) == .inactive
+        )
+    }
+
+    @Test
+    func retryDurationUsesClockAfterPendingActivationSettles() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let settledAt = startedAt.addingTimeInterval(10)
+        let readiness = MobileIrohConnectionReadinessOwner(
+            jitterUnitInterval: { 0 }
+        )
+        readiness.begin(revision: 1)
+
+        async let outcome = readiness.wait(now: startedAt)
+        let failure = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: MobileIrohSignOutTestError.unavailable,
+            retryAfterSeconds: nil,
+            now: settledAt
+        ))
+
+        #expect(failure.retryAfterSeconds == 30)
+        #expect(
+            await outcome == .failed(MobileIrohRuntimePreparationError(
+                diagnosticFailureKind: .endpointUnavailable,
+                retryAfterSeconds: 30
+            ))
+        )
     }
 
     @Test
