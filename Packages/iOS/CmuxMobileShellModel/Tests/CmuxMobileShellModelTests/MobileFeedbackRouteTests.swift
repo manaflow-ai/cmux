@@ -90,8 +90,10 @@ struct MobileFeedbackRouteTests {
         #expect(MobileBuildType.resolve(isDebugBuild: true, bundleIdentifier: nil) == .dev)
     }
 
-    @Test func releaseBetaBundleIsBeta() {
+    @Test func releaseTestFlightBundlesAreBeta() {
         #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "dev.cmux.app.beta") == .beta)
+        #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "dev.cmux.app.internal") == .beta)
+        #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "dev.cmux.app.dev") == .beta)
     }
 
     @Test func releaseNonBetaBundleIsProd() {

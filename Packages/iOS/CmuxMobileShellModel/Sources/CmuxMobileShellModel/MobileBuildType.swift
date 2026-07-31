@@ -3,13 +3,14 @@
 /// Derived from the same signal the push-registration `apnsEnvironment` uses:
 /// `#if DEBUG` is a development build; any Release build is a distribution
 /// build, and `beta` vs `prod` is then distinguished at runtime by the bundle
-/// identifier (the beta TestFlight bundle is `dev.cmux.app.beta`). Both `beta`
-/// and `prod` are Release configurations, so the split can never be a compile
-/// flag and must be resolved from the live bundle id.
+/// identifier. TestFlight dogfood apps use `dev.cmux.app.beta`,
+/// `dev.cmux.app.internal`, or `dev.cmux.app.dev`. Both `beta` and `prod` are
+/// Release configurations, so the split can never be a compile flag and must
+/// be resolved from the live bundle id.
 public enum MobileBuildType: String, Equatable, Sendable {
     /// A local DEBUG build (Xcode / `ios/scripts/reload.sh`).
     case dev
-    /// A Release build distributed for beta dogfooding (bundle id `dev.cmux.app.beta`).
+    /// A Release build distributed for beta dogfooding.
     case beta
     /// A Release build distributed to production (App Store).
     case prod
@@ -17,9 +18,9 @@ public enum MobileBuildType: String, Equatable, Sendable {
     /// Resolve the build type from compile configuration plus the bundle id.
     ///
     /// `#if DEBUG` short-circuits to ``dev`` so a local build is never mistaken
-    /// for a distribution build. In Release the bundle id decides: the beta
-    /// TestFlight bundle is `dev.cmux.app.beta`; the public App Store bundle is
-    /// `com.cmux.app`. Anything else in Release is also treated as ``prod``.
+    /// for a distribution build. In Release the bundle id decides: the beta,
+    /// internal, and PR-demo TestFlight apps are ``beta``; the public App Store
+    /// bundle is ``prod``. Anything else in Release is also treated as ``prod``.
     ///
     /// - Parameters:
     ///   - isDebugBuild: `true` when compiled with `DEBUG` defined. Injected so
@@ -31,10 +32,12 @@ public enum MobileBuildType: String, Equatable, Sendable {
         if isDebugBuild {
             return .dev
         }
-        if bundleIdentifier == "dev.cmux.app.beta" {
+        switch bundleIdentifier {
+        case "dev.cmux.app.beta", "dev.cmux.app.internal", "dev.cmux.app.dev":
             return .beta
+        default:
+            return .prod
         }
-        return .prod
     }
 
     /// A short, stable, lowercase token (`"dev"` / `"beta"` / `"prod"`) for

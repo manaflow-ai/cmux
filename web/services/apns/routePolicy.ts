@@ -73,6 +73,7 @@ const PROD_BUNDLE_IDS = new Set([
   "com.cmuxterm.app",
   "dev.cmux.app.beta",
   "dev.cmux.app.internal",
+  "dev.cmux.app.dev",
   "dev.cmux.app.demo",
 ]);
 
