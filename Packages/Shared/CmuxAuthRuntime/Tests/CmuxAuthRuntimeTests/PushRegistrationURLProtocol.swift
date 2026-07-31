@@ -64,25 +64,39 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Task {
-            let stub = await Self.script.take(request)
+        let capturedRequest = request
+        let loadingProtocol = self
+        Task { [capturedRequest, loadingProtocol] in
+            let stub = await Self.script.take(capturedRequest)
             await stub.started?.markStarted()
             await stub.blocker?.wait()
             if let error = stub.error {
-                client?.urlProtocol(self, didFailWithError: error)
+                loadingProtocol.client?.urlProtocol(
+                    loadingProtocol,
+                    didFailWithError: error
+                )
                 return
             }
             let response = HTTPURLResponse(
-                url: request.url!,
+                url: capturedRequest.url!,
                 statusCode: stub.statusCode ?? 500,
                 httpVersion: "HTTP/1.1",
                 headerFields: stub.headers
             )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            loadingProtocol.client?.urlProtocol(
+                loadingProtocol,
+                didReceive: response,
+                cacheStoragePolicy: .notAllowed
+            )
             if !stub.body.isEmpty {
-                client?.urlProtocol(self, didLoad: stub.body)
+                loadingProtocol.client?.urlProtocol(
+                    loadingProtocol,
+                    didLoad: stub.body
+                )
             }
-            client?.urlProtocolDidFinishLoading(self)
+            loadingProtocol.client?.urlProtocolDidFinishLoading(
+                loadingProtocol
+            )
         }
     }
 
