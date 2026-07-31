@@ -3488,6 +3488,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(openWithTitles, [FileExternalOpenText.openWithOther])
     }
 
+    @MainActor
     func testOpenWithOtherOpensTheFileWithTheChosenApplication() {
         let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.env")
         let chosenURL = URL(fileURLWithPath: "/Applications/Zed.app")
@@ -3513,6 +3514,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(opened.map(\.1), [chosenURL])
     }
 
+    @MainActor
     func testOpenWithOtherOpensNothingWhenTheChooserIsCancelled() {
         var opened: [URL] = []
         let picker = FileExternalOpenApplicationPicker { _ in nil }

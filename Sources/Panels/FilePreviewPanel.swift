@@ -127,6 +127,7 @@ enum FileExternalOpenAction {
 
     /// Single entry point for every menu that carries a request, so the preview
     /// header, the Files tree, and the Files search results cannot drift.
+    @MainActor
     static func perform(_ request: FileExternalOpenRequest) {
         switch request.action {
         case .open(let applicationURL):
@@ -143,6 +144,8 @@ enum FileExternalOpenAction {
     }
 
     /// Backs "Open With > Other…". Returns false when the user cancels.
+    /// Main-actor bound because the picker runs a modal `NSOpenPanel`.
+    @MainActor
     @discardableResult
     static func openWithPickedApplication(
         fileURL: URL,
@@ -158,8 +161,9 @@ enum FileExternalOpenAction {
 
 /// Chooses an application outside the ones Launch Services already associates
 /// with a file, which is what Finder's "Open With > Other…" offers.
-struct FileExternalOpenApplicationPicker: Sendable {
-    var pickApplication: @Sendable (URL) -> URL?
+@MainActor
+struct FileExternalOpenApplicationPicker {
+    var pickApplication: (URL) -> URL?
 
     static let live = FileExternalOpenApplicationPicker(
         pickApplication: { Self.runApplicationPanel(for: $0) }
@@ -488,6 +492,8 @@ private struct FileExternalOpenHeaderMenuButton: View {
 private final class FileExternalOpenMenuActionTarget: NSObject {
     static let shared = FileExternalOpenMenuActionTarget()
 
+    // Menu actions arrive on the main thread, and the picker runs a modal panel.
+    @MainActor
     @objc func open(_ item: NSMenuItem) {
         guard let request = item.representedObject as? FileExternalOpenRequest else { return }
         FileExternalOpenAction.perform(request)
