@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Client, sessionId } from "../src/index.js";
+import { Client, CmuxTimeoutError, sessionId } from "../src/index.js";
 import {
   WebSocketTransport,
   type WebSocketConstructor,
@@ -204,6 +204,90 @@ test("resource WebSocket transport pairs before flushing requests", () => {
   assert.deepEqual(socket.sent, [
     '{"pair":{"request":true}}',
     '{"protocol":"cmux.protocol/1","type":"request"}',
+  ]);
+  transport.close();
+});
+
+test("resource WebSocket drops a request that expires before pairing", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({ transport, timeoutMs: 10 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const ping = client.session(RESOURCE_SESSION).ping();
+
+  socket.open();
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  await assert.rejects(() => ping, CmuxTimeoutError);
+
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
+test("resource WebSocket drops a stream open that expires before pairing", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 10,
+    randomHex128: () => "c".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const opening = client.session(RESOURCE_SESSION).events();
+
+  socket.open();
+  await assert.rejects(() => opening, CmuxTimeoutError);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
+test("resource WebSocket flushes queued frames before a reentrant paired callback", () => {
+  let transport!: ResourceWebSocketTransport;
+  transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    onPairingCredential: () => transport.send("callback"),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.send("first");
+  transport.send("second");
+
+  socket.open();
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, [
+    '{"pair":{"request":true}}',
+    "first",
+    "second",
+    "callback",
+  ]);
+  transport.close();
+});
+
+test("resource WebSocket preserves paired state when the credential callback throws", () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    onPairingCredential: () => {
+      throw new Error("credential sink failed");
+    },
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.send("queued");
+
+  socket.open();
+  assert.throws(
+    () => socket.message('{"paired":{"credential":"resource-secret"}}'),
+    /credential sink failed/,
+  );
+  transport.send("after-callback");
+
+  assert.deepEqual(socket.sent, [
+    '{"pair":{"request":true}}',
+    "queued",
+    "after-callback",
   ]);
   transport.close();
 });
