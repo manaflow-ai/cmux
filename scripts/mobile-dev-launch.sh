@@ -53,6 +53,8 @@ IROH_RELEASE_GATE_MODE=""
 AUTH_CREDENTIALS_FILE=""
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
+ATTACH_READY_MAX_ATTEMPTS="${CMUX_ATTACH_READY_MAX_ATTEMPTS:-60}"
+ATTACH_READY_INTERVAL_SECONDS="${CMUX_ATTACH_READY_INTERVAL_SECONDS:-0.5}"
 
 usage() { sed -n '2,30p' "$0"; }
 
@@ -83,6 +85,14 @@ done
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
 if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_ATTACH_MINT_MAX_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
+if [[ ! "$ATTACH_READY_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_ATTACH_READY_MAX_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
+if [[ ! "$ATTACH_READY_INTERVAL_SECONDS" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
+  echo "error: CMUX_ATTACH_READY_INTERVAL_SECONDS must be a nonnegative number" >&2
   exit 2
 fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
@@ -184,6 +194,14 @@ if [[ "$ATTACH" -eq 1 ]]; then
   fi
 fi
 
+ADMISSION_CURSOR=""
+if [[ -n "$ATTACH_URL" && ("$TARGET" == "device" || "$DETACH" -eq 1) ]]; then
+  if ! ADMISSION_CURSOR="$(cmux_attach_admission_cursor "$TAG" "$REPO_ROOT")"; then
+    echo "error: could not read tagged Mac diagnostics before mobile launch" >&2
+    exit 1
+  fi
+fi
+
 # Never print the attach URL (bearer credential). One-shot production-account
 # identities are redacted too; ordinary dogfood launches retain their existing
 # account label so developers can detect accidental account selection.
@@ -239,4 +257,14 @@ else
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
     xcrun devicectl device process launch --terminate-existing \
       --device "$DEVICE_ID" "$BUNDLE_ID"
+fi
+
+if [[ -n "$ADMISSION_CURSOR" ]]; then
+  cmux_attach_wait_for_admission \
+    "$TAG" \
+    "$REPO_ROOT" \
+    "$ADMISSION_CURSOR" \
+    "$ATTACH_READY_MAX_ATTEMPTS" \
+    "$ATTACH_READY_INTERVAL_SECONDS"
+  echo "==> connected $BUNDLE_ID to tagged Mac '$TAG'"
 fi

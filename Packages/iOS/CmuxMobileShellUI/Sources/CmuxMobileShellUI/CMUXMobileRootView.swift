@@ -742,17 +742,29 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
-        // The configured launch route owns startup even after it is consumed.
-        // Returning true for repeated lifecycle callbacks prevents a saved-Mac
-        // restore from silently racing or replacing that explicit route.
+        if startupConnectionCoordinator.shouldFallBackFromInjectedAttach {
+            return false
+        }
         guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
             return true
         }
         Task {
-            await dogfoodAttachPreparation.run {
-                await store.connectPairingURL(attachURL)
+            let result = await dogfoodAttachPreparation.run {
+                await store.connectPairingURLResult(attachURL)
             }
-            startupConnectionCoordinator.finishInjectedAttach(startupAttempt)
+            let outcome: MobileStartupConnectionCoordinator.InjectedAttachOutcome =
+                switch result {
+                case .connected, .needsUserApproval:
+                    .connected
+                case .failed, .superseded:
+                    .failed
+                }
+            if startupConnectionCoordinator.finishInjectedAttach(
+                startupAttempt,
+                outcome: outcome
+            ) {
+                reconnectStoredMacIfNeeded()
+            }
         }
         return true
         #else

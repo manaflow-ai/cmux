@@ -44,7 +44,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 4 * 1_024;
-const RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS = 10 * 60;
+const RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS = 60;
 
 export interface RelayTokenDeps {
   readonly verifyRequest: (request: Request) => Promise<AuthedUser | null>;
@@ -133,28 +133,38 @@ export async function handleRelayTokenRequest(
       return jsonResponse({ error: "invalid_endpoint_id" }, 400);
     }
 
-    // Rate limited per account+endpoint so one storming device only starves
-    // itself; runs after validation so malformed requests never consume the
-    // per-device budget.
-    await runRelayEffect(enforceRelayRateLimit({
-      request,
-      accountId: user.id,
-      devicePartition: rawEndpointId.toLowerCase(),
-      ruleId: deps.rateLimitRuleId(),
-      check: deps.checkRateLimit,
-      isVercel: deps.isVercel(),
-      retryAfterSeconds: RELAY_TOKEN_RATE_LIMIT_RETRY_AFTER_SECONDS,
-    }));
-
     const nowSeconds = deps.nowSeconds();
-    const policy = await deps.signedPolicy(user.id, nowSeconds);
-    const relayUrls = policy.payload.relays.map((relay) => relay.url);
     const endpointId = rawEndpointId.toLowerCase();
     const isEndpointBound = await deps.isEndpointBound({
       accountId: user.id,
       endpointId,
       nowSeconds,
     });
+    // A fresh endpoint must fetch policy before registration, then fetch its
+    // bound credential immediately after registration. Renewals happen every
+    // four minutes because both artifacts expire after five. Give bootstrap
+    // and credential issuance separate one-minute partitions so the external
+    // rule cannot make the valid two-leg bootstrap or renewal cadence
+    // impossible. Duplicate work inside one phase and minute is still bounded.
+    const rateLimitBucket = Math.floor(
+      nowSeconds / RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS,
+    );
+    const rateLimitPhase = isEndpointBound ? "credential" : "bootstrap";
+    const retryAfterSeconds = RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS -
+      (nowSeconds % RELAY_TOKEN_RATE_LIMIT_BUCKET_SECONDS);
+    await runRelayEffect(enforceRelayRateLimit({
+      request,
+      accountId: user.id,
+      devicePartition:
+        `${endpointId}:${rateLimitPhase}:${rateLimitBucket}`,
+      ruleId: deps.rateLimitRuleId(),
+      check: deps.checkRateLimit,
+      isVercel: deps.isVercel(),
+      retryAfterSeconds,
+    }));
+
+    const policy = await deps.signedPolicy(user.id, nowSeconds);
+    const relayUrls = policy.payload.relays.map((relay) => relay.url);
     const relayCredentials = isEndpointBound
       ? deps.issueCredentials({
         accountId: user.id,

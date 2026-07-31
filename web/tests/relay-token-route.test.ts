@@ -323,10 +323,13 @@ describe("POST /api/relay/token", () => {
       }),
     );
     expect(limited.status).toBe(429);
-    // Partitioned per device: a storming endpoint starves only itself, never
-    // the account's other phones, simulators, or tagged builds.
-    expect(key).toBe(`account-a:${ENDPOINT_ID.toLowerCase()}`);
-    expect(limited.headers.get("retry-after")).toBe("600");
+    // Partitioned per device, protocol phase, and minute: a storming endpoint
+    // starves only its duplicate work, never bootstrap, renewal, or another
+    // phone, simulator, or tagged build.
+    expect(key).toBe(
+      `account-a:${ENDPOINT_ID.toLowerCase()}:credential:28333333`,
+    );
+    expect(limited.headers.get("retry-after")).toBe("40");
 
     // Malformed requests are rejected before the limiter and never consume
     // the per-device budget.
