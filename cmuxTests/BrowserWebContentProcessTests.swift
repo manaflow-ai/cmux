@@ -55,6 +55,97 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func authenticatedHandoffNavigationPinsTheNativeAuthGeneration() {
+        let navigation = BrowserAppSessionNavigation(
+            request: URLRequest(url: URL(string: "https://cmux.test/dashboard")!),
+            websiteDataStore: .nonPersistent(),
+            generation: 7,
+            authSessionGeneration: 11
+        )
+
+        #expect(navigation.generation == 7)
+        #expect(navigation.authSessionGeneration == 11)
+    }
+
+    @Test
+    func authenticatedHandoffStoreSurvivesWorkspaceReattachment() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: false,
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+
+        #expect(panel.websiteDataStore === websiteDataStore)
+        #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
+    @Test
+    func authenticatedHandoffStoreCannotSwitchIntoAPersistentProfile() throws {
+        let profile = try #require(
+            BrowserProfileStore.shared.createProfile(
+                named: "Handoff isolation \(UUID().uuidString)"
+            )
+        )
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        #expect(!panel.switchToProfile(profile.id))
+        #expect(panel.websiteDataStore === websiteDataStore)
+        #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
+    @Test
+    func browserAppSessionRegistryTracksPanelsUsingOwnedStores() throws {
+        let suiteName = "BrowserAppSessionOwnedPanelTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+        let registry = BrowserAppSessionStoreRegistry(
+            defaults: defaults,
+            defaultsKey: "owned-stores",
+            environment: BrowserAppSessionEnvironment(
+                webOrigin: URL(string: "https://cmux.test")!,
+                projectID: "project-a"
+            )
+        )
+
+        registry.register(websiteDataStore)
+        registry.register(panel)
+
+        #expect(registry.panelsForCleanup().contains { $0 === panel })
+    }
+
+    @Test
+    func browserAppSessionCleanupCoversEveryWebsiteDataType() {
+        #expect(
+            BrowserAppSessionController.appSessionWebsiteDataTypes ==
+                WKWebsiteDataStore.allWebsiteDataTypes()
+        )
+    }
+
+    @Test
     func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
         let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
         let transientFailure = BrowserAppSessionRequestOutcome.transientFailure

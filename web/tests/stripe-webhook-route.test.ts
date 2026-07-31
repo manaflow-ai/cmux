@@ -175,6 +175,7 @@ describe("Stripe billing webhook route", () => {
     expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
     expect(sendProSignupWelcome).toHaveBeenCalledWith({
       session: expect.objectContaining({ id: "cs_1" }),
+      stackUserId: "user_1",
     });
   });
 

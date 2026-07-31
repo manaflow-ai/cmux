@@ -17,9 +17,13 @@ let ascConfigured = true;
 let currentUser = createTestflightUser();
 let user: typeof currentUser | null = currentUser;
 let useStubDb = false;
+let accountMutationLockActive = false;
+let accountMutationTransactionCount = 0;
+let ascMutationLockStates: boolean[] = [];
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown, init?: unknown) => {
+  ascMutationLockStates.push(accountMutationLockActive);
   if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
     return {
       data: { type: "betaTesters", id: "tester_new" },
@@ -80,6 +84,26 @@ mock.module("../db/client", () => ({
               }),
             }),
           }),
+          transaction: async (run: (tx: unknown) => Promise<unknown>) => {
+            accountMutationTransactionCount += 1;
+            const tx = {
+              select: () => ({
+                from: () => ({
+                  where: () => ({
+                    limit: async () => [],
+                  }),
+                }),
+              }),
+              execute: async () => {
+                accountMutationLockActive = true;
+              },
+            };
+            try {
+              return await run(tx);
+            } finally {
+              accountMutationLockActive = false;
+            }
+          },
         } as unknown as ReturnType<typeof realCloudDb>)
       : realCloudDb()) as typeof realCloudDb,
 }));
@@ -108,8 +132,12 @@ describe("TestFlight route", () => {
       testflightUserEligibility(candidate) ?? false,
     );
     ascFetch.mockClear();
+    accountMutationLockActive = false;
+    accountMutationTransactionCount = 0;
+    ascMutationLockStates = [];
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown, init?: unknown) => {
+      ascMutationLockStates.push(accountMutationLockActive);
       if (path === "/v1/betaTesters" && (init as { method?: string })?.method === "POST") {
         return {
           data: { type: "betaTesters", id: "tester_new" },
@@ -227,12 +255,70 @@ describe("TestFlight route", () => {
     expect(ascFetch).not.toHaveBeenCalled();
   });
 
+  test("serializes eligibility and ASC enrollment under the account mutation lock", async () => {
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(accountMutationTransactionCount).toBe(1);
+    expect(ascMutationLockStates.length).toBeGreaterThan(0);
+    expect(ascMutationLockStates.every(Boolean)).toBe(true);
+  });
+
+  test("compensates when Pro eligibility lapses before enrollment completes", async () => {
+    let eligibilityChecks = 0;
+    mockImplementation(isTestflightEligible, async () => {
+      eligibilityChecks += 1;
+      return eligibilityChecks === 1;
+    });
+
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight?testflight=ineligible",
+    );
+    expect(isTestflightEligible).toHaveBeenCalledTimes(2);
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesters",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(ascFetch).toHaveBeenCalledWith(
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   test("leaves by removing the current user's email", async () => {
     const response = await postAction("leave");
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
       "https://cmux.test/dashboard/testflight?testflight=left",
+    );
+    expect(ascFetch).toHaveBeenCalledWith(
+      `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  test("removes recorded TestFlight access when the current email is missing", async () => {
+    currentUser = {
+      ...createTestflightUser(),
+      primaryEmail: null,
+      clientReadOnlyMetadata: {
+        cmuxProTestflightEnrollmentEmails: ["historical@example.com"],
+      },
+    } as never;
+    user = currentUser;
+
+    const response = await postAction("leave");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight?testflight=left",
+    );
+    expect(ascFetch).toHaveBeenCalledWith(
+      `/v1/betaTesters?filter[email]=${encodeURIComponent("historical@example.com")}&limit=1`,
     );
     expect(ascFetch).toHaveBeenCalledWith(
       `/v1/betaGroups/${PRO_TESTFLIGHT_GROUP_ID}/relationships/betaTesters`,

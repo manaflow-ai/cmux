@@ -11,6 +11,7 @@ import {
   cloudVmUsageEvents,
   cloudVms,
   devices,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -723,6 +724,7 @@ describe("account deletion route", () => {
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
+    expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions && table !== stripeCustomers
     );

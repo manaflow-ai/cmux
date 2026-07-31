@@ -18,10 +18,12 @@ describe("cmux Pro checkout fulfillment", () => {
     await sendProSignupWelcome(
       {
         session: checkoutSession(),
+        stackUserId: "user_1",
       },
       {
         sendEmail,
         fromEmail: () => "pro@cmux.com",
+        fulfillmentStore: inMemoryProWelcomeFulfillmentStore(),
       },
     );
 
@@ -78,10 +80,11 @@ describe("cmux Pro checkout fulfillment", () => {
     session.locale = "fr";
 
     await sendProSignupWelcome(
-      { session },
+      { session, stackUserId: "user_1" },
       {
         sendEmail,
         fromEmail: () => "pro@cmux.com",
+        fulfillmentStore: inMemoryProWelcomeFulfillmentStore(),
       },
     );
 
@@ -110,10 +113,11 @@ describe("cmux Pro checkout fulfillment", () => {
 
     await expect(
       sendProSignupWelcome(
-        { session: checkoutSession() },
+        { session: checkoutSession(), stackUserId: "user_1" },
         {
           sendEmail,
           fromEmail: () => "pro@cmux.com",
+          fulfillmentStore: inMemoryProWelcomeFulfillmentStore(),
         },
       ),
     ).resolves.toBeUndefined();
@@ -128,10 +132,11 @@ describe("cmux Pro checkout fulfillment", () => {
 
     await expect(
       sendProSignupWelcome(
-        { session },
+        { session, stackUserId: "user_1" },
         {
           sendEmail,
           fromEmail: () => "pro@cmux.com",
+          fulfillmentStore: inMemoryProWelcomeFulfillmentStore(),
         },
       ),
     ).resolves.toBeUndefined();
@@ -141,17 +146,57 @@ describe("cmux Pro checkout fulfillment", () => {
   test("fails the checkout event when the Pro email provider rejects the send", async () => {
     await expect(
       sendProSignupWelcome(
-        { session: checkoutSession() },
+        { session: checkoutSession(), stackUserId: "user_1" },
         {
           sendEmail: mock(async () => ({
             error: { message: "provider unavailable" },
           })),
           fromEmail: () => "pro@cmux.com",
+          fulfillmentStore: inMemoryProWelcomeFulfillmentStore(),
         },
       ),
     ).rejects.toThrow("provider unavailable");
   });
+
+  test("sends once across different webhook events for the same checkout", async () => {
+    const sendEmail = mock(async () => ({ error: null }));
+    const fulfillmentStore = inMemoryProWelcomeFulfillmentStore();
+    const input = {
+      session: checkoutSession(),
+      stackUserId: "user_1",
+    };
+    const dependencies = {
+      sendEmail,
+      fromEmail: () => "pro@cmux.com",
+      fulfillmentStore,
+    };
+
+    await sendProSignupWelcome(input, dependencies as never);
+    await sendProSignupWelcome(input, dependencies as never);
+
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
 });
+
+function inMemoryProWelcomeFulfillmentStore() {
+  const sentCheckoutSessions = new Set<string>();
+  return {
+    deliverOnce: async (
+      input: {
+        readonly checkoutSessionId: string;
+        readonly stackUserId: string;
+      },
+      deliver: () => Promise<void>,
+    ) => {
+      if (sentCheckoutSessions.has(input.checkoutSessionId)) {
+        return "already_sent" as const;
+      }
+      await deliver();
+      sentCheckoutSessions.add(input.checkoutSessionId);
+      return "sent" as const;
+    },
+  };
+}
 
 function checkoutSession(): Stripe.Checkout.Session {
   return {

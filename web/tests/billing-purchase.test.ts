@@ -1154,7 +1154,7 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("does not fail the webhook when TestFlight removal fails", async () => {
+  test("keeps the webhook retryable when TestFlight removal fails", async () => {
     const captureAscError = mock(() => undefined);
     const user = {
       id: "user_123",
@@ -1164,22 +1164,23 @@ describe("recordCheckoutCompletion", () => {
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
-    const result = await applySubscriptionUpdate(
-      userSubscriptionUpdate({ status: "canceled" }) as never,
-      {
-        db: fakeDb() as never,
-        stackApp: { getUser: async () => user } as never,
-        testflight: {
-          isAscConfigured: () => true,
-          removeTester: async () => {
-            throw new Error("ASC down");
+    await expect(
+      applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: {
+            isAscConfigured: () => true,
+            removeTester: async () => {
+              throw new Error("ASC down");
+            },
+            captureAscError,
           },
-          captureAscError,
         },
-      },
-    );
+      ),
+    ).rejects.toThrow("ASC down");
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(captureAscError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "ASC down" }),
       expect.objectContaining({

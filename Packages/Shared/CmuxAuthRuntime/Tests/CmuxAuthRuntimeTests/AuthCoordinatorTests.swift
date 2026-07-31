@@ -460,6 +460,29 @@ import Testing
         }
     }
 
+    @Test func authenticatedRefreshTokenSnapshotPinsIdentityAndGeneration() async throws {
+        let user = CMUXAuthUser(
+            id: "account-a",
+            primaryEmail: "a@example.com",
+            displayName: "A"
+        )
+        let client = FakeAuthClient(
+            access: nil,
+            refresh: "refresh-a",
+            user: user
+        )
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+
+        let snapshot = try await coordinator.authenticatedRefreshTokenSnapshot()
+
+        #expect(snapshot.accountID == "account-a")
+        #expect(snapshot.refreshToken == "refresh-a")
+        #expect(snapshot.generation == coordinator.authSessionGeneration)
+        #expect(snapshot.description.contains("account-a") == false)
+        #expect(snapshot.description.contains("refresh-a") == false)
+    }
+
     @Test func completeExternalSignInPublishesSeededSession() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)

@@ -37,5 +37,9 @@ describe("dashboard shell", () => {
 
     expect(html.match(/data-testid="account-control"/g)).toHaveLength(1);
     expect(html.match(/data-testid="theme-control"/g)).toHaveLength(1);
+    const menuButton = html.match(
+      /<button[^>]*aria-controls="dashboard-mobile-nav"[^>]*>/,
+    )?.[0];
+    expect(menuButton).toContain("sm:hidden");
   });
 });

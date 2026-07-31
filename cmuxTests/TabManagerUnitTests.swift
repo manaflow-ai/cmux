@@ -2697,6 +2697,46 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertTrue(duplicateTab.isAudioMuted)
     }
 
+    func testDuplicateBrowserPreservesExplicitEphemeralWebsiteDataStore() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: URL(string: "https://example.com/authenticated-handoff"),
+                focus: true,
+                websiteDataStore: websiteDataStore
+            )
+        )
+
+        let duplicate = try XCTUnwrap(
+            workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false)
+        )
+
+        XCTAssertTrue(duplicate.websiteDataStore === websiteDataStore)
+        XCTAssertTrue(duplicate.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
+    func testDockBrowserSurfaceAcceptsExplicitEphemeralWebsiteDataStore() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let paneId = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panelId = try XCTUnwrap(
+            dock.newSurface(
+                kind: .browser,
+                inPane: paneId,
+                url: URL(string: "https://example.com/authenticated-handoff"),
+                focus: false,
+                websiteDataStore: websiteDataStore
+            )
+        )
+        let panel = try XCTUnwrap(dock.browserPanel(for: panelId))
+
+        XCTAssertTrue(panel.websiteDataStore === websiteDataStore)
+        XCTAssertTrue(panel.webView.configuration.websiteDataStore === websiteDataStore)
+    }
+
     func testBrowserAudioMuteContextActionTogglesPanelAndTabState() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
