@@ -244,6 +244,15 @@ import Testing
         )
     }
 
+    @Test func explicitAppHostTestMarkerPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: ["CMUX_XCTEST_APP_HOST": "1"],
+                telemetryEnabled: true
+            ).shouldStart == false
+        )
+    }
+
     @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(

@@ -13,4 +13,12 @@ if ! grep -q '<TestAction buildConfiguration="Debug"' "$SCHEME_FILE"; then
   exit 1
 fi
 
+for scheme in cmux cmux-ci cmux-unit; do
+  scheme_file="cmux.xcodeproj/xcshareddata/xcschemes/${scheme}.xcscheme"
+  if ! grep -q 'key="CMUX_XCTEST_APP_HOST" value="1" isEnabled="YES"' "$scheme_file"; then
+    echo "FAIL: $scheme TestAction must mark its app host as XCTest" >&2
+    exit 1
+  fi
+done
+
 echo "PASS: cmux scheme TestAction uses Debug"
