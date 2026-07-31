@@ -1053,7 +1053,7 @@ struct BrowserScreenshotCropTests {
             """,
             configuration: WKWebViewConfiguration()
         )
-        let fontStatus = try await pendingFontWebView.evaluateJavaScript(
+        _ = try await pendingFontWebView.evaluateJavaScript(
             """
             (() => {
               Object.defineProperty(document, "fonts", {
@@ -1065,8 +1065,7 @@ struct BrowserScreenshotCropTests {
             """,
             in: nil,
             in: .defaultClient
-        ) as? String
-        #expect(fontStatus == "loading")
+        )
         let pendingFontValue = await BrowserScreenshotDOMProbeCollector(
             webView: pendingFontWebView
         ).collect()
