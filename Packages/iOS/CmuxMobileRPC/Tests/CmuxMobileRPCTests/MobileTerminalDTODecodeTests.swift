@@ -57,6 +57,8 @@ import Testing
               "phone_push": {
                 "forwarding_enabled": true,
                 "mode": "onlyWhenAway",
+                "admission": "suppressed_mac_active",
+                "hide_content": true,
                 "api_origin": "https://cmux-staging.vercel.app",
                 "account_scope": "verified_same_account"
               }
@@ -67,6 +69,8 @@ import Testing
         #expect(response.phonePush == MobileHostPhonePushStatus(
             forwardingEnabled: true,
             mode: .onlyWhenAway,
+            admission: .suppressedMacActive,
+            hideContent: true,
             apiOrigin: "https://cmux-staging.vercel.app",
             accountScope: .verifiedSameAccount
         ))

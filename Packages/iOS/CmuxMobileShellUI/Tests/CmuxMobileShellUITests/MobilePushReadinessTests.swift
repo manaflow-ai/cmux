@@ -245,4 +245,22 @@ import Testing
 
         #expect(readiness == .ready(mode: .onlyWhenAway))
     }
+
+    @Test func activeMacInOnlyWhenAwayModeNeverReportsReady() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .onlyWhenAway,
+                admission: .suppressedMacActive,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.macCurrentlyActive))
+        #expect(readiness.repair == .leaveMacOrUseAlwaysMode)
+    }
 }

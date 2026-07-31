@@ -85,12 +85,15 @@ struct MobileHostIdentityTests {
         let payload = MobileHostService.identityStatusPayload(
             routes: [],
             phonePushDefaults: defaults,
+            phonePushAdmission: .suppressedMacActive,
             phonePushAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!
         )
         let phonePush = try #require(payload["phone_push"] as? [String: Any])
 
         #expect(phonePush["forwarding_enabled"] as? Bool == true)
         #expect(phonePush["mode"] as? String == "onlyWhenAway")
+        #expect(phonePush["admission"] as? String == "suppressed_mac_active")
+        #expect(phonePush["hide_content"] as? Bool == false)
         #expect(phonePush["api_origin"] as? String == "https://cmux-staging.vercel.app")
         #expect(phonePush["account_scope"] as? String == "verified_same_account")
     }

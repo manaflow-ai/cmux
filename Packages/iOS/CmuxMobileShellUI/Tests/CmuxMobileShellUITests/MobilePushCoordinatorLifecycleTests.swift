@@ -7,19 +7,23 @@ import Testing
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
     private let setEnabledGate: LifecycleSetEnabledGate?
+    private let syncGate: LifecycleSyncGate?
 
     init(
         enabled: Bool = true,
-        setEnabledGate: LifecycleSetEnabledGate? = nil
+        snapshot: PushRegistrationSnapshot? = nil,
+        setEnabledGate: LifecycleSetEnabledGate? = nil,
+        syncGate: LifecycleSyncGate? = nil
     ) {
-        value = enabled
-            ? PushRegistrationSnapshot(
+        value = snapshot
+            ?? (enabled ? PushRegistrationSnapshot(
                 isEnabled: true,
                 hasDeviceToken: false,
                 backendState: .awaitingDeviceToken
             )
-            : .disabled
+            : .disabled)
         self.setEnabledGate = setEnabledGate
+        self.syncGate = syncGate
     }
 
     var isEnabled: Bool { value.isEnabled }
@@ -61,7 +65,15 @@ private actor LifecyclePushRegistration: PushRegistering {
         )
     }
 
-    func syncTokenIfPossible() {}
+    func syncTokenIfPossible() async {
+        await syncGate?.pause()
+        guard value.isEnabled, value.hasDeviceToken else { return }
+        value = PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: true,
+            backendState: .registered
+        )
+    }
     func unregisterFromServer() {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) {}
 }
@@ -87,6 +99,42 @@ private actor LifecycleSetEnabledGate {
 
     func waitUntilStarted() async {
         guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+}
+
+private actor LifecycleSyncGate {
+    private(set) var starts = 0
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func pause() async {
+        starts += 1
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard starts == 0 else { return }
         await withCheckedContinuation { continuation in
             startWaiters.append(continuation)
         }
@@ -191,5 +239,40 @@ private actor LifecycleSetEnabledGate {
 
         await gate.release()
         await disabling.value
+    }
+
+    @MainActor
+    @Test func foregroundAndReachabilityRecoveryShareOneExhaustedRegistrationRetry() async {
+        let gate = LifecycleSyncGate()
+        let registration = LifecyclePushRegistration(
+            snapshot: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .failed(.networkUnavailable)
+            ),
+            syncGate: gate
+        )
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            authorizationStatus: { .authorized }
+        )
+
+        let firstRefresh = Task { @MainActor in
+            await coordinator.refreshReadiness()
+        }
+        await gate.waitUntilStarted()
+        let secondRefresh = Task { @MainActor in
+            await coordinator.networkDidBecomeReachable()
+        }
+        await Task.yield()
+
+        #expect(await gate.starts == 1)
+
+        await gate.release()
+        await firstRefresh.value
+        await secondRefresh.value
+
+        #expect(await gate.starts == 1)
+        #expect(coordinator.registrationSnapshot.backendState == .registered)
     }
 }
