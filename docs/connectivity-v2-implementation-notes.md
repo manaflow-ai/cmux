@@ -79,6 +79,10 @@
     Found: Synthesized `Encodable` omitted the nil field, so the strict v2 backend rejected every first sync after registration and the Mac correctly tore down its unpublished endpoint.
     Decision: Encode `known_revision` explicitly as either an integer or `null`, and cover the exact initial wire body.
 
+18. Expected: A local backend without the private relay JWT signer could still serve direct and LAN development.
+    Found: The relay bootstrap route returned `503` before serving its available staging-signed policy, even though local and preview runtimes are intentionally credential-free.
+    Decision: Local and preview runtimes return the signed policy without relay credentials so clients use direct and LAN paths. Every deployed non-preview runtime still fails closed when its private relay signer is absent.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -99,5 +103,6 @@
 - Verified: All 36 PostgreSQL Iroh behavior tests pass against an isolated native database with the complete migration chain.
 - Done: The development backend runs on an isolated native PostgreSQL cluster, a same-worktree Next server, and an authenticated Worker quick tunnel without touching the wedged shared Docker daemon or shared Cloudflare worker.
 - Done: Fixed the first-sync wire mismatch found by the real Mac and local backend integration. The initial v2 request now carries the contract's explicit null revision.
+- Done: Made credential-free local and preview backends return their signed relay policy while retaining fail-closed relay credential issuance in deployed runtimes.
 - Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
 - Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
