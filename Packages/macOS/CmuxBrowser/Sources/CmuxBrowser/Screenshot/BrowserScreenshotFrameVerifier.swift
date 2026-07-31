@@ -16,7 +16,8 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     /// Creates a conservative verifier with bounded probe and pixel work.
     ///
     /// - Parameters:
-    ///   - minimumMismatchCount: Stable uniform probes required to reject a frame.
+    ///   - minimumMismatchCount: Distinct viewport cells with stable uniform probes
+    ///     required to reject a frame.
     ///   - maximumProbeCount: Maximum stable probes evaluated per frame.
     ///   - rectTolerance: Maximum CSS-point drift allowed between probe collections.
     ///   - uniformityTolerance: Maximum normalized channel difference treated as uniform
