@@ -285,9 +285,14 @@ struct RightSidebarToolPanelView: View {
             )
         case .sessions:
             VaultPaneView(
+                tabManager: tabManager,
                 store: panel.sessionIndexStore,
+                closedItemStore: .shared,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onReopenClosedItem: { id in
+                    tabManager.reopenClosedHistoryItem(id: id)
                 }
             )
             .background(

@@ -46,6 +46,10 @@ extension TabManager {
             index: tabs.firstIndex(where: { $0.id == workspace.id }),
             tabCount: tabs.count
         )
+        NotificationCenter.default.post(
+            name: .vaultHistoryLiveTopologyDidChange,
+            object: self
+        )
     }
 
     func publishCmuxInitialSurfaceCreated(_ workspace: Workspace, selected: Bool) {
@@ -69,6 +73,10 @@ extension TabManager {
             remainingTabCount: tabs.count
         )
         CmuxSelectionEventState.clearWorkspace(workspace.id)
+        NotificationCenter.default.post(
+            name: .vaultHistoryLiveTopologyDidChange,
+            object: self
+        )
     }
 
     func publishCmuxWorkspaceSelected(_ workspace: Workspace) {
@@ -140,6 +148,10 @@ extension Workspace {
             origin: origin,
             focused: focused
         )
+        NotificationCenter.default.post(
+            name: .vaultHistoryLiveTopologyDidChange,
+            object: self
+        )
     }
 
     func publishCmuxSurfaceClosed(_ surfaceId: UUID, paneId: PaneID?, panel: (any Panel)?, origin: String) {
@@ -151,6 +163,10 @@ extension Workspace {
             origin: origin
         )
         CmuxSelectionEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
+        NotificationCenter.default.post(
+            name: .vaultHistoryLiveTopologyDidChange,
+            object: self
+        )
     }
 
     func publishCmuxPaneClosed(_ paneId: PaneID, closedPanelIds: [UUID], origin: String) {
@@ -256,6 +272,12 @@ private enum MainWindowKeyRegainRefresh {
             invalidateDisplayTree(rootedAt: subview)
         }
     }
+}
+
+extension Notification.Name {
+    static let vaultHistoryLiveTopologyDidChange = Notification.Name(
+        "cmux.vaultHistoryLiveTopologyDidChange"
+    )
 }
 
 extension AppDelegate {

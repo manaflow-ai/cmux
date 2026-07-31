@@ -35,9 +35,9 @@ enum VaultHistoryEventKind: String, Codable, CaseIterable, Sendable {
 
     var symbolName: String {
         switch self {
-        case .workspaceCreated: return "plus.square"
+        case .workspaceCreated: return "plus"
         case .workspaceRenamed: return "pencil"
-        case .workspaceClosed: return "xmark.square"
+        case .workspaceClosed: return "minus"
         case .windowOpened: return "macwindow.badge.plus"
         case .windowClosed: return "macwindow"
         case .sessionActivity: return "sparkles"
@@ -51,30 +51,50 @@ enum VaultHistoryEventKind: String, Codable, CaseIterable, Sendable {
 /// "Other" bucket for that grouping.
 struct VaultHistorySubject: Hashable, Codable, Sendable {
     var workspaceId: UUID?
+    /// Restart-stable workspace identity used when a restored runtime UUID changes.
+    var workspaceStableId: UUID?
     var windowId: UUID?
+    /// Runtime terminal/panel identity for agent-session nesting.
+    var surfaceId: UUID?
+    /// Restart-stable terminal identity, when captured from a live or closed snapshot.
+    var surfaceStableId: UUID?
+    /// Recently-closed record that can restore this workspace or window.
+    var closedItemId: UUID?
     /// Native agent session identifier for `sessionActivity` events.
     var sessionId: String?
     /// `SessionAgent` raw value for `sessionActivity` events.
     var agent: String?
+    /// User-facing agent name captured from the session index.
+    var agentDisplayName: String?
     /// Working directory associated with the subject, when known.
     var directory: String?
 
     init(
         workspaceId: UUID? = nil,
+        workspaceStableId: UUID? = nil,
         windowId: UUID? = nil,
+        surfaceId: UUID? = nil,
+        surfaceStableId: UUID? = nil,
+        closedItemId: UUID? = nil,
         sessionId: String? = nil,
         agent: String? = nil,
+        agentDisplayName: String? = nil,
         directory: String? = nil
     ) {
         self.workspaceId = workspaceId
+        self.workspaceStableId = workspaceStableId
         self.windowId = windowId
+        self.surfaceId = surfaceId
+        self.surfaceStableId = surfaceStableId
+        self.closedItemId = closedItemId
         self.sessionId = sessionId
         self.agent = agent
+        self.agentDisplayName = agentDisplayName
         self.directory = directory
     }
 }
 
-/// One entry in the unified Vault history timeline.
+/// One entry in the unified History timeline.
 ///
 /// The model is deliberately flat and locale-independent: display strings
 /// (kind labels, "N workspaces" details) are derived in the UI layer so a

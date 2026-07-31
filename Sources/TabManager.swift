@@ -2092,6 +2092,7 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        var closedItemHistoryRecordId: UUID?
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2113,15 +2114,22 @@ class TabManager: ObservableObject {
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
             )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
-                snapshot: snapshot
-            )))
+            let record = ClosedItemHistoryRecord(
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: workspace.id,
+                    windowId: AppDelegate.shared?.windowId(for: self),
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                ))
+            )
+            ClosedItemHistoryStore.shared.push(record)
+            closedItemHistoryRecordId = record.id
         }
         if recordHistory {
-            recordVaultHistoryWorkspaceClosed(workspace)
+            recordVaultHistoryWorkspaceClosed(
+                workspace,
+                closedItemId: closedItemHistoryRecordId
+            )
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
