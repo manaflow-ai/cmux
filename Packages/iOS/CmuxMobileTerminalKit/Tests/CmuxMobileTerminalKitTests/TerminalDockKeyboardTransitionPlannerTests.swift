@@ -64,8 +64,12 @@ struct TerminalDockKeyboardTransitionPlannerTests {
             activeTargetOverlap: activeTargetOverlap,
             lastTransitionDuration: lastTransitionDuration
         ))
+        guard case let .animate(synthesizedSeconds) = plan else {
+            Issue.record("Expected a synthesized animation")
+            return
+        }
 
-        #expect(plan == .animate(duration: expectedDuration))
+        #expect(synthesizedSeconds == expectedDuration)
     }
 
     @Test("tiny remaining distance applies directly when an old animation is active")

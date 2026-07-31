@@ -15,8 +15,6 @@ extension CmxIrohRelayCredentialCoordinatorTests {
         let initialRefresh = initialExpiry.addingTimeInterval(-60)
         let replacementExpiry = fixture.now.addingTimeInterval(13 * 60)
         let replacementRefresh = replacementExpiry.addingTimeInterval(-60)
-        let expectedInitialClockEvent = TestRelayClock.Event.sleep(initialRefresh)
-        let expectedReplacementClockEvent = TestRelayClock.Event.sleep(replacementRefresh)
         let broker = TestRelayTokenBroker(steps: [
             .response(try fixture.response(
                 tokens: ["ghi234", "jkl234"],
@@ -42,10 +40,10 @@ extension CmxIrohRelayCredentialCoordinatorTests {
                 expiresAt: initialExpiry
             )
         )
-        #expect(await clockEvents.next() == expectedInitialClockEvent)
+        #expect(await clockEvents.next() == .sleep(initialRefresh))
 
         clock.advance(to: initialRefresh)
-        #expect(await clockEvents.next() == expectedReplacementClockEvent)
+        #expect(await clockEvents.next() == .sleep(replacementRefresh))
 
         #expect(await broker.observedEndpointIDs() == [fixture.identity])
         #expect(await endpoint.observedRelayUpdates().count == 2)
