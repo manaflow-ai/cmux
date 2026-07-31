@@ -1239,6 +1239,7 @@ class TabManager: ObservableObject {
             }
             publishCmuxWorkspaceCreated(newWorkspace, selected: select)
             publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
+            recordVaultHistoryWorkspaceCreated(newWorkspace)
             if select {
 #if DEBUG
                 debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
@@ -2136,6 +2137,9 @@ class TabManager: ObservableObject {
                 workspaceIndex: index,
                 snapshot: snapshot
             )))
+        }
+        if recordHistory {
+            recordVaultHistoryWorkspaceClosed(workspace)
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)

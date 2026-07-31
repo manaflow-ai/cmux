@@ -46,6 +46,13 @@ extension TabManager {
                 object: self,
                 userInfo: [GhosttyNotificationKey.tabId: tabId]
             )
+            if source == .user {
+                recordVaultHistoryWorkspaceRenamed(
+                    tabs[index],
+                    previousTitle: previousDisplayTitle,
+                    currentTitle: currentDisplayTitle
+                )
+            }
         }
         // A remote tmux mirror workspace rename propagates to `rename-session`,
         // but only when the write landed (an `.auto` write rejected over a

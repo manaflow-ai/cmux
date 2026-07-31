@@ -4780,6 +4780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            recordVaultHistoryWindowOpened(windowId: windowId)
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
@@ -16743,6 +16744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             snapshot: snapshot,
             workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
         )))
+        recordVaultHistoryWindowClosed(windowId: context.windowId, snapshot: snapshot)
     }
 
 #if DEBUG
