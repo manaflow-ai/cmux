@@ -541,4 +541,51 @@ import Testing
         return store
     }
 
+    @Test func tailscalePreferencePromotesGrantedRouteAheadOfIrohPin() throws {
+        let tailscale = try tailscale()
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [tailscale, try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: [tailscale]
+            )
+        )
+
+        // The granted Tailscale destination dials first; Iroh stays as the
+        // fallback instead of being exclusive.
+        #expect(routes.map(\.kind) == [.tailscale, .iroh])
+    }
+
+    @Test func tailscalePreferenceWithoutGrantKeepsIrohExclusivePin() throws {
+        // A preference flip alone grants nothing: without a device-local grant
+        // the Iroh pin still drops every raw host/port fallback.
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: []
+            )
+        )
+
+        #expect(routes.map(\.kind) == [.iroh])
+    }
+
+    @Test func tailscalePreferenceIgnoresGrantForDifferentDestination() throws {
+        let otherDestination = try tailscale(50907)
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true,
+            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+                macDeviceID: "test-mac",
+                grantRoutes: [otherDestination]
+            )
+        )
+
+        #expect(routes.map(\.kind) == [.iroh])
+    }
 }
