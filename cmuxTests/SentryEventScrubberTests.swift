@@ -253,6 +253,10 @@ import Testing
         )
     }
 
+    @Test func sharedSchemeMarksCurrentAppHostBeforeStartup() {
+        #expect(ProcessInfo.processInfo.environment["CMUX_XCTEST_APP_HOST"] == "1")
+    }
+
     @Test func embeddedAppHostTestBundlePreventsSentryStartup() {
         #expect(
             MacSentryStartupPolicy(
