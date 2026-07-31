@@ -15,7 +15,10 @@ import {
   accountDeletionUserHash,
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
-import { withFreshAccountMetadataUser } from "../account/metadataMutation";
+import {
+  type AccountMetadataUserLoader,
+  withFreshAccountMetadataUser,
+} from "../account/metadataMutation";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -505,10 +508,13 @@ async function syncStackUserMetadataWithAccountDeletionGuard(input: {
 }): Promise<boolean> {
   const stackApp = input.stackApp ?? stackServerApp;
   if (!stackApp) throw new Error("Stack Auth is not configured");
+  const loader: AccountMetadataUserLoader<StackBillingUser> = {
+    getUser: (requestedUserId) => stackApp.getUser(requestedUserId),
+  };
   return await withFreshAccountMetadataUser({
     db: input.db,
     userId: input.stackUserId,
-    loader: stackApp,
+    loader,
     operation: async (freshUser, mutationLease) => {
       if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
       await input.sync(freshUser, mutationLease);
