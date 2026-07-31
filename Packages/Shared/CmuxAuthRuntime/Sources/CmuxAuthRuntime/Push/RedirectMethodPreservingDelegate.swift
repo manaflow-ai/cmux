@@ -94,7 +94,7 @@ public final class RedirectMethodPreservingDelegate:
     }
 
     private static let mutatingMethods = Set(["POST", "PUT", "PATCH", "DELETE"])
-    private static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
+    static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
         guard let lhs, let rhs else { return false }
         return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
             && lhs.host?.lowercased() == rhs.host?.lowercased()
