@@ -7,6 +7,7 @@ struct AgentLaunchCaptureTrustTests {
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "codex"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("Claude", kind: "claude"))
         #expect(AgentLaunchCaptureTrust.launcherDescribesKind("pi", kind: "pi"))
+        #expect(AgentLaunchCaptureTrust.launcherDescribesKind("gajae-code", kind: "gajae-code"))
     }
 
     @Test func absentLauncherIsTrusted() {
@@ -44,6 +45,19 @@ struct AgentLaunchCaptureTrustTests {
     }
 
     @Test func pidProcessMetadataMustMatchHookKind() {
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "gjc",
+                arguments: ["/Users/alice/.local/bin/gjc", "--model", "gpt-5.4"],
+                kind: "gajae-code"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "bun",
+                arguments: ["bun", "/opt/gajae-code/packages/coding-agent/src/cli.ts"]
+            )
+        )
         #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "codex",

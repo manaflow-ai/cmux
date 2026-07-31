@@ -1432,6 +1432,32 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Removes a superseded session record only when it still belongs to the
+    /// expected pane. This intentionally leaves active-session indexes alone:
+    /// callers use it after promoting the replacement session, so clearing an
+    /// index here could erase that newer binding.
+    @discardableResult
+    func removeSessionIfMatchingAddress(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws -> ClaudeHookSessionRecord? {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedWorkspaceId = normalizeOptional(workspaceId),
+              let normalizedSurfaceId = normalizeOptional(surfaceId) else {
+            return nil
+        }
+        return try withLockedState { state in
+            guard let existing = state.sessions[normalizedSessionId],
+                  normalizeOptional(existing.workspaceId) == normalizedWorkspaceId,
+                  normalizeOptional(existing.surfaceId) == normalizedSurfaceId else {
+                return nil
+            }
+            return state.sessions.removeValue(forKey: normalizedSessionId)
+        }
+    }
+
     private func hasActiveTurnMismatch(
         _ state: ClaudeHookSessionStoreFile,
         record: ClaudeHookSessionRecord,
@@ -15717,7 +15743,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, gajae-code (alias: gjc), campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -15732,6 +15758,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.omp/agent/extensions/cmux-omp-session.ts
+              ~/.gjc/agent/extensions/cmux-gajae-code-session.ts
               ~/.campfire/agent/extensions/cmux-campfire-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               ~/.kiro/agents/cmux.json
@@ -29393,6 +29420,7 @@ export default CMUXSessionRestore;
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
+        if def.name == "gajae-code" { try installGajaeCodeExtensionHooks(def); return }
         if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try installAmpExtensionHooks(def)
@@ -29750,6 +29778,7 @@ export default CMUXSessionRestore;
         if def.name == "opencode" { try uninstallOpenCodePluginHooks(def); return }
         if def.name == "pi" { try uninstallPiExtensionHooks(def); return }
         if def.name == "omp" { try uninstallOmpExtensionHooks(def); return }
+        if def.name == "gajae-code" { try uninstallGajaeCodeExtensionHooks(def); return }
         if def.name == "campfire" { try uninstallCampfireExtensionHooks(def); return }
         if def.name == "amp" {
             try uninstallAmpExtensionHooks(def)
@@ -31156,6 +31185,22 @@ export default CMUXSessionRestore;
                     didSendFeedTelemetry = true
                     print("{}")
                     return
+                }
+                if def.name == "gajae-code",
+                   let rawObject = input.rawObject,
+                   let previousSessionId = firstString(
+                       in: rawObject,
+                       keys: ["previous_session_id", "previousSessionId"]
+                   ),
+                   previousSessionId != sessionId {
+                    // GJC can switch or branch sessions without replacing the
+                    // agent process. Retire the old record after the new one is
+                    // stored, but keep the surface binding alive for the new ID.
+                    _ = try? store.removeSessionIfMatchingAddress(
+                        sessionId: previousSessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
                 }
             }
             if codexSessionStartWentStaleAfterAccept() {

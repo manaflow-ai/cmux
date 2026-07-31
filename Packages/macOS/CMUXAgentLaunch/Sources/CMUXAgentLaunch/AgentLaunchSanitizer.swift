@@ -115,6 +115,12 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
             return preserveOptions(args, policy: piPolicy)
+        case "gajae-code":
+            var tail = args
+            if tail.first == "launch" {
+                tail.removeFirst()
+            }
+            return preserveOptions(tail, policy: gajaeCodePolicy)
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":

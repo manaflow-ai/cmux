@@ -18,6 +18,14 @@ extension CmuxTaskManagerCodingAgentDefinition {
               argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]),
         .init(id: "omp", displayName: "OMP", assetName: "AgentIcons/Pi",
               launchKinds: ["omp"], directBasenames: ["omp"], argumentNeedles: ["@oh-my-pi/pi-coding-agent"]),
+        .init(
+            id: "gajae-code",
+            displayName: String(localized: "agent.gajaeCode.displayName", defaultValue: "Gajae Code"),
+            assetName: nil,
+            launchKinds: ["gajae-code", "gjc"],
+            directBasenames: ["gjc", "gjc.exe"],
+            argumentNeedles: ["@gajae-code/coding-agent", "/gajae-code/bin/gjc.js", "/gajae-code/packages/coding-agent/"]
+        ),
         .init(id: "campfire", displayName: "Campfire", assetName: nil,
               launchKinds: ["campfire"], directBasenames: ["campfire"],
               argumentNeedles: ["packages/session/bin/campfire.ts", "packages/session/dist/campfire"]),

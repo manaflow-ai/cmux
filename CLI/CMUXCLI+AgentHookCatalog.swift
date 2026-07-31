@@ -67,6 +67,16 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "gajae-code", displayName: "Gajae Code", statusKey: "gajae-code",
+            configDir: ".gjc/agent", configFile: "extensions/cmux-gajae-code-session.ts",
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedGajaeCodeAgentDirectory().path },
+            binaryName: "gjc",
+            sessionStoreSuffix: "gajae-code", disableEnvVar: "CMUX_GAJAE_CODE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks gajae-code", format: .flat,
+            events: [], aliases: ["gjc"]
+        ),
+        AgentHookDef(
             name: "campfire", displayName: "Campfire", statusKey: "campfire",
             configDir: ".campfire/agent", configFile: "extensions/cmux-campfire-session.ts",
             createConfigDirIfMissing: true,

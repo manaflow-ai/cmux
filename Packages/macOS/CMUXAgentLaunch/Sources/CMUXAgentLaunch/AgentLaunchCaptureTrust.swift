@@ -28,6 +28,7 @@ public enum AgentLaunchCaptureTrust {
         "cursor": ["cursor-agent", "cursor"],
         "factory": ["droid", "factory"],
         "gemini": ["gemini"],
+        "gajae-code": ["gajae-code", "gjc"],
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
         "kimi": ["kimi", "kimi-cli", "kimi-code"],
@@ -141,6 +142,14 @@ public enum AgentLaunchCaptureTrust {
                     || lowered.contains("packages/session/dist/campfire")
             }) {
                 descriptors.insert("campfire")
+            }
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
+                return lowered.contains("/@gajae-code/coding-agent/")
+                    || lowered.contains("/gajae-code/packages/coding-agent/")
+                    || (lowered.hasSuffix("/gjc.js") && lowered.contains("/gajae-code/"))
+            }) {
+                descriptors.insert("gajae-code")
             }
             return descriptors
         }
