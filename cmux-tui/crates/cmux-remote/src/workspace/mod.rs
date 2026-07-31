@@ -692,7 +692,7 @@ impl WorkspaceService {
         if let Some(existing) = catalog
             .workspaces
             .values()
-            .find(|workspace| workspace.canonical_root() == candidate.canonical_root())
+            .find(|workspace| workspace.same_opened_root(&candidate))
             .cloned()
         {
             catalog.leases.entry(scope.clone()).or_default().insert(existing.id.clone());

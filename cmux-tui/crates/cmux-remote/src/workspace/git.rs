@@ -1,8 +1,12 @@
 use std::mem::size_of;
 use std::ops::Range;
-use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::fd::AsRawFd as _;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as _;
 
 use cmux_remote_protocol::{
     ByteString, DiffFormat, GitChange, GitStatus, PageCursor, RpcError, StructuredDiffHunkV1,
@@ -55,14 +59,13 @@ impl DiffContinuation {
 
 pub(crate) async fn status(root: &WorkspaceRoot) -> Result<WorkspaceResponse, RpcError> {
     let output = run_git(
-        root.canonical_root(),
+        root,
         &["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"],
         MAX_GIT_STATUS_BYTES,
     )
     .await?;
     let (branch, changes) = parse_status(&output)?;
-    let head = match run_git(root.canonical_root(), &["rev-parse", "--verify", "HEAD"], 1024).await
-    {
+    let head = match run_git(root, &["rev-parse", "--verify", "HEAD"], 1024).await {
         Ok(output) => Some(String::from_utf8_lossy(&output).trim().to_string()),
         Err(error) if error.code == "git-command-failed" => None,
         Err(error) => return Err(error),
@@ -133,15 +136,12 @@ pub(crate) async fn diff(
         let (mut unified, mut path_metadata) =
             if matches!(format, DiffFormat::Structured | DiffFormat::StructuredV1) {
                 let (unified, metadata) = tokio::try_join!(
-                    run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES),
-                    read_diff_path_metadata(root.canonical_root(), &normalized, staged),
+                    run_git(root, &references, MAX_GIT_DIFF_SOURCE_BYTES),
+                    read_diff_path_metadata(root, &normalized, staged),
                 )?;
                 (unified, Some(parse_diff_path_metadata(&metadata)?))
             } else {
-                (
-                    run_git(root.canonical_root(), &references, MAX_GIT_DIFF_SOURCE_BYTES).await?,
-                    None,
-                )
+                (run_git(root, &references, MAX_GIT_DIFF_SOURCE_BYTES).await?, None)
             };
         let mut sections = split_diff_section_ranges(&unified);
         if sections.len() > MAX_GIT_DIFF_FILES {
@@ -255,15 +255,13 @@ pub(crate) async fn diff(
 }
 
 async fn run_git(
-    root: &Path,
+    root: &WorkspaceRoot,
     arguments: &[&str],
     maximum_stdout: usize,
 ) -> Result<Vec<u8>, RpcError> {
     let mut command = tokio::process::Command::new("git");
     command
         .args(["-c", "core.fsmonitor=false"])
-        .arg("-C")
-        .arg(root)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -273,6 +271,28 @@ async fn run_git(
         .env("GIT_PAGER", "cat")
         .env("LC_ALL", "C")
         .kill_on_drop(true);
+    #[cfg(not(unix))]
+    command.current_dir(root.canonical_root());
+    #[cfg(unix)]
+    {
+        // Keep Git on the same pinned directory as file and process RPCs even
+        // if the registered pathname is moved and replaced.
+        let directory = root
+            .unix_root()
+            .pinned_directory_for_canonical_path(root.canonical_root())?
+            .try_clone_file()?;
+        // SAFETY: `fchdir` is async-signal-safe, the descriptor remains open
+        // through `spawn`, and the closure performs no allocation.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::fchdir(directory.as_raw_fd()) == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
+    }
     let mut child = command
         .spawn()
         .map_err(|error| RpcError::new("git-unavailable", format!("start git: {error}")))?;
@@ -304,7 +324,7 @@ async fn run_git(
 }
 
 async fn read_diff_path_metadata(
-    root: &Path,
+    root: &WorkspaceRoot,
     paths: &[String],
     staged: bool,
 ) -> Result<Vec<u8>, RpcError> {

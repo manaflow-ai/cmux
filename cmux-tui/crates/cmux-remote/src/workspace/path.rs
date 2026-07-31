@@ -95,6 +95,22 @@ impl WorkspaceRoot {
         &self.canonical
     }
 
+    pub(crate) fn same_opened_root(&self, other: &Self) -> bool {
+        if self.canonical != other.canonical {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            // A pathname can be rebound after the first workspace is opened.
+            // Reuse an ID only when both descriptors pin the same directory.
+            self.unix.same_identity(&other.unix)
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
+    }
+
     #[cfg(unix)]
     pub(crate) fn unix_root(&self) -> UnixWorkspaceRoot {
         self.unix.clone()
@@ -208,6 +224,7 @@ impl WorkspaceRoot {
 pub(crate) struct UnixWorkspaceRoot {
     directory: Arc<File>,
     display: PathBuf,
+    identity: (u64, u64),
 }
 
 #[cfg(unix)]
@@ -235,7 +252,11 @@ impl UnixWorkspaceRoot {
                 format!("workspace root changed while it was being opened: {}", display.display()),
             ));
         }
-        Ok(Self { directory: Arc::new(directory), display })
+        Ok(Self { directory: Arc::new(directory), display, identity: expected })
+    }
+
+    fn same_identity(&self, other: &Self) -> bool {
+        self.identity == other.identity
     }
 
     pub(crate) fn resolve_target(
