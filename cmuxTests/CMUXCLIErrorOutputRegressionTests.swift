@@ -169,6 +169,68 @@ import Testing
         XCTAssertEqual(methods, ["debug.terminals", "surface.resume.get"])
     }
 
+    @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore untrusted cwd \(UUID().uuidString)", isDirectory: true)
+        let executableName = "restore-agent"
+        let executable = root.appendingPathComponent(executableName, isDirectory: false)
+        let marker = root.appendingPathComponent("executed", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        touch \(shellSingleQuote(marker.path))
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executable.path
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "path-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["PATH": "/usr/bin:"],
+                "launch_command": [
+                    "arguments": [executableName],
+                    "executable_path": executableName,
+                    "working_directory": root.path,
+                    "environment": ["PATH": "/usr/bin:"],
+                ],
+                "prepared_arguments": [executableName],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-path-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("executable '\(executableName)' was not found"),
+            result.stdout
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

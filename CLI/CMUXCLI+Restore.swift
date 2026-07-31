@@ -409,8 +409,10 @@ extension CMUXCLI {
                 : nil
         }
         let path = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        for directory in path.split(separator: ":", omittingEmptySubsequences: false) {
-            let root = directory.isEmpty ? FileManager.default.currentDirectoryPath : String(directory)
+        // Shells treat an empty PATH component as the current directory. Restore
+        // may already be inside an untrusted project, so fail closed instead.
+        for directory in path.split(separator: ":") {
+            let root = String(directory)
             let candidate = URL(fileURLWithPath: root, isDirectory: true)
                 .appendingPathComponent(executable, isDirectory: false)
                 .path
