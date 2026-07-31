@@ -362,6 +362,10 @@ final class MobileHostService {
         MobileHostPublicStatusCache.update(irohBinding: binding)
     }
 
+    func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+    }
+
     func closeIrohConnections(bindingID: String) {
         for connection in MobileHostConnectionRegistry.shared.removeIrohConnections(
             bindingID: bindingID

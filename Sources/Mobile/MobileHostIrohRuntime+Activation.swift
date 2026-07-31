@@ -245,6 +245,11 @@ extension MobileHostIrohRuntime {
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
                 ))
+                CmuxEventBus.shared.publish(
+                    name: "mobile.iroh.admission.succeeded",
+                    category: "mobile",
+                    source: "mobile.iroh.host"
+                )
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: DiagnosticSessionLifecycleKind.established.rawValue,
@@ -365,6 +370,14 @@ extension MobileHostIrohRuntime {
                             try? await hostPolicyCache.delete(for: policyExpectation)
                         }
                     }
+                )
+            },
+            handleResolvedBinding: { [weak self] binding in
+                await self?.recordResolvedBinding(
+                    binding,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
                 )
             },
             handleDeactivation: { [weak self] _ in
@@ -490,6 +503,19 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
+        MobileHostService.shared.updateIrohBinding(binding)
+    }
+
+    private func recordResolvedBinding(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
         MobileHostService.shared.updateIrohBinding(binding)
     }
 

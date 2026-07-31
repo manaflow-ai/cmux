@@ -227,6 +227,38 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func cachedConnectivityFallbackPublishesResolvedBinding() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let resolvedBindings = HostRuntimeResolvedBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery,
+                registrationError: .connectivity
+            ),
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() },
+            handleResolvedBinding: { binding in
+                await resolvedBindings.record(binding)
+            }
+        )
+
+        try await runtime.start()
+
+        #expect(await resolvedBindings.values() == [cachedFixture.binding])
+        await runtime.stop()
+    }
+
+    @Test
     func forgedCachedPolicyFailsAfterConnectivityFailure() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
@@ -360,5 +392,17 @@ extension CmxIrohHostRuntimeTests {
 
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await runtime.snapshot().state == .failed)
+    }
+}
+
+private actor HostRuntimeResolvedBindingRecorder {
+    private var bindings: [CmxIrohBrokerBindingMetadata] = []
+
+    func record(_ binding: CmxIrohBrokerBindingMetadata) {
+        bindings.append(binding)
+    }
+
+    func values() -> [CmxIrohBrokerBindingMetadata] {
+        bindings
     }
 }
