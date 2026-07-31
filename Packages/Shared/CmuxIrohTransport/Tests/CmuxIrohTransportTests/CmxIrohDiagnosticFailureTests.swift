@@ -13,6 +13,30 @@ import Testing
         )
         #expect(
             DiagnosticFailureKind.classify(
+                CmxIrohTrustBrokerClientError.rateLimited(
+                    code: "private-code",
+                    retryAfterSeconds: 60
+                )
+            ) == .brokerRateLimited
+        )
+        #expect(
+            DiagnosticFailureKind.classify(
+                CmxIrohTrustBrokerClientError.rejected(
+                    statusCode: 429,
+                    code: "private-code"
+                )
+            ) == .brokerRateLimited
+        )
+        #expect(
+            DiagnosticFailureKind.classify(
+                CmxIrohTrustBrokerClientError.rejected(
+                    statusCode: 503,
+                    code: "private-code"
+                )
+            ) == .brokerServerFailure
+        )
+        #expect(
+            DiagnosticFailureKind.classify(
                 CmxIrohLibError.unmanagedRelayURL("https://private-relay.example")
             ) == .policyUnavailable
         )

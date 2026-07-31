@@ -462,6 +462,31 @@ private func profile(
     #expect((transport as? TaggedTransport)?.tag == "mac-device-a:admission")
 }
 
+@Test func transportRequestPurposeChangePreservesDiagnosticCorrelation() throws {
+    let route = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            id: canonicalEndpointID,
+            relayHint: nil,
+            directAddrs: [],
+            relayURL: nil
+        )
+    )
+    let request = CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "mac-device-a",
+        authorizationMode: .transportAdmission,
+        sessionPurpose: .foregroundControl,
+        diagnosticCorrelationID: 7_007
+    )
+
+    let background = request.withSessionPurpose(.backgroundControl)
+
+    #expect(background.diagnosticCorrelationID == 7_007)
+    #expect(background.sessionPurpose == .backgroundControl)
+}
+
 @Test func routeTransportFactoryRejectsUnsupportedRouteKind() throws {
     let factory = try CmxRouteTransportFactory([
         CmxRouteTransportFactoryRegistration(

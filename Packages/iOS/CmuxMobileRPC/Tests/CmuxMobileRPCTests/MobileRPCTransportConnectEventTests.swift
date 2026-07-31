@@ -11,6 +11,7 @@ import Testing
                 throw MobileShellConnectionError.insecureManualRoute
             },
             diagnosticTransport: .iroh,
+            diagnosticCorrelationID: 7_007,
             transportConnectObserver: { event in
                 _ = continuation.yield(event)
             }
@@ -41,7 +42,7 @@ import Testing
             Issue.record("Expected attempt event first")
             return
         }
-        #expect(attemptID > 0)
+        #expect(attemptID == 7_007)
         #expect(transport == .iroh)
         guard case let .failed(failedID, failedTransport, failure, _) = recorded[1] else {
             Issue.record("Expected failed event second")

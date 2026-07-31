@@ -234,7 +234,56 @@ import Testing
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
         #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
+        #expect(DiagnosticEventCode.connectionPolicySelected.rawValue == 57)
+        #expect(DiagnosticEventCode.subscriptionValidated.rawValue == 58)
+        #expect(DiagnosticEventCode.connectionTraceSucceeded.rawValue == 59)
+        #expect(DiagnosticEventCode.connectionTraceFailed.rawValue == 60)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func connectionTraceHasOneTerminalOutcomeAndSupersedesItsPredecessor() async {
+        let log = DiagnosticLog(capacity: 16)
+
+        let predecessor = log.beginConnectionTrace()
+        #expect(predecessor > 0)
+        #expect(log.currentConnectionTraceID() == predecessor)
+        let winner = log.beginConnectionTrace()
+        #expect(winner > 0)
+        #expect(winner != predecessor)
+        #expect(log.currentConnectionTraceID() == winner)
+
+        #expect(!log.finishConnectionTrace(predecessor))
+        #expect(log.finishConnectionTrace(winner))
+        #expect(!log.finishConnectionTrace(winner))
+        #expect(log.currentConnectionTraceID() == nil)
+        await waitForProcessed(log, 2)
+
+        let terminal = await log.snapshot().events.filter {
+            $0.code == .connectionTraceSucceeded
+                || $0.code == .connectionTraceFailed
+        }
+        #expect(terminal.count == 2)
+        #expect(terminal.map(\.c) == [predecessor, winner])
+        #expect(terminal[0].code == .connectionTraceFailed)
+        #expect(terminal[0].diagnosticFailureKind == .superseded)
+        #expect(terminal[1].code == .connectionTraceSucceeded)
+    }
+
+    @Test func connectionTraceCanAdoptLifecycleTraceAndFinishWithTypedFailure() async {
+        let log = DiagnosticLog(capacity: 8)
+        let lifecycleTrace = log.beginConnectionTrace()
+
+        #expect(log.adoptOrBeginConnectionTrace() == lifecycleTrace)
+        #expect(log.finishConnectionTrace(
+            lifecycleTrace,
+            failure: .brokerRateLimited
+        ))
+        await waitForProcessed(log, 1)
+
+        let terminal = await log.snapshot().events.last
+        #expect(terminal?.code == .connectionTraceFailed)
+        #expect(terminal?.c == lifecycleTrace)
+        #expect(terminal?.diagnosticFailureKind == .brokerRateLimited)
     }
 
     @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
@@ -271,6 +320,9 @@ import Testing
         #expect(DiagnosticFailureKind.admissionLeaseExpired.rawValue == 22)
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
+        #expect(DiagnosticFailureKind.brokerRateLimited.rawValue == 25)
+        #expect(DiagnosticFailureKind.brokerServerFailure.rawValue == 26)
+        #expect(DiagnosticFailureKind.policyMismatch.rawValue == 27)
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count

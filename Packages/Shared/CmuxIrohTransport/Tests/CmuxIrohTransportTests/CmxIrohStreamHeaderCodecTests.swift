@@ -16,7 +16,8 @@ struct CmxIrohStreamHeaderCodecTests {
                     uuidString: "00000000-0000-0000-0000-000000000041"
                 )!,
                 engineGeneration: 3,
-                dialGeneration: 9
+                dialGeneration: 9,
+                diagnosticCorrelationID: 7_007
             )
         )
         let encoded = try codec.encode(header)
@@ -27,6 +28,25 @@ struct CmxIrohStreamHeaderCodecTests {
         #expect(decoded.header == header)
         #expect(decoded.consumedByteCount == encoded.count)
         #expect((encoded + applicationBytes).dropFirst(decoded.consumedByteCount) == applicationBytes)
+    }
+
+    @Test
+    func legacyAttemptWithoutDiagnosticCorrelationStillDecodes() throws {
+        let codec = try CmxIrohStreamHeaderCodec()
+        let header = try CmxIrohStreamHeader(
+            lane: .control,
+            credential: .pairGrant("e30.e30.AA"),
+            connectionAttempt: CmxIrohConnectionAttempt(
+                processIncarnation: UUID(
+                    uuidString: "00000000-0000-0000-0000-000000000042"
+                )!,
+                engineGeneration: 4,
+                dialGeneration: 10
+            )
+        )
+
+        #expect(try codec.decodePrefix(codec.encode(header)).header == header)
+        #expect(header.connectionAttempt?.diagnosticCorrelationID == nil)
     }
 
     @Test
