@@ -281,6 +281,9 @@ public struct SocketListenerPolicy: Sendable {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
+        // Only the stable path detours. Once an attempt is on the user-scoped
+        // fallback, transient occupancy is retried in place by
+        // `shouldRetryStartupFailure` instead of selecting another path.
         guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
             return nil
         }
