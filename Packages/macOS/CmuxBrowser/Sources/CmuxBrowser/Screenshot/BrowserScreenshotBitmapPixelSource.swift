@@ -4,160 +4,96 @@ public import AppKit
 public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
     /// Pixel dimensions of the normalized bitmap representation.
     public let pixelSize: NSSize
-    private let bitmap: NSBitmapImageRep
-    private let bytesPerPixel: Int
-    private let bitmapData: UnsafeMutablePointer<UInt8>
-    private let channelOffsets: ChannelOffsets
+    private let data: Data
+    private let bytesPerRow: Int
 
-    private struct ChannelOffsets {
-        let red: Int
-        let green: Int
-        let blue: Int
-        let alpha: Int?
+    private struct NormalizedPixels {
+        let data: Data
+        let width: Int
+        let height: Int
+        let bytesPerRow: Int
     }
 
-    /// Creates a sampler when the image has a supported RGB(A) representation.
+    /// Creates an sRGB sampler for a drawable image.
     ///
-    /// The sampler retains the selected bitmap representation for the lifetime
-    /// of the raw byte-plane pointer used by ``color(at:)``.
+    /// The sampler redraws once into an owned packed-sRGB buffer so every source
+    /// representation has the same channel order and color space.
     ///
     /// - Parameter image: Snapshot image to normalize for direct pixel access.
-    /// - Returns: `nil` when the image has no supported 8-bit packed RGB(A) representation.
+    /// - Returns: `nil` when the image cannot provide a drawable CG representation.
     public init?(image: NSImage) {
-        let candidates = image.representations
-            .compactMap { $0 as? NSBitmapImageRep }
-            .sorted {
-                Double($0.pixelsWide) * Double($0.pixelsHigh)
-                    > Double($1.pixelsWide) * Double($1.pixelsHigh)
-            }
-        let selectedBitmap: NSBitmapImageRep
-        if let candidate = candidates.first, Self.supportsDirectAccess(candidate) {
-            selectedBitmap = candidate
-        } else {
-            if let normalizedBitmap = Self.normalizedBitmap(from: image) {
-                selectedBitmap = normalizedBitmap
-            } else if let candidate = candidates.first(where: Self.supportsDirectAccess) {
-                selectedBitmap = candidate
-            } else {
-                return nil
-            }
-        }
-        self.bitmap = selectedBitmap
-        let samplesPerPixel = selectedBitmap.samplesPerPixel
-        guard let bitmapData = selectedBitmap.bitmapData,
-              let channelOffsets = Self.channelOffsets(for: selectedBitmap) else {
+        guard let normalized = Self.normalizedPixels(from: image) else {
             return nil
         }
         self.pixelSize = NSSize(
-            width: selectedBitmap.pixelsWide,
-            height: selectedBitmap.pixelsHigh
+            width: normalized.width,
+            height: normalized.height
         )
-        self.bytesPerPixel = samplesPerPixel
-        self.bitmapData = bitmapData
-        self.channelOffsets = channelOffsets
+        self.data = normalized.data
+        self.bytesPerRow = normalized.bytesPerRow
     }
 
-    /// Redraws any AppKit/CG image layout into a known packed RGBA bitmap.
-    private static func normalizedBitmap(from image: NSImage) -> NSBitmapImageRep? {
+    /// Redraws any AppKit/CG image layout into one owned packed-sRGB buffer.
+    private static func normalizedPixels(from image: NSImage) -> NormalizedPixels? {
         var proposedRect = NSRect(origin: .zero, size: image.size)
-        let cgImage = image.cgImage(
+        guard let cgImage = image.cgImage(
             forProposedRect: &proposedRect,
             context: nil,
             hints: nil
-        )
-        let largestRepresentation = image.representations.max {
-            Double($0.pixelsWide) * Double($0.pixelsHigh)
-                < Double($1.pixelsWide) * Double($1.pixelsHigh)
+        ) else {
+            return nil
         }
-        let width = cgImage?.width ?? largestRepresentation?.pixelsWide ?? 0
-        let height = cgImage?.height ?? largestRepresentation?.pixelsHigh ?? 0
+        let width = cgImage.width
+        let height = cgImage.height
         guard width > 0,
               height > 0,
-              let bitmap = NSBitmapImageRep(
-                  bitmapDataPlanes: nil,
-                  pixelsWide: width,
-                  pixelsHigh: height,
-                  bitsPerSample: 8,
-                  samplesPerPixel: 4,
-                  hasAlpha: true,
-                  isPlanar: false,
-                  colorSpaceName: .deviceRGB,
-                  bytesPerRow: 0,
-                  bitsPerPixel: 0
-              ),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+              width <= Int.max / 4 else {
+            return nil
+        }
+        let bytesPerRow = width * 4
+        guard height <= Int.max / bytesPerRow,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
             return nil
         }
 
-        let outputSize = NSSize(width: width, height: height)
-        let sourceSize = image.size.width > 0 && image.size.height > 0
-            ? image.size
-            : outputSize
-        bitmap.size = outputSize
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        NSGraphicsContext.current = context
-        context.imageInterpolation = .none
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: outputSize).fill()
-        image.draw(
-            in: NSRect(origin: .zero, size: outputSize),
-            from: NSRect(origin: .zero, size: sourceSize),
-            operation: .copy,
-            fraction: 1,
-            respectFlipped: false,
-            hints: [.interpolation: NSImageInterpolation.none]
-        )
-        guard let converted = bitmap.converting(
-            to: .sRGB,
-            renderingIntent: .default
-        ),
-            supportsDirectAccess(converted) else {
-            return nil
-        }
-        converted.size = outputSize
-        return converted
-    }
-
-    /// Returns the direct byte offsets for a supported packed RGB(A) bitmap.
-    private static func channelOffsets(
-        for bitmap: NSBitmapImageRep
-    ) -> ChannelOffsets? {
-        guard bitmap.samplesPerPixel == 4, bitmap.hasAlpha else {
-            if bitmap.samplesPerPixel == 3, !bitmap.hasAlpha {
-                return ChannelOffsets(red: 0, green: 1, blue: 2, alpha: nil)
+        var data = Data(count: bytesPerRow * height)
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue
+            | CGImageAlphaInfo.premultipliedLast.rawValue
+        let didDraw = data.withUnsafeMutableBytes { buffer in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow,
+                      space: colorSpace,
+                      bitmapInfo: bitmapInfo
+                  ) else {
+                return false
             }
+            context.interpolationQuality = .none
+            context.setBlendMode(.copy)
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1, y: -1)
+            context.draw(
+                cgImage,
+                in: CGRect(x: 0, y: 0, width: width, height: height)
+            )
+            return true
+        }
+        guard didDraw else {
             return nil
         }
-
-        return bitmap.bitmapFormat.contains(.alphaFirst)
-            ? ChannelOffsets(red: 1, green: 2, blue: 3, alpha: 0)
-            : ChannelOffsets(red: 0, green: 1, blue: 2, alpha: 3)
+        return NormalizedPixels(
+            data: data,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow
+        )
     }
 
-    /// Returns whether a bitmap supports direct packed RGB(A) byte access.
-    private static func supportsDirectAccess(_ bitmap: NSBitmapImageRep) -> Bool {
-        let unsupportedFormat: NSBitmapImageRep.Format = [
-            .floatingPointSamples,
-            .sixteenBitLittleEndian,
-            .sixteenBitBigEndian,
-            .thirtyTwoBitLittleEndian,
-            .thirtyTwoBitBigEndian,
-        ]
-        let samplesPerPixel = bitmap.samplesPerPixel
-        return bitmap.pixelsWide > 0
-            && bitmap.pixelsHigh > 0
-            && bitmap.bitsPerSample == 8
-            && !bitmap.isPlanar
-            && bitmap.colorSpace == .sRGB
-            && channelOffsets(for: bitmap) != nil
-            && bitmap.bitsPerPixel == samplesPerPixel * 8
-            && bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel
-            && bitmap.bitmapFormat.intersection(unsupportedFormat).isEmpty
-            && bitmap.bitmapData != nil
-    }
-
-    /// Reads one top-left-origin pixel directly from the bitmap byte plane.
+    /// Reads one top-left-origin pixel from the owned packed-sRGB buffer.
     ///
     /// - Parameter point: Pixel coordinate to sample.
     /// - Returns: A normalized color, or `nil` when `point` is outside the bitmap.
@@ -165,20 +101,17 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         let x = Int(point.x.rounded(.down))
         let y = Int(point.y.rounded(.down))
         guard x >= 0,
-              x < bitmap.pixelsWide,
+              x < Int(pixelSize.width),
               y >= 0,
-              y < bitmap.pixelsHigh else {
+              y < Int(pixelSize.height) else {
             return nil
         }
-        let offset = y * bitmap.bytesPerRow + x * bytesPerPixel
-        let alpha = channelOffsets.alpha.map {
-            CGFloat(bitmapData[offset + $0]) / 255.0
-        } ?? 1.0
+        let offset = y * bytesPerRow + x * 4
         return BrowserScreenshotFrameVerifier.RGBA(
-            red: CGFloat(bitmapData[offset + channelOffsets.red]) / 255.0,
-            green: CGFloat(bitmapData[offset + channelOffsets.green]) / 255.0,
-            blue: CGFloat(bitmapData[offset + channelOffsets.blue]) / 255.0,
-            alpha: alpha
+            red: CGFloat(data[offset]) / 255.0,
+            green: CGFloat(data[offset + 1]) / 255.0,
+            blue: CGFloat(data[offset + 2]) / 255.0,
+            alpha: CGFloat(data[offset + 3]) / 255.0
         )
     }
 }

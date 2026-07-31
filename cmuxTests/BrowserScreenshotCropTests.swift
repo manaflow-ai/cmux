@@ -855,22 +855,39 @@ struct BrowserScreenshotCropTests {
             pendingFontHandler,
             forURLScheme: "cmux-pending-font"
         )
-        let pendingFont = try await collectDOMProbes(
+        let pendingFontWebView = try await loadDOMWebView(
             html: """
             <!doctype html>
             <style>
-              @font-face {
-                font-family: Pending;
-                src: url("cmux-pending-font://fixture/font.woff2");
-                font-display: block;
-              }
               html, body { margin: 0; background: black; }
-              p { color: white; font: 20px Pending, sans-serif; }
+              p { color: white; font: 20px sans-serif; }
             </style>
             <p>MMMM</p>
             """,
             configuration: configuration
         )
+        defer { pendingFontHandler.cancelOpenTasks() }
+        let fontStatus = try await pendingFontWebView.evaluateJavaScript(
+            """
+            (() => {
+              const face = new FontFace(
+                "Pending",
+                "url(cmux-pending-font://fixture/font.woff2)",
+                { display: "block" }
+              );
+              document.fonts.add(face);
+              document.querySelector("p").style.fontFamily = "Pending, sans-serif";
+              void document.body.offsetHeight;
+              face.load().catch(() => {});
+              return document.fonts.status;
+            })();
+            """
+        ) as? String
+        #expect(fontStatus == "loading")
+        let pendingFontValue = await BrowserScreenshotDOMProbeCollector(
+            webView: pendingFontWebView
+        ).collect()
+        let pendingFont = try #require(pendingFontValue)
         let masked = try await collectDOMProbes(
             html: """
             <!doctype html>
@@ -896,14 +913,25 @@ struct BrowserScreenshotCropTests {
         html: String,
         configuration: WKWebViewConfiguration = WKWebViewConfiguration()
     ) async throws -> BrowserScreenshotFrameVerifier.ProbeSet {
+        let webView = try await loadDOMWebView(
+            html: html,
+            configuration: configuration
+        )
+        let collected = await BrowserScreenshotDOMProbeCollector(webView: webView).collect()
+        return try #require(collected)
+    }
+
+    private func loadDOMWebView(
+        html: String,
+        configuration: WKWebViewConfiguration
+    ) async throws -> WKWebView {
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 400, height: 300),
             configuration: configuration
         )
         let navigation = BrowserScreenshotTestNavigation()
         try await navigation.load(html: html, in: webView)
-        let collected = await BrowserScreenshotDOMProbeCollector(webView: webView).collect()
-        return try #require(collected)
+        return webView
     }
 
     private func textProbeSet(
@@ -1089,14 +1117,26 @@ struct BrowserScreenshotCropTests {
 @MainActor
 private final class BrowserScreenshotTestNavigation: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
+    private var timeoutTimer: Timer?
 
     func load(html: String, in webView: WKWebView) async throws {
+        webView.navigationDelegate = self
+        defer { webView.navigationDelegate = nil }
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            webView.navigationDelegate = self
+            let timer = Timer(timeInterval: 5, repeats: false) { [weak self, weak webView] _ in
+                Task { @MainActor [weak self, weak webView] in
+                    webView?.stopLoading()
+                    self?.finish(.failure(NSError(
+                        domain: "BrowserScreenshotCropTests.Navigation",
+                        code: 1
+                    )))
+                }
+            }
+            timeoutTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
             webView.loadHTMLString(html, baseURL: nil)
         }
-        webView.navigationDelegate = nil
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1122,12 +1162,29 @@ private final class BrowserScreenshotTestNavigation: NSObject, WKNavigationDeleg
     private func finish(_ result: Result<Void, Error>) {
         guard let continuation else { return }
         self.continuation = nil
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
         continuation.resume(with: result)
     }
 }
 
 private final class BrowserScreenshotPendingFontSchemeHandler: NSObject, WKURLSchemeHandler {
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {}
+    private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
+    }
+
+    func cancelOpenTasks() {
+        let openTasks = Array(tasks.values)
+        tasks.removeAll()
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        for task in openTasks {
+            task.didFailWithError(error)
+        }
+    }
 }
