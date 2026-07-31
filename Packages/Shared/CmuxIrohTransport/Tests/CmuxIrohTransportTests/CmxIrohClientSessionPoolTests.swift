@@ -1100,7 +1100,7 @@ private actor HoldingWakeValidationClock: CmxIrohRelayClock {
     }
 }
 
-private struct PoolFixture {
+struct PoolFixture {
     let localIdentity: CmxIrohPeerIdentity
     let remoteIdentity: CmxIrohPeerIdentity
     let request: CmxByteTransportRequest

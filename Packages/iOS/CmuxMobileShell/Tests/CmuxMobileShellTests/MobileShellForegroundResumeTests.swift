@@ -199,7 +199,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func foregroundResumeAbandonsProbeStartedDuringBackgroundAndProbesAgain() async throws {
+@Test func foregroundRecoveryRequestedDuringBackgroundWaitsForForegroundProbe() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -219,16 +219,14 @@ struct MobileShellForegroundConnectionRecoveryTests {
 
     store.suspendForegroundRefresh()
     store.recoverForegroundConnectionIfNeeded(resyncAfterHealthy: false)
-    #expect(await router.waitForCount(
-        of: "mobile.workspace.list",
-        atLeast: probeCount + 1
-    ))
+    #expect(await router.count(of: "mobile.workspace.list") == probeCount)
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
         of: "mobile.workspace.list",
-        atLeast: probeCount + 2
+        atLeast: probeCount + 1
     ))
+    await router.releaseAllHeld()
     #expect(try await pollUntil {
         store.connectionRecoveryOwner.phase == .idle
     })
@@ -252,7 +250,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
         try? FileManager.default.removeItem(at: directory)
     }
     store.connectionState = .disconnected
-    store.clearRemoteConnectionContext()
+    await store.releaseRemoteClientForReplacement()
     let failedAttempt = try #require(store.connectionRecoveryOwner.begin(
         trigger: "background-failure",
         sourceConnectionGeneration: store.connectionGeneration,

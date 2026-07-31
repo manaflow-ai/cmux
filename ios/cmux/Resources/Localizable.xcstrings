@@ -2092,6 +2092,23 @@
         }
       }
     },
+    "mobile.connection.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection is retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続を再試行しています"
+          }
+        }
+      }
+    },
     "mobile.computers.role.foreground": {
       "extractionState": "manual",
       "localizations": {
