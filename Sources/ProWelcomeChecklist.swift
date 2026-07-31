@@ -1,21 +1,14 @@
 import AppKit
+import CmuxBrowser
 import CmuxTerminalCore
 import Foundation
 
+@MainActor
 struct AppWebThemeSnapshot: Equatable {
     let appearance: String
     let background: String
     let foreground: String
     let accent: String
-
-    private struct JavaScriptPayload: Encodable {
-        let appearance: String
-        let background: String
-        let foreground: String
-        let accent: String
-        let accentOnBackground: String
-        let accentOnForeground: String
-    }
 
     static func current(notification: Notification? = nil) -> AppWebThemeSnapshot {
         let userInfo = notification?.userInfo
@@ -51,19 +44,8 @@ struct AppWebThemeSnapshot: Equatable {
         contrastAdjustedAccent(on: foreground)
     }
 
-    var queryItems: [URLQueryItem] {
-        [
-            URLQueryItem(name: "appearance", value: appearance),
-            URLQueryItem(name: "background", value: background),
-            URLQueryItem(name: "foreground", value: foreground),
-            URLQueryItem(name: "accent", value: accent),
-            URLQueryItem(name: "accent_on_background", value: accentOnBackground),
-            URLQueryItem(name: "accent_on_foreground", value: accentOnForeground),
-        ]
-    }
-
-    func applyingJavaScript() -> String? {
-        let payload = JavaScriptPayload(
+    var browserTheme: BrowserAppTheme {
+        BrowserAppTheme(
             appearance: appearance,
             background: background,
             foreground: foreground,
@@ -71,37 +53,6 @@ struct AppWebThemeSnapshot: Equatable {
             accentOnBackground: accentOnBackground,
             accentOnForeground: accentOnForeground
         )
-        guard let data = try? JSONEncoder().encode(payload),
-              let json = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return """
-        (() => {
-          const root = document.querySelector('[data-cmux-app-theme]');
-          if (!root) return false;
-          const theme = \(json);
-          root.style.setProperty('--ghostty-background', theme.background);
-          root.style.setProperty('--ghostty-foreground', theme.foreground);
-          root.style.setProperty('--cmux-product-blue', theme.accent);
-          root.style.setProperty('--cmux-product-blue-on-background', theme.accentOnBackground);
-          root.style.setProperty('--cmux-product-blue-on-foreground', theme.accentOnForeground);
-          root.style.backgroundColor = theme.background;
-          root.style.colorScheme = theme.appearance;
-          root.dataset.cmuxAppThemeAppearance = theme.appearance;
-          if (root.hasAttribute('data-app-pricing-appearance')) {
-            root.setAttribute('data-app-pricing-appearance', theme.appearance);
-          }
-          if (root.hasAttribute('data-app-pro-welcome-appearance')) {
-            root.setAttribute('data-app-pro-welcome-appearance', theme.appearance);
-          }
-          for (const element of [document.documentElement, document.body]) {
-            element?.style.setProperty('background', theme.background, 'important');
-          }
-          document.querySelector('meta[name="theme-color"]')
-            ?.setAttribute('content', theme.background);
-          return true;
-        })()
-        """
     }
 
     private func contrastAdjustedAccent(on backgroundHex: String) -> String {
@@ -113,15 +64,6 @@ struct AppWebThemeSnapshot: Equatable {
             accentColor,
             on: backgroundColor
         ).hexString()
-    }
-
-    static func supports(url: URL?) -> Bool {
-        guard let url,
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return false
-        }
-        return url.path == "/app-pricing" || url.path == "/app-pro-welcome"
     }
 
 }
@@ -233,14 +175,16 @@ extension ProUpgradePresenter {
         decoratedAppWebURL(base, theme: AppWebThemeSnapshot.current())
     }
 
+    @MainActor
     static func decoratedAppWebURL(_ base: URL, theme: AppWebThemeSnapshot) -> URL {
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         var queryItems = components?.queryItems ?? []
-        let themedQueryNames = Set(theme.queryItems.map(\.name))
+        let browserTheme = theme.browserTheme
+        let themedQueryNames = Set(browserTheme.queryItems.map(\.name))
         queryItems.removeAll { themedQueryNames.contains($0.name) }
         queryItems.removeAll { $0.name == "cmux_app" }
         queryItems.removeAll { $0.name == "cmux_scheme" }
-        queryItems.append(contentsOf: theme.queryItems)
+        queryItems.append(contentsOf: browserTheme.queryItems)
         queryItems.append(URLQueryItem(name: "cmux_app", value: "1"))
         queryItems.append(URLQueryItem(name: "cmux_scheme", value: AuthEnvironment.callbackScheme))
         components?.queryItems = queryItems

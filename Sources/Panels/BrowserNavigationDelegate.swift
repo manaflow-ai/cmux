@@ -3,50 +3,12 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
-enum BrowserExternalNavigationIntent {
-    static func shouldOpenInSystemBrowser(
-        _ url: URL,
-        trustedOrigin: URL = AuthEnvironment.appWebOrigin
-    ) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              sameOrigin(url, trustedOrigin) else {
-            return false
-        }
-        return components.queryItems?.contains(where: {
-            $0.name == "cmux_external_browser" && $0.value != "0"
-        }) == true
-    }
-
-    private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
-        guard let lhsComponents = URLComponents(url: lhs, resolvingAgainstBaseURL: false),
-              let rhsComponents = URLComponents(url: rhs, resolvingAgainstBaseURL: false),
-              let lhsScheme = lhsComponents.scheme?.lowercased(),
-              let rhsScheme = rhsComponents.scheme?.lowercased(),
-              let lhsHost = lhsComponents.host?.lowercased(),
-              let rhsHost = rhsComponents.host?.lowercased() else {
-            return false
-        }
-        return lhsScheme == rhsScheme
-            && lhsHost == rhsHost
-            && effectivePort(lhsComponents) == effectivePort(rhsComponents)
-    }
-
-    private static func effectivePort(_ components: URLComponents) -> Int? {
-        if let port = components.port {
-            return port
-        }
-        switch components.scheme?.lowercased() {
-        case "http": return 80
-        case "https": return 443
-        default: return nil
-        }
-    }
-}
-
 @MainActor final class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
+    private let externalNavigationPolicy = BrowserExternalNavigationPolicy(
+        trustedOrigin: AuthEnvironment.appWebOrigin
+    )
     private var shouldPrintAfterCurrentNavigationFinishes = false
     var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCommit: ((WKWebView, WKNavigation?) -> Void)?
@@ -579,7 +541,7 @@ enum BrowserExternalNavigationIntent {
     private func shouldOpenInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard navigationAction.navigationType == .linkActivated else { return false }
-        return BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(url)
+        return externalNavigationPolicy.shouldOpenInSystemBrowser(url)
     }
 
     func canHandleSSLTrustBypassToken(_ token: String) -> Bool {

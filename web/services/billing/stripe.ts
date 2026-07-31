@@ -30,7 +30,7 @@ export function stripe(): Stripe {
 export async function resolveProPrice(interval: BillingInterval): Promise<string> {
   const overridden = interval === "month"
     ? env.STRIPE_PRO_MONTHLY_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_PRICE_ID;
+    : env.STRIPE_PRO_YEARLY_288_PRICE_ID;
   if (overridden) return overridden;
 
   const cached = resolvedProPriceIds.get(interval);

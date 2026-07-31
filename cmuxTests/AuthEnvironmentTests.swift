@@ -311,6 +311,7 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
     }
 
+    @MainActor
     @Test("app web URLs carry the Ghostty colors and cmux product accent")
     func appWebURLsCarryGhosttyColorsAndCmuxProductAccent() throws {
         let base = try #require(URL(string: "https://cmux.com/app-pricing?interval=year&accent=%23000000"))
@@ -337,6 +338,7 @@ struct AuthEnvironmentTests {
         #expect(values["cmux_app"] == "1")
     }
 
+    @MainActor
     @Test("app web appearance and product accent follow the Ghostty background")
     func appWebAppearanceAndProductAccentFollowGhosttyBackground() throws {
         let darkSnapshot = AppWebThemeSnapshot.resolved(
@@ -362,6 +364,7 @@ struct AuthEnvironmentTests {
         #expect(lightSnapshot.accentOnForeground == "#0088FF")
     }
 
+    @MainActor
     @Test("app web theme JavaScript updates every shared theme variable")
     func appWebThemeJavaScriptUpdatesEverySharedThemeVariable() throws {
         let theme = AppWebThemeSnapshot(
@@ -370,7 +373,8 @@ struct AuthEnvironmentTests {
             foreground: "#171717",
             accent: "#0088FF"
         )
-        let script = try #require(theme.applyingJavaScript())
+        let browserTheme = theme.browserTheme
+        let script = try #require(browserTheme.applyingJavaScript())
 
         #expect(script.contains("[data-cmux-app-theme]"))
         #expect(script.contains("--ghostty-background"))
@@ -378,46 +382,9 @@ struct AuthEnvironmentTests {
         #expect(script.contains("--cmux-product-blue"))
         #expect(script.contains("--cmux-product-blue-on-background"))
         #expect(script.contains("--cmux-product-blue-on-foreground"))
-        #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pricing")))
-        #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
-        #expect(!AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/pricing")))
-    }
-
-    @Test("external browser intent applies to checkout and Contact sales links")
-    func externalBrowserIntentAppliesToCheckoutAndContactSalesLinks() throws {
-        let trustedOrigin = try #require(URL(string: "https://cmux.com"))
-        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://attacker.example/?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "http://cmux.com/?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com:8443/?cmux_external_browser=1")),
-            trustedOrigin: trustedOrigin
-        ))
-        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "http://localhost:4100/enterprise?cmux_external_browser=1")),
-            trustedOrigin: try #require(URL(string: "http://localhost:4100"))
-        ))
+        #expect(browserTheme.supports(url: URL(string: "https://cmux.com/app-pricing")))
+        #expect(browserTheme.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
+        #expect(!browserTheme.supports(url: URL(string: "https://cmux.com/pricing")))
     }
 
     @Test("app session handoff pins credentials to production or debug loopback")
