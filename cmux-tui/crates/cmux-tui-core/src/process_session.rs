@@ -31,6 +31,8 @@ const NATURAL_REAP_MAX_ATTEMPTS: usize = 3;
 
 #[cfg(test)]
 static NATURAL_REAP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static NATURAL_REAP_TEST_SESSION: AtomicUsize = AtomicUsize::new(1_000_000_000);
 
 static NATURAL_REAPER: OnceLock<Mutex<Option<NaturalReaper>>> = OnceLock::new();
 static STABLE_PROCESS_SIGNALING: OnceLock<()> = OnceLock::new();
@@ -46,6 +48,11 @@ thread_local! {
 #[cfg(test)]
 pub(crate) fn dedicated_natural_reap_workers_for_test() -> usize {
     NATURAL_REAP_WORKERS.load(Ordering::Acquire)
+}
+
+#[cfg(test)]
+fn natural_reap_test_session() -> libc::pid_t {
+    libc::pid_t::try_from(NATURAL_REAP_TEST_SESSION.fetch_add(1, Ordering::Relaxed)).unwrap()
 }
 
 #[cfg(test)]
@@ -1646,7 +1653,7 @@ mod tests {
         let observe_release = release.clone();
         let (attempt_sender, attempt_receiver) = mpsc::channel();
         let (finished_sender, finished_receiver) = mpsc::channel();
-        let session = libc::pid_t::try_from(std::process::id()).unwrap();
+        let session = natural_reap_test_session();
         enqueue_reserved_session_leader(
             reserve_child_reaper().unwrap(),
             session,
@@ -1689,7 +1696,7 @@ mod tests {
         let finish_release = release.clone();
         let (attempt_sender, attempt_receiver) = mpsc::channel();
         let (finished_sender, finished_receiver) = mpsc::channel();
-        let session = libc::pid_t::try_from(std::process::id()).unwrap();
+        let session = natural_reap_test_session();
         enqueue_reserved_session_leader(
             reserve_child_reaper().unwrap(),
             session,

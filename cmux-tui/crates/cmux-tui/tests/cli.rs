@@ -1,8 +1,10 @@
+#[cfg(unix)]
+use std::ffi::CStr;
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::fd::FromRawFd;
@@ -941,6 +943,43 @@ fn ratio_commands_localize_nonfinite_values() {
 }
 
 #[cfg(unix)]
+fn open_test_pty() -> (File, File) {
+    static PTY_NAME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    let _name_lock = PTY_NAME_LOCK.lock().unwrap();
+    let master_fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
+    assert_ne!(master_fd, -1, "posix_openpt failed: {}", std::io::Error::last_os_error());
+    let master = unsafe { File::from_raw_fd(master_fd) };
+    assert_eq!(
+        unsafe { libc::grantpt(master.as_raw_fd()) },
+        0,
+        "grantpt failed: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { libc::unlockpt(master.as_raw_fd()) },
+        0,
+        "unlockpt failed: {}",
+        std::io::Error::last_os_error()
+    );
+    let slave_name = unsafe { libc::ptsname(master.as_raw_fd()) };
+    assert!(!slave_name.is_null(), "ptsname failed: {}", std::io::Error::last_os_error());
+    let slave_name = unsafe { CStr::from_ptr(slave_name) }.to_owned();
+    let slave_fd =
+        unsafe { libc::open(slave_name.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
+    assert_ne!(slave_fd, -1, "open PTY slave failed: {}", std::io::Error::last_os_error());
+    let slave = unsafe { File::from_raw_fd(slave_fd) };
+    let size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+    assert_ne!(
+        unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCSWINSZ, &size) },
+        -1,
+        "set PTY size failed: {}",
+        std::io::Error::last_os_error()
+    );
+    (master, slave)
+}
+
+#[cfg(unix)]
 struct PtyChild {
     child: Child,
     output_drain: Option<std::thread::JoinHandle<()>>,
@@ -953,21 +992,7 @@ impl PtyChild {
     }
 
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let mut master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
+        let (mut master, slave) = open_test_pty();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
@@ -1007,26 +1032,7 @@ struct DisconnectablePtyChild {
 #[cfg(unix)]
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
-        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
-        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
-        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
-
-        let master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
+        let (master, slave) = open_test_pty();
         let child = Command::new(bin())
             .args(args)
             .env_remove("CMUX_TUI_SOCKET")

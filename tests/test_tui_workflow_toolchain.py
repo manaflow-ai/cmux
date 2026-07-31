@@ -4,6 +4,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+VALGRIND_PIDFD_SKIPS = ROOT / "cmux-tui" / "dist" / "valgrind-pidfd-skips.txt"
 RUST_JOBS = (
     "valgrind-leak-check",
     "test",
@@ -31,3 +32,29 @@ def test_tui_rust_jobs_install_the_release_toolchain() -> None:
 
     test_job = job_block(workflow, "test")
     assert "--component clippy,rustfmt" in test_job
+
+
+def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
+    entries = [
+        tuple(line.split(maxsplit=1))
+        for line in VALGRIND_PIDFD_SKIPS.read_text().splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert all(len(entry) == 2 for entry in entries)
+    assert len(entries) == len(set(entries))
+    assert {scope for scope, _ in entries} == {
+        "cmux_tui",
+        "cmux_tui_core",
+        "pty",
+        "websocket_transport",
+    }
+
+    valgrind_job = job_block(WORKFLOW.read_text(), "valgrind-leak-check")
+    assert "Skipping pidfd-dependent test binary" not in valgrind_job
+    assert "dist/valgrind-pidfd-skips.txt" in valgrind_job
+    assert 'test_args+=(--skip "$test_name")' in valgrind_job
+
+
+if __name__ == "__main__":
+    test_tui_rust_jobs_install_the_release_toolchain()
+    test_valgrind_fallback_keeps_non_pidfd_tests()

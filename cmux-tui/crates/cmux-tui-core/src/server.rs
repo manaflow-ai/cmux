@@ -7153,10 +7153,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "write-eof-drain-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
@@ -7238,10 +7238,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "clear-concurrency-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();
@@ -7312,10 +7312,10 @@ mod tests {
 
         let nonce =
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
+        let path = std::env::temp_dir().join(format!(
             "clear-lifecycle-{}-{}.sock",
             std::process::id(),
-            nonce % 1_000_000_000
+            nonce
         ));
         let _ = std::fs::remove_file(&path);
         let listener = transport::listen(&path).unwrap();

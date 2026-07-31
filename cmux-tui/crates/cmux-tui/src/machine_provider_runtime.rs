@@ -3709,6 +3709,7 @@ mod tests {
         let mut enrolled = catalog.clone();
         enrolled.revision = 2;
         enrolled.selected_machine_id = Some(id("machine-1"));
+        enrolled.machines[0].connectable = true;
         let server_catalog = catalog;
         let server = thread::spawn(move || {
             let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(

@@ -737,9 +737,21 @@ const BROWSER_UPDATED_PAGE_VERIFICATION_FAILED_PREFIX: &str =
 const BROWSER_VERIFICATION_FAILED_SUFFIX: &str = "; reload to retry";
 const AUTHORITY_CAPTURE_ATTEMPTS: usize = 3;
 #[cfg(not(test))]
-const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
+fn authority_capture_attempt_budget() -> Duration {
+    Duration::from_secs(2)
+}
 #[cfg(test)]
-const AUTHORITY_CAPTURE_ATTEMPT_BUDGET: Duration = Duration::from_millis(150);
+fn authority_capture_attempt_budget() -> Duration {
+    Duration::from_millis(150).saturating_mul(test_timeout_scale())
+}
+#[cfg(test)]
+fn test_timeout_scale() -> u32 {
+    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1)
+}
 const NAVIGATION_AUTHORITY_TIMEOUT: Duration = Duration::from_secs(15);
 const POINTER_RELEASE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
@@ -4707,7 +4719,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + authority_capture_attempt_budget();
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
@@ -4755,7 +4767,7 @@ impl BrowserSurface {
             if !self.needs_same_document_paint() {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + authority_capture_attempt_budget();
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_same_document_paint(
@@ -4839,7 +4851,7 @@ impl BrowserSurface {
                 );
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + authority_capture_attempt_budget();
             match session
                 .runtime
                 .client
@@ -9511,7 +9523,7 @@ mod tests {
             "document verification must reach the healthy final attempt"
         );
         assert!(
-            elapsed < Duration::from_millis(600),
+            elapsed < Duration::from_millis(600).saturating_mul(super::test_timeout_scale()),
             "bounded attempts monopolized the input worker for {elapsed:?}"
         );
     }

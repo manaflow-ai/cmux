@@ -6,8 +6,8 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
@@ -1903,10 +1903,8 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     let mut renderer_writer = renderer.stream.try_clone().unwrap();
     let drained = Arc::new(AtomicUsize::new(0));
     let drain_count = drained.clone();
-    let (overflow_tx, overflow_rx) = mpsc::sync_channel(1);
     let drain = std::thread::spawn(move || {
         let mut renderer = renderer;
-        let mut reported = false;
         loop {
             match read_frame(&mut renderer.stream, MAX_FRAME_PAYLOAD) {
                 Ok(Some(frame)) => {
@@ -1915,12 +1913,7 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
                         renderer.next_sequence = renderer.next_sequence.wrapping_add(1);
                     }
                     if frame.kind == MessageKind::Output {
-                        let total = drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel)
-                            + frame.payload.len();
-                        if total >= 12_000_000 && !reported {
-                            reported = true;
-                            let _ = overflow_tx.send(());
-                        }
+                        drain_count.fetch_add(frame.payload.len(), Ordering::AcqRel);
                     }
                 }
                 Ok(None) | Err(ProtocolError::Truncated { .. }) | Err(ProtocolError::Io(_)) => {
@@ -1935,15 +1928,22 @@ fn daemon_admin_backpressure_reconnects_without_restarting_host_or_renderer() {
     // enough PTY output fills the daemon tap's bounded queue and deliberately
     // disconnects that admin stream.
     harness.signal_daemon(libc::SIGSTOP);
-    write_frame(
-        &mut renderer_writer,
-        &Frame::new(
-            MessageKind::Input,
-            b"/usr/bin/head -c 14000000 /dev/zero; printf '\\nadmin-flood-done\\n'\n".to_vec(),
-        ),
-    )
-    .unwrap();
-    overflow_rx.recv_timeout(Duration::from_secs(15)).unwrap();
+    for chunk in 1..=14 {
+        write_frame(
+            &mut renderer_writer,
+            &Frame::new(MessageKind::Input, b"/usr/bin/head -c 1000000 /dev/zero\n".to_vec()),
+        )
+        .unwrap();
+        let expected = chunk * 1_000_000;
+        let deadline = Instant::now() + scaled_timeout(Duration::from_secs(15));
+        while drained.load(Ordering::Acquire) < expected && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            drained.load(Ordering::Acquire) >= expected,
+            "renderer did not drain output chunk {chunk} while the daemon was frozen"
+        );
+    }
     harness.signal_daemon(libc::SIGCONT);
 
     let after = format!("renderer-after-reconnect-{}", std::process::id());
