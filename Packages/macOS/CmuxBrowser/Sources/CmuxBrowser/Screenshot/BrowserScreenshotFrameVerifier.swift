@@ -1,16 +1,41 @@
-import AppKit
+public import AppKit
 
 /// Conservatively checks whether stable, high-contrast DOM text appears in a browser snapshot.
-struct BrowserScreenshotFrameVerifier {
-    struct RGBA: Equatable {
-        let red: CGFloat
-        let green: CGFloat
-        let blue: CGFloat
-        let alpha: CGFloat
+///
+/// The verifier accepts inconclusive frames and reports a mismatch only when
+/// multiple stable text probes each map to a uniform pixel region.
+public struct BrowserScreenshotFrameVerifier: Sendable {
+    /// A normalized pixel color used by the frame verifier.
+    public struct RGBA: Equatable, Sendable {
+        /// Red component in the source bitmap's color space, normalized to `0...1`.
+        public let red: CGFloat
+        /// Green component in the source bitmap's color space, normalized to `0...1`.
+        public let green: CGFloat
+        /// Blue component in the source bitmap's color space, normalized to `0...1`.
+        public let blue: CGFloat
+        /// Alpha component, normalized to `0...1`.
+        public let alpha: CGFloat
 
-        static let black = RGBA(red: 0, green: 0, blue: 0, alpha: 1)
-        static let white = RGBA(red: 1, green: 1, blue: 1, alpha: 1)
+        /// Opaque black.
+        public static let black = RGBA(red: 0, green: 0, blue: 0, alpha: 1)
+        /// Opaque white.
+        public static let white = RGBA(red: 1, green: 1, blue: 1, alpha: 1)
 
+        /// Creates a normalized color.
+        ///
+        /// - Parameters:
+        ///   - red: Red component in the source bitmap's color space.
+        ///   - green: Green component in the source bitmap's color space.
+        ///   - blue: Blue component in the source bitmap's color space.
+        ///   - alpha: Alpha component.
+        public init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+            self.red = red
+            self.green = green
+            self.blue = blue
+            self.alpha = alpha
+        }
+
+        /// Returns the largest normalized channel difference from another color.
         func distance(from other: RGBA) -> CGFloat {
             max(
                 abs(red - other.red),
@@ -21,30 +46,81 @@ struct BrowserScreenshotFrameVerifier {
         }
     }
 
-    struct Probe: Equatable {
-        let identifier: String
-        let text: String
+    /// DOM evidence for one visible text glyph.
+    public struct Probe: Equatable, Sendable {
+        /// Stable, opaque DOM-path identifier for the probed glyph.
+        public let identifier: String
+        /// Text-node content used only to confirm stability across capture.
+        ///
+        /// Callers must not include this value in logs or user-visible errors.
+        public let text: String
         /// A single visible glyph rect in CSS viewport coordinates, with a top-left origin.
-        let rect: NSRect
+        public let rect: NSRect
         /// The text color after compositing CSS color alpha over ``background``.
-        let foreground: RGBA
+        public let foreground: RGBA
         /// The opaque solid background color under the glyph.
-        let background: RGBA
+        public let background: RGBA
+
+        /// Creates a text probe collected from the DOM.
+        ///
+        /// - Parameters:
+        ///   - identifier: Stable, opaque identity shared by pre- and post-capture probes.
+        ///   - text: Text used only to determine whether the probe stayed stable.
+        ///   - rect: Visible glyph rectangle in CSS viewport coordinates.
+        ///   - foreground: Text color composited over `background`.
+        ///   - background: Opaque solid color beneath the glyph.
+        public init(
+            identifier: String,
+            text: String,
+            rect: NSRect,
+            foreground: RGBA,
+            background: RGBA
+        ) {
+            self.identifier = identifier
+            self.text = text
+            self.rect = rect
+            self.foreground = foreground
+            self.background = background
+        }
     }
 
-    struct ProbeSet: Equatable {
-        let viewportSize: NSSize
-        let probes: [Probe]
+    /// A bounded collection of probes for one viewport state.
+    public struct ProbeSet: Equatable, Sendable {
+        /// CSS viewport size with a top-left origin.
+        public let viewportSize: NSSize
+        /// Candidate text probes distributed across the viewport.
+        public let probes: [Probe]
+
+        /// Creates a probe set for a viewport state.
+        ///
+        /// - Parameters:
+        ///   - viewportSize: CSS viewport size represented by the probes.
+        ///   - probes: Bounded text probes distributed across the viewport.
+        public init(viewportSize: NSSize, probes: [Probe]) {
+            self.viewportSize = viewportSize
+            self.probes = probes
+        }
     }
 
     /// Supplies snapshot colors in top-left-origin pixel coordinates.
-    protocol PixelSource {
+    public protocol PixelSource {
+        /// Pixel dimensions of the snapshot.
         var pixelSize: NSSize { get }
+        /// Returns the pixel color at a top-left-origin point.
+        ///
+        /// - Parameter point: Pixel coordinate to sample.
+        /// - Returns: A normalized color, or `nil` when the point cannot be sampled.
         func color(at point: NSPoint) -> RGBA?
     }
 
-    enum Outcome: Equatable {
+    /// Conservative verification result for one snapshot.
+    public enum Outcome: Equatable, Sendable {
+        /// The snapshot is valid or the available evidence is inconclusive.
         case accepted
+        /// At least the configured minimum number of stable probes were uniform.
+        ///
+        /// The associated probe identifies the first mismatching rectangle;
+        /// `count` is the total number of mismatches found in the bounded set.
         case mismatch(probe: Probe, count: Int)
     }
 
@@ -55,7 +131,16 @@ struct BrowserScreenshotFrameVerifier {
     private let minimumForegroundContrast: CGFloat
     private let maximumSamplesPerProbe: Int
 
-    init(
+    /// Creates a conservative verifier with bounded probe and pixel work.
+    ///
+    /// - Parameters:
+    ///   - minimumMismatchCount: Stable uniform probes required to reject a frame.
+    ///   - maximumProbeCount: Maximum stable probes evaluated per frame.
+    ///   - rectTolerance: Maximum CSS-point drift allowed between probe collections.
+    ///   - uniformityTolerance: Maximum normalized channel difference treated as uniform.
+    ///   - minimumForegroundContrast: Minimum normalized text/background channel distance.
+    ///   - maximumSamplesPerProbe: Approximate upper bound on sampled pixels per probe.
+    public init(
         minimumMismatchCount: Int = 2,
         maximumProbeCount: Int = 12,
         rectTolerance: CGFloat = 1,
@@ -71,7 +156,14 @@ struct BrowserScreenshotFrameVerifier {
         self.maximumSamplesPerProbe = max(1, maximumSamplesPerProbe)
     }
 
-    func verify(
+    /// Compares stable DOM evidence around a snapshot with the captured pixels.
+    ///
+    /// - Parameters:
+    ///   - before: DOM probes collected immediately before the snapshot.
+    ///   - after: DOM probes collected immediately after the snapshot.
+    ///   - pixels: Snapshot pixel source in top-left-origin coordinates.
+    /// - Returns: A mismatch only when conservative evidence meets the configured threshold.
+    public func verify(
         before: ProbeSet,
         after: ProbeSet,
         pixels: any PixelSource
@@ -176,6 +268,7 @@ struct BrowserScreenshotFrameVerifier {
         return referenceColor != nil
     }
 
+    /// Returns whether a size is finite and nonempty.
     private func valid(size: NSSize) -> Bool {
         size.width.isFinite
             && size.height.isFinite
@@ -183,11 +276,13 @@ struct BrowserScreenshotFrameVerifier {
             && size.height > 0
     }
 
+    /// Returns whether two viewport sizes are within the configured CSS-point tolerance.
     private func approximatelyEqual(_ lhs: NSSize, _ rhs: NSSize) -> Bool {
         abs(lhs.width - rhs.width) <= rectTolerance
             && abs(lhs.height - rhs.height) <= rectTolerance
     }
 
+    /// Returns whether two probe rectangles are within the configured CSS-point tolerance.
     private func approximatelyEqual(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
         abs(lhs.minX - rhs.minX) <= rectTolerance
             && abs(lhs.minY - rhs.minY) <= rectTolerance
@@ -195,6 +290,7 @@ struct BrowserScreenshotFrameVerifier {
             && abs(lhs.height - rhs.height) <= rectTolerance
     }
 
+    /// Returns whether two DOM-derived colors differ by at most one 8-bit channel step.
     private func approximatelyEqual(_ lhs: RGBA, _ rhs: RGBA) -> Bool {
         lhs.distance(from: rhs) <= 1.0 / 255.0
             && abs(lhs.alpha - rhs.alpha) <= 1.0 / 255.0

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import WebKit
 
 /// Owns synchronized, DOM-attested capture of one browser viewport.
@@ -126,7 +127,6 @@ struct BrowserScreenshotCaptureService {
             throw BrowserScreenshotError.emptySnapshot
         }
         throw BrowserScreenshotError.renderedContentMismatch(
-            text: lastMismatch.probe.text,
             rect: lastMismatch.probe.rect,
             attempts: maximumAttempts,
             mismatchCount: lastMismatch.count

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import WebKit
 
 /// Reads stable, high-contrast text probes from one `WKWebView`.
@@ -253,6 +254,8 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
+          // This cache lives only for this synchronous script invocation, so
+          // computed styles cannot survive a DOM/style mutation or a later collection.
           const styleCache = new WeakMap();
           const styleFor = (element) => {
             let style = styleCache.get(element);

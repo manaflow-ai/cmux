@@ -1,13 +1,21 @@
-import AppKit
+public import AppKit
 
-/// Adapts an `NSImage` to sparse top-left-origin pixel sampling.
-struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
-    let pixelSize: NSSize
+/// Adapts an `NSImage` to allocation-free top-left-origin pixel sampling.
+public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+    /// Pixel dimensions of the normalized bitmap representation.
+    public let pixelSize: NSSize
     private let bitmap: NSBitmapImageRep
     private let bytesPerPixel: Int
     private let bitmapData: UnsafeMutablePointer<UInt8>
 
-    init?(image: NSImage) {
+    /// Creates a sampler when the image has a supported RGB(A) representation.
+    ///
+    /// The sampler retains the selected bitmap representation for the lifetime
+    /// of the raw byte-plane pointer used by ``color(at:)``.
+    ///
+    /// - Parameter image: Snapshot image to normalize for direct pixel access.
+    /// - Returns: `nil` when the image has no supported 8-bit packed RGB(A) representation.
+    public init?(image: NSImage) {
         let candidate = image.representations
             .compactMap { $0 as? NSBitmapImageRep }
             .max {
@@ -53,7 +61,11 @@ struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelS
         self.bitmapData = bitmapData
     }
 
-    func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+    /// Reads one top-left-origin pixel directly from the bitmap byte plane.
+    ///
+    /// - Parameter point: Pixel coordinate to sample.
+    /// - Returns: A normalized color, or `nil` when `point` is outside the bitmap.
+    public func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
         let x = Int(point.x.rounded(.down))
         let y = Int(point.y.rounded(.down))
         guard x >= 0,

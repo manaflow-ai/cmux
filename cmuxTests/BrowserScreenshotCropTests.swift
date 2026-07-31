@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import ObjectiveC.runtime
 import Testing
 import UniformTypeIdentifiers
@@ -210,9 +211,10 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func verifiedCaptureFailsLoudlyAfterBoundedRetries() async throws {
+    func verifiedCaptureFailsLoudlyWithoutLeakingDOMText() async throws {
         var captureCount = 0
-        let probes = textProbeSet()
+        let sensitiveText = "Account 8675309 balance $1234"
+        let probes = textProbeSet(firstText: sensitiveText)
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
@@ -230,16 +232,16 @@ struct BrowserScreenshotCropTests {
         do {
             _ = try await service.capture()
             Issue.record("Expected a rendered-content mismatch")
-        } catch let BrowserScreenshotError.renderedContentMismatch(
-            text,
-            rect,
-            attempts,
-            mismatchCount
-        ) {
-            #expect(text == "Balance")
+        } catch let error as BrowserScreenshotError {
+            guard case let .renderedContentMismatch(rect, attempts, mismatchCount) = error else {
+                Issue.record("Unexpected screenshot error: \(error)")
+                return
+            }
             #expect(rect == probes.probes[0].rect)
             #expect(attempts == 3)
             #expect(mismatchCount == 2)
+            #expect(!error.localizedDescription.contains(sensitiveText))
+            #expect(!String(describing: error).contains(sensitiveText))
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
@@ -268,7 +270,6 @@ struct BrowserScreenshotCropTests {
             _ = try await service.capture()
             Issue.record("Expected a rendered-content mismatch")
         } catch let BrowserScreenshotError.renderedContentMismatch(
-            _,
             _,
             attempts,
             _
@@ -446,13 +447,15 @@ struct BrowserScreenshotCropTests {
         #expect(bottom.blue < 0.1)
     }
 
-    private func textProbeSet() -> BrowserScreenshotFrameVerifier.ProbeSet {
+    private func textProbeSet(
+        firstText: String = "Balance"
+    ) -> BrowserScreenshotFrameVerifier.ProbeSet {
         BrowserScreenshotFrameVerifier.ProbeSet(
             viewportSize: NSSize(width: 100, height: 100),
             probes: [
                 .init(
                     identifier: "balance",
-                    text: "Balance",
+                    text: firstText,
                     rect: NSRect(x: 10, y: 10, width: 10, height: 12),
                     foreground: .white,
                     background: .black
