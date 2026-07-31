@@ -260,7 +260,7 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func testUnreadChangeDoesNotReevaluateContentViewRoot() async throws {
+    func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
         _ = NSApplication.shared
 
         let suiteName = "WorkspaceContentViewUnreadTests.\(UUID().uuidString)"
@@ -310,6 +310,17 @@ final class WorkspaceContentViewVisibilityTests {
         }
 
         await Self.drainMainRunLoop(for: window)
+        let workspaceCell = try #require(
+            window.contentView.flatMap { root in
+                Self.descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .first { $0.currentModelForMeasurement?.workspaceId == workspaceId }
+            }
+        )
+        var appliedUnreadCount: Int?
+        workspaceCell.applyModelProbeForTesting = { model in
+            appliedUnreadCount = model.unreadCount
+        }
         counts.reset()
 
         unread.apply(
@@ -337,8 +348,12 @@ final class WorkspaceContentViewVisibilityTests {
             "Unread changes must not rebuild terminal or browser content."
         )
         #expect(
-            counts.verticalTabsSidebarBody > 0,
-            "The sidebar must still receive the unread change."
+            counts.verticalTabsSidebarBody == 0,
+            "Unread changes must not rebuild every row through VerticalTabsSidebar."
+        )
+        #expect(
+            appliedUnreadCount == 1,
+            "The affected visible AppKit row must still receive the unread badge."
         )
     }
 
@@ -391,6 +406,10 @@ final class WorkspaceContentViewVisibilityTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
     @Test
