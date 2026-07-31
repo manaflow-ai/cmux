@@ -53,7 +53,8 @@ extension WorkspaceListView {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: macDisplayNamesByID(),
             buildLabelsByID: macBuildLabelsByID(),
-            fallbackName: fallbackMacPickerName
+            fallbackName: fallbackMacPickerName,
+            pickerCounts: scope.macPickerCounts(base: filter)
         )
     }
 
@@ -155,6 +156,7 @@ extension WorkspaceListView {
                 isLoading: macTitlePickerShowsProgress,
                 selection: currentMacTitlePickerSelection,
                 machines: machineSnapshots.macPickerMachines,
+                allWorkspacesCount: machineSnapshots.allWorkspaceCount,
                 canAddDevice: showAddDevice != nil,
                 labelWidth: 155
             ),
@@ -202,7 +204,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                         "mobile.workspaces.macPicker.allMacs",
                         defaultValue: "All Computers"
                     ),
-                    subtitle: nil,
+                    subtitle: value.allWorkspacesCount.map(L10n.terminalCountWorkspaces),
                     isSelected: value.selection == .all
                 )
             }
@@ -214,7 +216,10 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 } label: {
                     menuRow(
                         title: machine.name,
-                        subtitle: machine.buildLabel,
+                        subtitle: Self.rowSubtitle(
+                            buildLabel: machine.buildLabel,
+                            workspaceCount: machine.workspaceCount
+                        ),
                         isSelected: value.selection == selection
                     )
                 }
@@ -240,6 +245,20 @@ struct WorkspaceMacTitlePicker: View, Equatable {
         .buttonStyle(.plain)
         .tint(.primary)
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    /// Menu subtitles carry the build label and the workspace-count signifier
+    /// in one string because UIMenu bridging renders a single subtitle Text
+    /// per row (see `menuRow`).
+    static func rowSubtitle(buildLabel: String?, workspaceCount: Int?) -> String? {
+        let countLabel = workspaceCount.map(L10n.terminalCountWorkspaces)
+        guard let buildLabel else { return countLabel }
+        guard let countLabel else { return buildLabel }
+        let format = L10n.string(
+            "mobile.workspaces.macPicker.subtitleWithCountFormat",
+            defaultValue: "%1$@ · %2$@"
+        )
+        return String(format: format, buildLabel, countLabel)
     }
 
     /// Menu rows must stay a bare Text/Text/Image tuple: UIMenu bridging reads

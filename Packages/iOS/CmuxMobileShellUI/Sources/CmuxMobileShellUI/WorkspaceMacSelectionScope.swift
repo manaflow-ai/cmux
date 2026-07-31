@@ -78,6 +78,37 @@ struct WorkspaceMacSelectionScope {
         return active
     }
 
+    /// Counts the workspaces each picker selection would show, in one pass
+    /// over `workspaces` with every row's scope entries parsed once. Uses the
+    /// same base filter and entry matching as the visible list, so a row's
+    /// number always equals the list the user lands on after choosing it
+    /// (transient search text excluded: counts describe the selection, not
+    /// the query).
+    func macPickerCounts(base filter: MobileWorkspaceListFilter) -> WorkspaceMacPickerCounts {
+        var allFilter = filter
+        allFilter.machines = expandedFilterMachineIDs(filter.machines)
+        let allParsed = MobileWorkspaceListFilter.parsedMachineEntries(allFilter.machines)
+        let rowScopes = machineIDs.map { id in
+            (
+                id: id,
+                parsed: MobileWorkspaceListFilter.parsedMachineEntries(
+                    aliasIndex.filterMachineIDs(for: id)
+                )
+            )
+        }
+        var all = 0
+        var byMachineID: [String: Int] = [:]
+        for workspace in workspaces {
+            if allFilter.matches(workspace, parsedMachines: allParsed) {
+                all += 1
+            }
+            for row in rowScopes where filter.matches(workspace, parsedMachines: row.parsed) {
+                byMachineID[row.id, default: 0] += 1
+            }
+        }
+        return WorkspaceMacPickerCounts(all: all, byMachineID: byMachineID)
+    }
+
     /// The exact saved app instance selected by a pairing-scoped menu entry.
     func switchTarget(for id: String) -> (macDeviceID: String, instanceTag: String?)? {
         displayPairedMacs.first { $0.id == id }
