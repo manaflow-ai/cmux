@@ -4039,6 +4039,23 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hosted_stager_fails_closed_on_invalid_flags_and_pairing() {
+        let malformed_resized = [
+            ("truncated replay", 4, b"abc".as_slice()),
+            ("trailing replay bytes", 3, b"abcd".as_slice()),
+            ("oversized replay", VT_REPLAY_MAX_BYTES + 1, b"".as_slice()),
+        ];
+        for (label, declared_len, replay) in malformed_resized {
+            let mut payload = Vec::from([80, 0, 24, 0]);
+            payload.extend_from_slice(&(declared_len as u32).to_le_bytes());
+            payload.extend_from_slice(replay);
+            let mut resized = Frame::new(MessageKind::Resized, payload);
+            resized.flags = FLAG_COLORS_FOLLOW;
+            resized.sequence = 1;
+
+            let mut stager = HostedFrameStager::new(0);
+            assert!(stager.push(resized).is_err(), "{label} must fail closed");
+        }
+
         let mut stager = HostedFrameStager::new(0);
         let mut resized = Frame::new(MessageKind::Resized, vec![80, 0, 24, 0]);
         resized.sequence = 1;
