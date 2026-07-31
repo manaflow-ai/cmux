@@ -2258,7 +2258,12 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileWorkspaceBackButton"].exists)
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
+        let terminalBackFrame = try XCTUnwrap(waitForToolbarFrame(of: backButton, timeout: 4))
+        let terminalTitleFrame = try XCTUnwrap(waitForToolbarFrame(of: titleMenu, timeout: 4))
         XCTAssertFalse(
             waitForPaneMap(
                 app.otherElements["MobilePaneMapOverlay"],
@@ -2301,8 +2306,18 @@ final class cmuxUITests: XCTestCase {
         let overlay = app.otherElements["MobilePaneMapOverlay"]
         XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: true))
         XCTAssertTrue(
-            app.buttons["MobileWorkspaceBackButton"].exists,
+            backButton.exists,
             "The shared workspace back button must remain present in pane-layout mode"
+        )
+        assertToolbarFrame(
+            try XCTUnwrap(waitForToolbarFrame(of: backButton, timeout: 4)),
+            matches: terminalBackFrame,
+            context: "workspace back button"
+        )
+        assertToolbarFrame(
+            try XCTUnwrap(waitForToolbarFrame(of: titleMenu, timeout: 4)),
+            matches: terminalTitleFrame,
+            context: "workspace title"
         )
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"
@@ -2336,6 +2351,12 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
         XCTAssertTrue(waitForPaneMap(overlay, in: app, toBeActive: true))
+        assertFramesRemainStable(
+            [leftTopPane, leftBottomPane, testsPane, serverPane],
+            for: 0.45,
+            accuracy: 1,
+            context: "pane-map return endpoint"
+        )
         tap(app.buttons["MobilePaneMapTab-preview-zsh"], in: app)
         let zshTile = app.buttons["MobilePaneMapTile-preview-zsh"]
         XCTAssertTrue(zshTile.waitForExistence(timeout: 2))
@@ -4948,6 +4969,66 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return waitForUsableFrame(of: element, timeout: 0.1)
+    }
+
+    private func assertToolbarFrame(
+        _ frame: CGRect,
+        matches expected: CGRect,
+        accuracy: CGFloat = 1,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(
+            frame.minX, expected.minX, accuracy: accuracy,
+            "\(context) x shifted", file: file, line: line
+        )
+        XCTAssertEqual(
+            frame.minY, expected.minY, accuracy: accuracy,
+            "\(context) y shifted", file: file, line: line
+        )
+        XCTAssertEqual(
+            frame.width, expected.width, accuracy: accuracy,
+            "\(context) width changed", file: file, line: line
+        )
+        XCTAssertEqual(
+            frame.height, expected.height, accuracy: accuracy,
+            "\(context) height changed", file: file, line: line
+        )
+    }
+
+    private func assertFramesRemainStable(
+        _ elements: [XCUIElement],
+        for duration: TimeInterval,
+        accuracy: CGFloat,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectedFrames = elements.map(\.frame)
+        let movement = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                block: { _, _ in
+                    zip(elements, expectedFrames).contains { pair in
+                        let (element, expected) = pair
+                        let frame = element.frame
+                        return abs(frame.minX - expected.minX) > accuracy
+                            || abs(frame.minY - expected.minY) > accuracy
+                            || abs(frame.width - expected.width) > accuracy
+                            || abs(frame.height - expected.height) > accuracy
+                    }
+                }
+            ),
+            object: elements
+        )
+        movement.isInverted = true
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [movement], timeout: duration),
+            .completed,
+            "\(context) moved after the transition endpoint. initial=\(expectedFrames) current=\(elements.map(\.frame))",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
