@@ -126,7 +126,6 @@ final class AgentChatProseStreamerTests: XCTestCase {
         XCTAssertTrue(streamer.hasActiveUnsettledTurns)
         streamer.surfaceDidChange(surfaceID)
         streamer.terminalDidTick()
-        try? await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(snapshotCount, 0)
         streamer.turnEnded(sessionID: sessionID)
@@ -219,16 +218,22 @@ final class AgentChatProseStreamerTests: XCTestCase {
         let reboundSurfaceID = UUID()
         let sessionID = "session-rebound-before-snapshot-finishes"
         let originalRows = Self.codexRows(answer: "This old answer must not stream after rebind.")
+        let reboundText = "This rebound surface owns the live preview."
 
         let snapshotStarted = expectation(description: "original surface snapshot started")
+        let reboundFrameEmitted = expectation(description: "rebound surface preview emitted")
         let snapshotGate = SnapshotGate()
         var emittedFrames: [ChatSessionEventFrame] = []
         let streamer = AgentChatProseStreamer(
-            emit: { frame in emittedFrames.append(frame) },
+            emit: { frame in
+                emittedFrames.append(frame)
+                reboundFrameEmitted.fulfill()
+            },
             snapshot: { requestedSurfaceID in
-                guard requestedSurfaceID == originalSurfaceID else {
-                    return nil
+                if requestedSurfaceID == reboundSurfaceID {
+                    return Self.codexRows(answer: reboundText)
                 }
+                guard requestedSurfaceID == originalSurfaceID else { return nil }
                 snapshotStarted.fulfill()
                 return await snapshotGate.waitForRows()
             },
@@ -242,9 +247,15 @@ final class AgentChatProseStreamerTests: XCTestCase {
 
         streamer.turnStarted(sessionID: sessionID, surfaceID: reboundSurfaceID, agentKind: .codex)
         await snapshotGate.resume(rows: originalRows)
-        try? await Task.sleep(for: .milliseconds(200))
+        streamer.surfaceDidChange(reboundSurfaceID)
 
-        XCTAssertTrue(emittedFrames.isEmpty)
+        await fulfillment(of: [reboundFrameEmitted], timeout: 1.0)
+        XCTAssertEqual(emittedFrames.count, 1)
+        guard case .streamingProse(let message?) = emittedFrames.first?.event,
+              case .prose(let prose) = message.kind else {
+            return XCTFail("Expected rebound preview prose")
+        }
+        XCTAssertEqual(prose.text, reboundText)
         streamer.turnEnded(sessionID: sessionID)
     }
 
