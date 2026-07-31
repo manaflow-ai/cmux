@@ -108,6 +108,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
         private var authoritativeItemsByID: [String: PaneMapCollectionItem]
         private var reorderState: PaneMapReorderState
         private var selectionArbitration = PaneMapSelectionArbitration()
+        private let tileMetrics = PaneMapTileMetrics()
 
         init(parent: PaneMapCollectionView) {
             self.parent = parent
@@ -350,7 +351,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
                   let cell = collectionView.cellForItem(at: indexPath) else {
                 return false
             }
-            let previewHeight = cell.bounds.height - PaneMapTileMetrics.captionHeight
+            let previewHeight = cell.bounds.height - tileMetrics.captionHeight
             let paneControlsBand = CGRect(
                 x: cell.frame.minX,
                 y: cell.frame.minY + previewHeight - 50,
@@ -376,7 +377,7 @@ struct PaneMapCollectionView: UIViewRepresentable {
             parameters.backgroundColor = .clear
             parameters.visiblePath = UIBezierPath(
                 roundedRect: cell.bounds,
-                cornerRadius: PaneMapTileMetrics.cornerRadius
+                cornerRadius: tileMetrics.cornerRadius
             )
             return parameters
         }

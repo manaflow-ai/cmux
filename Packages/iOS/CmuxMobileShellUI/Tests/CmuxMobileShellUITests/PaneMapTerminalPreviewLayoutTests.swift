@@ -33,10 +33,11 @@ import Testing
 
 @Suite struct PaneMapTabStripMetricsTests {
     @Test func stripHugsTabsUntilItsMaximumWidth() {
-        #expect(PaneMapTabStripMetrics.width(tabCount: 2) == 64)
-        #expect(PaneMapTabStripMetrics.width(tabCount: 3) == 94)
-        #expect(PaneMapTabStripMetrics.width(tabCount: 4) == 124)
-        #expect(PaneMapTabStripMetrics.width(tabCount: 5) == 132)
-        #expect(PaneMapTabStripMetrics.width(tabCount: 20) == 132)
+        let metrics = PaneMapTabStripMetrics()
+        #expect(metrics.width(tabCount: 2) == 64)
+        #expect(metrics.width(tabCount: 3) == 94)
+        #expect(metrics.width(tabCount: 4) == 124)
+        #expect(metrics.width(tabCount: 5) == 132)
+        #expect(metrics.width(tabCount: 20) == 132)
     }
 }

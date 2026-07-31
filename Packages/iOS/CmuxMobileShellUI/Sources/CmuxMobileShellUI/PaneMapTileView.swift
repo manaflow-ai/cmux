@@ -3,9 +3,9 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-enum PaneMapTileMetrics {
-    static let captionHeight: CGFloat = 38
-    static let cornerRadius: CGFloat = 16
+struct PaneMapTileMetrics: Equatable {
+    let captionHeight: CGFloat = 38
+    let cornerRadius: CGFloat = 16
 }
 
 struct PaneMapTerminalCanvasLayout: Equatable {
@@ -71,13 +71,13 @@ struct PaneMapTerminalCanvasLayout: Equatable {
     }
 }
 
-enum PaneMapTabStripMetrics {
-    static let tabWidth: CGFloat = 28
-    static let spacing: CGFloat = 2
-    static let padding: CGFloat = 3
-    static let maximumWidth: CGFloat = 132
+struct PaneMapTabStripMetrics: Equatable {
+    let tabWidth: CGFloat = 28
+    let spacing: CGFloat = 2
+    let padding: CGFloat = 3
+    let maximumWidth: CGFloat = 132
 
-    static func width(tabCount: Int) -> CGFloat {
+    func width(tabCount: Int) -> CGFloat {
         guard tabCount > 0 else { return 0 }
         let contentWidth =
             (CGFloat(tabCount) * tabWidth)
@@ -94,6 +94,7 @@ struct PaneMapTileView: View {
     let zoomNamespace: Namespace.ID
     let selectPreviewSurface: (String) -> Void
     let jumpToTerminal: (String) -> Void
+    private var metrics: PaneMapTileMetrics { PaneMapTileMetrics() }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,7 +109,7 @@ struct PaneMapTileView: View {
                 in: zoomNamespace
             )
             PaneMapTileCaption(item: item, terminalTheme: terminalTheme)
-                .frame(height: PaneMapTileMetrics.captionHeight)
+                .frame(height: metrics.captionHeight)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(paneAccessibilityLabel)
@@ -137,6 +138,7 @@ private struct PaneMapPreviewCard: View {
     let terminalTheme: TerminalTheme
     let selectPreviewSurface: (String) -> Void
     let jumpToTerminal: (String) -> Void
+    private var metrics: PaneMapTileMetrics { PaneMapTileMetrics() }
 
     private var selectedSurface: MobilePaneSurface? { item.selectedSurface }
     private var isPhoneSelected: Bool {
@@ -145,7 +147,7 @@ private struct PaneMapPreviewCard: View {
 
     var body: some View {
         let shape = RoundedRectangle(
-            cornerRadius: PaneMapTileMetrics.cornerRadius,
+            cornerRadius: metrics.cornerRadius,
             style: .continuous
         )
 
@@ -476,10 +478,11 @@ private struct PaneMapTabSwitcher: View {
     let selectedSurfaceID: String?
     let terminalTheme: TerminalTheme
     let selectPreviewSurface: (String) -> Void
+    private var metrics: PaneMapTabStripMetrics { PaneMapTabStripMetrics() }
 
     var body: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 2) {
+            HStack(spacing: metrics.spacing) {
                 ForEach(pane.surfaces, id: \.id) { surface in
                     let isSelected = surface.id == selectedSurfaceID
                     Button {
@@ -492,7 +495,7 @@ private struct PaneMapTabSwitcher: View {
                                     ? terminalTheme.terminalBackgroundColor
                                     : terminalTheme.terminalChromeForegroundColor.opacity(0.82)
                             )
-                            .frame(width: 28, height: 28)
+                            .frame(width: metrics.tabWidth, height: metrics.tabWidth)
                             .background(
                                 isSelected
                                     ? terminalTheme.terminalChromeForegroundColor.opacity(0.9)
@@ -507,12 +510,12 @@ private struct PaneMapTabSwitcher: View {
                     .accessibilityIdentifier("MobilePaneMapTab-\(surface.id)")
                 }
             }
-            .padding(3)
+            .padding(metrics.padding)
         }
         .scrollIndicators(.hidden)
         .frame(
-            width: PaneMapTabStripMetrics.width(tabCount: pane.surfaces.count),
-            height: 34
+            width: metrics.width(tabCount: pane.surfaces.count),
+            height: metrics.tabWidth + (metrics.padding * 2)
         )
         .mobileGlassPill()
         .accessibilityIdentifier("MobilePaneMapTabStrip-\(pane.id)")
