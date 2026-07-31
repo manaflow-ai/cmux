@@ -262,6 +262,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */; };
 		B5A5E5610000000000000001 /* BrowserAppLinkHandoffCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5610000000000000002 /* BrowserAppLinkHandoffCoordinator.swift */; };
 		B5A5E5600000000000000001 /* BrowserAppLinkHandoffRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5600000000000000002 /* BrowserAppLinkHandoffRegistry.swift */; };
+		B5A5E5620000000000000001 /* BrowserAppLinkPlacementPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E5620000000000000002 /* BrowserAppLinkPlacementPolicy.swift */; };
 		B5A5E55C0000000000000001 /* BrowserAppSessionAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55C0000000000000002 /* BrowserAppSessionAdmission.swift */; };
 		B5A5E55D0000000000000001 /* BrowserAppSessionAuthOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55D0000000000000002 /* BrowserAppSessionAuthOwner.swift */; };
 		B5A5E55F0000000000000001 /* BrowserAppSessionCallbackWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55F0000000000000002 /* BrowserAppSessionCallbackWaiter.swift */; };
@@ -2902,6 +2903,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B424PNRQ0000000000000002 /* BrowserAddressBarFocusSelectionIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAddressBarFocusSelectionIntent.swift; sourceTree = "<group>"; };
 		B5A5E5610000000000000002 /* BrowserAppLinkHandoffCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppLinkHandoffCoordinator.swift; sourceTree = "<group>"; };
 		B5A5E5600000000000000002 /* BrowserAppLinkHandoffRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppLinkHandoffRegistry.swift; sourceTree = "<group>"; };
+		B5A5E5620000000000000002 /* BrowserAppLinkPlacementPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppLinkPlacementPolicy.swift; sourceTree = "<group>"; };
 		B5A5E55C0000000000000002 /* BrowserAppSessionAdmission.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppSessionAdmission.swift; sourceTree = "<group>"; };
 		B5A5E55D0000000000000002 /* BrowserAppSessionAuthOwner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppSessionAuthOwner.swift; sourceTree = "<group>"; };
 		B5A5E55F0000000000000002 /* BrowserAppSessionCallbackWaiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserAppSession/BrowserAppSessionCallbackWaiter.swift; sourceTree = "<group>"; };
@@ -5282,6 +5284,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5C017000000000000000008 /* AccountSignInView.swift */,
 				43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */,
 				B5A5E5610000000000000002 /* BrowserAppLinkHandoffCoordinator.swift */,
+				B5A5E5620000000000000002 /* BrowserAppLinkPlacementPolicy.swift */,
 				B5A5E5600000000000000002 /* BrowserAppLinkHandoffRegistry.swift */,
 				B5A5E55C0000000000000002 /* BrowserAppSessionAdmission.swift */,
 				B5A5E55D0000000000000002 /* BrowserAppSessionAuthOwner.swift */,
@@ -8485,6 +8488,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B424PNRQ0000000000000001 /* BrowserAddressBarFocusSelectionIntent.swift in Sources */,
 				B5A5E5610000000000000001 /* BrowserAppLinkHandoffCoordinator.swift in Sources */,
 				B5A5E5600000000000000001 /* BrowserAppLinkHandoffRegistry.swift in Sources */,
+				B5A5E5620000000000000001 /* BrowserAppLinkPlacementPolicy.swift in Sources */,
 				B5A5E55C0000000000000001 /* BrowserAppSessionAdmission.swift in Sources */,
 				B5A5E55D0000000000000001 /* BrowserAppSessionAuthOwner.swift in Sources */,
 				B5A5E55F0000000000000001 /* BrowserAppSessionCallbackWaiter.swift in Sources */,
