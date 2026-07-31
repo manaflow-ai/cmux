@@ -179,7 +179,7 @@ struct SurfaceStatusTests {
         #expect(try Data(contentsOf: hooks) == nativeHooks)
     }
 
-    @Test func bundledCodexPresenceLauncherPreservesArgumentsAndSearchesPastCmuxShim() throws {
+    @Test func bundledCodexPresenceLauncherPreservesArgumentsThroughCmuxShim() throws {
         let launcherURL = try #require(Bundle.main.url(
             forResource: "codex-presence-launcher",
             withExtension: "py",
@@ -196,8 +196,8 @@ struct SurfaceStatusTests {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let shim = shimDirectory.appending(path: "codex")
         let real = realDirectory.appending(path: "codex")
-        try Data("#!/bin/sh\nexit 99\n".utf8).write(to: shim)
-        try Data("#!/bin/sh\nprintf '%s\\n' \"$@\"\n".utf8).write(to: real)
+        try Data("#!/bin/sh\nprintf 'official-shim\\n'\nprintf '%s\\n' \"$@\"\n".utf8).write(to: shim)
+        try Data("#!/bin/sh\nexit 99\n".utf8).write(to: real)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: real.path)
 
@@ -207,6 +207,7 @@ struct SurfaceStatusTests {
         process.environment = [
             "HOME": home.path,
             "PATH": "\(shimDirectory.path):\(realDirectory.path)",
+            "CMUX_CODEX_WRAPPER_SHIM": shim.path,
         ]
         let output = Pipe()
         process.standardOutput = output
@@ -217,7 +218,7 @@ struct SurfaceStatusTests {
         #expect(process.terminationStatus == 0)
         let lines = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             .split(separator: "\n").map(String.init)
-        #expect(lines == ["--model", "test model", "--flag=value"])
+        #expect(lines == ["official-shim", "--model", "test model", "--flag=value"])
     }
 
     @Test func codexPresenceUninstallPreservesPreexistingEmptyZshrc() throws {

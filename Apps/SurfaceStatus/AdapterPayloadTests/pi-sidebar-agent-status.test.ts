@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { classifyRetryableError, PiSidebarLifecycle } from "./pi-sidebar-agent-status.ts";
+import { classifyRetryableError, directStatusRecord, PiSidebarLifecycle } from "./pi-sidebar-agent-status.ts";
 
 const assistantError = (errorMessage: string) => [{ role: "assistant", stopReason: "error", errorMessage }];
 
@@ -100,4 +100,27 @@ test("classifier requires a retryable assistant error", () => {
   assert.equal(classifyRetryableError([{ role: "assistant", stopReason: "stop" }]), undefined);
   assert.equal(classifyRetryableError(assistantError("invalid request")), undefined);
   assert.equal(classifyRetryableError(assistantError("Quota exceeded: Every 5 hours"))?.reason, "rateLimit");
+});
+
+test("direct status record carries process birth identity schema", () => {
+  assert.deepEqual(directStatusRecord(
+    { state: "running" },
+    {
+      surfaceID: "11111111-2222-3333-4444-555555555555",
+      workspaceID: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+      pid: 42,
+      processStartedAt: 1_000.25,
+      updatedAt: 1_001,
+    },
+  ), {
+    version: 3,
+    agentID: "pi",
+    surfaceID: "11111111-2222-3333-4444-555555555555",
+    workspaceID: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+    state: "running",
+    reason: undefined,
+    pid: 42,
+    processStartedAt: 1_000.25,
+    updatedAt: 1_001,
+  });
 });
