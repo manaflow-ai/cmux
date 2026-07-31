@@ -472,6 +472,78 @@ struct FakeTokenProvider: TokenProviding {
         )
     }
 
+    @Test func offlineAccountSwitchKeepsBothAccountScopedTombstones() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .failure(.notConnectedToInternet),
+            .failure(.notConnectedToInternet),
+            .response(200),
+            .response(200),
+        ])
+        let suite = "push-two-account-tombstones-\(UUID().uuidString)"
+        let (accountA, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "a-access", refresh: "a-refresh"),
+            suite: suite,
+            accountID: "account-a"
+        )
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+        await accountA.unregisterFromServer(
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+
+        defaults.set("bb", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-b", forKey: "cmux.notifications.registeredAccountID")
+        let (accountB, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "b-access", refresh: "b-refresh"),
+            suite: suite,
+            accountID: "account-b"
+        )
+        await accountB.unregisterFromServer(
+            accessToken: "b-access",
+            refreshToken: "b-refresh"
+        )
+
+        let (returnedA, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "a-returned",
+                refresh: "a-returned-refresh"
+            ),
+            suite: suite,
+            accountID: "account-a"
+        )
+        await returnedA.syncTokenIfPossible()
+        let (returnedB, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "b-returned",
+                refresh: "b-returned-refresh"
+            ),
+            suite: suite,
+            accountID: "account-b"
+        )
+        await returnedB.syncTokenIfPossible()
+
+        let requests = await PushRegistrationURLProtocol.script.requests
+        #expect(requests.map(\.httpMethod) == ["DELETE", "DELETE", "DELETE", "DELETE"])
+        #expect(
+            requests.map {
+                $0.value(forHTTPHeaderField: "Authorization")
+            } == [
+                "Bearer a-access",
+                "Bearer b-access",
+                "Bearer a-returned",
+                "Bearer b-returned",
+            ]
+        )
+        let deletedTokens = requests.compactMap { request -> String? in
+            guard let body = request.httpBody,
+                  let object = try? JSONSerialization.jsonObject(with: body)
+                    as? [String: String] else { return nil }
+            return object["deviceToken"]
+        }
+        #expect(deletedTokens == ["aa", "bb", "aa", "bb"])
+    }
+
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
         await PushRegistrationURLProtocol.script.reset([.response(200)])
         let suite = "push-owner-reassignment-\(UUID().uuidString)"
