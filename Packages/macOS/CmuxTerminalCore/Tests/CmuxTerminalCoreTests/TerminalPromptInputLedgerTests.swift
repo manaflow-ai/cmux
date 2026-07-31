@@ -206,18 +206,34 @@ import Testing
         )
     }
 
-    @Test func initialAgentScopeRetainsHumanBoundaryForHookRecovery() {
+    @Test func initialAgentScopeRetiresInputThroughLaunchBoundary() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)
         ledger.recordHumanInput(.submissionBoundary)
 
         ledger.synchronizeAgentScope("agentPIDKey:codex.session")
 
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "pre-binding prompt")
+                == .unmatched
+        )
+    }
+
+    @Test func initialAgentScopePreservesInputAfterLaunchBoundary() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+        ledger.recordHumanInput(.unknown)
+
+        ledger.synchronizeAgentScope("agentPIDKey:codex.session")
+
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
-            ledger.confirmSubmission(message: "pre-binding prompt") == .human
+            ledger.confirmSubmission(message: "pre-binding prompt")
+                == .unmatched
         )
-        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(ledger.hasUnconfirmedHumanInput)
     }
 
     @Test func changedAgentScopeDiscardsPreviousAgentRecordsAndInput() {

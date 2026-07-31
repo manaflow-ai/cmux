@@ -19,12 +19,13 @@ public struct TerminalPromptInputLedger: Sendable {
     /// Aligns provisional input ownership with the active agent process.
     ///
     /// Human input can reach the terminal before the process identity becomes
-    /// available. The initial binding adopts that human evidence while
-    /// discarding unowned app submissions. Temporary scope unavailability
-    /// preserves the last process's evidence but reports no current scope, so
-    /// guarded automation remains unavailable. Binding a different process
-    /// starts a fresh epoch so one agent cannot inherit another agent's
-    /// composer state.
+    /// available. On the initial binding, a completed human submission boundary
+    /// retires the input through that boundary while trailing input remains
+    /// fail-closed; unowned app submissions are discarded. Temporary scope
+    /// unavailability preserves the last process's evidence but reports no
+    /// current scope, so guarded automation remains unavailable. Binding a
+    /// different process starts a fresh epoch so one agent cannot inherit
+    /// another agent's composer state.
     public mutating func synchronizeAgentScope(_ scope: String?) {
         guard agentScope != scope else { return }
 
@@ -42,6 +43,7 @@ public struct TerminalPromptInputLedger: Sendable {
         if previousBoundScope == nil {
             humanInputEpoch &+= 1
             removeNonHumanBoundaries()
+            confirmProvisionalInputThroughLastBoundary()
             return
         }
 
@@ -255,6 +257,29 @@ public struct TerminalPromptInputLedger: Sendable {
         pendingBoundaries.removeAll {
             if case .human = $0 { return false }
             return true
+        }
+    }
+
+    /// A complete pre-bind submission cannot remain an in-progress composer
+    /// draft. Retire input only through the latest retained boundary; input
+    /// recorded after it remains busy, including bytes typed during startup.
+    private mutating func confirmProvisionalInputThroughLastBoundary() {
+        guard let boundary = pendingBoundaries.last(where: {
+            if case .human = $0 { return true }
+            return false
+        }),
+              case .human(let generation) = boundary else {
+            return
+        }
+        confirmedHumanInputGeneration = max(
+            confirmedHumanInputGeneration,
+            generation
+        )
+        pendingBoundaries.removeAll {
+            guard case .human(let boundaryGeneration) = $0 else {
+                return false
+            }
+            return boundaryGeneration <= generation
         }
     }
 

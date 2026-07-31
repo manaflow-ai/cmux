@@ -134,33 +134,35 @@ extension Workspace {
     /// hook is the sole safe recovery signal after physical input. The current
     /// owner remains stable while unrelated process metadata comes and goes.
     func agentPromptInputScope(forPanelId panelId: UUID) -> String? {
-        let candidates = (agentPIDKeysByPanelId[panelId] ?? [])
-            .sorted()
-            .compactMap { key -> String? in
-                let context = "agentPIDKey:\(key)"
-                guard isStructuredAgentHookPIDKey(key),
-                      TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                          context: context
-                      ) else {
-                    return nil
-                }
-                guard let identity = agentPIDProcessIdentitiesByKey[key] else {
-                    return nil
-                }
-                return [
-                    context,
-                    "pid:\(identity.pid)",
-                    "start:\(identity.startSeconds).\(identity.startMicroseconds)",
-                ].joined(separator: "|")
-            }
-        guard let firstCandidate = candidates.first else { return nil }
-
         let currentScope = terminalPanel(for: panelId)?.surface
             .currentPromptInputAgentScope
-        if let currentScope, candidates.contains(currentScope) {
-            return currentScope
+        var firstCandidate: (key: String, scope: String)?
+        for key in agentPIDKeysByPanelId[panelId] ?? [] {
+            let context = "agentPIDKey:\(key)"
+            guard isStructuredAgentHookPIDKey(key),
+                  TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                      context: context
+                  ),
+                  let identity = agentPIDProcessIdentitiesByKey[key] else {
+                continue
+            }
+            let scope = [
+                context,
+                "pid:\(identity.pid)",
+                "start:\(identity.startSeconds).\(identity.startMicroseconds)",
+            ].joined(separator: "|")
+            if scope == currentScope {
+                return scope
+            }
+            if let candidate = firstCandidate {
+                if key < candidate.key {
+                    firstCandidate = (key, scope)
+                }
+            } else {
+                firstCandidate = (key, scope)
+            }
         }
-        return firstCandidate
+        return firstCandidate?.scope
     }
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
@@ -370,6 +372,7 @@ extension Workspace {
             return false
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        let updatesPromptInputScope = isStructuredAgentHookPIDKey(key)
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -387,7 +390,9 @@ extension Workspace {
                 workspaceId: id,
                 panelId: changedPanelId
             )
-            synchronizePromptInputAgentScope(forPanelId: changedPanelId)
+            if updatesPromptInputScope {
+                synchronizePromptInputAgentScope(forPanelId: changedPanelId)
+            }
         }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)

@@ -76,7 +76,8 @@ extension TerminalSurface {
 
     /// Aligns composer ownership with the currently bound agent process.
     ///
-    /// The initial binding adopts provisional human input. Replacing or
+    /// The initial binding retires provisional input through its latest complete
+    /// submission boundary while preserving any trailing draft. Replacing or
     /// changing the bound process starts a fresh ledger epoch. Temporary scope
     /// unavailability keeps the prior evidence fail-closed for an exact-process
     /// rebind. The optional chord configuration is updated only when supplied,
