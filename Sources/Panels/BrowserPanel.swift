@@ -3826,9 +3826,9 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         navigationDelegate.didCommit = { [weak self] webView, navigation in
-            mediaPlaybackMessageHandler?.noteMainFrameNavigationCommit()
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                mediaPlaybackMessageHandler?.noteMainFrameNavigationCommit()
                 self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false

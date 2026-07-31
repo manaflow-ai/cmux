@@ -35,6 +35,9 @@ final class BrowserMediaPlaybackMessageHandler: NSObject, WKScriptMessageHandler
         guard Thread.isMainThread else { return }
         let generation = documentGeneration
         Task { @MainActor [weak self, onReport] in
+            // A committed navigation may win this actor hop. Dropping the
+            // departing document's final report is intentional because the
+            // commit immediately resets all playback tracking.
             guard self?.documentGeneration == generation else { return }
             onReport(report)
         }
