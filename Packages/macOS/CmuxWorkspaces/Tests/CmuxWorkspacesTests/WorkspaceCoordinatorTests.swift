@@ -789,6 +789,33 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func createWorkspaceGroupAdoptsPinnedChildren() throws {
+        let (model, host, groups, _) = makeWorld()
+        let pinnedChild = CoordinatorStubTab(isPinned: true)
+        let unpinnedChild = CoordinatorStubTab()
+        model.tabs = [pinnedChild, unpinnedChild]
+
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "Mixed",
+            childWorkspaceIds: [pinnedChild.id, unpinnedChild.id]
+        ))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+
+        #expect(pinnedChild.groupId == groupId)
+        #expect(unpinnedChild.groupId == groupId)
+        #expect(model.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            pinnedChild.id,
+            unpinnedChild.id,
+        ])
+        #expect(host.orderChanges.last == [
+            group.anchorWorkspaceId,
+            pinnedChild.id,
+            unpinnedChild.id,
+        ])
+    }
+
+    @Test
     func createWorkspaceGroupRefusesForeignAnchorsAsChildren() {
         let (model, host, groups, _) = makeWorld()
         _ = host
