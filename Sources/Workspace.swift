@@ -3503,7 +3503,6 @@ final class Workspace: Identifiable, ObservableObject {
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
-        appLinkHandoffRegistry.cancelAll()
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
