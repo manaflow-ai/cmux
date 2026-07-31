@@ -321,6 +321,7 @@ struct WorkspaceDetailView: View {
             // Reserve the same leading-title geometry in both endpoints even
             // though the chat control itself only appears in terminal mode.
             hasChatToggle: shouldShowChatToggle,
+            reservesPaneMapControls: workspace.layout != nil,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -435,29 +436,11 @@ struct WorkspaceDetailView: View {
     }
 
     private var paneMapToolbarControls: some View {
-        HStack(spacing: 8) {
-            Button(action: refreshPaneMapFromToolbar) {
-                Group {
-                    if isPaneMapRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .frame(width: 24, height: 24)
-            }
-            .disabled(isPaneMapRefreshing)
-            .accessibilityLabel(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
-            .accessibilityIdentifier("MobilePaneMapRefresh")
-
-            Button(action: returnToTerminalFromPaneMap) {
-                Text(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
-                    .font(.subheadline.weight(.semibold))
-            }
-            .accessibilityLabel(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
-            .accessibilityIdentifier("MobilePaneMapDone")
-        }
+        PaneMapToolbarControls(
+            isRefreshing: isPaneMapRefreshing,
+            refresh: refreshPaneMapFromToolbar,
+            done: returnToTerminalFromPaneMap
+        )
     }
     #endif
 

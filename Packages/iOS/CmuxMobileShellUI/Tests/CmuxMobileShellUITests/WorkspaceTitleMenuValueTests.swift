@@ -65,6 +65,7 @@ import Testing
             hasBackButton: true,
             hasTrailingCluster: true,
             hasChatToggle: true,
+            reservesPaneMapControls: true,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,

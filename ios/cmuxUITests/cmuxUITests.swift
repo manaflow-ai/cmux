@@ -2260,10 +2260,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
+        let terminalUtilities = app.buttons["MobileWorkspaceUtilitiesMenu"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
+        XCTAssertTrue(terminalUtilities.waitForExistence(timeout: 4))
         let terminalBackFrame = try XCTUnwrap(waitForToolbarFrame(of: backButton, timeout: 4))
         let terminalTitleFrame = try XCTUnwrap(waitForToolbarFrame(of: titleMenu, timeout: 4))
+        let terminalUtilitiesFrame = try XCTUnwrap(
+            waitForToolbarFrame(of: terminalUtilities, timeout: 4)
+        )
         XCTAssertFalse(
             waitForPaneMap(
                 app.otherElements["MobilePaneMapOverlay"],
@@ -2318,6 +2323,29 @@ final class cmuxUITests: XCTestCase {
             try XCTUnwrap(waitForToolbarFrame(of: titleMenu, timeout: 4)),
             matches: terminalTitleFrame,
             context: "workspace title"
+        )
+        let refreshFrame = try XCTUnwrap(
+            waitForToolbarFrame(of: app.buttons["MobilePaneMapRefresh"], timeout: 4)
+        )
+        let doneFrame = try XCTUnwrap(
+            waitForToolbarFrame(of: app.buttons["MobilePaneMapDone"], timeout: 4)
+        )
+        XCTAssertEqual(
+            doneFrame.maxX,
+            terminalUtilitiesFrame.maxX,
+            accuracy: 1,
+            "Pane-map trailing controls must stay pinned to the same right toolbar edge"
+        )
+        XCTAssertEqual(
+            refreshFrame.height,
+            terminalUtilitiesFrame.height,
+            accuracy: 1,
+            "Pane-map refresh control must keep the native compact toolbar height"
+        )
+        XCTAssertLessThanOrEqual(
+            refreshFrame.maxX,
+            doneFrame.minX + 1,
+            "Pane-map refresh and done controls must occupy deterministic adjacent slots"
         )
         let leftTopPane = app.descendants(matching: .any)[
             "MobilePaneMapPane-preview-pane-left-top"

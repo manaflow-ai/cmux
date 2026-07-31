@@ -6,6 +6,7 @@ struct WorkspaceTitleMenuValue: Equatable {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    let reservesPaneMapControls: Bool
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool
@@ -21,7 +22,8 @@ struct WorkspaceTitleMenuValue: Equatable {
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
             hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasChatToggle: hasChatToggle,
+            reservesPaneMapControls: reservesPaneMapControls
         ).cap
     }
 }

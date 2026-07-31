@@ -65,6 +65,7 @@ struct AgentChatDemoScreen: View {
                 hasBackButton: true,
                 hasTrailingCluster: true,
                 hasChatToggle: true,
+                reservesPaneMapControls: false,
                 isEnabled: true,
                 workspaceName: inlineWorkspaceTitle ?? "",
                 hasUnread: false,

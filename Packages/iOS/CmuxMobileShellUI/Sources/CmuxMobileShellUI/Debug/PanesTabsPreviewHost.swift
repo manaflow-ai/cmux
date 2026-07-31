@@ -269,6 +269,7 @@ struct PanesTabsPreviewHost: View {
             hasBackButton: true,
             hasTrailingCluster: true,
             hasChatToggle: false,
+            reservesPaneMapControls: true,
             isEnabled: true,
             workspaceName: workspace.name,
             hasUnread: false,
@@ -329,27 +330,11 @@ struct PanesTabsPreviewHost: View {
     private func previewToolbarTrailingContent(mode: PreviewToolbarMode) -> some View {
         switch mode {
         case .paneMap:
-            HStack(spacing: 8) {
-                Button {
-                    paneMapRefreshTrigger &+= 1
-                } label: {
-                    if isPaneMapRefreshing {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh")
-                )
-                .accessibilityIdentifier("MobilePaneMapRefresh")
-
-                Button(
-                    L10n.string("mobile.paneMap.done", defaultValue: "Done"),
-                    action: returnToTerminalFromPaneMap
-                )
-                .accessibilityIdentifier("MobilePaneMapDone")
-            }
+            PaneMapToolbarControls(
+                isRefreshing: isPaneMapRefreshing,
+                refresh: { paneMapRefreshTrigger &+= 1 },
+                done: returnToTerminalFromPaneMap
+            )
         case .terminal:
             WorkspaceUtilitiesMenu(
                 showsViewAsText: false,
