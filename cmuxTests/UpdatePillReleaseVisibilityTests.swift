@@ -248,6 +248,41 @@ struct TitlebarControlsSizingPolicyTests {
     }
 
     @Test
+    @MainActor
+    func testLayoutModelOnlyRecomputesForTitlebarInputs() {
+        let suiteName = "TitlebarControlsLayoutModel-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notificationCenter = NotificationCenter()
+        var computationCount = 0
+        let model = TitlebarControlsLayoutModel(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        ) { config in
+            computationCount += 1
+            return NSSize(width: config.buttonSize, height: config.buttonSize)
+        }
+
+        checkEqual(computationCount, 1)
+        checkEqual(model.snapshot.style, .classic)
+
+        defaults.set(true, forKey: "unrelatedTitlebarTestSetting")
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        checkEqual(computationCount, 1)
+
+        defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        checkEqual(computationCount, 2)
+        checkEqual(model.snapshot.style, .compact)
+
+        notificationCenter.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
+        checkEqual(computationCount, 3)
+
+        notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        checkEqual(computationCount, 4)
+    }
+
+    @Test
     func testTitlebarControlsListenForWindowGeometryChanges() {
         checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
         checkTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
