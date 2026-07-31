@@ -145,7 +145,16 @@ const UnixConnection = struct {
         defer self.mutex.unlock();
         std.debug.assert(self.active_calls > 0);
         self.active_calls -= 1;
-        if (self.active_calls == 0) self.condition.broadcast();
+        if (self.active_calls == 0) {
+            self.releaseFdLocked();
+            self.condition.broadcast();
+        }
+    }
+
+    fn releaseFdLocked(self: *UnixConnection) void {
+        if (!self.closed or self.active_calls != 0 or self.fd_released) return;
+        self.fd_released = true;
+        self.stream.close();
     }
 
     fn isClosed(self: *UnixConnection) bool {
@@ -243,8 +252,8 @@ const UnixConnection = struct {
         defer self.mutex.unlock();
         if (self.closed) return;
         self.closed = true;
-        // Wake active I/O without releasing a descriptor it can still observe.
-        // deinit performs the physical close after all I/O leases have drained.
+        // Wake active I/O, then release immediately if no lease can still
+        // observe the descriptor. The final lease otherwise releases it.
         std.posix.shutdown(self.stream.handle, .both) catch {};
         if (builtin.is_test) {
             if (self.test_close_hook) |hook| {
@@ -252,6 +261,7 @@ const UnixConnection = struct {
                 hook.continue_close.wait();
             }
         }
+        self.releaseFdLocked();
     }
 
     fn deinit(self: *UnixConnection) void {
@@ -259,10 +269,8 @@ const UnixConnection = struct {
         self.close();
         self.mutex.lock();
         while (self.active_calls != 0) self.condition.wait(&self.mutex);
-        if (!self.fd_released) {
-            self.fd_released = true;
-            self.stream.close();
-        }
+        self.releaseFdLocked();
+        std.debug.assert(self.fd_released);
         self.mutex.unlock();
         allocator.destroy(self);
     }
