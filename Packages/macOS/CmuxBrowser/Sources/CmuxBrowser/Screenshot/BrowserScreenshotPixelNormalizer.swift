@@ -4,14 +4,6 @@ import AppKit
 struct BrowserScreenshotPixelNormalizer {
     private let maximumPixelCount = 1_048_576
 
-    /// Packed pixel data for one normalized region.
-    struct Result {
-        let data: Data
-        let width: Int
-        let height: Int
-        let bytesPerRow: Int
-    }
-
     /// Normalizes a top-left-origin snapshot rectangle into packed RGBA bytes.
     ///
     /// - Parameters:
@@ -22,7 +14,7 @@ struct BrowserScreenshotPixelNormalizer {
     func normalize(
         _ image: CGImage,
         topLeftRect: NSRect
-    ) -> Result? {
+    ) -> BrowserScreenshotNormalizedPixelRegion? {
         guard topLeftRect.minX.isFinite,
               topLeftRect.minY.isFinite,
               topLeftRect.maxX.isFinite,
@@ -92,7 +84,7 @@ struct BrowserScreenshotPixelNormalizer {
             return true
         }
         guard didDraw else { return nil }
-        return Result(
+        return BrowserScreenshotNormalizedPixelRegion(
             data: data,
             width: width,
             height: height,

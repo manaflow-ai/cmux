@@ -15,12 +15,12 @@ public protocol BrowserScreenshotPixelSource {
     func colors(in rect: NSRect, stride: Int) -> [BrowserScreenshotRGBA]?
 }
 
-public extension BrowserScreenshotPixelSource {
+extension BrowserScreenshotPixelSource {
     /// Returns one pixel by issuing a one-pixel bulk sample.
     ///
     /// - Parameter point: Top-left-origin pixel coordinate to sample.
     /// - Returns: A normalized sRGB color, or `nil` when the point cannot be sampled.
-    func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
+    public func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
         let x = Int(point.x.rounded(.down))
         let y = Int(point.y.rounded(.down))
         return colors(
