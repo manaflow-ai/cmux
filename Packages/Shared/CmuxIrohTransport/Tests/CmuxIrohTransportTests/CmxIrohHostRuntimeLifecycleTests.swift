@@ -412,6 +412,7 @@ extension CmxIrohHostRuntimeTests {
             discovery: fixture.discovery,
             registrationError: failure
         )
+        let clock = HostRegistrationRenewalClock(now: now)
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
                 endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
@@ -420,15 +421,64 @@ extension CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            registrationClock: ImmediateHostActivationClock(),
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
             handleTransport: { session, _ in await session.close() }
         )
 
         try await runtime.start()
+        await clock.waitUntilSleeping()
 
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        let retryDeadline = try #require(clock.observedSleepDeadlines().first)
+        #expect(
+            retryDeadline == now.addingTimeInterval(
+                TimeInterval(failure.retryAfterSeconds ?? 30)
+            )
+        )
+        await runtime.stop()
+    }
+
+    @Test
+    func cachedActivationRecoversBrokerRegistrationWithoutRestartingEndpoint() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let cachedPolicy = try cachedFixture.policy()
+        let factory = TestIrohEndpointFactory(
+            endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+        )
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let clock = RecordingImmediateHostActivationClock(now: now)
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(
+            await broker.waitForRegistrationCount(2, timeout: .seconds(1))
+        )
+        #expect(await bindings.waitForCount(1, timeout: .seconds(1)))
+        #expect(await factory.observedConfigurations().count == 1)
+        #expect(clock.observedSleepDeadlines() == [now.addingTimeInterval(30)])
         await runtime.stop()
     }
 

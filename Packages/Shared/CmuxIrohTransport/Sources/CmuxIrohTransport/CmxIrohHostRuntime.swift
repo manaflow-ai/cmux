@@ -38,6 +38,7 @@ public actor CmxIrohHostRuntime {
         let attestation: CmxIrohEndpointAttestationResponse?
         let relayBootstrap: CmxIrohRelayTokenResponse?
         let lanRendezvous: CmxIrohLANRendezvous
+        let registrationRetryAfterSeconds: Int?
     }
 
     enum LifecyclePhase: Equatable, Sendable {
@@ -302,6 +303,7 @@ public actor CmxIrohHostRuntime {
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
             }
+            let publishedFreshBinding: Bool
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
@@ -309,9 +311,22 @@ public actor CmxIrohHostRuntime {
                     binding: registration.binding,
                     revision: revision
                 )
+                publishedFreshBinding = true
+            } else {
+                publishedFreshBinding = false
             }
             registrationRefreshEnabled = true
-            if registrationRefreshPending {
+            if !publishedFreshBinding {
+                // Cached policy keeps the endpoint available while the broker
+                // recovers, but it does not publish a discoverable binding.
+                // Feed that incomplete activation into the lifecycle-owned
+                // retry path while preserving the broker's Retry-After floor.
+                registrationRefreshPending = false
+                scheduleRegistrationRetry(
+                    revision: revision,
+                    retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
+                )
+            } else if registrationRefreshPending {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
