@@ -50,7 +50,7 @@ extension EnvironmentValues {
 /// controls and principal picker in one component prevents the notification
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
-    fileprivate static let maximumPickerWidth: CGFloat = 124
+    nonisolated fileprivate static let maximumPickerWidth: CGFloat = 124
     private static let minimumPickerWidth: CGFloat = 98
     private static let nonPickerWidth: CGFloat = 277
 
