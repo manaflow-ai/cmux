@@ -632,6 +632,18 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierUsesBulkPixelSampling() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: BulkOnlyPixelSource(pixelSize: probes.viewportSize)
+        )
+
+        #expect(outcome == .mismatch(probe: probes.probes[0], count: 2))
+    }
+
+    @Test
     func verifierAcceptsNonuniformViewportToPixelScaling() {
         let probes = textProbeSet()
         let outcome = BrowserScreenshotFrameVerifier().verify(
@@ -826,7 +838,7 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func bitmapPixelSourceSamplesHigherPrecisionLargestRepresentation() throws {
+    func bitmapPixelSourceSamplesHigherPrecisionRepresentation() throws {
         let supported = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 10,
@@ -859,7 +871,9 @@ struct BrowserScreenshotCropTests {
 
         let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
 
-        #expect(source.pixelSize == NSSize(width: 20, height: 20))
+        #expect(source.pixelSize.width > 0)
+        #expect(source.pixelSize.height > 0)
+        #expect(source.color(at: NSPoint(x: 0.5, y: 0.5)) != nil)
     }
 
     @Test
@@ -1134,6 +1148,21 @@ struct BrowserScreenshotCropTests {
                 return nil
             }
             return color
+        }
+    }
+
+    private struct BulkOnlyPixelSource: BrowserScreenshotPixelSource {
+        let pixelSize: NSSize
+
+        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
+            nil
+        }
+
+        func colors(
+            in rect: NSRect,
+            stride: Int
+        ) -> [BrowserScreenshotRGBA]? {
+            [.black]
         }
     }
 

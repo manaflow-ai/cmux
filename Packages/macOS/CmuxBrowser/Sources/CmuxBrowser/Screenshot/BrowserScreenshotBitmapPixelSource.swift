@@ -2,68 +2,77 @@ public import AppKit
 
 /// Adapts an `NSImage` to bounded top-left-origin pixel sampling.
 public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotPixelSource {
-    /// Pixel dimensions of the selected bitmap representation.
+    /// Pixel dimensions of the snapshot representation.
     public let pixelSize: NSSize
-    private let bitmap: NSBitmapImageRep
+    private let image: CGImage
 
-    /// Creates an on-demand sRGB sampler for a drawable image.
+    /// Creates a bounded sRGB sampler for a drawable image.
     ///
-    /// Sampling through `NSBitmapImageRep` lets AppKit handle source channel
-    /// order, premultiplied alpha, and color-space conversion without copying
-    /// the entire snapshot into a second full-frame buffer.
+    /// Probe rectangles are redrawn independently so source channel order,
+    /// premultiplied alpha, and color-space conversion are normalized without
+    /// copying the entire snapshot into a second full-frame buffer.
     ///
     /// - Parameter image: Snapshot image to sample.
-    /// - Returns: `nil` when the image cannot provide a bitmap representation.
+    /// - Returns: `nil` when the image cannot provide a drawable CG representation.
     public init?(image: NSImage) {
-        let candidates = image.representations
-            .compactMap { $0 as? NSBitmapImageRep }
-            .filter { $0.pixelsWide > 0 && $0.pixelsHigh > 0 }
-            .sorted {
-                Double($0.pixelsWide) * Double($0.pixelsHigh)
-                    > Double($1.pixelsWide) * Double($1.pixelsHigh)
-            }
-        let selected: NSBitmapImageRep
-        if let candidate = candidates.first {
-            selected = candidate
-        } else {
-            var proposedRect = NSRect(origin: .zero, size: image.size)
-            guard let cgImage = image.cgImage(
-                forProposedRect: &proposedRect,
-                context: nil,
-                hints: nil
-            ) else {
-                return nil
-            }
-            selected = NSBitmapImageRep(cgImage: cgImage)
+        var proposedRect = NSRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(
+            forProposedRect: &proposedRect,
+            context: nil,
+            hints: nil
+        ) else {
+            return nil
         }
-        self.bitmap = selected
+        self.image = cgImage
         self.pixelSize = NSSize(
-            width: selected.pixelsWide,
-            height: selected.pixelsHigh
+            width: cgImage.width,
+            height: cgImage.height
         )
     }
 
-    /// Reads one top-left-origin pixel and converts it to straight-alpha sRGB.
+    /// Reads one top-left-origin pixel as straight-alpha sRGB.
     ///
     /// - Parameter point: Pixel coordinate to sample.
     /// - Returns: A normalized color, or `nil` when `point` is outside the bitmap.
     public func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
         let x = Int(point.x.rounded(.down))
         let y = Int(point.y.rounded(.down))
-        guard x >= 0,
-              x < Int(pixelSize.width),
-              y >= 0,
-              y < Int(pixelSize.height) else {
+        return colors(
+            in: NSRect(x: x, y: y, width: 1, height: 1),
+            stride: 1
+        )?.first
+    }
+
+    /// Normalizes only the requested probe rectangle, then samples its packed bytes.
+    public func colors(
+        in rect: NSRect,
+        stride: Int
+    ) -> [BrowserScreenshotRGBA]? {
+        guard stride > 0,
+              let normalized = BrowserScreenshotPixelNormalizer().normalize(
+                  image,
+                  topLeftRect: rect
+              ) else {
             return nil
         }
-        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
-            return nil
+
+        var result: [BrowserScreenshotRGBA] = []
+        let columnCount = (normalized.width - 1) / stride + 1
+        let rowCount = (normalized.height - 1) / stride + 1
+        result.reserveCapacity(columnCount * rowCount)
+        for y in Swift.stride(from: 0, to: normalized.height, by: stride) {
+            for x in Swift.stride(from: 0, to: normalized.width, by: stride) {
+                let offset = y * normalized.bytesPerRow + x * 4
+                let alpha = CGFloat(normalized.data[offset + 3]) / 255.0
+                let straightColorScale = alpha > 0 ? 1.0 / (255.0 * alpha) : 0
+                result.append(BrowserScreenshotRGBA(
+                    red: min(1, CGFloat(normalized.data[offset]) * straightColorScale),
+                    green: min(1, CGFloat(normalized.data[offset + 1]) * straightColorScale),
+                    blue: min(1, CGFloat(normalized.data[offset + 2]) * straightColorScale),
+                    alpha: alpha
+                ))
+            }
         }
-        return BrowserScreenshotRGBA(
-            red: color.redComponent,
-            green: color.greenComponent,
-            blue: color.blueComponent,
-            alpha: color.alphaComponent
-        )
+        return result
     }
 }

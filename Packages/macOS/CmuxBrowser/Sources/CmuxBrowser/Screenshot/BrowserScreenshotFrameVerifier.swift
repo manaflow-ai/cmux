@@ -140,21 +140,23 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
             1,
             Int(ceil(sqrt(Double(sampleArea) / Double(maximumSamplesPerProbe))))
         )
+        let sampleRect = NSRect(
+            x: minX,
+            y: minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        )
+        guard let colors = pixels.colors(in: sampleRect, stride: stride) else {
+            return false
+        }
         var referenceColor: BrowserScreenshotRGBA?
-        for y in Swift.stride(from: minY, through: maxY, by: stride) {
-            for x in Swift.stride(from: minX, through: maxX, by: stride) {
-                guard let color = pixels.color(
-                    at: NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
-                ) else {
-                    return false
-                }
-                guard let referenceColor else {
-                    referenceColor = color
-                    continue
-                }
-                if color.distance(from: referenceColor) > uniformityTolerance {
-                    return false
-                }
+        for color in colors {
+            guard let referenceColor else {
+                referenceColor = color
+                continue
+            }
+            if color.distance(from: referenceColor) > uniformityTolerance {
+                return false
             }
         }
         guard let referenceColor else { return false }
