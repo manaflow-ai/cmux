@@ -80,9 +80,11 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            if let title {
-                newWorkspace.setCustomTitle(title, source: titleSource)
-            }
+            applyCreationWorkspaceCustomization(
+                to: newWorkspace,
+                explicitTitle: title,
+                explicitTitleSource: titleSource
+            )
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
