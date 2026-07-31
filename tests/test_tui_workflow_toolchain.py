@@ -85,6 +85,7 @@ def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
 def test_macos_serializes_process_barrier_tests() -> None:
     test_job = job_block(WORKFLOW.read_text(), "test")
     assert 'if [[ "$RUNNER_OS" == "macOS" ]]; then' in test_job
+    assert 'export CMUX_TEST_TIMEOUT_SCALE="4"' in test_job
     assert "args+=(-- --test-threads=1)" in test_job
     assert 'cargo test --workspace --locked "${args[@]}"' in test_job
 
