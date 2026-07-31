@@ -38,14 +38,15 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../../components/pricing-shared";
-import { CheckoutButton } from "../../components/checkout-navigation";
 import {
+  PricingCheckoutButton,
   PricingIntervalProvider,
   PricingIntervalSelector,
   PricingIntervalValue,
 } from "../../components/pricing-interval-selector";
 import {
   PRO_PRICING_USD,
+  TEAM_PRICING_USD,
   proBillingInterval,
 } from "../../../services/billing/plans";
 
@@ -104,9 +105,20 @@ export default async function PricingPage({
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
     year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
   };
+  const teamCheckoutHrefs = {
+    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
+    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+  };
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
     annual: PRO_PRICING_USD.year.billedAmount,
+  });
+  const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
+    monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
+  });
+  const teamAnnualComparePrice = t("teamAnnualComparePrice", {
+    monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
+    annual: TEAM_PRICING_USD.year.billedAmount,
   });
 
   const freeFeatures = t.raw("free.features") as string[];
@@ -159,7 +171,7 @@ export default async function PricingPage({
               period={t("perMonth")}
             >
               <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
-              <p className="mt-5 text-sm font-medium text-muted">
+              <p className="mt-5 text-sm font-medium">
                 {t("free.featuresLead")}
               </p>
               <FeatureList items={freeFeatures} />
@@ -205,10 +217,26 @@ export default async function PricingPage({
             {/* Team */}
             <PlanCard
               name={t("team.name")}
-              price={t("team.price")}
-              period={t("perUserMonth")}
+              price={
+                <PricingIntervalValue
+                  monthly={t("team.price")}
+                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+                />
+              }
+              period={
+                <PricingIntervalValue
+                  monthly={t("perUserMonth")}
+                  annual={t("perUserMonthBilledYearly")}
+                />
+              }
             >
-              <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
+              <PricingCheckoutButton
+                hrefs={teamCheckoutHrefs}
+                location="pricing_page"
+                plan="team"
+              >
+                {t("team.cta")}
+              </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
               <FeatureList items={teamFeatures} />
             </PlanCard>
@@ -248,7 +276,12 @@ export default async function PricingPage({
                     annual={annualComparePrice}
                   />
                 ),
-                team: `${t("team.price")}${t("perUserMonth")}`,
+                team: (
+                  <PricingIntervalValue
+                    monthly={teamMonthlyComparePrice}
+                    annual={teamAnnualComparePrice}
+                  />
+                ),
                 enterprise: t("enterprise.price"),
               }}
               actions={{
@@ -271,9 +304,14 @@ export default async function PricingPage({
                   )
                 ),
                 team: (
-                  <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
+                  <PricingCheckoutButton
+                    hrefs={teamCheckoutHrefs}
+                    location="pricing_compare_header"
+                    plan="team"
+                    size="compact"
+                  >
                     {t("team.cta")}
-                  </CheckoutButton>
+                  </PricingCheckoutButton>
                 ),
                 enterprise: (
                   <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">

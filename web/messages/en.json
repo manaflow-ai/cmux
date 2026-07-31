@@ -149,7 +149,8 @@
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/month"
+        "price": "$35/seat/month",
+        "annualPrice": "$336/seat/year"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -402,12 +403,15 @@
     "perMonth": "per month",
     "perMonthBilledYearly": "per month billed yearly",
     "perUserMonth": "per user per month",
+    "perUserMonthBilledYearly": "per user per month billed yearly",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
     "annual": "Annual",
     "saveAnnual": "Save {discount}%",
     "annualPriceDetail": "Billed ${amount} annually · save {discount}%",
     "annualComparePrice": "${monthly}/month · ${annual}/year",
+    "teamMonthlyComparePrice": "${monthly}/user/month",
+    "teamAnnualComparePrice": "${monthly}/user/month · ${annual}/user/year",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -673,7 +677,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $35 per user per month, or $336 per user per year ($28 per user per month billed annually): unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
         }
       ]
     },

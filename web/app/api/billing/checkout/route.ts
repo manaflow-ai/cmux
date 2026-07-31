@@ -20,7 +20,7 @@ import {
   resolveTeamPrice,
   stripe,
 } from "../../../../services/billing/stripe";
-import { proBillingInterval } from "../../../../services/billing/plans";
+import { billingInterval } from "../../../../services/billing/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +100,7 @@ async function stripeProCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
-  const interval = proBillingInterval(request.nextUrl.searchParams.get("interval"));
+  const interval = billingInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
@@ -162,14 +162,17 @@ async function stripeTeamCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
+  const interval = billingInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
   const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  cancelUrl.searchParams.set("interval", interval);
   const metadata = {
     stackTeamId: teamId,
     plan: "team",
     app: "cmux",
+    billingInterval: interval,
   };
 
   try {
@@ -178,7 +181,7 @@ async function stripeTeamCheckout(
       mode: "subscription",
       line_items: [
         {
-          price: await resolveTeamPrice(),
+          price: await resolveTeamPrice(interval),
           quantity: await checkoutTeamSeatCount(team),
           adjustable_quantity: {
             enabled: true,
@@ -200,6 +203,7 @@ async function stripeTeamCheckout(
     captureBillingError(error, {
       route: "/api/billing/checkout",
       plan: "team",
+      interval,
       stackTeamId: teamId,
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", request.url));

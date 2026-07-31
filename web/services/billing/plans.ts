@@ -1,4 +1,15 @@
-export type ProBillingInterval = "month" | "year";
+export type BillingInterval = "month" | "year";
+export type ProBillingInterval = BillingInterval;
+
+type PlanPricing = Record<
+  BillingInterval,
+  {
+    billedAmount: number;
+    monthlyEquivalent: number;
+    discountPercent: number;
+    lookupKey: string;
+  }
+>;
 
 export const PRO_PRICING_USD = {
   month: {
@@ -13,18 +24,27 @@ export const PRO_PRICING_USD = {
     discountPercent: 20,
     lookupKey: "cmux-pro-yearly-288",
   },
-} as const satisfies Record<
-  ProBillingInterval,
-  {
-    billedAmount: number;
-    monthlyEquivalent: number;
-    discountPercent: number;
-    lookupKey: string;
-  }
->;
+} as const satisfies PlanPricing;
+
+export const TEAM_PRICING_USD = {
+  month: {
+    billedAmount: 35,
+    monthlyEquivalent: 35,
+    discountPercent: 0,
+    lookupKey: "cmux-team-monthly",
+  },
+  year: {
+    billedAmount: 336,
+    monthlyEquivalent: 28,
+    discountPercent: 20,
+    lookupKey: "cmux-team-yearly-336",
+  },
+} as const satisfies PlanPricing;
 
 export const LEGACY_PRO_YEARLY_LOOKUP_KEY = "cmux-pro-yearly";
 
-export function proBillingInterval(value: string | null | undefined): ProBillingInterval {
+export function billingInterval(value: string | null | undefined): BillingInterval {
   return value === "year" ? "year" : "month";
 }
+
+export const proBillingInterval = billingInterval;

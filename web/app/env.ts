@@ -172,6 +172,7 @@ export const env = createEnv({
     STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_PRO_YEARLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
     // the dashboard shows enrollment unavailable until these credentials are set.
     // ASC_PRIVATE_KEY accepts PEM contents with literal "\n" escapes;
@@ -293,6 +294,7 @@ export const env = createEnv({
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
+    STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
     ASC_KEY_ID: trimEnv(process.env.ASC_KEY_ID),
     ASC_ISSUER_ID: trimEnv(process.env.ASC_ISSUER_ID),
     ASC_PRIVATE_KEY: trimEnv(process.env.ASC_PRIVATE_KEY),

@@ -34,6 +34,7 @@ import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/tea
 import {
   LEGACY_PRO_YEARLY_LOOKUP_KEY,
   PRO_PRICING_USD,
+  TEAM_PRICING_USD,
   proBillingInterval,
 } from "@/services/billing/plans";
 import { AccountPlanBadge } from "../components/account-plan-badge";
@@ -248,6 +249,10 @@ function FreePlanUpsell({
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
     year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
   };
+  const teamCheckoutHrefs = {
+    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
+    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+  };
 
   return (
     <PricingIntervalProvider initialInterval={interval}>
@@ -299,10 +304,26 @@ function FreePlanUpsell({
 
             <PlanCard
               name={pricingT("team.name")}
-              price={pricingT("team.price")}
-              period={pricingT("perUserMonth")}
+              price={
+                <PricingIntervalValue
+                  monthly={pricingT("team.price")}
+                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+                />
+              }
+              period={
+                <PricingIntervalValue
+                  monthly={pricingT("perUserMonth")}
+                  annual={pricingT("perUserMonthBilledYearly")}
+                />
+              }
             >
-              <PrimaryLink href={TEAM_CHECKOUT_URL}>{pricingT("team.cta")}</PrimaryLink>
+              <PricingCheckoutButton
+                hrefs={teamCheckoutHrefs}
+                location="dashboard_billing"
+                plan="team"
+              >
+                {pricingT("team.cta")}
+              </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{pricingT("team.featuresLead")}</p>
               <FeatureList items={teamFeatures} />
             </PlanCard>
@@ -427,6 +448,9 @@ function TeamPlan({
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
   const seats = String(subscription.seats ?? 1);
+  const price = priceLookupKey(subscription) === TEAM_PRICING_USD.year.lookupKey
+    ? t("team.annualPrice")
+    : t("team.price");
 
   return (
     <section className="mt-3 border border-border p-3">
@@ -443,7 +467,7 @@ function TeamPlan({
           value={periodDate}
         />
         <BillingMetric label={t("details.seats")} value={seats} />
-        <BillingMetric label={t("details.price")} value={t("team.price")} />
+        <BillingMetric label={t("details.price")} value={price} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-start gap-2">

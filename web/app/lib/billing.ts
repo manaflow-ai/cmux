@@ -42,7 +42,7 @@ export function appPricingCheckoutURL(
     withCheckoutPlan(configuredAppPricingCheckoutURL(requestOrigin), plan),
   );
   if (cmuxScheme) href = withSearchParam(href, CHECKOUT_NATIVE_SCHEME_PARAM, cmuxScheme);
-  if (plan === "pro" && interval) href = withCheckoutInterval(href, interval);
+  if (interval) href = withCheckoutInterval(href, interval);
   return href;
 }
 

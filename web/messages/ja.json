@@ -149,7 +149,8 @@
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月"
+        "price": "$35/シート/月",
+        "annualPrice": "$336/シート/年"
       },
       "details": {
         "renewsOn": "更新日",
@@ -402,12 +403,15 @@
     "perMonth": "月額",
     "perMonthBilledYearly": "月額（年払い）",
     "perUserMonth": "ユーザーあたり月額",
+    "perUserMonthBilledYearly": "ユーザーあたり月額（年払い）",
     "billingPeriod": "請求期間",
     "monthly": "月払い",
     "annual": "年払い",
     "saveAnnual": "{discount}%割引",
     "annualPriceDetail": "年額 ${amount} の一括払い · {discount}%割引",
     "annualComparePrice": "${monthly}/月 · ${annual}/年",
+    "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月 · ${annual}/ユーザー/年",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -673,7 +677,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は1ユーザーあたり月額 $35、または年額 $336（月額換算 $28、20%割引）です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
         }
       ]
     },

@@ -12,17 +12,20 @@ import {
 import { posthog } from "../lib/posthog-client";
 import {
   PRO_PRICING_USD,
-  type ProBillingInterval,
+  TEAM_PRICING_USD,
+  type BillingInterval,
 } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
-export type ProCheckoutHrefs = Record<ProBillingInterval, string>;
+type PricingPlan = "pro" | "team";
+export type PricingCheckoutHrefs = Record<BillingInterval, string>;
+export type ProCheckoutHrefs = PricingCheckoutHrefs;
 
 type PricingIntervalContextValue = {
-  interval: ProBillingInterval;
-  setInterval: (interval: ProBillingInterval) => void;
+  interval: BillingInterval;
+  setInterval: (interval: BillingInterval) => void;
 };
 
 const PricingIntervalContext =
@@ -32,7 +35,7 @@ export function PricingIntervalProvider({
   initialInterval,
   children,
 }: {
-  initialInterval: ProBillingInterval;
+  initialInterval: BillingInterval;
   children: ReactNode;
 }) {
   const [interval, setInterval] = useState(initialInterval);
@@ -131,22 +134,29 @@ export function PricingCheckoutButton({
   hrefs,
   children,
   location,
+  plan = "pro",
   size = "default",
 }: {
-  hrefs: ProCheckoutHrefs;
+  hrefs: PricingCheckoutHrefs;
   children: ReactNode;
   location: string;
+  plan?: PricingPlan;
   size?: PricingActionSize;
 }) {
   const { interval } = usePricingInterval();
-  const pricing = PRO_PRICING_USD[interval];
+  const pricing = plan === "pro"
+    ? PRO_PRICING_USD[interval]
+    : TEAM_PRICING_USD[interval];
 
   return (
     <CheckoutButton
       href={hrefs[interval]}
       size={size}
       analytics={{
-        event: "cmuxterm_pro_cta_clicked",
+        event:
+          plan === "pro"
+            ? "cmuxterm_pro_cta_clicked"
+            : "cmuxterm_team_cta_clicked",
         properties: {
           location,
           checkout: true,
@@ -200,16 +210,20 @@ function usePricingInterval() {
 
 function capturePricingEvent(
   event: "cmuxterm_pricing_viewed" | "cmuxterm_pricing_interval_selected",
-  interval: ProBillingInterval,
+  interval: BillingInterval,
   surface: PricingSurface,
 ) {
-  const pricing = PRO_PRICING_USD[interval];
+  const proPricing = PRO_PRICING_USD[interval];
+  const teamPricing = TEAM_PRICING_USD[interval];
   posthog.capture(event, {
     surface,
     interval,
     currency: "usd",
-    billed_amount_usd: pricing.billedAmount,
-    monthly_equivalent_usd: pricing.monthlyEquivalent,
-    discount_percent: pricing.discountPercent,
+    billed_amount_usd: proPricing.billedAmount,
+    monthly_equivalent_usd: proPricing.monthlyEquivalent,
+    discount_percent: proPricing.discountPercent,
+    team_billed_amount_usd: teamPricing.billedAmount,
+    team_monthly_equivalent_usd: teamPricing.monthlyEquivalent,
+    team_discount_percent: teamPricing.discountPercent,
   });
 }

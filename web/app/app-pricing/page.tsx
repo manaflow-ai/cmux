@@ -31,7 +31,6 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../components/pricing-shared";
-import { CheckoutButton } from "../components/checkout-navigation";
 import {
   PricingCheckoutButton,
   PricingIntervalProvider,
@@ -40,6 +39,7 @@ import {
 } from "../components/pricing-interval-selector";
 import {
   PRO_PRICING_USD,
+  TEAM_PRICING_USD,
   proBillingInterval,
 } from "../../services/billing/plans";
 
@@ -70,7 +70,10 @@ export default async function AppPricingPage({
     month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month"),
     year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year"),
   };
-  const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
+  const teamCheckoutHrefs = {
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month"),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year"),
+  };
   const banner = appPricingBanner(params);
   const theme = appPricingTheme(params);
   const proFeatures = visibleProFeatures({
@@ -85,6 +88,17 @@ export default async function AppPricingPage({
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
     annual: PRO_PRICING_USD.year.billedAmount,
   });
+  const teamMonthlyComparePrice = pricingMessage(
+    pricing.teamMonthlyComparePrice,
+    { monthly: TEAM_PRICING_USD.month.monthlyEquivalent },
+  );
+  const teamAnnualComparePrice = pricingMessage(
+    pricing.teamAnnualComparePrice,
+    {
+      monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
+      annual: TEAM_PRICING_USD.year.billedAmount,
+    },
+  );
 
   return (
     <>
@@ -133,7 +147,7 @@ export default async function AppPricingPage({
                     {pricing.free.cta}
                   </PrimaryLink>
                 )}
-                <p className="mt-5 text-sm font-medium text-muted">
+                <p className="mt-5 text-sm font-medium">
                   {pricing.free.featuresLead}
                 </p>
                 <FeatureList items={pricing.free.features} />
@@ -186,13 +200,29 @@ export default async function AppPricingPage({
 
               <PlanCard
                 name={pricing.team.name}
-                price={pricing.team.price}
-                period={pricing.perUserMonth}
+                price={
+                  <PricingIntervalValue
+                    monthly={pricing.team.price}
+                    annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+                  />
+                }
+                period={
+                  <PricingIntervalValue
+                    monthly={pricing.perUserMonth}
+                    annual={pricing.perUserMonthBilledYearly}
+                  />
+                }
               >
                 {appStorePaymentGated ? (
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <CheckoutButton href={teamCheckoutURL}>{pricing.team.cta}</CheckoutButton>
+                  <PricingCheckoutButton
+                    hrefs={teamCheckoutHrefs}
+                    location="app_pricing"
+                    plan="team"
+                  >
+                    {pricing.team.cta}
+                  </PricingCheckoutButton>
                 )}
                 <p className="mt-5 text-sm font-medium">
                   {pricing.team.featuresLead}
@@ -236,7 +266,12 @@ export default async function AppPricingPage({
                     annual={annualComparePrice}
                   />
                 ),
-                team: `${pricing.team.price}${pricing.perUserMonth}`,
+                team: (
+                  <PricingIntervalValue
+                    monthly={teamMonthlyComparePrice}
+                    annual={teamAnnualComparePrice}
+                  />
+                ),
                 enterprise: pricing.enterprise.price,
               }}
               actions={{
@@ -264,9 +299,14 @@ export default async function AppPricingPage({
                 team: appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <CheckoutButton href={teamCheckoutURL} size="compact">
+                  <PricingCheckoutButton
+                    hrefs={teamCheckoutHrefs}
+                    location="app_pricing_compare_header"
+                    plan="team"
+                    size="compact"
+                  >
                     {pricing.team.cta}
-                  </CheckoutButton>
+                  </PricingCheckoutButton>
                 ),
                 enterprise: appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
