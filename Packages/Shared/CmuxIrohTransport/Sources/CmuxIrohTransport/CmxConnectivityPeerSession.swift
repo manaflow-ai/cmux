@@ -20,9 +20,9 @@ actor CmxConnectivityPeerSession {
         let diagnosticID: Int
         let initialPurpose: CmxTransportSessionPurpose
         let session: any CmxConnectivitySession
-        let closureTask: Task<Void, Never>
-        let pathObservationTask: Task<Void, Never>
-        let pathEventObservationTask: Task<Void, Never>?
+        var closureTask: Task<Void, Never>?
+        var pathObservationTask: Task<Void, Never>?
+        var pathEventObservationTask: Task<Void, Never>?
     }
 
     private struct ControlOwner {
@@ -274,6 +274,19 @@ actor CmxConnectivityPeerSession {
         purpose: CmxTransportSessionPurpose
     ) {
         let diagnosticID = makeDiagnosticSessionID()
+        // Publish ownership before starting streams whose first value is an
+        // immediate snapshot. Otherwise an already-pathless connection can
+        // notify before the actor has an entry to evict, losing the only
+        // terminal usability signal.
+        activeConnection = ActiveConnection(
+            id: id,
+            diagnosticID: diagnosticID,
+            initialPurpose: purpose,
+            session: connected,
+            closureTask: nil,
+            pathObservationTask: nil,
+            pathEventObservationTask: nil
+        )
         let closureTask = Task { [weak self] in
             await connected.waitUntilClosed()
             guard !Task.isCancelled else { return }
@@ -285,9 +298,9 @@ actor CmxConnectivityPeerSession {
         }
         let pathObservationTask = Task { [weak self] in
             let changes = await connected.observedSelectedPathChanges()
-            for await _ in changes {
+            for await path in changes {
                 guard !Task.isCancelled else { return }
-                await self?.pathDidChange(id: id)
+                await self?.pathDidChange(id: id, path: path)
             }
         }
         let pathEventObservationTask: Task<Void, Never>?
@@ -306,15 +319,16 @@ actor CmxConnectivityPeerSession {
         } else {
             pathEventObservationTask = nil
         }
-        activeConnection = ActiveConnection(
-            id: id,
-            diagnosticID: diagnosticID,
-            initialPurpose: purpose,
-            session: connected,
-            closureTask: closureTask,
-            pathObservationTask: pathObservationTask,
-            pathEventObservationTask: pathEventObservationTask
-        )
+        guard var installed = activeConnection, installed.id == id else {
+            closureTask.cancel()
+            pathObservationTask.cancel()
+            pathEventObservationTask?.cancel()
+            return
+        }
+        installed.closureTask = closureTask
+        installed.pathObservationTask = pathObservationTask
+        installed.pathEventObservationTask = pathEventObservationTask
+        activeConnection = installed
         failure = .none
         recordSessionLifecycle(
             .established,
@@ -333,8 +347,8 @@ actor CmxConnectivityPeerSession {
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
             ?? activeConnection.initialPurpose
-        activeConnection.closureTask.cancel()
-        activeConnection.pathObservationTask.cancel()
+        activeConnection.closureTask?.cancel()
+        activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
         await activeConnection.pathEventObservationTask?.value
         await recordSessionClosure(
@@ -364,8 +378,8 @@ actor CmxConnectivityPeerSession {
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
             ?? activeConnection.initialPurpose
-        activeConnection.closureTask.cancel()
-        activeConnection.pathObservationTask.cancel()
+        activeConnection.closureTask?.cancel()
+        activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
         await activeConnection.session.close()
         await activeConnection.pathEventObservationTask?.value
@@ -559,8 +573,25 @@ actor CmxConnectivityPeerSession {
         }
     }
 
-    private func pathDidChange(id: UUID) {
-        guard activeConnection?.id == id else { return }
+    private func pathDidChange(
+        id: UUID,
+        path: CmxIrohObservedConnectionPath
+    ) async {
+        guard let activeConnection, activeConnection.id == id else { return }
+        // A normal remote close also ends with an unavailable path. Keep that
+        // lifecycle on the closure observer so its attribution and control
+        // ownership policy cannot be preempted by the path observer.
+        guard !(await activeConnection.session.isClosed()),
+              self.activeConnection?.id == id else { return }
+        guard path != .unavailable else {
+            await removeActiveConnection(
+                matching: id,
+                releasesControlOwner: true,
+                reason: .allPathsClosed,
+                failure: .noRoute
+            )
+            return
+        }
         publishSnapshot()
     }
 
