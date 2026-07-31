@@ -96,8 +96,17 @@ public final class RedirectMethodPreservingDelegate:
     private static let mutatingMethods = Set(["POST", "PUT", "PATCH", "DELETE"])
     static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
         guard let lhs, let rhs else { return false }
-        return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
-            && lhs.host?.lowercased() == rhs.host?.lowercased()
+        guard let lhsScheme = lhs.scheme?.lowercased(),
+              let rhsScheme = rhs.scheme?.lowercased(),
+              ["http", "https"].contains(lhsScheme),
+              ["http", "https"].contains(rhsScheme),
+              let lhsHost = lhs.host?.lowercased(),
+              let rhsHost = rhs.host?.lowercased(),
+              !lhsHost.isEmpty,
+              !rhsHost.isEmpty
+        else { return false }
+        return lhsScheme == rhsScheme
+            && lhsHost == rhsHost
             && effectivePort(lhs) == effectivePort(rhs)
     }
 
