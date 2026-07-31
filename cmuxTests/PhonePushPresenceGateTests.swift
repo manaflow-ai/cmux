@@ -416,6 +416,92 @@ import Testing
 
     // MARK: - Server acknowledgement
 
+    @Test func requestEnvelopePinsCorrelationExpirationAndRedactsBeforeEncoding() throws {
+        let payload = PhonePushPayload(
+            kind: .notify,
+            title: "secret title",
+            subtitle: "secret subtitle",
+            body: "secret terminal output",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            retargetsToLiveSurfaceOwner: true,
+            macDeviceId: UUID().uuidString,
+            notificationId: UUID().uuidString,
+            notificationIds: [],
+            badgeCount: 7,
+            hideContent: true
+        )
+        let correlationID = UUID(
+            uuidString: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        )!
+        let envelope = try PhonePushRequestEnvelope(
+            payload: payload,
+            correlationID: correlationID,
+            expirationEpochSeconds: 1_750_000_120
+        )
+        let body = try #require(
+            JSONSerialization.jsonObject(with: envelope.body)
+                as? [String: Any]
+        )
+        let encoded = String(decoding: envelope.body, as: UTF8.self)
+
+        #expect(
+            envelope.correlationID
+                == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        )
+        #expect(envelope.expirationEpochSeconds == 1_750_000_120)
+        #expect(
+            body["correlationId"] as? String
+                == "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        )
+        #expect(
+            body["expirationEpochSeconds"] as? Int == 1_750_000_120
+        )
+        #expect(body["hideContent"] as? Bool == true)
+        #expect(!encoded.contains("secret title"))
+        #expect(!encoded.contains("secret subtitle"))
+        #expect(!encoded.contains("secret terminal output"))
+    }
+
+    @Test func retryPolicyHonorsServerDelayWithoutRefreshingEventTTL() {
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: 7,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 7
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: 600,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 30
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: 7,
+                nowEpochSeconds: 1_113,
+                expirationEpochSeconds: 1_120
+            ) == nil
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 3,
+                result: .retryableFailure,
+                retryAfterSeconds: nil,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == nil
+        )
+    }
+
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {
         let body = try JSONEncoder().encode(
             PhonePushServerSummary(
