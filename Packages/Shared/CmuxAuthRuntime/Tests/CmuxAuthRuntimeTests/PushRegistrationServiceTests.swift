@@ -950,11 +950,13 @@ actor RetryDelayRecorder {
         )
     }
 
-    @Test func sessionSwitchDuringUploadCannotPublishReadyForOldAccount() async {
+    @Test func sessionSwitchDuringUploadRepairsBackendForNewAccount() async {
         let started = TestPhaseSignal()
         let blocker = TestContinuationBlocker()
         await PushRegistrationURLProtocol.script.reset([
             .gatedResponse(200, started: started, blocker: blocker),
+            .response(200),
+            .response(200),
         ])
         let provider = MutablePushTokenProvider(
             accountID: "account-a",
@@ -979,13 +981,14 @@ actor RetryDelayRecorder {
         await blocker.release()
         await upload.value
 
-        #expect(
-            await service.snapshot.backendState
-                == .failed(.authenticationRequired)
-        )
+        #expect(await service.snapshot.backendState == .registered)
         #expect(
             defaults.string(forKey: "cmux.notifications.registeredAccountID")
-                == nil
+                == "account-b"
+        )
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod) == ["POST", "DELETE", "POST"]
         )
     }
 
@@ -1065,8 +1068,9 @@ actor RetryDelayRecorder {
         await relaunched.syncTokenIfPossible()
         let recoveredRequests = await PushRegistrationURLProtocol.script.requests
         #expect(recoveredRequests.map(\.httpMethod) == ["POST", "DELETE"])
-        let bodies = recoveredRequests.compactMap { request -> String? in
-            guard let data = request.httpBody,
+        let bodies = await PushRegistrationURLProtocol.script.requestBodies
+            .compactMap { data -> String? in
+            guard let data,
                   let body = try? JSONSerialization.jsonObject(with: data)
                     as? [String: String] else { return nil }
             return body["deviceToken"]
@@ -1192,8 +1196,9 @@ actor RetryDelayRecorder {
                 "Bearer b-returned",
             ]
         )
-        let deletedTokens = requests.compactMap { request -> String? in
-            guard let body = request.httpBody,
+        let deletedTokens = await PushRegistrationURLProtocol.script
+            .requestBodies.compactMap { body -> String? in
+            guard let body,
                   let object = try? JSONSerialization.jsonObject(with: body)
                     as? [String: String] else { return nil }
             return object["deviceToken"]

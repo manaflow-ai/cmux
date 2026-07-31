@@ -69,60 +69,122 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let capturedRequest = request
+        let capturedBody = Self.bodyData(from: capturedRequest)
+        let stub = Self.script.take(capturedRequest, body: capturedBody)
         let context = PushRegistrationLoadingContext(
             loadingProtocol: self
         )
+        guard stub.started != nil || stub.blocker != nil else {
+            context.complete(stub, request: capturedRequest)
+            return
+        }
         Task.detached { [capturedRequest, context] in
-            let loadingProtocol = context.loadingProtocol
-            let stub = await Self.script.take(capturedRequest)
             await stub.started?.markStarted()
             await stub.blocker?.wait()
-            if let error = stub.error {
-                loadingProtocol.client?.urlProtocol(
-                    loadingProtocol,
-                    didFailWithError: error
-                )
-                return
-            }
-            let response = HTTPURLResponse(
-                url: capturedRequest.url!,
-                statusCode: stub.statusCode ?? 500,
-                httpVersion: "HTTP/1.1",
-                headerFields: stub.headers
-            )!
-            loadingProtocol.client?.urlProtocol(
-                loadingProtocol,
-                didReceive: response,
-                cacheStoragePolicy: .notAllowed
-            )
-            if !stub.body.isEmpty {
-                loadingProtocol.client?.urlProtocol(
-                    loadingProtocol,
-                    didLoad: stub.body
-                )
-            }
-            loadingProtocol.client?.urlProtocolDidFinishLoading(
-                loadingProtocol
-            )
+            context.complete(stub, request: capturedRequest)
         }
     }
 
     override func stopLoading() {}
+
+    private static func bodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 1_024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(
+            capacity: bufferSize
+        )
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: bufferSize)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
 }
 
-actor PushRegistrationURLScript {
-    private var stubs: [PushRegistrationURLProtocol.Stub] = []
-    private(set) var requests: [URLRequest] = []
+private extension PushRegistrationLoadingContext {
+    func complete(
+        _ stub: PushRegistrationURLProtocol.Stub,
+        request: URLRequest
+    ) {
+        if let error = stub.error {
+            loadingProtocol.client?.urlProtocol(
+                loadingProtocol,
+                didFailWithError: error
+            )
+            return
+        }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: stub.statusCode ?? 500,
+            httpVersion: "HTTP/1.1",
+            headerFields: stub.headers
+        )!
+        loadingProtocol.client?.urlProtocol(
+            loadingProtocol,
+            didReceive: response,
+            cacheStoragePolicy: .notAllowed
+        )
+        if !stub.body.isEmpty {
+            loadingProtocol.client?.urlProtocol(
+                loadingProtocol,
+                didLoad: stub.body
+            )
+        }
+        loadingProtocol.client?.urlProtocolDidFinishLoading(
+            loadingProtocol
+        )
+    }
+}
 
-    func reset(_ nextStubs: [PushRegistrationURLProtocol.Stub]) {
-        stubs = nextStubs
-        requests = []
+final class PushRegistrationURLScript: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stubs: [PushRegistrationURLProtocol.Stub] = []
+    private var capturedRequests: [URLRequest] = []
+    private var capturedBodies: [Data?] = []
+
+    var requests: [URLRequest] {
+        get async {
+            lock.withLock { capturedRequests }
+        }
     }
 
-    func take(_ request: URLRequest) -> PushRegistrationURLProtocol.Stub {
-        requests.append(request)
+    var requestBodies: [Data?] {
+        get async {
+            lock.withLock { capturedBodies }
+        }
+    }
+
+    func reset(
+        _ nextStubs: [PushRegistrationURLProtocol.Stub]
+    ) async {
+        lock.withLock {
+            stubs = nextStubs
+            capturedRequests = []
+            capturedBodies = []
+        }
+    }
+
+    func take(
+        _ request: URLRequest,
+        body: Data?
+    ) -> PushRegistrationURLProtocol.Stub {
+        lock.lock()
+        defer { lock.unlock() }
+        capturedRequests.append(request)
+        capturedBodies.append(body)
         guard !stubs.isEmpty else {
-            return .response(500, json: #"{"error":"unscripted_request"}"#)
+            return .response(
+                500,
+                json: #"{"error":"unscripted_request"}"#
+            )
         }
         return stubs.removeFirst()
     }
