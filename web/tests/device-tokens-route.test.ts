@@ -137,7 +137,7 @@ describe("device token route", () => {
 
     const statuses = responses.map((response) => response.status).sort();
     expect(statuses.filter((status) => status === 200)).toHaveLength(200);
-    expect(statuses.filter((status) => status === 409)).toHaveLength(2);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(2);
 
     const [stored] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
@@ -195,9 +195,9 @@ describe("device token route", () => {
 
     const newToken = "f".repeat(64);
     const overLimit = await register(newToken);
-    expect(overLimit.status).toBe(409);
+    expect(overLimit.status).toBe(429);
     expect(await overLimit.json()).toEqual({
-      error: "device_token_limit_reached",
+      error: "too_many_devices",
       limit: 200,
       action: "disable_push_on_another_device",
     });

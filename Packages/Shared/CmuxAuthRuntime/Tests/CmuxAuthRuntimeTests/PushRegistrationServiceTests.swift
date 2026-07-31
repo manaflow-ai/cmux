@@ -187,6 +187,49 @@ struct FakeTokenProvider: TokenProviding {
         #expect(hijacked == false)
     }
 
+    @Test func offlineSignOutPersistsOwnerScopedUnregisterBeforeCredentialValidation() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-offline-signout-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "next-user-access", refresh: "next-user-refresh"),
+            suite: suite,
+            accountID: nil
+        )
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("old-user", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.unregisterFromServer(
+            accessToken: nil,
+            refreshToken: "captured-refresh"
+        )
+
+        #expect(
+            defaults.string(forKey: "cmux.notifications.pendingUnregisterToken")
+                == "ab"
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
+                == "old-user"
+        )
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+
+        let (returnedService, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "returned-access",
+                refresh: "returned-refresh"
+            ),
+            suite: suite,
+            accountID: "old-user"
+        )
+        await returnedService.syncTokenIfPossible()
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.last?
+                .value(forHTTPHeaderField: "Authorization")
+                == "Bearer returned-access"
+        )
+    }
+
     @Test func enabledWithoutAPNsTokenReportsAwaitingTokenInsteadOfReady() async {
         let (service, _) = makeScriptedService()
 
@@ -396,6 +439,74 @@ struct FakeTokenProvider: TokenProviding {
         )
     }
 
+    @Test func pendingOldAccountDeleteCompletesWhenThatAccountSignsInAgain() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .failure(.notConnectedToInternet),
+            .response(200),
+        ])
+        let suite = "push-old-account-return-\(UUID().uuidString)"
+        let (oldService, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "old-access", refresh: "old-refresh"),
+            suite: suite,
+            accountID: "old-user"
+        )
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("old-user", forKey: "cmux.notifications.registeredAccountID")
+        await oldService.unregisterFromServer(
+            accessToken: "old-access",
+            refreshToken: "old-refresh"
+        )
+
+        let (returnedService, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "returned-access", refresh: "returned-refresh"),
+            suite: suite,
+            accountID: "old-user"
+        )
+        await returnedService.syncTokenIfPossible()
+
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.last?
+                .value(forHTTPHeaderField: "Authorization")
+                == "Bearer returned-access"
+        )
+    }
+
+    @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-owner-reassignment-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "new-access",
+                refresh: "new-refresh"
+            ),
+            suite: suite,
+            accountID: "new-user"
+        )
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("old-user", forKey: "cmux.notifications.registeredAccountID")
+        defaults.set("ab", forKey: "cmux.notifications.pendingUnregisterToken")
+        defaults.set(
+            "old-user",
+            forKey: "cmux.notifications.pendingUnregisterAccountID"
+        )
+
+        await service.setEnabled(true)
+
+        #expect(
+            defaults.string(forKey: "cmux.notifications.registeredAccountID")
+                == "new-user"
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.pendingUnregisterToken")
+                == nil
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
+                == nil
+        )
+    }
+
     @Test func disableIsIdempotentAfterUnregisterSucceeds() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(200),
@@ -453,18 +564,17 @@ struct FakeTokenProvider: TokenProviding {
         #expect(target.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
     }
 
-    @Test func sameOrigin303UsesGETWithoutBodyAndKeepsSameOriginCredentials() async throws {
+    @Test func sameOrigin303FailsVisiblyWithoutSendingAFalseAcknowledgement() async {
         let service = await makeRedirectService(scenario: .sameOrigin303)
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
 
-        let target = try #require(await PushRedirectURLProtocol.state.targetRequests.first)
-        #expect(target.httpMethod == "GET")
-        #expect(target.httpBody == nil)
-        #expect(target.httpBodyStream == nil)
-        #expect(target.value(forHTTPHeaderField: "Authorization") == "Bearer access")
-        #expect(target.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+        #expect(await PushRedirectURLProtocol.state.targetRequests.isEmpty)
+        #expect(
+            await service.snapshot.backendState
+                == .failed(.invalidServerResponse)
+        )
     }
 
     @Test(arguments: [

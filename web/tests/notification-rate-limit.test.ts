@@ -33,14 +33,40 @@ describe("notification rate limit", () => {
     const now = new Date("2026-06-02T12:00:00Z");
 
     for (let i = 0; i < 200; i += 1) {
-      await recordPushSendOrThrow(db, "push-user-1", 1, now);
+      await recordPushSendOrThrow(db, "push-user-1", 1, `event-${i}`, now);
     }
-    await recordPushSendOrThrow(db, "push-user-2", 1, now);
+    await recordPushSendOrThrow(db, "push-user-2", 1, "event-other-user", now);
 
-    await expect(recordPushSendOrThrow(db, "push-user-1", 1, now)).rejects.toBeInstanceOf(
+    await expect(recordPushSendOrThrow(db, "push-user-1", 1, "event-over-limit", now)).rejects.toBeInstanceOf(
       PushRateLimitExceededError,
     );
 
-    await recordPushSendOrThrow(db, "push-user-1", 1, new Date(now.getTime() + 10 * 60 * 1000 + 1));
+    await recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      "event-after-window",
+      new Date(now.getTime() + 10 * 60 * 1000 + 1),
+    );
+  });
+
+  dbTest("counts repeated transport attempts for one correlation id as one logical event", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const now = new Date("2026-06-02T12:00:00Z");
+    const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
+
+    await recordPushSendOrThrow(db, "push-user-1", 2, correlationId, now);
+    await recordPushSendOrThrow(db, "push-user-1", 2, correlationId, now);
+
+    const [stored] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from notification_send_events
+      where user_id = 'push-user-1'
+    `;
+    expect(stored?.total).toBe(1);
   });
 });

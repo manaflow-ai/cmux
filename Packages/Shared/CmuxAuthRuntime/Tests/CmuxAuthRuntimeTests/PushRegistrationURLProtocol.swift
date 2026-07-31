@@ -15,7 +15,7 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
         static func response(
             _ statusCode: Int,
             headers: [String: String] = [:],
-            json: String = "{}"
+            json: String = #"{"ok":true}"#
         ) -> Stub {
             Stub(
                 statusCode: statusCode,

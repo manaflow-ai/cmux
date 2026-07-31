@@ -54,6 +54,38 @@ import Testing
         #expect(readiness.repair == .connectMac)
     }
 
+    @Test func failedAPNsTokenCallbackHasItsOwnRetryAction() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: false,
+                backendState: .deviceTokenRegistrationFailed
+            ),
+            mac: nil,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.deviceTokenRegistrationFailed))
+        #expect(readiness.repair == .retryDeviceTokenRegistration)
+    }
+
+    @Test func backendDeviceCeilingNamesTheLimitAndItsOnlySafeRepair() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .failed(.deviceLimitReached(limit: 200))
+            ),
+            mac: nil,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.deviceLimitReached(limit: 200)))
+        #expect(readiness.repair == .disablePushOnAnotherDevice)
+    }
+
     @Test(arguments: [
         MobilePushAuthorization.provisional,
         .ephemeral,
@@ -73,7 +105,7 @@ import Testing
             phoneAPIOrigin: "https://cmux.com"
         )
 
-        #expect(readiness == .blocked(.systemPermissionLimited))
+        #expect(readiness == .limited(mode: .always, authorization: authorization))
         #expect(readiness.repair == .openSystemSettings)
     }
 

@@ -9,7 +9,12 @@ import {
   shouldPruneToken,
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
-import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
+import {
+  sendApnsNotification,
+  sendApnsNotificationReliably,
+  signApnsJwt,
+  normalizeP8,
+} from "../services/apns/sender";
 import {
   MAX_PUSH_BADGE_COUNT,
   MAX_PUSH_BODY_CHARS,
@@ -275,6 +280,7 @@ describe("apns route policy", () => {
         macDeviceId: "mac-1",
         notificationId: "n-1",
         correlationId: null,
+        expirationEpochSeconds: null,
         dismissedIds: [],
         badgeCount: null,
         retargetsToLiveSurfaceOwner: false,
@@ -306,6 +312,7 @@ describe("apns route policy", () => {
         macDeviceId: null,
         notificationId: null,
         correlationId: null,
+        expirationEpochSeconds: null,
         dismissedIds: [],
         badgeCount: null,
         retargetsToLiveSurfaceOwner: true,
@@ -337,6 +344,7 @@ describe("apns route policy", () => {
         macDeviceId: null,
         notificationId: null,
         correlationId: null,
+        expirationEpochSeconds: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,
         retargetsToLiveSurfaceOwner: false,
@@ -454,6 +462,130 @@ describe("apns jwt", () => {
 });
 
 describe("apns sender transport", () => {
+  test("retries only unresolved devices after a partial APNs result", async () => {
+    const attemptsByToken = new Map<string, number>();
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      constructor(private readonly status: number) {
+        super();
+      }
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": this.status });
+        if (this.status === 503) {
+          this.emit("data", Buffer.from(JSON.stringify({ reason: "ServiceUnavailable" })));
+        }
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        const deviceToken = String(headers[":path"]).split("/").at(-1)!;
+        const attempt = (attemptsByToken.get(deviceToken) ?? 0) + 1;
+        attemptsByToken.set(deviceToken, attempt);
+        const status = deviceToken.startsWith("a") || attempt > 1 ? 200 : 503;
+        return new FakeRequest(status);
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+    const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
+
+    const results = await sendApnsNotificationReliably(
+      { keyP8: p8, keyId: "KID-RETRY-PARTIAL", teamId: "TEAM456" },
+      [
+        { deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" },
+        { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", environment: "production" },
+      ],
+      {
+        title: "agent",
+        body: "done",
+        correlationId,
+        expirationEpochSeconds: 1_700_000_120,
+      },
+      {
+        maxAttempts: 2,
+        nowEpochSeconds: () => 1_700_000_000,
+        retryDelay: async () => {},
+      },
+      1000,
+      transport,
+    );
+
+    expect(results.map((result) => result.status)).toEqual([200, 200]);
+    expect(attemptsByToken.get("a".repeat(64))).toBe(1);
+    expect(attemptsByToken.get("b".repeat(64))).toBe(2);
+    expect(capturedHeaders.every((headers) => headers["apns-collapse-id"] === correlationId)).toBe(true);
+    expect(capturedHeaders.every((headers) => headers["apns-expiration"] === "1700000120")).toBe(true);
+  });
+
+  test("leaves sent zero as a failure after the retry TTL is exhausted", async () => {
+    let requests = 0;
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 503 });
+        this.emit("data", Buffer.from(JSON.stringify({ reason: "ServiceUnavailable" })));
+        this.emit("end");
+        return this;
+      }
+    }
+    class FakeSession extends EventEmitter {
+      request() {
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    const results = await sendApnsNotificationReliably(
+      { keyP8: p8, keyId: "KID-RETRY-TTL", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
+      {
+        title: "agent",
+        body: "done",
+        correlationId: "527e7ed5-b70d-45d8-a78e-fd032ae61ff5",
+        expirationEpochSeconds: 1_700_000_000,
+      },
+      {
+        maxAttempts: 3,
+        nowEpochSeconds: () => 1_700_000_000,
+        retryDelay: async () => {},
+      },
+      1000,
+      transport,
+    );
+
+    expect(summarizeApnsSendResults(results).sent).toBe(0);
+    expect(requests).toBe(1);
+  });
+
   test("starts sandbox and production host groups concurrently", async () => {
     const sandboxHost = apnsHostForEnvironment("sandbox");
     const productionHost = apnsHostForEnvironment("production");
