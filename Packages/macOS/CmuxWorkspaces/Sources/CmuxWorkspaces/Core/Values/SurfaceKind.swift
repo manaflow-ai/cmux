@@ -19,6 +19,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let terminal = SurfaceKind(rawValue: "terminal")
     /// A browser pane.
     public static let browser = SurfaceKind(rawValue: "browser")
+    /// A live native application window pane.
+    public static let application = SurfaceKind(rawValue: "application")
     /// A markdown preview pane.
     public static let markdown = SurfaceKind(rawValue: "markdown")
     /// A file (Quick Look style) preview pane.

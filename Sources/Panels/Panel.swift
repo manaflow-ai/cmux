@@ -6,6 +6,7 @@ import AppKit
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case application
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool

@@ -266,13 +266,23 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         let items: [JSONValue] = snapshot.surfaces.enumerated().map { index, entry in
-            .object([
+            var item: [String: JSONValue] = [
                 "index": .int(Int64(index)),
                 "id": .string(entry.surfaceID.uuidString),
                 "ref": ref(.surface, entry.surfaceID),
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
-            ])
+            ]
+            if let state = entry.applicationCaptureState {
+                item["capture_state"] = .string(state)
+                item["capture_error"] = entry.applicationCaptureError
+                    .map(JSONValue.string) ?? .null
+                item["native_window_id"] = entry.applicationWindowID
+                    .map { .int(Int64($0)) } ?? .null
+                item["process_id"] = entry.applicationProcessID
+                    .map { .int(Int64($0)) } ?? .null
+            }
+            return .object(item)
         }
         return .ok(.object([
             "workspace_id": .string(snapshot.workspaceID.uuidString),
@@ -324,6 +334,7 @@ extension ControlCommandCoordinator {
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
+        let applicationStrings = context?.controlSurfaceApplicationStrings()
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -344,6 +355,14 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "agent-session is only supported by surface.create",
                 data: .object(["type": .string("agentSession")])
+            )
+        }
+        if let typeRaw = string(params, "type"),
+           ["application", "app"].contains(normalizedToken(typeRaw)) {
+            return .err(
+                code: "invalid_params",
+                message: applicationStrings?.splitUnsupported ?? "",
+                data: .object(["type": .string("application")])
             )
         }
         let parsedDivider = initialDividerPosition(params)
@@ -383,6 +402,12 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: "agent-session is only supported by surface.create",
+                data: .object(["type": .string(typeRawValue)])
+            )
+        case .applicationRejected(let typeRawValue):
+            return .err(
+                code: "invalid_params",
+                message: applicationStrings?.splitUnsupported ?? "",
                 data: .object(["type": .string(typeRawValue)])
             )
         case .browserDisabled(let outcome):
@@ -501,15 +526,67 @@ extension ControlCommandCoordinator {
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
+        let applicationStrings = context?.controlSurfaceApplicationStrings()
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let typeRaw = string(params, "type")
+        let isApplication = typeRaw.map {
+            ["application", "app"].contains(normalizedToken($0))
+        } ?? false
+        let applicationWindowID: UInt32?
+        let applicationProcessID: Int32?
+        let applicationFrameRate: Int?
+        if isApplication {
+            guard let rawWindowID = int(params, "window_id_native"),
+                  let exactWindowID = UInt32(exactly: rawWindowID),
+                  exactWindowID > 0 else {
+                return .err(
+                    code: "invalid_params",
+                    message: applicationStrings?.invalidWindowID ?? "",
+                    data: .object(["field": .string("window_id_native")])
+                )
+            }
+            guard let rawProcessID = int(params, "process_id"),
+                  let exactProcessID = Int32(exactly: rawProcessID),
+                  exactProcessID > 0 else {
+                return .err(
+                    code: "invalid_params",
+                    message: applicationStrings?.invalidProcessID ?? "",
+                    data: .object(["field": .string("process_id")])
+                )
+            }
+            if hasNonNull(params, "frame_rate") {
+                guard let rawFrameRate = int(params, "frame_rate"),
+                      (1...120).contains(rawFrameRate) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: applicationStrings?.invalidFrameRate ?? "",
+                        data: .object(["field": .string("frame_rate")])
+                    )
+                }
+                applicationFrameRate = rawFrameRate
+            } else {
+                applicationFrameRate = nil
+            }
+            applicationWindowID = exactWindowID
+            applicationProcessID = exactProcessID
+        } else {
+            applicationWindowID = int(params, "window_id_native").flatMap(UInt32.init(exactly:))
+            applicationProcessID = int(params, "process_id").flatMap(Int32.init(exactly:))
+            applicationFrameRate = int(params, "frame_rate")
+        }
+
         let inputs = ControlSurfaceCreateInputs(
-            typeRaw: string(params, "type"),
+            typeRaw: typeRaw,
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
             urlRaw: string(params, "url"),
+            applicationWindowID: applicationWindowID,
+            applicationProcessID: applicationProcessID,
+            applicationTitle: optionalTrimmedRawString(params, "title"),
+            applicationFrameRate: applicationFrameRate,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
@@ -546,6 +623,8 @@ extension ControlCommandCoordinator {
         case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
+        case .applicationControlUnavailable(let message):
+            return .err(code: "unavailable", message: message, data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:

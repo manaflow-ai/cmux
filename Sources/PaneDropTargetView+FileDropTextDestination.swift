@@ -17,7 +17,7 @@ extension PaneDropTargetView {
             guard let filePreviewPanel = panel as? FilePreviewPanel,
                   filePreviewPanel.previewMode == .text else { return nil }
             return .editor
-        case .browser, .markdown, .rightSidebarTool, .customSidebar, .simulator,
+        case .browser, .application, .markdown, .rightSidebarTool, .customSidebar, .simulator,
              .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             return nil
         }

@@ -7,6 +7,8 @@ extension ContentView {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .application:
+            return String(localized: "commandPalette.kind.application", defaultValue: "Application")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
@@ -34,6 +36,8 @@ extension ContentView {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .application:
+            return ["application", "app", "game", "stream"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
