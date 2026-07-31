@@ -275,7 +275,6 @@ extension TerminalSurface {
                 ? promptInputLedger.humanInputSnapshot
                 : nil
 
-        didReceiveExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
                 return .surfaceUnavailable
@@ -291,6 +290,7 @@ extension TerminalSurface {
             ) else {
                 return .inputQueueFull
             }
+            didReceiveExplicitInput()
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
@@ -304,6 +304,7 @@ extension TerminalSurface {
             return .processExited
         }
 
+        didReceiveExplicitInput()
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         writeTextData(data, to: liveSurface)
         sendKeyEvent(

@@ -81,6 +81,21 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
+    @Test func rejectedOversizedPromptDoesNotNotifyPaneHost() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                String(repeating: "x", count: 1_048_577),
+                submitKey: "return"
+            ) == .inputQueueFull
+        )
+
+        #expect(fixture.surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
     @Test func emptyPromptStillQueuesItsSubmitKeyAsACompoundItem() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
