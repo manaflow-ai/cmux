@@ -19,6 +19,33 @@ private struct ConnectedHandle: @unchecked Sendable {
     let error: String
 }
 
+@MainActor
+final class TerminalClientHandle {
+    private var raw: OpaquePointer?
+    private let disconnectClient: (OpaquePointer) -> Void
+
+    init(
+        raw: OpaquePointer,
+        disconnectClient: @escaping (OpaquePointer) -> Void = {
+            cmux_terminal_client_disconnect($0)
+        }
+    ) {
+        self.raw = raw
+        self.disconnectClient = disconnectClient
+    }
+
+    func withRaw<Result>(_ operation: (OpaquePointer) -> Result) -> Result? {
+        guard let raw else { return nil }
+        return operation(raw)
+    }
+
+    func disconnect() {
+        guard let raw else { return }
+        self.raw = nil
+        disconnectClient(raw)
+    }
+}
+
 struct DemoLaunchConfiguration: Equatable {
     let invitation: String
     let surface: String
@@ -68,11 +95,12 @@ final class TerminalModel: ObservableObject {
     @Published private(set) var isConnecting = false
     @Published private(set) var isConnected = false
 
-    private var client: OpaquePointer?
+    private var client: TerminalClientHandle?
     private var pollingTask: Task<Void, Never>?
     private var lastGeometry: TerminalGeometry?
     private let shouldAutoConnect: Bool
     private var didAttemptAutoConnect = false
+    private var isShuttingDown = false
 
     init(configuration: DemoLaunchConfiguration = .processEnvironment()) {
         invitation = configuration.invitation
@@ -87,7 +115,7 @@ final class TerminalModel: ObservableObject {
     }
 
     func connect() {
-        guard client == nil, !isConnecting else { return }
+        guard client == nil, !isConnecting, !isShuttingDown else { return }
         guard let surfaceID = UInt64(surface) else {
             errorMessage = L10n.text("error.surface", "Enter a numeric surface ID.")
             return
@@ -127,50 +155,70 @@ final class TerminalModel: ObservableObject {
                 }
                 return
             }
-            client = handle
+            let client = TerminalClientHandle(raw: handle)
+            guard !isShuttingDown else {
+                client.disconnect()
+                return
+            }
+            self.client = client
             isConnected = true
             beginPolling()
         }
     }
 
     func disconnect() {
+        endConnection(updatePublishedState: true)
+    }
+
+    func shutdown() {
+        isShuttingDown = true
+        endConnection(updatePublishedState: false)
+    }
+
+    private func endConnection(updatePublishedState: Bool) {
         pollingTask?.cancel()
         pollingTask = nil
-        if let client {
-            cmux_terminal_client_disconnect(client)
-        }
+        let ownedClient = client
         client = nil
-        isConnected = false
-        diagnostics = ""
         lastGeometry = nil
-    }
-
-    func send(_ bytes: Data) {
-        guard let client else { return }
-        bytes.withUnsafeBytes { raw in
-            _ = cmux_terminal_client_send(
-                client,
-                raw.bindMemory(to: UInt8.self).baseAddress,
-                raw.count
-            )
+        ownedClient?.disconnect()
+        if updatePublishedState {
+            isConnected = false
+            diagnostics = ""
         }
     }
 
-    func paste(_ text: String) {
-        guard let client, let bytes = text.data(using: .utf8) else { return }
-        bytes.withUnsafeBytes { raw in
-            _ = cmux_terminal_client_paste(
-                client,
-                raw.bindMemory(to: UInt8.self).baseAddress,
-                raw.count
-            )
+    func submit(_ input: TerminalInput) {
+        guard let client else { return }
+        client.withRaw { rawClient in
+            switch input {
+            case let .bytes(bytes):
+                bytes.withUnsafeBytes { raw in
+                    _ = cmux_terminal_client_send(
+                        rawClient,
+                        raw.bindMemory(to: UInt8.self).baseAddress,
+                        raw.count
+                    )
+                }
+            case let .paste(text):
+                guard let bytes = text.data(using: .utf8) else { return }
+                bytes.withUnsafeBytes { raw in
+                    _ = cmux_terminal_client_paste(
+                        rawClient,
+                        raw.bindMemory(to: UInt8.self).baseAddress,
+                        raw.count
+                    )
+                }
+            }
         }
     }
 
     func resize(to geometry: TerminalGeometry) {
         guard geometry != lastGeometry, let client else { return }
         lastGeometry = geometry
-        _ = cmux_terminal_client_resize(client, geometry.cols, geometry.rows)
+        client.withRaw {
+            _ = cmux_terminal_client_resize($0, geometry.cols, geometry.rows)
+        }
     }
 
     private func beginPolling() {
@@ -185,11 +233,13 @@ final class TerminalModel: ObservableObject {
 
     private func poll() {
         guard let client else { return }
-        frame = copyString { buffer, capacity in
-            cmux_terminal_client_copy_frame(client, buffer, capacity)
-        }
-        diagnostics = copyString { buffer, capacity in
-            cmux_terminal_client_copy_diagnostics(client, buffer, capacity)
+        client.withRaw { rawClient in
+            frame = copyString { buffer, capacity in
+                cmux_terminal_client_copy_frame(rawClient, buffer, capacity)
+            }
+            diagnostics = copyString { buffer, capacity in
+                cmux_terminal_client_copy_diagnostics(rawClient, buffer, capacity)
+            }
         }
     }
 

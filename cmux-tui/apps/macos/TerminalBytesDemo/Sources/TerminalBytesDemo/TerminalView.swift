@@ -1,9 +1,21 @@
 import AppKit
 import SwiftUI
 
-private final class TerminalTextView: NSTextView {
-    var send: ((Data) -> Void)?
-    var sendPaste: ((String) -> Void)?
+enum TerminalInput: Equatable {
+    case bytes(Data)
+    case paste(String)
+}
+
+final class TerminalTextView: NSTextView {
+    var submit: ((TerminalInput) -> Void)?
+    var pasteboardText: () -> String? = {
+        NSPasteboard.general.string(forType: .string)
+    }
+
+    func configureForTerminal() {
+        isEditable = false
+        isSelectable = true
+    }
 
     override func keyDown(with event: NSEvent) {
         let bytes: [UInt8]?
@@ -19,17 +31,64 @@ private final class TerminalTextView: NSTextView {
                 super.keyDown(with: event)
                 return
             }
-            bytes = event.characters?.data(using: .utf8).map(Array.init)
+            if event.modifierFlags.contains(.control) {
+                bytes = event.characters?.data(using: .utf8).map(Array.init)
+            } else {
+                interpretKeyEvents([event])
+                return
+            }
         }
         if let bytes {
-            send?(Data(bytes))
+            submit?(.bytes(Data(bytes)))
         }
     }
 
-    override func paste(_ sender: Any?) {
-        if let value = NSPasteboard.general.string(forType: .string) {
-            sendPaste?(value)
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        let text: String?
+        switch insertString {
+        case let value as NSAttributedString:
+            text = value.string
+        case let value as String:
+            text = value
+        default:
+            text = nil
         }
+        guard let text, !text.isEmpty else { return }
+        submit?(.bytes(Data(text.utf8)))
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.type == .keyDown,
+           modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "v" {
+            return submitPaste()
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func validateUserInterfaceItem(
+        _ item: any NSValidatedUserInterfaceItem
+    ) -> Bool {
+        if item.action == #selector(paste(_:)) {
+            return hasPasteboardText
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func paste(_ sender: Any?) {
+        _ = submitPaste()
+    }
+
+    private var hasPasteboardText: Bool {
+        pasteboardText().map { !$0.isEmpty } ?? false
+    }
+
+    @discardableResult
+    private func submitPaste() -> Bool {
+        guard let value = pasteboardText(), !value.isEmpty else { return false }
+        submit?(.paste(value))
+        return true
     }
 }
 
@@ -44,8 +103,7 @@ private final class TerminalContainerView: NSScrollView {
 
 struct TerminalView: NSViewRepresentable {
     let text: String
-    let send: (Data) -> Void
-    let paste: (String) -> Void
+    let submit: (TerminalInput) -> Void
     let resize: (TerminalGeometry) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -57,8 +115,7 @@ struct TerminalView: NSViewRepresentable {
         scroll.backgroundColor = .black
 
         let terminal = TerminalTextView()
-        terminal.isEditable = false
-        terminal.isSelectable = true
+        terminal.configureForTerminal()
         terminal.isRichText = false
         terminal.allowsUndo = false
         terminal.drawsBackground = true
@@ -69,8 +126,7 @@ struct TerminalView: NSViewRepresentable {
         terminal.isVerticallyResizable = true
         terminal.isHorizontallyResizable = true
         terminal.autoresizingMask = [.width]
-        terminal.send = send
-        terminal.sendPaste = paste
+        terminal.submit = submit
         scroll.documentView = terminal
         scroll.resized = resize
         return scroll

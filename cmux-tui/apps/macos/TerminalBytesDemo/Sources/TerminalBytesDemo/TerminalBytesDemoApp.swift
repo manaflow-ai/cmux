@@ -1,18 +1,33 @@
 import AppKit
 import SwiftUI
 
+final class TerminalBytesDemoAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(
+        _ sender: NSApplication
+    ) -> Bool {
+        true
+    }
+}
+
 @main
 struct TerminalBytesDemoApp: App {
+    @NSApplicationDelegateAdaptor(TerminalBytesDemoAppDelegate.self)
+    private var appDelegate
+    @StateObject private var model = TerminalModel()
+
     var body: some Scene {
         WindowGroup(L10n.text("app.title", "TerminalBytes Demo")) {
-            ContentView()
+            ContentView(model: model)
                 .frame(minWidth: 780, minHeight: 520)
+                .onDisappear {
+                    model.shutdown()
+                }
         }
     }
 }
 
 struct ContentView: View {
-    @StateObject private var model = TerminalModel()
+    @ObservedObject var model: TerminalModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,8 +71,7 @@ struct ContentView: View {
 
             TerminalView(
                 text: model.frame,
-                send: model.send,
-                paste: model.paste,
+                submit: model.submit,
                 resize: model.resize
             )
             .background(.black)

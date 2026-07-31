@@ -1,5 +1,11 @@
+import AppKit
 import XCTest
 @testable import TerminalBytesDemo
+
+private final class PasteMenuItem: NSObject, NSValidatedUserInterfaceItem {
+    let action: Selector? = #selector(NSText.paste(_:))
+    let tag = 0
+}
 
 final class TerminalBytesDemoTests: XCTestCase {
     func testDemoConfigurationUsesOnlyExplicitEnvironment() throws {
@@ -53,5 +59,73 @@ final class TerminalBytesDemoTests: XCTestCase {
         }
         XCTAssertEqual(value, "new-日本語")
         XCTAssertGreaterThanOrEqual(calls, 3)
+    }
+
+    @MainActor
+    func testNonEditableTerminalRoutesCommittedUnicodeAndPaste() throws {
+        let terminal = TerminalTextView()
+        terminal.configureForTerminal()
+        var delivered: [TerminalInput] = []
+        terminal.submit = { delivered.append($0) }
+        terminal.pasteboardText = { "貼り付け" }
+
+        XCTAssertFalse(terminal.isEditable)
+        XCTAssertTrue(terminal.isSelectable)
+        XCTAssertTrue(terminal.validateUserInterfaceItem(PasteMenuItem()))
+        terminal.string = "server frame"
+        XCTAssertEqual(terminal.string, "server frame")
+        terminal.string = ""
+
+        terminal.insertText(
+            NSAttributedString(string: "日本語-e\u{301}"),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        let commandV = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ))
+        XCTAssertTrue(terminal.performKeyEquivalent(with: commandV))
+
+        XCTAssertEqual(delivered, [
+            .bytes(Data("日本語-e\u{301}".utf8)),
+            .paste("貼り付け"),
+        ])
+        XCTAssertEqual(terminal.string, "")
+
+        terminal.pasteboardText = { nil }
+        XCTAssertFalse(terminal.validateUserInterfaceItem(PasteMenuItem()))
+        XCTAssertFalse(terminal.performKeyEquivalent(with: commandV))
+    }
+
+    @MainActor
+    func testTerminalClientHandleDisconnectsExactlyOnce() throws {
+        let raw = try XCTUnwrap(OpaquePointer(bitPattern: 1))
+        var disconnected: [OpaquePointer] = []
+        let handle = TerminalClientHandle(raw: raw) {
+            disconnected.append($0)
+        }
+
+        XCTAssertEqual(handle.withRaw { $0 }, raw)
+        handle.disconnect()
+        handle.disconnect()
+
+        XCTAssertNil(handle.withRaw { $0 })
+        XCTAssertEqual(disconnected, [raw])
+    }
+
+    @MainActor
+    func testClosingLastWindowTerminatesDemoApp() {
+        XCTAssertTrue(
+            TerminalBytesDemoAppDelegate()
+                .applicationShouldTerminateAfterLastWindowClosed(.shared)
+        )
     }
 }
