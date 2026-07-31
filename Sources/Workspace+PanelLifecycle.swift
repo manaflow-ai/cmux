@@ -321,9 +321,13 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
-        if let lifecyclePanelId = ownedPanelId ?? panelId {
+        // Lifecycle follows PID ownership: a key that never recorded PID state
+        // (a bare `clear_status` for a display key) must not drop the agent's
+        // lifecycle and make a live pane hibernatable (#9295). Explicit
+        // lifecycle clears go through `clearAgentLifecycle` directly.
+        if let ownedPanelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: ownedPanelId) {
                 didChange = true
             }
         }
