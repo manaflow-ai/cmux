@@ -39,7 +39,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
+        applyCreationTitleAsCustomTitle: Bool
     ) -> Tab
     /// Closes a member workspace during group deletion (legacy
     /// `closeWorkspace(_:recordHistory:)`, including its teardown chain).

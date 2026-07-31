@@ -32,9 +32,6 @@ extension TabManager {
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let applied = tabs[index].setCustomTitle(title, source: source)
-        if applied {
-            recordWorkspaceCustomTitle(tabs[index], source: source)
-        }
         if applied, selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
