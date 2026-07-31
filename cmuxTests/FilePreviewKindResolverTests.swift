@@ -26,64 +26,6 @@ struct FilePreviewKindResolverTests {
         }
     }
 
-    @Test("Movie file extensions keep media preview")
-    func movieFileExtensionsKeepMediaPreview() throws {
-        for fileExtension in ["mov", "mp4"] {
-            let url = try temporaryFile(
-                extension: fileExtension,
-                contents: "not a source file\n"
-            )
-            defer { try? FileManager.default.removeItem(at: url) }
-
-            #expect(FilePreviewKindResolver.initialMode(for: url) == .media)
-            #expect(FilePreviewKindResolver.mode(for: url) == .media)
-        }
-    }
-
-    @Test("MTS binary transport streams keep media preview after sniffing")
-    func mtsBinaryTransportStreamsKeepMediaPreviewAfterSniffing() throws {
-        let url = try temporaryFile(
-            extension: "mts",
-            data: mpegTransportStreamData(packetSize: 192, syncOffset: 4)
-        )
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
-        #expect(FilePreviewKindResolver.mode(for: url) == .media)
-    }
-
-    @MainActor
-    @Test("Media previews ignore stale text-load completions")
-    func mediaPreviewsIgnoreStaleTextLoadCompletions() async throws {
-        let url = try temporaryOversizedMPEGTransportStream(
-            extension: "mts",
-            packetSize: 192,
-            syncOffset: 4
-        )
-        defer { try? FileManager.default.removeItem(at: url) }
-        let loader = DeferredTextLoader(result: .unavailable)
-
-        let panel = FilePreviewPanel(
-            workspaceId: UUID(),
-            filePath: url.path,
-            textLoader: { url in await loader.load(url: url) }
-        )
-        defer { panel.close() }
-
-        #expect(panel.previewMode == .text)
-        await loader.waitUntilStarted()
-        let resolvedAsMedia = await waitForPreviewMode(panel, .media)
-        #expect(resolvedAsMedia)
-        #expect(panel.isFileUnavailable == false)
-
-        await loader.release()
-        await loader.waitUntilCompleted()
-
-        #expect(panel.previewMode == .media)
-        #expect(panel.isFileUnavailable == false)
-        #expect(panel.textContent.isEmpty)
-    }
-
     @Test("Source files stay text when a multi-byte character straddles the sniff window")
     func sourceFilesStayTextWhenMultiByteCharacterStraddlesSniffWindow() throws {
         let url = try temporaryFile(
@@ -183,6 +125,64 @@ struct FilePreviewKindResolverTests {
             count: FilePreviewKindResolver.sniffPrefixByteCount - prefix.utf8.count - 1
         )
         return Data((prefix + padding + "ä" + suffix).utf8)
+    }
+
+    @Test("Movie file extensions keep media preview")
+    func movieFileExtensionsKeepMediaPreview() throws {
+        for fileExtension in ["mov", "mp4"] {
+            let url = try temporaryFile(
+                extension: fileExtension,
+                contents: "not a source file\n"
+            )
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            #expect(FilePreviewKindResolver.initialMode(for: url) == .media)
+            #expect(FilePreviewKindResolver.mode(for: url) == .media)
+        }
+    }
+
+    @Test("MTS binary transport streams keep media preview after sniffing")
+    func mtsBinaryTransportStreamsKeepMediaPreviewAfterSniffing() throws {
+        let url = try temporaryFile(
+            extension: "mts",
+            data: mpegTransportStreamData(packetSize: 192, syncOffset: 4)
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .media)
+    }
+
+    @MainActor
+    @Test("Media previews ignore stale text-load completions")
+    func mediaPreviewsIgnoreStaleTextLoadCompletions() async throws {
+        let url = try temporaryOversizedMPEGTransportStream(
+            extension: "mts",
+            packetSize: 192,
+            syncOffset: 4
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        let loader = DeferredTextLoader(result: .unavailable)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { url in await loader.load(url: url) }
+        )
+        defer { panel.close() }
+
+        #expect(panel.previewMode == .text)
+        await loader.waitUntilStarted()
+        let resolvedAsMedia = await waitForPreviewMode(panel, .media)
+        #expect(resolvedAsMedia)
+        #expect(panel.isFileUnavailable == false)
+
+        await loader.release()
+        await loader.waitUntilCompleted()
+
+        #expect(panel.previewMode == .media)
+        #expect(panel.isFileUnavailable == false)
+        #expect(panel.textContent.isEmpty)
     }
 
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
