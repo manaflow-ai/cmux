@@ -64,7 +64,12 @@ export default function middleware(request: NextRequest) {
 
   // This is a localized image endpoint, but the default-locale URL is
   // intentionally unprefixed to match the canonical social metadata URL.
-  if (pathname === "/opengraph-image" || pathname === "/opengraph-image/") {
+  if (
+    pathname === "/opengraph-image" ||
+    pathname === "/opengraph-image/" ||
+    pathname === "/browser-opengraph-image" ||
+    pathname === "/browser-opengraph-image/"
+  ) {
     return NextResponse.next();
   }
 
@@ -141,6 +146,7 @@ export default function middleware(request: NextRequest) {
   // locale detection can't redirect back. The privacy policy has complete
   // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
+    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);

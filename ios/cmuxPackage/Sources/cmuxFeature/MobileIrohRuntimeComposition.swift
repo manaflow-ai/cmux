@@ -13,6 +13,78 @@ nonisolated private let mobileIrohLog = Logger(
     category: "iroh-runtime"
 )
 
+/// Resume-once guard for the forget deadline race: whichever racer claims
+/// first owns the continuation, and the loser's late completion is discarded.
+private actor MobileIrohForgetRaceGate {
+    private var claimed = false
+
+    func claim() -> Bool {
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
+
+/// Keeps synchronous Keychain and defaults work off the UI actor while
+/// serializing concurrent activation reads through one identity owner.
+///
+/// `UserDefaults` documents its API as thread-safe but does not conform to
+/// `Sendable`. Keep the unchecked boundary private and pass only this owner
+/// across the actor boundary.
+private final class MobileIrohSendableDefaults: @unchecked Sendable {
+    let value: UserDefaults
+
+    init(_ value: UserDefaults) {
+        self.value = value
+    }
+}
+
+/// Resolves the durable device id off the MainActor: the witness
+/// (`identifierForVendor`) is captured with one cheap MainActor hop, then the
+/// Keychain reads/writes, the defaults mirror, and the continuity probe all
+/// run on this actor's executor so activation never blocks app UI on Keychain
+/// service latency.
+private actor MobileIrohDurableDeviceIDResolver {
+    private let defaults: MobileIrohSendableDefaults
+    private let bundleIdentifier: String?
+
+    init(defaults: MobileIrohSendableDefaults, bundleIdentifier: String?) {
+        self.defaults = defaults
+        self.bundleIdentifier = bundleIdentifier
+    }
+
+    func resolve() async -> String? {
+        let witness = await DeviceRegistryService.currentDeviceWitness()
+        return DeviceRegistryService.durableDeviceID(
+            defaults: defaults.value,
+            deviceWitness: witness,
+            evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe(
+                bundleIdentifier: bundleIdentifier
+            )
+        )
+    }
+}
+
+#if DEBUG
+/// DEBUG same-device evidence: dev builds keep iroh endpoint identities in a
+/// development FILE store, not the Keychain, so continuity is proven by any
+/// record in that store. The filesystem is always readable, so the verdict is
+/// two-state (never `.unavailable`).
+struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
+    let bundleIdentifier: String?
+
+    func probe() -> SameDeviceEvidence {
+        let exists = CmxIrohDevelopmentFileIdentityStore(
+            directory: MobileIrohRuntimeComposition.developmentStoreDirectory(
+                service: "identity",
+                bundleIdentifier: bundleIdentifier
+            )
+        ).containsAnyRecord()
+        return exists ? .present : .absent
+    }
+}
+#endif
+
 /// Resolves connection waiters only when the latest lifecycle revision settles.
 @MainActor
 final class MobileIrohConnectionReadinessSignal {
@@ -53,7 +125,8 @@ final class MobileIrohConnectionReadinessSignal {
 @MainActor
 public final class MobileIrohRuntimeComposition:
     CmxIrohDeferredTransportProviding,
-    MobileIrohMacDiscovering
+    MobileIrohMacDiscovering,
+    MobileIrohMacForgetting
 {
     enum SettingsError: Error, Equatable {
         case unavailable
@@ -121,10 +194,18 @@ public final class MobileIrohRuntimeComposition:
         @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
     private var transportVerificationMode: CmxIrohTransportVerificationMode
     private let automaticRelayCredentialRefreshEnabled: Bool
+    /// The app defaults handle, retained under its existing DEBUG-era name.
     private let debugDefaults: UserDefaults?
     private let brokerFactory: BrokerFactory
     private let brokerBackpressureGate: CmxIrohBrokerBackpressureGate
-    private let deviceID: @Sendable () -> String
+    /// Resolves the durable device id at activation time, or `nil` when the
+    /// durable identity store is unavailable (Keychain locked before first
+    /// unlock, or a persistent write failure). Re-read on every activation
+    /// rather than captured once at init: a value captured while the store was
+    /// unavailable would be an ephemeral throwaway id, and registering a binding
+    /// under it would orphan the retained `(user, device, tag)` binding. When
+    /// this returns `nil`, activation defers and retries on the next reconcile.
+    private let deviceID: @Sendable () async -> String?
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
@@ -186,14 +267,15 @@ public final class MobileIrohRuntimeComposition:
         diagnosticLog: DiagnosticLog? = nil
     ) {
         #if DEBUG
-        let transportVerificationMode = Self.debugTransportVerificationMode(
+        let transportVerificationMode = Self.initialTransportVerificationMode(
             defaults: defaults
         )
         let automaticRelayCredentialRefreshEnabled = ProcessInfo.processInfo.environment[
             "CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH"
         ] != "1"
         #else
-        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
+        let transportVerificationMode =
+            CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
         let automaticRelayCredentialRefreshEnabled = true
         #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
@@ -225,7 +307,10 @@ public final class MobileIrohRuntimeComposition:
                 )
             }
         )
-        let stableDeviceID = DeviceRegistryService.deviceID(defaults: defaults)
+        let durableDeviceIDResolver = MobileIrohDurableDeviceIDResolver(
+            defaults: MobileIrohSendableDefaults(defaults),
+            bundleIdentifier: bundleIdentifier
+        )
         self.init(
             appInstances: CmxIrohAppInstanceRepository(store: installState),
             identities: CmxIrohIdentityRepository(
@@ -303,7 +388,7 @@ public final class MobileIrohRuntimeComposition:
             brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                 store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
             ),
-            deviceID: { stableDeviceID },
+            deviceID: { await durableDeviceIDResolver.resolve() },
             tag: Self.currentTag(
                 infoDictionary: infoDictionary,
                 bundleIdentifier: bundleIdentifier
@@ -347,7 +432,7 @@ public final class MobileIrohRuntimeComposition:
         automaticRelayCredentialRefreshEnabled: Bool = true,
         brokerFactory: @escaping BrokerFactory,
         brokerBackpressureGate: CmxIrohBrokerBackpressureGate = CmxIrohBrokerBackpressureGate(),
-        deviceID: @escaping @Sendable () -> String,
+        deviceID: @escaping @Sendable () async -> String?,
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
@@ -865,8 +950,14 @@ public final class MobileIrohRuntimeComposition:
             let broker = try makeBrokerBundle(
                 accountID: pendingRevocation.accountID,
                 tokenSource: CmxIrohBrokerTokenSource(
-                    accessToken: { accessToken },
-                    refreshToken: { refreshToken }
+                    // The pair was captured together up front, so it is coherent
+                    // by construction.
+                    credentialPair: {
+                        CmxIrohBrokerCredentials(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
                 )
             ).client
             let released = await recoverSignOutQuarantine(
@@ -1007,22 +1098,28 @@ public final class MobileIrohRuntimeComposition:
                   accountID == pendingRevocation.accountID,
                   let auth else { return false }
             do {
+                let expectedAccountID = pendingRevocation.accountID
                 let broker = try makeBrokerBundle(
-                    accountID: pendingRevocation.accountID,
+                    accountID: expectedAccountID,
                     tokenSource: CmxIrohBrokerTokenSource(
-                        accessToken: { [weak auth] in
+                        // An ATOMIC authenticated snapshot per fetch, pinned to
+                        // the PENDING revocation's account: the equality guard
+                        // above ran before this destructive retry, and the
+                        // user can switch accounts before the revoke request
+                        // captures credentials — an unpinned live read would
+                        // then send account B's tokens with account A's
+                        // pending binding id. A mismatch yields nil and the
+                        // retry fails closed.
+                        credentialPair: { [weak auth] in
                             guard let auth,
-                                  let tokens = try? await auth.currentTokens() else {
+                                  let session = try? await auth.authenticatedSessionSnapshot(),
+                                  session.accountID == expectedAccountID else {
                                 return nil
                             }
-                            return tokens.accessToken
-                        },
-                        refreshToken: { [weak auth] in
-                            guard let auth,
-                                  let tokens = try? await auth.currentTokens() else {
-                                return nil
-                            }
-                            return tokens.refreshToken
+                            return CmxIrohBrokerCredentials(
+                                accessToken: session.accessToken,
+                                refreshToken: session.refreshToken
+                            )
                         }
                     )
                 ).client
@@ -1164,8 +1261,14 @@ public final class MobileIrohRuntimeComposition:
               let broker = try? makeBrokerBundle(
                   accountID: pendingRevocation.accountID,
                   tokenSource: CmxIrohBrokerTokenSource(
-                      accessToken: { accessToken },
-                      refreshToken: { refreshToken }
+                      // The pair was captured together up front, so it is
+                      // coherent by construction.
+                      credentialPair: {
+                          CmxIrohBrokerCredentials(
+                              accessToken: accessToken,
+                              refreshToken: refreshToken
+                          )
+                      }
                   )
               ).client else { return }
         do {
@@ -1290,6 +1393,23 @@ public final class MobileIrohRuntimeComposition:
 
     private func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
+        // Resolve the durable device id BEFORE any iroh identity exists. The
+        // device-id resolver's continuity probe treats a device-local iroh
+        // identity as proof the install continues on this hardware; creating
+        // the identity first (below) would hand a phone restored from a
+        // pre-witness backup its own moments-old identity as "evidence" and
+        // adopt the migrated mirror id — two phones sharing one
+        // (user, device, tag) slot.
+        guard let durableDeviceID = await deviceID() else {
+            // The durable identity store is unavailable (Keychain locked before
+            // first unlock, or a persistent write failure). Registering a
+            // binding under an ephemeral throwaway id would orphan the retained
+            // `(user, device, tag)` binding, so defer activation and retry on
+            // the next reconcile once the store becomes readable.
+            mobileIrohLog.error("Iroh activation deferred: durable device id unavailable")
+            throw CmxIrohClientRuntimeError.inactive
+        }
+        let deviceID = cmxCanonicalDeviceID(durableDeviceID)
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
             tag: tag
@@ -1299,7 +1419,6 @@ public final class MobileIrohRuntimeComposition:
             appInstanceID: appInstanceID
         )
         let endpointID = try Self.peerIdentity(for: identity)
-        let deviceID = cmxCanonicalDeviceID(deviceID())
         let cachedBinding = try await brokerCredentials.loadBinding(
             accountID: accountID,
             appInstanceID: appInstanceID
@@ -1343,20 +1462,21 @@ public final class MobileIrohRuntimeComposition:
             cachedRelay = nil
         }
 
+        // Pin the activation's broker to the session identity that owns
+        // `accountID` — a cheap LOCAL check (no token read, no network), so an
+        // offline launch still constructs the runtime and reaches the cached
+        // relay/offline-policy recovery paths. Every broker request then
+        // re-checks the pin and re-reads a coherent pair from the token store:
+        // an account switch fails closed per request (no wrong-account server
+        // mutations before the lifecycle revision guard runs), and an ordinary
+        // token rotation never strands the long-lived runtime on a frozen
+        // activation-time pair.
+        guard auth.currentUser?.id == accountID else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
         let brokerBundle = try makeBrokerBundle(
             accountID: accountID,
-            tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { [weak auth] in
-                    guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.accessToken
-                },
-                refreshToken: { [weak auth] in
-                    guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.refreshToken
-                }
-            )
+            tokenSource: brokerTokenSource(pinnedTo: accountID)
         )
         let broker = brokerBundle.client
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -1715,6 +1835,31 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
+    /// The same-device evidence probe `DeviceRegistryService` gates pre-witness
+    /// mirror adoption on, aware of where THIS composition actually stores iroh
+    /// endpoint identities.
+    ///
+    /// In Release the identity is an `AfterFirstUnlockThisDeviceOnly` Keychain
+    /// item that never travels in a device backup, so its presence proves the
+    /// install is continuing on the same hardware — exactly the
+    /// in-place-upgrade population whose live binding the mirror id must keep;
+    /// `IrohEndpointIdentityEvidenceProbe` reports it three-state (present /
+    /// absent / Keychain-locked). In DEBUG the identity lives in a development
+    /// FILE store instead, so probing the Keychain would report `.absent` for
+    /// every continuing dev install and mint (stranding the dev binding behind
+    /// `endpoint_already_bound`); probe the file store there. Every production
+    /// caller resolving the device id must pass THIS probe, so concurrent
+    /// resolutions agree.
+    nonisolated static func sameDeviceEvidenceProbe(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> any SameDeviceEvidenceProbing {
+        #if DEBUG
+        MobileIrohDevelopmentFileEvidenceProbe(bundleIdentifier: bundleIdentifier)
+        #else
+        IrohEndpointIdentityEvidenceProbe()
+        #endif
+    }
+
     private static func credentialStore(
         service: String,
         bundleIdentifier: String?
@@ -1733,17 +1878,27 @@ public final class MobileIrohRuntimeComposition:
         #endif
     }
 
+    static func initialTransportVerificationMode(
+        defaults: UserDefaults
+    ) -> CmxIrohTransportVerificationMode {
+        #if DEBUG
+        if let rawValue = defaults.string(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
+            return mode
+        }
+        #endif
+        return CmxIrohPathPreference.stored(in: defaults).transportVerificationMode
+    }
+
     #if DEBUG
     static func debugTransportVerificationMode(
         defaults: UserDefaults
     ) -> CmxIrohTransportVerificationMode {
-        guard let rawValue = defaults.string(
-            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
-        ) else { return .automatic }
-        return CmxIrohTransportVerificationMode(rawValue: rawValue) ?? .automatic
+        initialTransportVerificationMode(defaults: defaults)
     }
 
-    private static func developmentStoreDirectory(
+    nonisolated fileprivate static func developmentStoreDirectory(
         service: String,
         bundleIdentifier: String?
     ) -> URL {
@@ -1914,6 +2069,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
+            pathPreference: debugDefaults.map {
+                CmxIrohPathPreference.stored(in: $0)
+            } ?? .automatic,
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
                     id: relay.id,
@@ -2221,7 +2379,14 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         revision: UInt64
     ) {
         relayPolicyRefreshTask?.cancel()
-        guard let service, let trustRoot else {
+        guard Self.shouldScheduleRelayPolicyRefresh(
+            automaticRelayCredentialRefreshEnabled:
+                automaticRelayCredentialRefreshEnabled,
+            serviceAvailable: service != nil,
+            trustRootAvailable: trustRoot != nil
+        ),
+        let service,
+        let trustRoot else {
             relayPolicyRefreshTask = nil
             return
         }
@@ -2321,6 +2486,19 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 }
             }
         }
+    }
+
+    /// The signed policy bootstrap includes a fresh relay credential. Tests
+    /// that suspend automatic credential renewal must therefore suspend this
+    /// lane as well as the credential coordinator's timer.
+    nonisolated static func shouldScheduleRelayPolicyRefresh(
+        automaticRelayCredentialRefreshEnabled: Bool,
+        serviceAvailable: Bool,
+        trustRootAvailable: Bool
+    ) -> Bool {
+        automaticRelayCredentialRefreshEnabled
+            && serviceAvailable
+            && trustRootAvailable
     }
 
     nonisolated static func relayPolicyRefreshAttemptDate(
@@ -2484,6 +2662,270 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         infoDictionary: [String: Any]?
     ) -> CmxIrohRelayPolicyTrustRoot? {
         CmxIrohRelayPolicyTrustRoot.appPinned(infoDictionary: infoDictionary)
+    }
+}
+
+/// Failure surfaced when a hidden computer cannot be forgotten.
+enum MobileIrohForgetError: Error {
+    /// No account is authenticated, so no bindings can be revoked.
+    case notAuthenticated
+    /// The authenticated account changed after the forget began, so the revoke
+    /// was aborted rather than applied to a different account's bindings.
+    case accountChanged
+    /// The operation's total deadline elapsed before every matching binding was
+    /// revoked. Already-applied revokes stand; retrying the forget re-discovers
+    /// and revokes only what remains.
+    case deadlineExceeded
+}
+
+extension MobileIrohRuntimeComposition {
+    /// Revokes every non-revoked binding for one saved computer.
+    ///
+    /// Uses a direct authenticated broker (no endpoint/runtime required), so an
+    /// offline Mac's binding is still listed by ``CmxIrohClientBrokerServing/discover()``
+    /// and can be revoked. Matches by canonical device id, and by exact tag when
+    /// the caller knows the app instance, then revokes each match. A no-match
+    /// discovery is treated as already-forgotten and succeeds.
+    public func forgetComputer(
+        macDeviceID: String,
+        instanceTag: String?,
+        expectedAccountID: String
+    ) async throws {
+        // Race the WHOLE forget — credential capture, discovery, backpressure
+        // waits, and every revoke — against the deadline, WITHOUT structurally
+        // awaiting the loser: a task group waits for every child before
+        // returning, so a revoke suspended on a dependency that ignores
+        // cooperative cancellation would keep the forget (and its UI busy
+        // state) stuck past the deadline — exactly the stalled-request case
+        // the deadline exists to recover from. Unstructured tasks racing
+        // through a one-shot gate let the deadline RETURN immediately;
+        // cancellation is still requested on both racers, in-flight URLSession
+        // work unwinds cooperatively in the background, already-applied
+        // revokes stand, and a retry re-discovers only what remains.
+        let gate = MobileIrohForgetRaceGate()
+        let outcome = await withCheckedContinuation { (
+            continuation: CheckedContinuation<Result<Void, any Error>?, Never>
+        ) in
+            let work = Task { [weak self] in
+                let result: Result<Void, any Error>
+                do {
+                    guard let self else { throw MobileIrohForgetError.notAuthenticated }
+                    try await self.revokeMatchingBindings(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag,
+                        expectedAccountID: expectedAccountID
+                    )
+                    result = .success(())
+                } catch {
+                    result = .failure(error)
+                }
+                if await gate.claim() {
+                    continuation.resume(returning: result)
+                }
+            }
+            Task {
+                try? await Self.forgetDeadlineSleep(Self.forgetRevokeDeadlineSeconds)
+                if await gate.claim() {
+                    work.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+        guard let outcome else { throw MobileIrohForgetError.deadlineExceeded }
+        try outcome.get()
+    }
+
+    private func revokeMatchingBindings(
+        macDeviceID: String,
+        instanceTag: String?,
+        expectedAccountID: String
+    ) async throws {
+        guard let auth else { throw MobileIrohForgetError.notAuthenticated }
+        // Capture the account identity AND both tokens as one consistent snapshot
+        // from a single auth-session generation, so the revoke acts with
+        // credentials that provably belong to `expectedAccountID`. Reading the
+        // observed identity and the live tokens separately (the previous approach)
+        // let a lagging observed id authorize the revoke while `currentTokens()`
+        // already returned a different account's freshly stored tokens.
+        let session: AuthenticatedSessionSnapshot
+        do {
+            session = try await auth.authenticatedSessionSnapshot()
+        } catch {
+            throw MobileIrohForgetError.notAuthenticated
+        }
+        guard session.accountID == expectedAccountID else {
+            throw MobileIrohForgetError.accountChanged
+        }
+        let broker = try makeBrokerBundle(
+            accountID: expectedAccountID,
+            tokenSource: brokerTokenSource(pinnedSession: session)
+        ).client
+        let snapshot = try await broker.discover()
+        // The authenticated session can change while discover() is in flight
+        // (sign-out then sign-in, even as the same user). Revoking now would target
+        // the NEW session's bindings, so re-validate before any mutation.
+        try ensureSessionUnchanged(
+            generation: session.generation,
+            expectedAccountID: expectedAccountID
+        )
+        let canonicalTarget = cmxCanonicalDeviceID(macDeviceID)
+        let matches = snapshot.bindings.filter { binding in
+            guard cmxCanonicalDeviceID(binding.deviceID) == canonicalTarget else {
+                return false
+            }
+            if let instanceTag { return binding.tag == instanceTag }
+            return true
+        }
+        // Bound the WHOLE operation. Each revoke request carries its own network
+        // timeout, so a large sequential loop could keep the forget (and its UI
+        // progress state) busy for tens of minutes. Past the deadline, stop and
+        // surface the failure: already-applied revokes stand, and retrying the
+        // forget re-discovers and revokes only what remains.
+        let deadline = now().addingTimeInterval(Self.forgetRevokeDeadlineSeconds)
+        for binding in matches {
+            guard now() < deadline else {
+                throw MobileIrohForgetError.deadlineExceeded
+            }
+            try ensureSessionUnchanged(
+                generation: session.generation,
+                expectedAccountID: expectedAccountID
+            )
+            try await broker.revoke(bindingID: binding.bindingID)
+        }
+    }
+
+    /// Total wall-clock budget for one forget's revoke loop. Six sequential
+    /// worst-case broker timeouts fit comfortably; a healthy broker revokes
+    /// dozens of bindings well within it.
+    private static let forgetRevokeDeadlineSeconds: TimeInterval = 60
+
+    /// Cancellable sleeper backing the forget deadline race — an intentional
+    /// bounded timeout (cancelled with the race, never a synchronization
+    /// substitute). Static because extensions cannot hold instance storage.
+    private static let forgetDeadlineSleep: @Sendable (TimeInterval) async throws -> Void = { seconds in
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
+    /// Throws if the authenticated session that initiated the forget was replaced,
+    /// so a revoke can never land on a different session's bindings. Requires both
+    /// the session generation and the account id to be unchanged: the generation
+    /// catches a sign-out/sign-in even when the same account signs back in, while
+    /// the account id catches a switch to a different user.
+    private func ensureSessionUnchanged(
+        generation: UInt64,
+        expectedAccountID: String
+    ) throws {
+        guard sessionMatches(generation: generation, accountID: expectedAccountID) else {
+            throw MobileIrohForgetError.accountChanged
+        }
+    }
+
+    /// Whether the live auth session is still the exact one (generation + account)
+    /// the forget pinned to.
+    private func sessionMatches(generation: UInt64, accountID: String) -> Bool {
+        guard let auth else { return false }
+        return auth.authSessionGeneration == generation && auth.currentUser?.id == accountID
+    }
+
+    /// Broker token source for LONG-LIVED clients (the activation runtime):
+    /// pinned to the activating ACCOUNT, re-reading an ATOMIC authenticated
+    /// snapshot on every request. Freezing an activation-time pair would go
+    /// stale the moment an ordinary force refresh rotates the Stack pair,
+    /// leaving the runtime's relay refresh and discovery failing until an
+    /// unrelated reconcile. The snapshot binds identity and credentials in one
+    /// capture — it rejects reads while a session transition owns the token
+    /// store — so a sign-out/sign-in completing while the read is suspended can
+    /// never hand this runtime a DIFFERENT account's credentials; the account
+    /// pin then fails closed on any switch. The pin is deliberately NOT
+    /// generation-scoped: every completed sign-in advances the generation, and
+    /// a same-account re-sign-in must keep this runtime serviceable — it is
+    /// still the same user, so serving the new session's credentials is the
+    /// correct behavior, whereas a generation pin would strand the runtime on
+    /// nil credentials until a restart. (Short-lived destructive operations —
+    /// the forget's frozen pair — stay strictly generation-pinned.) The
+    /// snapshot's pair capture is store-level (no network while the stored
+    /// access token is valid), so this stays cheap per request.
+    private func brokerTokenSource(
+        pinnedTo expectedAccountID: String
+    ) -> CmxIrohBrokerTokenSource {
+        CmxIrohBrokerTokenSource(
+            credentialPair: { [weak auth] in
+                guard let auth,
+                      let session = try? await auth.authenticatedSessionSnapshot(),
+                      session.accountID == expectedAccountID else { return nil }
+                return CmxIrohBrokerCredentials(
+                    accessToken: session.accessToken,
+                    refreshToken: session.refreshToken
+                )
+            }
+        )
+    }
+
+    /// Broker token source that reuses the ONE coherent credential pair captured
+    /// when the forget started, for every broker leg.
+    ///
+    /// Each fetch performs only the CHEAP local session check (generation +
+    /// account, no network). Re-capturing a session snapshot per request would
+    /// mint a fresh Stack access token for the discovery and for EVERY sequential
+    /// revoke, turning one destructive action into an unbounded chain of network
+    /// mints that can stall for minutes and fail during a Stack outage despite
+    /// the valid pinned credentials already in hand. The pinned pair is coherent
+    /// by construction (minted together in one snapshot), and the access token
+    /// always travels with its refresh token, so the server can re-mint on its
+    /// side if the access token expires mid-operation. A mid-forget sign-out or
+    /// account switch fails the local check and yields `nil`, so the revoke
+    /// fails safely rather than acting as the wrong user.
+    private func brokerTokenSource(
+        pinnedSession session: AuthenticatedSessionSnapshot
+    ) -> CmxIrohBrokerTokenSource {
+        CmxIrohBrokerTokenSource(
+            credentialPair: { [weak self] in
+                await self?.pinnedBrokerCredentials(session)
+            }
+        )
+    }
+
+    /// The pinned pair while the live auth session still matches the snapshot's
+    /// generation and account; `nil` once the session moved.
+    private func pinnedBrokerCredentials(
+        _ session: AuthenticatedSessionSnapshot
+    ) -> CmxIrohBrokerCredentials? {
+        guard sessionMatches(
+            generation: session.generation,
+            accountID: session.accountID
+        ) else { return nil }
+        return CmxIrohBrokerCredentials(
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken
+        )
+    }
+
+    public func setIrohPathPreference(
+        _ preference: CmxIrohPathPreference
+    ) async throws {
+        guard let defaults = debugDefaults else { throw SettingsError.unavailable }
+        defaults.set(
+            preference.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        #if DEBUG
+        defaults.removeObject(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        #endif
+        let mode = preference.transportVerificationMode
+        guard transportVerificationMode != mode else {
+            publishIrohSettingsUpdate()
+            return
+        }
+        transportVerificationMode = mode
+        publishIrohSettingsUpdate()
+        guard let accountID = observedAccountID ?? activeAccountID else { return }
+        await scheduleReconcile(
+            targetAccountID: accountID,
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
     }
 }
 

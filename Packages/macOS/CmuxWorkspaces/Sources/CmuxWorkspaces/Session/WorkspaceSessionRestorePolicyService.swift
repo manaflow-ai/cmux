@@ -7,7 +7,7 @@ public import Foundation
 /// this package independent of app DTO storage and UI while preserving the
 /// exact restore behavior.
 public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResumeBinding>: Sendable {
-    private let applyStoredApproval: @Sendable (Binding, URL, Data?) -> Binding
+    private let applyStoredApproval: @Sendable (Binding, URL, Data?) -> Binding?
     private let shouldRunPromptedSurfaceResume: @Sendable (Binding) -> Bool
     private let isRunningUnderAutomatedTests: @Sendable () -> Bool
     private let truncateScrollback: @Sendable (String?) -> String?
@@ -16,7 +16,7 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
 
     /// Creates a restore policy service.
     public init(
-        applyStoredApproval: @escaping @Sendable (Binding, URL, Data?) -> Binding,
+        applyStoredApproval: @escaping @Sendable (Binding, URL, Data?) -> Binding?,
         shouldRunPromptedSurfaceResume: @escaping @Sendable (Binding) -> Bool,
         isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool,
         truncateScrollback: @escaping @Sendable (String?) -> String?,
@@ -98,11 +98,12 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return effectiveBinding.startupInputWithLauncherScript(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            restoringWorkingDirectory: nil
         )
     }
 
-    /// Returns the command or input launch action for a restored surface resume binding.
+    /// Returns post-start input for a restored surface resume binding.
     public func surfaceResumeStartupLaunch(
         _ resumeBinding: Binding?,
         autoResumeAgentSessions: Bool,
@@ -110,7 +111,8 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         promptForApproval: Bool = true,
         approvalStoreURL: URL,
         approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        restoringWorkingDirectory: String? = nil
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
             resumeBinding,
@@ -124,28 +126,23 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return surfaceResumeStartupLaunch(
             forApprovedBinding: effectiveBinding,
             allowLauncherScript: allowLauncherScript,
-            fileManager: fileManager
+            fileManager: fileManager,
+            restoringWorkingDirectory: restoringWorkingDirectory
         )
     }
 
-    /// Returns the command or input launch action for an already approved binding.
+    /// Returns post-start input for an already approved binding.
     public func surfaceResumeStartupLaunch(
         forApprovedBinding effectiveBinding: Binding,
         allowLauncherScript: Bool = true,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        restoringWorkingDirectory: String? = nil
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
-        if effectiveBinding.isAgentHookBinding,
-           allowLauncherScript,
-           let command = effectiveBinding.startupCommandWithLauncherScript(
-               fileManager: fileManager,
-               temporaryDirectory: temporaryDirectory
-           ) {
-            return .command(command)
-        }
         guard let input = effectiveBinding.startupInputWithLauncherScript(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            restoringWorkingDirectory: restoringWorkingDirectory
         ) else {
             return nil
         }
@@ -161,7 +158,13 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         approvalSigningSecret: Data? = nil
     ) -> Binding? {
         guard let resumeBinding else { return nil }
-        var effectiveBinding = applyStoredApproval(resumeBinding, approvalStoreURL, approvalSigningSecret)
+        guard var effectiveBinding = applyStoredApproval(
+            resumeBinding,
+            approvalStoreURL,
+            approvalSigningSecret
+        ) else {
+            return nil
+        }
         effectiveBinding = WorkspaceHermesAgentCommandBootstrapper(
             hermesCodexEnvironment: hermesCodexEnvironment
         ).bindingForStartup(effectiveBinding)

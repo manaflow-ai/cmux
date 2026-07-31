@@ -20,27 +20,51 @@ struct ReconnectRefreshSnapshot: Sendable {
         let deviceID: String
         let instanceTag: String?
 
-        init(deviceID: String, instanceTag: String?) {
+        init(
+            deviceID: String,
+            instanceTag: String?,
+            macInstanceTagAuthority: MobileMacInstanceTagAuthority
+        ) {
             self.deviceID = deviceID
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+            self.instanceTag = macInstanceTagAuthority.normalize(instanceTag)
         }
     }
 
     private let pairedMacsByAuthority: [Authority: [MobilePairedMac]]
     private let registryRoutes: DeviceRegistryRouteIndex?
+    private let macInstanceTagAuthority: MobileMacInstanceTagAuthority
 
-    init(pairedMacs: [MobilePairedMac], registryDevices: [RegistryDevice]?) {
+    init(
+        pairedMacs: [MobilePairedMac],
+        registryDevices: [RegistryDevice]?,
+        macInstanceTagAuthority: MobileMacInstanceTagAuthority =
+            MobileMacInstanceTagAuthority()
+    ) {
+        self.macInstanceTagAuthority = macInstanceTagAuthority
         pairedMacsByAuthority = Dictionary(grouping: pairedMacs) {
-            Authority(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+            Authority(
+                deviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         }
-        registryRoutes = registryDevices.map(DeviceRegistryRouteIndex.init(devices:))
+        registryRoutes = registryDevices.map {
+            DeviceRegistryRouteIndex(
+                devices: $0,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
+        }
     }
 
     func currentMac(for captured: MobilePairedMac) -> MobilePairedMac? {
         let matches = pairedMacsByAuthority[
-            Authority(deviceID: captured.macDeviceID, instanceTag: captured.instanceTag)
+            Authority(
+                deviceID: captured.macDeviceID,
+                instanceTag: captured.instanceTag,
+                macInstanceTagAuthority: macInstanceTagAuthority
+            )
         ] ?? []
         return matches.count == 1 ? matches[0] : nil
     }
@@ -227,6 +251,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
@@ -241,7 +266,9 @@ extension MobileShellComposite {
         if shouldResync, pairedMacStore == nil {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
+        restartActiveMobileBrowserStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
+        recoverDisconnectedOnForegroundIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -253,8 +280,32 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        if connectionRecoveryOwner.cancelProbing() {
+            applyConnectionRecoveryOwnerState()
+        }
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        stopActiveMobileBrowserStreamsForBackground()
+    }
+
+    /// A foreground return while disconnected redials the stored Mac
+    /// immediately. Covers a recovery that failed while the app was
+    /// backgrounded (its deadline burns during suspension): without this
+    /// the user sits on "Connection lost" until a network change, presence
+    /// push, or backoff timer fires. Gated on a finished startup reconnect
+    /// so it cannot race the launch path, and excluded for reauth-required
+    /// states where a redial cannot help.
+    func recoverDisconnectedOnForegroundIfNeeded() {
+        guard connectionState != .connected,
+              isSignedIn,
+              pairedMacStore != nil,
+              !connectionRequiresReauth,
+              !isReconnectingStoredMac,
+              didFinishStoredMacReconnectAttempt,
+              !connectionRecoveryOwner.isActive else {
+            return
+        }
+        recoverMobileConnection(trigger: .foreground)
     }
 
     func loadReconnectRefreshSnapshot(
@@ -283,7 +334,8 @@ extension MobileShellComposite {
         }
         return ReconnectRefreshSnapshot(
             pairedMacs: pairedMacs,
-            registryDevices: registryDevices
+            registryDevices: registryDevices,
+            macInstanceTagAuthority: macInstanceTagAuthority
         )
     }
 
@@ -304,7 +356,8 @@ extension MobileShellComposite {
               await isScopeCurrent(scope),
               let currentMac = ReconnectRefreshSnapshot(
                   pairedMacs: pairedMacs,
-                  registryDevices: nil
+                  registryDevices: nil,
+                  macInstanceTagAuthority: macInstanceTagAuthority
               ).currentMac(for: captured),
               await !isHiddenMacDeviceID(
                   captured.macDeviceID,

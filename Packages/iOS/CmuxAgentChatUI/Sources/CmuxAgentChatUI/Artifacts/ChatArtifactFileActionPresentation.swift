@@ -74,6 +74,14 @@ private struct ChatArtifactActivityView: UIViewControllerRepresentable {
             activityItems: [fileURL],
             applicationActivities: nil
         )
+        controller.loadViewIfNeeded()
+        controller.popoverPresentationController?.sourceView = controller.view
+        controller.popoverPresentationController?.sourceRect = CGRect(
+            x: controller.view.bounds.midX,
+            y: controller.view.bounds.midY,
+            width: 1,
+            height: 1
+        )
         controller.completionWithItemsHandler = { _, _, _, _ in
             onFinish()
         }

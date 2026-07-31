@@ -24,6 +24,10 @@ struct DeviceTreeView: View {
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    /// Message for the always-visible failure alert shown when a Forget cannot be
+    /// completed. An alert, not a toast, so the error still surfaces when the
+    /// Toasts beta flag is off.
+    @State private var forgetFailureMessage: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -110,6 +114,26 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+        .alert(
+            L10n.string(
+                "mobile.computers.forget.failureTitle",
+                defaultValue: "Couldn't forget computer"
+            ),
+            isPresented: Binding(
+                get: { forgetFailureMessage != nil },
+                set: { presented in if !presented { forgetFailureMessage = nil } }
+            ),
+            presenting: forgetFailureMessage
+        ) { _ in
+            Button(
+                L10n.string("mobile.common.ok", defaultValue: "OK"),
+                role: .cancel
+            ) {
+                forgetFailureMessage = nil
+            }
+        } message: { message in
+            Text(message)
+        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -136,18 +160,20 @@ struct DeviceTreeView: View {
     private var hiddenComputersSection: some View {
         HiddenComputersSection(
             computers: store.hiddenComputers,
-            isRecoveringLegacyComputer: store.isRecoveringHiddenComputer,
             unhide: { computer in
                 await store.unhideMacDeviceID(
                     computer.macDeviceID,
                     instanceTag: computer.instanceTag
                 )
             },
-            recoverLegacyComputer: { computer in
-                await store.recoverHiddenIrohMacFromAccount(
-                    macDeviceID: computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
+            forget: { computer in
+                let forgot = await store.forgetHiddenComputer(computer)
+                if !forgot {
+                    forgetFailureMessage = L10n.string(
+                        "mobile.computers.forget.failureMessage",
+                        defaultValue: "It's still signed in. Check your connection and try again."
+                    )
+                }
             }
         )
     }
@@ -165,7 +191,10 @@ struct DeviceTreeView: View {
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
         Task {
-            await store.hideMac(macDeviceID: computer.deviceId)
+            await store.hideStoredPairedMacEntries(
+                representativeID: computer.id,
+                aliasIDs: computer.aliasIDs
+            )
             await reload()
         }
     }

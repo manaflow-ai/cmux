@@ -45,7 +45,7 @@ const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
 };
 const requireVercelNonPreviewValue = (
   name: string,
-  schema: z.ZodString = z.string().min(1),
+  schema: z.ZodType<string> = z.string().min(1),
 ): z.ZodType<string | undefined> =>
   schema.optional().superRefine((value, context) => {
     if (isVercelNonPreviewDeployment && !value) {
@@ -131,16 +131,6 @@ const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((valu
     });
   }
 });
-const requireVercelProductionValue = (name: string): z.ZodType<string | undefined> =>
-  z.string().min(1).optional().superRefine((value, context) => {
-    if (isVercelProductionDeployment && !value) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${name} is required for Vercel production runtimes`,
-      });
-    }
-  });
-
 const stackEnv = (
   value: string | undefined,
   fallback: string
@@ -154,9 +144,11 @@ export const env = createEnv({
   server: {
     RESEND_API_KEY: z.string().min(1),
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
-    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
-    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
-    CMUX_ANALYTICS_RATE_LIMIT_ID: requireVercelProductionValue("CMUX_ANALYTICS_RATE_LIMIT_ID"),
+    // Rate-limit rule ids are all optional: an unset id means that route runs
+    // without rate limiting (the operator removed the limits deliberately).
+    CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -205,6 +197,20 @@ export const env = createEnv({
     SUBROUTER_BASE_URL: z.string().url().optional(),
     SUBROUTER_ADMIN_TOKEN: z.string().min(1).optional(),
     SUBROUTER_TENANT_KEY_SECRET: z.string().min(1).optional(),
+    SUBROUTER_ENFORCE_STACK_PERMISSIONS: requireVercelNonPreviewValue(
+      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+      z.enum(["0", "1"]),
+    ),
+    SUBROUTER_ALLOWED_TEAM_IDS: requireVercelNonPreviewValue(
+      "SUBROUTER_ALLOWED_TEAM_IDS",
+      z.string().min(1).max(8_192),
+    ),
+    SUBROUTER_STACK_AUTH_TIMEOUT_MS: z.string()
+      .regex(/^[1-9][0-9]{0,4}$/)
+      .refine((value) => Number(value) <= 30_000, {
+        message: "SUBROUTER_STACK_AUTH_TIMEOUT_MS must not exceed 30000",
+      })
+      .optional(),
     // Iroh trust broker. The Services API key deliberately has no TypeScript
     // env entry: only the isolated Rust relay minter may hold it. These values
     // are server-only and routes fail closed when an operation's key is absent.
@@ -303,6 +309,15 @@ export const env = createEnv({
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
     SUBROUTER_TENANT_KEY_SECRET: trimEnv(process.env.SUBROUTER_TENANT_KEY_SECRET),
+    SUBROUTER_ENFORCE_STACK_PERMISSIONS: trimEnv(
+      process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
+    ),
+    SUBROUTER_ALLOWED_TEAM_IDS: trimEnv(
+      process.env.SUBROUTER_ALLOWED_TEAM_IDS,
+    ),
+    SUBROUTER_STACK_AUTH_TIMEOUT_MS: trimEnv(
+      process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS,
+    ),
     CMUX_IROH_LAN_DISCOVERY_SECRET_B64: trimEnv(process.env.CMUX_IROH_LAN_DISCOVERY_SECRET_B64),
     CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64: trimEnv(process.env.CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64),
     CMUX_IROH_GRANT_SIGNING_KEY_P8: trimEnv(process.env.CMUX_IROH_GRANT_SIGNING_KEY_P8),

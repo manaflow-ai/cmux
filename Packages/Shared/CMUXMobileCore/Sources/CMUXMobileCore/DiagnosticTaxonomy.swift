@@ -67,6 +67,10 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     case admissionLeaseExpired = 22
     /// Online admission closed the session after broker revalidation failed.
     case admissionRevalidationFailed = 23
+    /// The local side closed an admitted session because its bounded outbound
+    /// event queue overflowed while the transport stopped draining (for
+    /// example the peer's network path died mid-write).
+    case sendQueueOverflow = 24
     case unknown = 255
 
     /// Reduces a typed or system error to the bounded diagnostic vocabulary.

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxFoundation
 
 extension CLIError {
     init(message: String, exitCode: SSHPTYAttachExitCode) {
@@ -8,12 +9,48 @@ extension CLIError {
 }
 
 extension CMUXCLI {
-    /// True when a persistent attach wrapper owns retrying a 254|255 failure.
+    /// True when a persistent attach wrapper has another general retry available.
     /// Persistent wrappers export `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`;
     /// direct invocations leave it unset, so failures there always clean up.
     func sshPTYAttachWrapperRetryPending() -> Bool {
         (ProcessInfo.processInfo.environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+    }
+
+    func sshPTYAttachWrapperWillRetry(_ exitCode: SSHPTYAttachExitCode) -> Bool {
+        guard sshPTYAttachWrapperRetryPending() else { return false }
+        if exitCode == .bridgeClosedWithoutProgress {
+            let environment = ProcessInfo.processInfo.environment
+            guard let retry = Int(environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] ?? ""),
+                  retry >= 0,
+                  let limit = Int(environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] ?? ""),
+                  limit > 0 else {
+                return false
+            }
+            return SSHPTYAttachExitCode.hasNoProgressRetryRemaining(
+                currentRetry: retry,
+                limit: limit
+            )
+        }
+        return exitCode.isWrapperRetryable
+    }
+
+    func sshPTYAttachBridgeClosedExitCode(
+        receivedLiveOutput: Bool,
+        readyUptime: TimeInterval
+    ) -> SSHPTYAttachExitCode {
+        let environment = ProcessInfo.processInfo.environment
+        let bridgeUptime = ProcessInfo.processInfo.systemUptime - readyUptime
+        guard sshPTYAttachWrapperRetryPending(),
+              environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] != nil,
+              environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] != nil,
+              SSHPTYAttachExitCode.bridgeClosureMadeNoProgress(
+                  receivedLiveOutput: receivedLiveOutput,
+                  bridgeUptime: bridgeUptime
+              ) else {
+            return .bridgeClosedSessionRunning
+        }
+        return .bridgeClosedWithoutProgress
     }
 
     func cleanupFailedSSHPTYAttach(
@@ -93,7 +130,8 @@ extension CMUXCLI {
         surfaceID: String?,
         sessionID: String,
         lifecycleID: String,
-        intentionalOnly: Bool
+        intentionalOnly: Bool,
+        sessionRunningExitCode: SSHPTYAttachExitCode = .bridgeClosedSessionRunning
     ) throws -> Bool {
         let reconciliationFailure = "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed"
         let response: [String: Any]
@@ -144,9 +182,18 @@ extension CMUXCLI {
             (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
         }
         if !intentionalCleanup, sessionStillRunning {
+            let message: String
+            if sessionRunningExitCode == .bridgeClosedWithoutProgress {
+                message = String(
+                    localized: "cli.sshPtyAttach.bridgeClosedWithoutProgress",
+                    defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+                )
+            } else {
+                message = "ssh-pty-attach: bridge closed while remote PTY session is still running"
+            }
             throw CLIError(
-                message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
-                exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning
+                message: message,
+                exitCode: sessionRunningExitCode
             )
         }
         guard let surfaceID else { return true }
@@ -165,7 +212,7 @@ extension CMUXCLI {
         return true
     }
 
-    func readSSHPTYBridgeReady(fd: Int32) throws -> String {
+    func readSSHPTYBridgeReady(fd: Int32) throws -> (attachmentToken: String, replayBytes: Int) {
         let maxStatusBytes = 4096
         // Bound only the pre-ready status wait: a bridge that accepts the TCP
         // connection and then goes silent must not hang the attach (and its
@@ -189,8 +236,12 @@ extension CMUXCLI {
                     }
                     switch type {
                     case "ready":
-                        return ((payload["attachment_token"] as? String)?
+                        let attachmentToken = ((payload["attachment_token"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+                        return (
+                            attachmentToken: attachmentToken,
+                            replayBytes: sshPTYBridgeReplayByteCount(payload["replay_bytes"])
+                        )
                     case "error":
                         let message = ((payload["message"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
@@ -222,6 +273,11 @@ extension CMUXCLI {
             }
         }
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
+    }
+
+    private func sshPTYBridgeReplayByteCount(_ value: Any?) -> Int {
+        guard let count = value as? Int, count >= 0 else { return 0 }
+        return count
     }
 
     /// Ceiling for the bridge ready/error status wait. Defaults to 185s,
