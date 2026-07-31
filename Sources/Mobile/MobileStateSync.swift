@@ -97,6 +97,13 @@ final class MobileStateSyncHost {
             removedIDs: change.removedIDs
         )
         guard let payload = try? MobileSyncFrameCoder().jsonObject(from: event) else { return }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.sync.emit",
+            "coll=\(collection.rawValue) rev=\(change.toRev) " +
+                "rows=\(change.records.count + change.removedIDs.count)"
+        )
+        #endif
         MobileHostService.shared.emitEvent(topic: Self.deltaTopic, payload: payload)
     }
 

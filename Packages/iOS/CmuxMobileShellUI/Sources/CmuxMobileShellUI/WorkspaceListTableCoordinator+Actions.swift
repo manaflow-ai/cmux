@@ -6,7 +6,9 @@ import UIKit
 extension WorkspaceListTableCoordinator {
     func contextMenuActions(
         for workspace: MobileWorkspacePreview,
-        renameTitle: String? = nil
+        sourceView: UIView,
+        renameTitle: String? = nil,
+        contextMenuIdentifier: String? = nil
     ) -> [UIAction] {
         let capabilities = workspace.actionCapabilities
         var actions: [UIAction] = []
@@ -55,13 +57,20 @@ extension WorkspaceListTableCoordinator {
             action.accessibilityIdentifier = "MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)"
             actions.append(action)
         }
-        if capabilities.supportsCloseActions, let closeWorkspace = configuration.closeWorkspace {
+        if capabilities.supportsCloseActions, configuration.closeWorkspace != nil {
             let action = UIAction(
                 title: L10n.string("mobile.workspace.delete", defaultValue: "Delete"),
                 image: UIImage(systemName: "trash"),
                 attributes: .destructive
-            ) { _ in
-                closeWorkspace(workspace.id)
+            ) { [weak self, weak sourceView] _ in
+                guard let self, let sourceView else { return }
+                requestWorkspaceCloseConfirmation(
+                    for: workspace,
+                    sourceView: sourceView,
+                    waitsForContextMenuDismissal: true,
+                    contextMenuIdentifier: contextMenuIdentifier
+                        ?? workspace.id.rawValue
+                )
             }
             action.accessibilityIdentifier = "MobileWorkspaceDeleteMenuButton-\(workspace.id.rawValue)"
             actions.append(action)
@@ -71,7 +80,8 @@ extension WorkspaceListTableCoordinator {
 
     func contextMenuActions(
         for group: MobileWorkspaceGroupPreview,
-        anchorWorkspace: MobileWorkspacePreview
+        anchorWorkspace: MobileWorkspacePreview,
+        sourceView: UIView
     ) -> [UIMenuElement] {
         let capabilities = anchorWorkspace.actionCapabilities
         var sections: [UIMenuElement] = []
@@ -123,10 +133,12 @@ extension WorkspaceListTableCoordinator {
 
         let workspaceActions = contextMenuActions(
             for: anchorWorkspace,
+            sourceView: sourceView,
             renameTitle: L10n.string(
                 "mobile.workspace.rename.title",
                 defaultValue: "Rename Workspace"
-            )
+            ),
+            contextMenuIdentifier: group.id.rawValue
         )
         if !workspaceActions.isEmpty {
             sections.append(UIMenu(options: .displayInline, children: workspaceActions))

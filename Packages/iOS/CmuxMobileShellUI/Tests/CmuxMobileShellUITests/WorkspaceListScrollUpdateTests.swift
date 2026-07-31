@@ -6,12 +6,32 @@ import UIKit
 
 @MainActor
 @Suite struct WorkspaceListScrollUpdateTests {
-    @Test func workspaceTableUsesNativeSoftTopScrollEdgeEffect() {
+    @Test func workspaceTableUsesSoftBarScrollEdgeEffectsAndUIKitInsets() {
         guard #available(iOS 26.0, *) else { return }
 
         let tableView = makeTableView()
 
         #expect(tableView.topEdgeEffect.style == .soft)
+        #expect(
+            tableView.bottomEdgeEffect.style == .soft,
+            "The tab bar must own the native soft bottom edge instead of an accessory safe-area bar."
+        )
+        #expect(
+            tableView.contentInsetAdjustmentBehavior == .automatic,
+            "UIKit must own adjusted insets so table layout never rewrites the native pan offset."
+        )
+    }
+
+    @Test func workspaceTableAddsNoGestureRecognizers() {
+        let stockTable = UITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 844)
+        )
+        let workspaceTable = makeTableView()
+
+        #expect(
+            gestureRecognizerTypes(in: workspaceTable)
+                == gestureRecognizerTypes(in: stockTable)
+        )
     }
 
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
@@ -173,7 +193,6 @@ import UIKit
         let initial = configuration(
             workspaceIDs: ["workspace-1"],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in },
             closeWorkspace: { _ in },
             setUnread: { _, _ in },
             setPinned: { _, _ in },
@@ -229,7 +248,6 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in },
             closeWorkspace: { _ in },
             setUnread: { _, _ in },
             setPinned: { _, _ in },
@@ -260,8 +278,13 @@ import UIKit
         )
 
         let workspace = initial.workspacesByID[group.anchorWorkspaceID]!
+        let sourceView = UIView()
         let identifiers = menuActionIdentifiers(
-            in: coordinator.contextMenuActions(for: group, anchorWorkspace: workspace)
+            in: coordinator.contextMenuActions(
+                for: group,
+                anchorWorkspace: workspace,
+                sourceView: sourceView
+            )
         )
         #expect(identifiers.contains("MobileWorkspaceGroupNewWorkspace-group-1"))
         #expect(identifiers.contains("MobileWorkspaceGroupPinButton-group-1"))
@@ -306,8 +329,12 @@ import UIKit
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
         let workspace = initial.workspacesByID[MobileWorkspacePreview.ID(rawValue: "workspace-1")]!
+        let sourceView = UIView()
 
-        let identifiers = coordinator.contextMenuActions(for: workspace)
+        let identifiers = coordinator.contextMenuActions(
+            for: workspace,
+            sourceView: sourceView
+        )
             .compactMap(\.accessibilityIdentifier)
 
         #expect(identifiers.contains("MobileWorkspaceCustomizeButton-workspace-1"))
@@ -442,7 +469,7 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: fullCapabilities,
-            requestWorkspaceClose: { _ in },
+            closeWorkspace: { _ in },
             setUnread: { _, _ in }
         )
         let withoutRead = configuration(
@@ -450,7 +477,7 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: noReadCapabilities,
-            requestWorkspaceClose: { _ in },
+            closeWorkspace: { _ in },
             setUnread: { _, _ in }
         )
         let withoutClose = configuration(
@@ -458,7 +485,7 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: noCloseCapabilities,
-            requestWorkspaceClose: { _ in },
+            closeWorkspace: { _ in },
             setUnread: { _, _ in }
         )
 
@@ -486,7 +513,7 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in },
+            closeWorkspace: { _ in },
             setUnread: { _, _ in }
         )
         let withoutRead = configuration(
@@ -494,7 +521,7 @@ import UIKit
             groups: [group],
             items: [.groupHeader(group.id)],
             actionCapabilities: capabilities,
-            requestWorkspaceClose: { _ in }
+            closeWorkspace: { _ in }
         )
         let withoutClose = configuration(
             workspaceIDs: ["workspace-1"],
@@ -546,6 +573,12 @@ import UIKit
         )
     }
 
+    private func gestureRecognizerTypes(in tableView: UITableView) -> [String] {
+        (tableView.gestureRecognizers ?? [])
+            .map { String(reflecting: type(of: $0)) }
+            .sorted()
+    }
+
     private func preview(id: String, activityAt: Date) -> MobileWorkspacePreview {
         MobileWorkspacePreview(
             id: .init(rawValue: id),
@@ -564,7 +597,6 @@ import UIKit
         actionCapabilities: MobileWorkspaceActionCapabilities = .none,
         workspaceHasUnread: Bool = false,
         groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] = [:],
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -594,7 +626,6 @@ import UIKit
             groups: groups,
             items: items,
             groupHasUnreadByID: groupHasUnreadByID,
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,
@@ -616,7 +647,6 @@ import UIKit
         groups: [MobileWorkspaceGroupPreview] = [],
         items: [WorkspaceListTableItem]? = nil,
         groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool] = [:],
-        requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil,
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
@@ -657,7 +687,6 @@ import UIKit
             enablesReorder: false,
             moveRows: nil,
             selectWorkspace: { _ in },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,

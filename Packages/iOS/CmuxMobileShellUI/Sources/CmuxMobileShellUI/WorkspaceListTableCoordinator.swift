@@ -40,6 +40,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private static let section = 0
 
     var configuration: WorkspaceListTable
+    weak var tableViewController: WorkspaceListTableViewController?
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
@@ -51,6 +52,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     /// Reloading one of these cells before UIKit finishes closing the swipe
     /// interrupts the system completion animation.
     private var deferredNativeActionReloadIDs: Set<String> = []
+    /// The order last applied to the native data source. Keeping this compact
+    /// value avoids materializing a full diffable snapshot on every live
+    /// workspace payload update merely to ask whether row identity moved.
+    private var appliedItems: [WorkspaceListTableItem] = []
+    private var pendingContextMenuWorkspaceClose: (
+        workspace: MobileWorkspacePreview,
+        sourceView: UIView,
+        contextMenuIdentifier: String
+    )?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -61,7 +71,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         super.init()
     }
 
-    func attach(to tableView: WorkspaceListUITableView) {
+    func attach(
+        to tableView: WorkspaceListUITableView,
+        viewController: WorkspaceListTableViewController? = nil
+    ) {
+        tableViewController = viewController
         editedItemID = nil
         deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
         tableView.delegate = self
@@ -92,7 +106,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         previousConfiguration = nil
+        appliedItems = []
         apply(configuration: configuration, in: tableView)
+    }
+
+    func detach() {
+        pendingContextMenuWorkspaceClose = nil
+        tableViewController = nil
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
@@ -113,9 +133,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
-        let currentSnapshot = dataSource.snapshot()
-        let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
-            || currentSnapshot.itemIdentifiers != next.items
+        let structureChanged = appliedItems != next.items
         var changed: [WorkspaceListTableItem] = []
         var nativeActionReloadIDs: Set<String> = []
         var changedRowHeightsStable = true
@@ -223,13 +241,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.appendSections([Self.section])
             snapshot.appendItems(next.items, toSection: Self.section)
         } else {
-            snapshot = currentSnapshot
+            snapshot = dataSource.snapshot()
         }
         let reloadItems = changedToApply.filter { nativeActionReloadIDs.contains($0.id) }
         let reconfigureItems = changedToApply.filter { !nativeActionReloadIDs.contains($0.id) }
         snapshot.reloadItems(reloadItems)
         snapshot.reconfigureItems(reconfigureItems)
         dataSource.apply(snapshot, animatingDifferences: false)
+        if structureChanged {
+            appliedItems = next.items
+        }
         #if DEBUG
         recordPayloadApplyRoute(.snapshotApply)
         #endif
@@ -327,6 +348,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         localSnapshot.appendSections([Self.section])
         localSnapshot.appendItems(movedItems, toSection: Self.section)
         dataSource?.apply(localSnapshot, animatingDifferences: false)
+        appliedItems = movedItems
 
         moveRows(IndexSet(integer: source), swiftUIDestination)
         coordinator.drop(
@@ -432,15 +454,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard
             let workspace = actionWorkspace(at: indexPath),
             workspace.actionCapabilities.supportsCloseActions,
-            let requestWorkspaceClose = configuration.requestWorkspaceClose
+            configuration.closeWorkspace != nil,
+            let sourceView = tableView.cellForRow(at: indexPath)?.contentView
         else { return nil }
 
         let action = UIContextualAction(
             style: .destructive,
             title: L10n.string("mobile.workspace.delete", defaultValue: "Delete")
-        ) { _, _, completion in
-            requestWorkspaceClose(workspace.id)
-            completion(true)
+        ) { [weak self, weak sourceView] _, _, completion in
+            // The destructive mutation has not happened yet. Reporting false
+            // keeps UIKit from treating the row as deleted while confirmation
+            // is on screen.
+            completion(false)
+            guard let self, let sourceView else { return }
+            requestWorkspaceCloseConfirmation(
+                for: workspace,
+                sourceView: sourceView,
+                waitsForContextMenuDismissal: false
+            )
         }
         action.image = UIImage(systemName: "trash")
         // UIKit likewise provides no identifier property for this contextual action.
@@ -454,21 +485,31 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            let sourceView = tableView.cellForRow(at: indexPath)?.contentView
+        else { return nil }
         let identifier: NSString
         let actions: [UIMenuElement]
         switch item {
         case .workspace:
             guard let workspace = actionWorkspace(at: indexPath) else { return nil }
             identifier = workspace.id.rawValue as NSString
-            actions = contextMenuActions(for: workspace)
+            actions = contextMenuActions(
+                for: workspace,
+                sourceView: sourceView
+            )
         case .groupHeader(let groupID):
             guard let group = configuration.groupsByID[groupID],
                   let workspace = configuration.workspacesByID[group.anchorWorkspaceID] else {
                 return nil
             }
             identifier = group.id.rawValue as NSString
-            actions = contextMenuActions(for: group, anchorWorkspace: workspace)
+            actions = contextMenuActions(
+                for: group,
+                anchorWorkspace: workspace,
+                sourceView: sourceView
+            )
         case .chrome, .groupFooter, .filterEmpty:
             return nil
         }
@@ -501,6 +542,75 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || previousAnchor?.actionCapabilities.supportsCloseActions
                 != nextAnchor?.actionCapabilities.supportsCloseActions
             || nativeActionAvailabilityChanged(previous: previous, next: next)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        willEndContextMenuInteraction configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        guard
+            let pendingContextMenuWorkspaceClose,
+            let menuIdentifier = configuration.identifier as? NSString,
+            menuIdentifier as String
+                == pendingContextMenuWorkspaceClose.contextMenuIdentifier
+        else { return }
+
+        let present = { [weak self] in
+            guard let self else { return }
+            self.presentPendingContextMenuWorkspaceClose()
+        }
+        if let animator {
+            animator.addCompletion(present)
+        } else {
+            present()
+        }
+    }
+
+    func requestWorkspaceCloseConfirmation(
+        for workspace: MobileWorkspacePreview,
+        sourceView: UIView,
+        waitsForContextMenuDismissal: Bool,
+        contextMenuIdentifier: String? = nil
+    ) {
+        guard configuration.closeWorkspace != nil else { return }
+        if waitsForContextMenuDismissal {
+            pendingContextMenuWorkspaceClose = (
+                workspace,
+                sourceView,
+                contextMenuIdentifier ?? workspace.id.rawValue
+            )
+        } else {
+            presentWorkspaceCloseConfirmation(
+                for: workspace,
+                sourceView: sourceView
+            )
+        }
+    }
+
+    private func presentPendingContextMenuWorkspaceClose() {
+        guard let pending = pendingContextMenuWorkspaceClose else { return }
+        pendingContextMenuWorkspaceClose = nil
+        presentWorkspaceCloseConfirmation(
+            for: pending.workspace,
+            sourceView: pending.sourceView
+        )
+    }
+
+    private func presentWorkspaceCloseConfirmation(
+        for workspace: MobileWorkspacePreview,
+        sourceView: UIView
+    ) {
+        guard
+            let tableViewController,
+            let closeWorkspace = configuration.closeWorkspace
+        else { return }
+        tableViewController.presentWorkspaceCloseConfirmation(
+            workspaceID: workspace.id,
+            sourceView: sourceView
+        ) {
+            closeWorkspace(workspace.id)
+        }
     }
 
     @objc private func refreshRequested(_ refreshControl: UIRefreshControl) {
@@ -567,7 +677,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard let workspace = actionWorkspace(at: indexPath) else { return false }
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
             || (workspace.actionCapabilities.supportsCloseActions
-                && configuration.requestWorkspaceClose != nil)
+                && configuration.closeWorkspace != nil)
     }
 
     fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
@@ -954,6 +1064,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         _ previous: MobileWorkspacePreview?,
         _ next: MobileWorkspacePreview?
     ) -> Bool {
+        if previous == next { return true }
         guard var normalizedPrevious = previous, let next else {
             return previous == nil && next == nil
         }
@@ -981,8 +1092,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         previous: WorkspaceListTable,
         next: WorkspaceListTable
     ) -> Bool {
-        (previous.requestWorkspaceClose != nil) != (next.requestWorkspaceClose != nil)
-            || (previous.closeWorkspace != nil) != (next.closeWorkspace != nil)
+        (previous.closeWorkspace != nil) != (next.closeWorkspace != nil)
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)
@@ -995,7 +1105,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         next: WorkspaceListTable
     ) -> Bool {
         (previous.setUnread != nil) != (next.setUnread != nil)
-            || (previous.requestWorkspaceClose != nil) != (next.requestWorkspaceClose != nil)
+            || (previous.closeWorkspace != nil) != (next.closeWorkspace != nil)
     }
 
     private func groupActionAvailabilityChanged(

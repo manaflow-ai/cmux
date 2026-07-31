@@ -312,7 +312,7 @@ import Testing
         // must abort at its identity recheck before reaching the second image or
         // the text.
         await firstRouter.awaitFirstPasteImageReached()
-        store.bumpConnectionGenerationForTesting()
+        store.connectionGeneration = UUID()
         let newRouter = RoutingHostRouter()
         try installFreshRemoteClient(on: store, router: newRouter)
         await firstRouter.releaseFirstPasteImage()
