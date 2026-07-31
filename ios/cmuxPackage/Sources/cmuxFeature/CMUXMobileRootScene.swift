@@ -43,6 +43,9 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
+    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    private let connectionMethodStore: MobileConnectionMethodStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -103,6 +106,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        connectionMethodStore: MobileConnectionMethodStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
@@ -117,6 +121,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.connectionMethodStore = connectionMethodStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
@@ -186,7 +191,12 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            deviceID: DeviceRegistryService.deviceID(),
+            // The SAME evidence probe the iroh composition passes: both
+            // callers must resolve one identity, or whichever runs first would
+            // persist a different winner and strand the other's binding.
+            deviceID: DeviceRegistryService.deviceID(
+                evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
+            ),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }
@@ -278,7 +288,8 @@ public struct CMUXMobileRootScene: View {
             backup: client,
             teamIDProvider: { await coordinator.resolvedTeamID },
             restoreBoundary: restoreBoundary,
-            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore(),
+            backupTeamStore: UserDefaultsPairedMacBackupTeamStore()
         )
     }
 
@@ -302,6 +313,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(connectionMethodStore)
             #endif
     }
 
@@ -381,6 +393,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,

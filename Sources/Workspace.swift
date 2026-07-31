@@ -149,7 +149,6 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
-            customizationDirectory: customizationDirectory, usesWorkspaceDirectoryCustomization: customizationDirectory != nil,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -2116,8 +2115,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    /// Stable directory key used for sticky user-owned title and color updates.
-    var customizationDirectory: String?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -2794,6 +2791,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     private static func shouldRunPromptedSurfaceResumeOnMain(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+        let promptBatch = SurfaceResumeRunPromptBatch.shared
+        switch promptBatch.effectiveDecision {
+        case .runAll:
+            return true
+        case .skipAll:
+            return false
+        case nil:
+            break
+        }
+
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(
@@ -2809,12 +2816,41 @@ final class Workspace: Identifiable, ObservableObject {
             binding.command
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.runAll", defaultValue: "Run All"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skipAll", defaultValue: "Skip All"))
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "surfaceResumeApproval.runPrompt.dontAskAgain",
+            defaultValue: "Don’t ask again for this command"
+        )
         let content = CmuxAlertContent(
             flattenedText: informativeText,
             separatingScrollableDetails: binding.command
         )
-        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
+        let response = alert.runCmuxModal(content: content)
+        let shouldRun: Bool
+        if response == .alertFirstButtonReturn {
+            shouldRun = true
+        } else if response == .alertSecondButtonReturn {
+            promptBatch.recordDecision(.runAll)
+            shouldRun = true
+        } else if response == .alertThirdButtonReturn {
+            shouldRun = false
+        } else if response.rawValue == NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + 3 {
+            promptBatch.recordDecision(.skipAll)
+            shouldRun = false
+        } else {
+            shouldRun = false
+        }
+
+        if alert.suppressionButton?.state == .on {
+            SurfaceResumeApprovalStore.approve(
+                binding: binding,
+                policy: shouldRun ? .auto : .manual
+            )
+        }
+        return shouldRun
     }
 
     // MARK: - Initialization

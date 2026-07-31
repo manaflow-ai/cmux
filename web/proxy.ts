@@ -146,6 +146,7 @@ export default function middleware(request: NextRequest) {
   // locale detection can't redirect back. The privacy policy has complete
   // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
+    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);

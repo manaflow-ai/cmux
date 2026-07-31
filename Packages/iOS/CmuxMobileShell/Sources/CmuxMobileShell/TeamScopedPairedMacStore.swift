@@ -298,27 +298,50 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    /// Preserve both captured scopes. This exact-scope path must not substitute
-    /// either value from the live team selection after an asynchronous revoke.
-    public func removeExactScope(
+    /// Cross-team by contract: forward verbatim, WITHOUT substituting the live
+    /// team. This decorator's whole job is scoping reads to the selected team;
+    /// the instance enumeration exists precisely to see past that boundary
+    /// (a wildcard forget's revoke is account-wide, so its cleanup must be too).
+    public func loadAllInstances(
         macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID: String?
-    ) async throws {
-        try await inner.removeExactScope(
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
             macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            backupTeamID: backupTeamID
+            stackUserID: stackUserID
         )
     }
 
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()
+    }
+
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        // Resolve the row's ACTUAL scope like every other exact-instance write:
+        // the base store requires an existing row match and silently no-ops
+        // otherwise, so forwarding the selected team verbatim would drop the
+        // grant for a Mac whose row still lives in the team-less fallback scope.
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            routes: routes
+        )
     }
 
     private func resolvedTeam(_ teamID: String?) async -> String? {

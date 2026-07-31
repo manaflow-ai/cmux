@@ -133431,6 +133431,40 @@
         }
       }
     },
+    "mobile.pairing.codeMode.legacyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.codeMode.useLegacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Tailscale Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングコードを使用"
+          }
+        }
+      }
+    },
     "mobile.workspaceChanges.error.invalidContentRequest": {
       "extractionState": "manual",
       "localizations": {
@@ -233581,6 +233615,23 @@
         }
       }
     },
+    "surfaceResumeApproval.proposal.applyToPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to all commands starting with “%@” in this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダで「%@」から始まるすべてのコマンドに適用"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {
@@ -233666,6 +233717,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again for this command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドについて今後確認しない"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.message": {
       "extractionState": "manual",
       "localizations": {
@@ -233700,6 +233768,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.runAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて実行"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.skip": {
       "extractionState": "manual",
       "localizations": {
@@ -233713,6 +233798,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skipAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてスキップ"
           }
         }
       }
