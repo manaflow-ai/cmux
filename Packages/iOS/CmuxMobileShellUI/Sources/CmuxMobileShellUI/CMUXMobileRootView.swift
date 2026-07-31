@@ -20,6 +20,9 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
+    /// Optional so previews and hosts without the app root still render.
+    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
+        MobileConnectionMethodStore?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
@@ -460,6 +463,8 @@ struct CMUXMobileRootView: View {
             context: .firstRun,
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
+            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
