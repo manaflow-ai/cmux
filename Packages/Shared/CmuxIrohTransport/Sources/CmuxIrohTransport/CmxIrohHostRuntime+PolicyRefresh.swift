@@ -169,7 +169,8 @@ extension CmxIrohHostRuntime {
             attestation: attestation,
             relayBootstrap: configuration.cachedRelayCredential,
             lanRendezvous: discovery.lanRendezvous,
-            routePathHints: discovered.pathHints
+            routePathHints: discovered.pathHints,
+            registrationRetryAfterSeconds: nil
         )
     }
 
@@ -228,7 +229,10 @@ extension CmxIrohHostRuntime {
             attestation: cached.endpointAttestation,
             relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential,
             lanRendezvous: cached.lanRendezvous,
-            routePathHints: []
+            routePathHints: [],
+            registrationRetryAfterSeconds: (
+                error as? any CmxRetryAfterProviding
+            )?.retryAfterSeconds
         )
     }
 
@@ -369,16 +373,15 @@ extension CmxIrohHostRuntime {
         await registrationRefreshTask?.value
     }
 
-    private func scheduleRegistrationRetry(
+    func scheduleRegistrationRetry(
         revision: UInt64,
-        error: any Error
+        retryAfterSeconds: Int?
     ) {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision else { return }
         let delay = registrationRetrySchedule.delay(
             failureCount: registrationRefreshFailureCount,
-            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
-                .retryAfterSeconds,
+            retryAfterSeconds: retryAfterSeconds,
             jitterUnitInterval: registrationRetryJitter()
         )
         registrationRefreshFailureCount = min(
@@ -493,7 +496,12 @@ extension CmxIrohHostRuntime {
             // endpoint, so address changes observed during this failed round are
             // already included without an immediate duplicate broker request.
             registrationRefreshPending = false
-            scheduleRegistrationRetry(revision: revision, error: error)
+            scheduleRegistrationRetry(
+                revision: revision,
+                retryAfterSeconds: (
+                    error as? any CmxRetryAfterProviding
+                )?.retryAfterSeconds
+            )
         }
     }
 
