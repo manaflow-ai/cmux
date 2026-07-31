@@ -3196,6 +3196,21 @@ mod tests {
         .expect("mutually exclusive recovery flags were accepted")
         .to_string();
         assert!(error.contains("同時に指定できません"), "{error}");
+
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let authorization = cmux_remote::identity::AuthDatabase::load_or_create(
+            directory.path().join("auth"),
+            "localized-stop",
+            true,
+        )
+        .unwrap();
+        let error = tokio_runtime()
+            .unwrap()
+            .block_on(complete_verified_daemon_stop(directory.path(), "localized-stop"))
+            .expect_err("stopped-daemon authorization lease unexpectedly had two owners")
+            .to_string();
+        assert!(error.contains("停止済みデーモンの認可リース"), "{error}");
+        drop(authorization);
     }
 
     #[test]

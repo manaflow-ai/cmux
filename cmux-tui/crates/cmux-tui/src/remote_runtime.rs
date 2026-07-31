@@ -68,6 +68,7 @@ const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DaemonCleanupPausePhase {
+    BeforeLifecycleFence,
     BeforeListenerStartup,
     BeforeReadySend,
     BeforeAuthRelease,
@@ -84,6 +85,10 @@ struct DaemonCleanupPause {
 
 #[cfg(test)]
 static DAEMON_CLEANUP_PAUSES: std::sync::Mutex<Vec<Arc<DaemonCleanupPause>>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+static STATE_DIRECTORY_SYNC_FAILURES: std::sync::Mutex<Vec<(PathBuf, usize)>> =
     std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
@@ -174,6 +179,14 @@ fn pause_daemon_cleanup(state_dir: &Path, phase: DaemonCleanupPausePhase) {
         let _ = pause.reached.send(());
         let _ = pause.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
     }
+}
+
+#[cfg(test)]
+fn fail_state_directory_sync_after(state_dir: &Path, successful_syncs: usize) {
+    STATE_DIRECTORY_SYNC_FAILURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((state_dir.to_path_buf(), successful_syncs));
 }
 
 fn remote_runtime_worker_count() -> usize {
@@ -1788,6 +1801,8 @@ async fn run_daemon(
         if !auth_state_preexisting && !lifecycle_fenced {
             ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
                 .context(catalog().remote.prepare_lifecycle_state)?;
+            #[cfg(test)]
+            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
             persist_daemon_lifecycle_fence(&state_dir)?;
             lifecycle_fenced = true;
         }
@@ -2286,6 +2301,21 @@ fn remove_owned_runtime_info(state_dir: &Path, lifecycle_id: &str) -> Result<(),
 fn sync_state_directory(path: &Path) -> Result<(), IdentityError> {
     #[cfg(unix)]
     {
+        #[cfg(test)]
+        {
+            let mut failures = STATE_DIRECTORY_SYNC_FAILURES
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(index) = failures.iter().position(|(expected, _)| expected == path) {
+                if failures[index].1 == 0 {
+                    failures.swap_remove(index);
+                    return Err(IdentityError::Io(std::io::Error::other(
+                        "injected state-directory sync failure",
+                    )));
+                }
+                failures[index].1 -= 1;
+            }
+        }
         fs::File::open(path).and_then(|directory| directory.sync_all()).map_err(IdentityError::Io)
     }
     #[cfg(not(unix))]
@@ -3314,12 +3344,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_startup_resumes_lifecycle_fenced_lock_only_auth_initialization() {
+    fn daemon_startup_refuses_lifecycle_fenced_lock_only_auth_initialization() {
         use std::os::unix::fs::OpenOptionsExt as _;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
         let state_root = directory.path().join("state");
-        let session = "resume-lock-only-auth";
+        let session = "reject-lock-only-auth";
         let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
         let auth_state_dir = state_dir.join("auth");
         fs::create_dir_all(&auth_state_dir).unwrap();
@@ -3332,7 +3362,7 @@ mod tests {
             .unwrap();
         persist_daemon_lifecycle_fence(&state_dir).unwrap();
 
-        let runtime = start_daemon_runtime(
+        let error = match start_daemon_runtime(
             directory.path().join("missing-mux.sock"),
             DaemonRuntimeOptions {
                 session: session.into(),
@@ -3347,14 +3377,67 @@ mod tests {
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
             },
-        )
-        .expect("lifecycle-fenced lock-only authorization state did not resume");
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker was trusted as an authorization rollback fence");
+            }
+        };
 
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
         assert_eq!(
             cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap(),
-            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+            None,
+            "rejected startup created rollback-fenced authorization state"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_startup_persists_auth_rollback_fence_before_lifecycle_marker() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "auth-fence-before-lifecycle-marker";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        let auth_state_dir = state_dir.join("auth");
+        let mut pause = DaemonCleanupPauseHandle::install(
+            state_dir.clone(),
+            DaemonCleanupPausePhase::BeforeLifecycleFence,
+        );
+
+        let mux_socket = directory.path().join("missing-mux.sock");
+        let startup = thread::spawn(move || {
+            start_daemon_runtime(
+                mux_socket,
+                DaemonRuntimeOptions {
+                    session: session.into(),
+                    state_dir: Some(state_root),
+                    link_socket: None,
+                    admin_socket: None,
+                    direct_websocket: None,
+                    allow_insecure_non_loopback: false,
+                    relays: Vec::new(),
+                    iroh: false,
+                    advertised_routes: Vec::new(),
+                    resume_lease: Duration::from_secs(2),
+                    replaceable_sidecar: true,
+                },
+            )
+        });
+
+        pause.wait_until_reached();
+        let auth_version =
+            cmux_remote::identity::persisted_auth_state_version(&auth_state_dir).unwrap();
+        pause.resume();
+        let runtime = startup.join().unwrap().unwrap();
         runtime.shutdown().unwrap();
+
+        assert_eq!(
+            auth_version,
+            Some(cmux_remote::identity::AUTH_STATE_VERSION),
+            "lifecycle marker publication preceded the versioned authorization rollback fence"
+        );
     }
 
     #[cfg(unix)]
@@ -3404,7 +3487,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn daemon_startup_persists_fresh_fence_before_auth_initialization_failure() {
+    fn daemon_startup_does_not_publish_marker_without_auth_rollback_fence() {
         use std::os::unix::fs::symlink;
 
         let directory = tempfile::tempdir_in("/tmp").unwrap();
@@ -3433,8 +3516,8 @@ mod tests {
 
         assert!(result.is_err(), "daemon accepted a dangling authorization-state symlink");
         assert!(
-            read_daemon_lifecycle_fence(&state_dir).unwrap(),
-            "auth initialization failed before the fresh lifecycle fence was durable"
+            !read_daemon_lifecycle_fence(&state_dir).unwrap(),
+            "auth initialization failure left a marker that older binaries ignore"
         );
     }
 
@@ -5492,6 +5575,66 @@ mod tests {
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
 
         result.expect_err("runtime persistence skipped its parent-directory sync");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_finalizes_preliminary_lifecycle_after_committed_runtime_sync_failure() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "committed-preliminary-runtime";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fail_state_directory_sync_after(&state_dir, 1);
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root.clone()),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("daemon ignored a preliminary runtime durability failure");
+            }
+        };
+        assert!(error.to_string().contains("injected state-directory sync failure"), "{error:#}");
+        assert!(
+            !state_dir.join("runtime.json").exists(),
+            "committed preliminary runtime was left without lifecycle finalization"
+        );
+        let outcome = load_shutdown_outcome(&state_dir)
+            .expect("committed preliminary runtime did not publish a shutdown outcome");
+        assert_eq!(outcome.status, DaemonShutdownStatus::Succeeded);
+
+        let retry = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("finalized preliminary lifecycle blocked the next startup");
+        retry.shutdown().unwrap();
     }
 
     #[test]
