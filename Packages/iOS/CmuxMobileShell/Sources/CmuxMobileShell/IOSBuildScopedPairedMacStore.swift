@@ -493,6 +493,22 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            routes: routes
+        )
+    }
+
     private func removeAllUnlocked() async throws {
         for mac in try await rawInner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
             try await rawInner.remove(

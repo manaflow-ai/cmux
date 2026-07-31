@@ -25,6 +25,9 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
+    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    let connectionMethodStore: MobileConnectionMethodStore
     /// First-run onboarding progress, persisted to `UserDefaults.standard`.
     /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -102,6 +105,7 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
+        self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live

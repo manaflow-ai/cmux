@@ -64,15 +64,24 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         }
         switch route.kind {
         case .tailscale:
-            guard case let .legacyTailscaleBearer(evidence) = request.authorizationMode else {
+            switch request.authorizationMode {
+            case let .legacyTailscaleBearer(evidence):
+                guard evidence.authorizes(
+                    macDeviceID: request.expectedPeerDeviceID,
+                    host: host,
+                    port: port
+                ) else {
+                    throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+                }
+            case let .userAuthorizedTailscalePairing(authorization):
+                // Valid only for a fresh pairing dial: the code names no device,
+                // so a request that already expects a peer must use a grant.
+                guard request.expectedPeerDeviceID?.isEmpty != false,
+                      authorization.authorizes(host: host, port: port) else {
+                    throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+                }
+            case .stackBearer, .transportAdmission:
                 // A generic Stack bearer never opts into the legacy risk.
-                throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
-            }
-            guard evidence.authorizes(
-                macDeviceID: request.expectedPeerDeviceID,
-                host: host,
-                port: port
-            ) else {
                 throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
             }
             return CmxPreparingTailscaleByteTransport(

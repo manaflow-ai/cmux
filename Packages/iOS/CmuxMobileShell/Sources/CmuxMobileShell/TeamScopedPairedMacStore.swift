@@ -317,6 +317,22 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         try await inner.removeAll()
     }
 
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID),
+            routes: routes
+        )
+    }
+
     private func resolvedTeam(_ teamID: String?) async -> String? {
         if let teamID { return teamID }
         return await teamIDProvider()

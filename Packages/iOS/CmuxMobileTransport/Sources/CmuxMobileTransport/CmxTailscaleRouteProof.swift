@@ -147,18 +147,27 @@ struct CmxTailscaleRouteProofValidator {
         guard request.route.kind == .tailscale else {
             throw CmxTailscaleRouteProofError.unsupportedRouteKind
         }
-        guard case let .legacyTailscaleBearer(evidence) = request.authorizationMode else {
-            throw CmxTailscaleRouteProofError.unsupportedAuthorizationMode
-        }
         guard case let .hostPort(host, port) = request.route.endpoint else {
             throw CmxTailscaleRouteProofError.unsupportedEndpoint
         }
-        guard evidence.authorizes(
-            macDeviceID: request.expectedPeerDeviceID,
-            host: host,
-            port: port
-        ) else {
-            throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+        switch request.authorizationMode {
+        case let .legacyTailscaleBearer(evidence):
+            guard evidence.authorizes(
+                macDeviceID: request.expectedPeerDeviceID,
+                host: host,
+                port: port
+            ) else {
+                throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+            }
+        case let .userAuthorizedTailscalePairing(authorization):
+            // A user-entered code names no device: it may dial only while the
+            // peer is still unidentified, and only its exact destination.
+            guard request.expectedPeerDeviceID?.isEmpty != false,
+                  authorization.authorizes(host: host, port: port) else {
+                throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+            }
+        case .stackBearer, .transportAdmission:
+            throw CmxTailscaleRouteProofError.unsupportedAuthorizationMode
         }
         guard let peerAddress = CmxTailscaleIPAddress(host) else {
             throw CmxTailscaleRouteProofError.nonNumericPeer
