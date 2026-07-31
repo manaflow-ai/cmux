@@ -418,6 +418,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             )
             if let first {
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
+                      page.discovery.revision == first.revision,
                       page.discovery.relayFleet == first.relayFleet,
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
@@ -446,6 +447,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         return CmxIrohDiscoveryResponse(
             routeContractVersion: first.routeContractVersion,
+            revision: first.revision,
             bindings: bindings,
             relayFleet: first.relayFleet,
             lanRendezvous: first.lanRendezvous,

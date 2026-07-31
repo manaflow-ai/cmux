@@ -264,13 +264,14 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
 
     init(
         routeContractVersion: Int,
+        revision: UInt64?,
         bindings: [CmxIrohBrokerBinding],
         relayFleet: [String],
         lanRendezvous: CmxIrohLANRendezvous,
         grantVerificationKeys: CmxIrohGrantVerificationKeySet
     ) {
         self.routeContractVersion = routeContractVersion
-        self.revision = nil
+        self.revision = revision
         self.bindings = bindings
         self.relayFleet = relayFleet
         self.lanRendezvous = lanRendezvous
