@@ -37,6 +37,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let previewLineLimit: Int
     }
 
+    private enum GroupDropLanding {
+        case visibleChild(IndexPath)
+        case collapsedHeader(IndexPath)
+    }
+
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
     private static let section = 0
 
@@ -379,23 +384,28 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                == .groupHeader(intoTarget.groupID),
            configuration.canDropIntoGroup?(workspaceID, intoTarget.groupID) == true,
            isMovable(draggedItem) {
-            if let landingIndexPath = applyLocalGroupDrop(
+            guard let landing = applyLocalGroupDrop(
                 workspaceID: workspaceID,
                 groupID: intoTarget.groupID
-            ) {
+            ) else {
+                return
+            }
+            switch landing {
+            case .visibleChild(let landingIndexPath):
                 coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
-            } else {
+            case .collapsedHeader(let landingIndexPath):
                 // A collapsed group has no visible child slot. Land on the
                 // header's real content bounds instead of shrinking the row to
                 // the former 2×2-point target.
-                let cellBounds = tableView.cellForRow(at: destinationIndexPath)?.bounds
+                tableView.layoutIfNeeded()
+                let cellBounds = tableView.cellForRow(at: landingIndexPath)?.bounds
                     ?? CGRect(
                         origin: .zero,
-                        size: tableView.rectForRow(at: destinationIndexPath).size
+                        size: tableView.rectForRow(at: landingIndexPath).size
                     )
                 coordinator.drop(
                     dropItem.dragItem,
-                    intoRowAt: destinationIndexPath,
+                    intoRowAt: landingIndexPath,
                     rect: cellBounds.insetBy(dx: 12, dy: 6)
                 )
             }
@@ -502,7 +512,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func applyLocalGroupDrop(
         workspaceID: MobileWorkspacePreview.ID,
         groupID: MobileWorkspaceGroupPreview.ID
-    ) -> IndexPath? {
+    ) -> GroupDropLanding? {
         guard let dataSource else { return nil }
 
         var items = configuration.items
@@ -510,20 +520,33 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return nil
         }
         items.remove(at: sourceRow)
-        guard let footerRow = items.firstIndex(of: .groupFooter(groupID)) else {
+
+        let landing: GroupDropLanding
+        var itemToReconfigure: WorkspaceListTableItem?
+        if let footerRow = items.firstIndex(of: .groupFooter(groupID)) {
+            let landedItem = WorkspaceListTableItem.workspace(workspaceID, indented: true)
+            items.insert(landedItem, at: footerRow)
+            configuredItemsByID[landedItem.id] = landedItem
+            itemToReconfigure = landedItem
+            landing = .visibleChild(IndexPath(row: footerRow, section: Self.section))
+        } else if let headerRow = items.firstIndex(of: .groupHeader(groupID)) {
+            // Collapsed groups intentionally have no child rows. Remove the
+            // source from the native snapshot before completing the drop so
+            // UIKit lands against the same final layout SwiftUI will publish.
+            landing = .collapsedHeader(IndexPath(row: headerRow, section: Self.section))
+        } else {
             return nil
         }
-
-        let landedItem = WorkspaceListTableItem.workspace(workspaceID, indented: true)
-        items.insert(landedItem, at: footerRow)
-        configuredItemsByID[landedItem.id] = landedItem
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>()
         snapshot.appendSections([Self.section])
         snapshot.appendItems(items, toSection: Self.section)
-        snapshot.reconfigureItems([landedItem])
+        if let itemToReconfigure {
+            snapshot.reconfigureItems([itemToReconfigure])
+        }
         dataSource.apply(snapshot, animatingDifferences: false)
-        return IndexPath(row: footerRow, section: Self.section)
+        appliedItems = items
+        return landing
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
