@@ -87,6 +87,10 @@
     Found: The host runtime activated and admitted peers from the signed cache, but route publication was coupled to the fresh-registration persistence callback. Every cached startup therefore exposed only legacy routes until another registration succeeded.
     Decision: Give active-route publication its own runtime callback. Fresh policy publishes broker-validated hints, while cached policy publishes the attested endpoint identity without stale hints; persistence remains exclusive to fresh broker responses.
 
+20. Expected: Validating Bonjour aliases after resolving them was sufficient because unknown records could not authorize a path.
+    Found: The synchronous DNS callback entered a bounded queue before validation. Hundreds of unrelated cmux development builds could fill that queue and drop the exact authenticated Mac alias without ever bypassing cryptographic authorization.
+    Decision: Derive the three accepted rotating aliases from the broker-authenticated binding before browsing, filter every DNS callback against that allowlist before it enters the bounded queue, and restart browsing when the allowlist changes.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -109,5 +113,7 @@
 - Done: Fixed the first-sync wire mismatch found by the real Mac and local backend integration. The initial v2 request now carries the contract's explicit null revision.
 - Done: Made credential-free local and preview backends return their signed relay policy while retaining fail-closed relay credential issuance in deployed runtimes.
 - Done: Decoupled active Iroh route publication from fresh-registration persistence so a verified cached-policy restart immediately republishes the endpoint identity.
+- Done: Persisted deterministic simulator device identity in the app sandbox while preserving fail-closed Keychain identity on physical devices.
+- Done: Filtered LAN route discovery to exact broker-authenticated rotating aliases before bounded DNS ingestion.
 - Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
 - Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
