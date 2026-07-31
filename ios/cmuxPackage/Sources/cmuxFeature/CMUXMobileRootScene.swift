@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -38,6 +39,7 @@ public struct CMUXMobileRootScene: View {
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    private let personalIrohForget: (any MobileIrohMacForgetting)?
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -90,6 +92,8 @@ public struct CMUXMobileRootScene: View {
     ///     to merge when refreshing paired Macs and listing live candidates.
     ///   - personalIrohDiscovery: Live same-account Mac discovery used before
     ///     presenting QR pairing.
+    ///   - personalIrohForget: Revokes a hidden computer's account bindings when
+    ///     the user forgets it from the Computers screen.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
     public init(
@@ -103,6 +107,7 @@ public struct CMUXMobileRootScene: View {
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog
     ) {
@@ -116,6 +121,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
+        self.personalIrohForget = personalIrohForget
         self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -137,6 +143,7 @@ public struct CMUXMobileRootScene: View {
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
+        self.personalIrohForget = nil
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -179,7 +186,12 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
-            deviceID: DeviceRegistryService.deviceID(),
+            // The SAME evidence probe the iroh composition passes: both
+            // callers must resolve one identity, or whichever runs first would
+            // persist a different winner and strand the other's binding.
+            deviceID: DeviceRegistryService.deviceID(
+                evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
+            ),
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }
@@ -271,7 +283,8 @@ public struct CMUXMobileRootScene: View {
             backup: client,
             teamIDProvider: { await coordinator.resolvedTeamID },
             restoreBoundary: restoreBoundary,
-            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore(),
+            backupTeamStore: UserDefaultsPairedMacBackupTeamStore()
         )
     }
 
@@ -288,7 +301,7 @@ public struct CMUXMobileRootScene: View {
         rootContent
             // App-wide toast layer: every root host gets the presentation
             // window and the ToastCenter environment.
-            .toastHost(toastCenter)
+            .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -317,26 +330,39 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
             ToastGalleryView()
         } else {
-            CMUXMobileAppView(
-                store: makeStore(),
-                onboardingStore: onboardingStore,
-                signOutHook: signOutHook
-            )
+            makeMobileAppView()
         }
         #else
-        CMUXMobileAppView(
-            store: makeStore(),
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
-        )
+        makeMobileAppView()
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
+        makeMobileAppView()
         #endif
     }
 
     @MainActor
-    package func makeStore() -> CMUXMobileShellStore {
+    private func makeMobileAppView() -> CMUXMobileAppView {
+        let browserStreamStore = BrowserStreamStore()
+        #if os(iOS)
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
+        #else
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            signOutHook: signOutHook
+        )
+        #endif
+    }
+
+    @MainActor
+    package func makeStore(
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil
+    ) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
@@ -353,7 +379,7 @@ public struct CMUXMobileRootScene: View {
             buildCompatibilityPolicy: buildCompatibilityPolicy
         )
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
-        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
+        let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -365,17 +391,19 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
+            personalIrohForget: personalIrohForget,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
+            hiddenMacStore: hiddenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard),
+            browserStreamEvents: browserStreamEvents
         )
     }
 }

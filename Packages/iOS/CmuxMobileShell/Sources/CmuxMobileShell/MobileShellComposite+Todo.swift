@@ -11,8 +11,8 @@ extension MobileShellComposite {
         if target.isForeground {
             return supportedHostCapabilities.contains(Self.todoCapability)
         }
-        guard let macID = target.macDeviceID else { return false }
-        return secondaryMacSubscriptions[macID]?.supportedHostCapabilities.contains(Self.todoCapability) == true
+        guard let ownerKey = target.ownerKey else { return false }
+        return secondaryMacSubscriptions[ownerKey]?.supportedHostCapabilities.contains(Self.todoCapability) == true
     }
 
     /// Applies one todo mutation on the owning Mac and refreshes its authoritative snapshot.

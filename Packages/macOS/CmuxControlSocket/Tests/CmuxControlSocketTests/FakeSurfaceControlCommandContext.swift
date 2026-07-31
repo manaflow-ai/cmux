@@ -5,6 +5,12 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
+    var resumeClearAgentSessionEnded: Bool?
+    var resumeStrings = ControlSurfaceResumeStrings(
+        agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean"
+    )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
@@ -23,6 +29,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
+        surfaceListSnapshot
+    }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
     func controlPaneCreate(
@@ -37,6 +46,31 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         createResolution
+    }
+
+    func controlSurfaceResumeSet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
+    }
+
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        resumeStrings
+    }
+
+    func controlSurfaceResumeClear(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        expectedCheckpointID: String?,
+        expectedSource: String?,
+        agentSessionEnded: Bool
+    ) -> ControlSurfaceResumeResolution {
+        resumeClearAgentSessionEnded = agentSessionEnded
+        return resumeResolution
     }
 
     func controlSurfaceReportPWD(

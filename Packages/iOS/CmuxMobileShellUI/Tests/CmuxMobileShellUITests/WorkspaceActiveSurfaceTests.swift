@@ -41,6 +41,22 @@ import CmuxMobileShellModel
             hasActiveBrowser: true,
             selectedMacSurface: surface
         ) == .browser)
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true,
+            selectedMacSurface: surface
+        ) == .browserStream)
+    }
+
+    @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true
+        ) == .browserStream)
     }
 
     @Test func chromeReturnRefocusesTheSelectedTerminal() {

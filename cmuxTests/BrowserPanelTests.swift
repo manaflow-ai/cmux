@@ -16,6 +16,26 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
+@MainActor
+@Suite
+struct BrowserWebViewUserAgentRegressionTests {
+    @Test func browserNavigationUsesEmbeddedWebKitIdentity() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer {
+            panel.webView.stopLoading()
+        }
+
+        panel.webView.customUserAgent =
+            "Mozilla/5.0 Chrome/125.0.0.0 Safari/537.36"
+        panel.navigate(to: URL(string: "about:blank")!)
+
+        #expect(
+            panel.webView.customUserAgent == nil,
+            "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
+        )
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
@@ -102,6 +122,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
     isVisualAutomationCaptureActive: Bool = false,
+    isMobileBrowserStreamActive: Bool = false,
     isCapturingMedia: Bool = false,
     isPlayingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
@@ -121,6 +142,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isElementFullscreenActive: false,
         isReactGrabActive: false,
         isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
+        isMobileBrowserStreamActive: isMobileBrowserStreamActive,
         hasPopups: false,
         isCapturingMedia: isCapturingMedia,
         isPlayingMedia: isPlayingMedia
@@ -231,6 +253,21 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
 
         manager.scheduleIfNeeded(reason: "test.visualAutomation")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    func testMobileBrowserStreamBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isMobileBrowserStreamActive: true)
+
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["mobile_browser_stream"])
+
+        manager.scheduleIfNeeded(reason: "test.mobileBrowserStream")
 
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
@@ -3868,10 +3905,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
+            "A visibility-only reveal refreshes presentation but must not run the enter/exit-window reattach lifecycle, or every tab switch fires page visibilitychange"
         )
     }
 

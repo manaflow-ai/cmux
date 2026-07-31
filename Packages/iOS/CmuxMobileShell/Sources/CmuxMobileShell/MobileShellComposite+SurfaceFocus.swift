@@ -10,8 +10,8 @@ extension MobileShellComposite {
         if target.isForeground {
             return supportedHostCapabilities.contains(Self.surfaceFocusCapability)
         }
-        guard let macID = target.macDeviceID else { return false }
-        return secondaryMacSubscriptions[macID]?.supportedHostCapabilities.contains(Self.surfaceFocusCapability) == true
+        guard let ownerKey = target.ownerKey else { return false }
+        return secondaryMacSubscriptions[ownerKey]?.supportedHostCapabilities.contains(Self.surfaceFocusCapability) == true
     }
 
     /// Focuses a surface on the owning Mac. Returns false when the host is

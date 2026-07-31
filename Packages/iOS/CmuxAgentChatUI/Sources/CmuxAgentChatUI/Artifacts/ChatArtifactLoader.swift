@@ -61,6 +61,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
     case terminal(workspaceID: String, surfaceID: String)
     /// The single file currently displayed by one file-backed panel surface.
     case panel(workspaceID: String, surfaceID: String)
+    /// One changed-file revision in a workspace changes snapshot.
+    case workspaceChanges(workspaceID: String, revision: String, path: String)
     /// Unsupported fixture/default scope.
     case unsupported
 
@@ -72,6 +74,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
             return "terminal:\(workspaceID):\(surfaceID)"
         case .panel(let workspaceID, let surfaceID):
             return "panel:\(workspaceID):\(surfaceID)"
+        case .workspaceChanges(let workspaceID, let revision, let path):
+            return "workspace-changes:\(workspaceID):\(revision):\(path)"
         case .unsupported:
             return "unsupported"
         }

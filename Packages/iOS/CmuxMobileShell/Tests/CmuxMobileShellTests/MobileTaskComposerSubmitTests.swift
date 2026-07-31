@@ -175,6 +175,7 @@ import Testing
             blockedTeams: []
         )
         let unsupportedRouter = RoutingHostRouter()
+        await unsupportedRouter.setHostCapabilities([])
         let unsupportedStore = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
@@ -192,11 +193,15 @@ import Testing
         )
 
         guard case .failure(.unsupported) = unsupported else {
-            return #expect(Bool(false), "promoted old Mac should fail closed")
+            return #expect(
+                Bool(false),
+                "promoted old Mac should fail closed, got \(String(describing: unsupported))"
+            )
         }
         #expect(await unsupportedRouter.recordedWorkspaceCreateCount() == 0)
 
         let currentRouter = RoutingHostRouter()
+        await currentRouter.setHostCapabilities(["workspace.task_create.v1"])
         let currentStore = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
@@ -229,6 +234,7 @@ import Testing
             pairedMacStore: pairedStore
         )
         let targetRouter = RoutingHostRouter()
+        await targetRouter.setHostCapabilities([])
         try installSecondaryClient(
             on: store,
             macDeviceID: "secondary-old",
@@ -244,7 +250,10 @@ import Testing
         )
 
         guard case .failure(.unsupported) = result else {
-            return #expect(Bool(false), "old Mac should fail before the create boundary")
+            return #expect(
+                Bool(false),
+                "old Mac should fail before the create boundary, got \(String(describing: result))"
+            )
         }
         #expect(boundaryCallCount == 0)
         #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
@@ -317,15 +326,17 @@ import Testing
 
         #expect(pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))
 
-        store.bumpConnectionGenerationForTesting()
+        store.connectionGeneration = UUID()
         try installFreshRemoteClient(on: store, router: ambientRouter)
 
         #expect(!pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))

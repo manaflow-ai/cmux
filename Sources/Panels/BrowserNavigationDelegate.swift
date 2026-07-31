@@ -25,6 +25,8 @@ import WebKit
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
+    var willReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?) -> Void)?
+    var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
     var didRenderPDFDocument: ((URL, Bool) -> Void)?
     var didClearPDFDocument: (() -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
@@ -34,6 +36,7 @@ import WebKit
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
+    weak var owner: BrowserPanel?
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -179,11 +182,12 @@ import WebKit
 
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { [presentAlert] finishPrompt, registerCancelPrompt in
+            startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
                     in: webView,
                     challenge: challenge,
                     presentAlert: presentAlert,
+                    browserPanel: owner,
                     registerCancelPrompt: registerCancelPrompt,
                     completionHandler: finishPrompt
                 )
@@ -196,7 +200,18 @@ import WebKit
         if clientCertificateAuthenticationController.handle(
             challenge: challenge,
             in: webView,
-            presentAlert: presentAlert,
+            presentAlert: { [weak owner, presentAlert] alert, webView, completion, cancel in
+                if let owner {
+                    owner.presentMobileClientCertificateAlert(
+                        alert,
+                        webView: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                } else {
+                    presentAlert(alert, webView, completion, cancel)
+                }
+            },
             completionHandler: completionHandler
         ) {
             return
@@ -322,7 +337,15 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
-            if opened { reportTerminalCancellation() }
+            if opened {
+                reportTerminalCancellation()
+            } else if restartNavigationForUserAgentPolicyIfNeeded(
+                navigationAction,
+                in: webView,
+                decisionHandler: decisionHandler
+            ) {
+                return
+            }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -442,7 +465,48 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
+        if restartNavigationForUserAgentPolicyIfNeeded(
+            navigationAction,
+            in: webView,
+            decisionHandler: decisionHandler
+        ) {
+            return
+        }
         decisionHandler(.allow)
+    }
+
+    private func restartNavigationForUserAgentPolicyIfNeeded(
+        _ navigationAction: WKNavigationAction,
+        in webView: WKWebView,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) -> Bool {
+        guard let requestNavigation else {
+            _ = webView.browserUserAgentPolicyRestartRequest(
+                for: navigationAction.request,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            )
+            return false
+        }
+
+        let replacedNavigation = activeMainFrameNavigation
+        let reportReplacementWillStart = willReplaceNavigationForUserAgentPolicy
+        return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
+            navigationAction,
+            decisionHandler: decisionHandler,
+            willRestart: {
+                reportReplacementWillStart?(webView, replacedNavigation)
+            },
+            startReplacement: { restartRequest in
+                requestNavigation(restartRequest, .currentTab, { [weak self, weak webView] replacementNavigation in
+                    guard let self, let webView else { return }
+                    self.didReplaceNavigationForUserAgentPolicy?(
+                        webView,
+                        replacedNavigation,
+                        replacementNavigation
+                    )
+                })
+            }
+        )
     }
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {

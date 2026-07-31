@@ -89,6 +89,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         createWorkspace: {},
                         createTerminal: {},
                         openBrowser: {},
+                        selectBrowserStream: { _ in },
                         openTextSheet: {},
                         copyDebugLogs: {},
                         sendFeedback: {}

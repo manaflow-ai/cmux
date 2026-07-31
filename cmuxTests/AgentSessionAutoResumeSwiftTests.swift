@@ -12,6 +12,80 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    /// Regression for #8501: restoring an auto-resumed terminal reapplies the
+    /// panel's friendly persisted title before workspace metadata. The
+    /// workspace title must follow that restored focused panel instead of the
+    /// serialized resume launcher stored in the legacy process-title field.
+    @MainActor
+    @Test func restoredAutoTitledWorkspaceUsesFocusedPanelTitleInsteadOfResumeCommand() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let sessionID = "644498fd-8501-4d8e-a2dc-7496ca299d28"
+            let friendlyTitle = "phase-zero-approval-handoff"
+            let resumeCommand =
+                "'/Applications/cmux.app/Contents/Resources/bin/cmux-claude-wrapper' " +
+                "'--dangerously-skip-permissions' '--resume' '\(sessionID)'"
+            let source = Workspace()
+            let sourcePanelID = try #require(source.focusedPanelId)
+            source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+            source.applyProcessTitle(resumeCommand)
+            try #require(source.setPanelCustomTitle(panelId: sourcePanelID, title: friendlyTitle))
+
+            // The resume launcher can report its raw command before the user's
+            // session-name hook refreshes the surface name. A focused surface
+            // rename must immediately repair the automatic workspace title.
+            #expect(source.customTitle == nil)
+            #expect(source.title == friendlyTitle)
+            #expect(source.processTitle == friendlyTitle)
+
+            // Recreate the legacy mismatch persisted by affected releases.
+            source.applyProcessTitle(resumeCommand)
+
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(
+                    workspaceId: source.id,
+                    panelId: sourcePanelID
+                ): SurfaceResumeBindingSnapshot(
+                    name: "Claude",
+                    kind: "claude",
+                    command: resumeCommand,
+                    cwd: source.currentDirectory,
+                    checkpointId: sessionID,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            #expect(snapshot.customTitle == nil)
+            #expect(snapshot.processTitle == resumeCommand)
+            #expect(snapshot.panels.first?.title == friendlyTitle)
+            #expect(snapshot.panels.first?.terminal?.resumeBinding?.command.contains(resumeCommand) == true)
+
+            let restored = Workspace()
+            let restoredPanelIDs = restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
+
+            #expect(restored.customTitle == nil)
+            #expect(restored.panelTitle(panelId: restoredPanelID) == friendlyTitle)
+            #expect(restored.title == friendlyTitle)
+            #expect(restored.processTitle == friendlyTitle)
+
+            // A resumed shell may publish its serialized launcher again after
+            // restore. The friendly focused-surface title must remain the
+            // workspace's settled automatic title after that later event too.
+            restored.updatePanelTitle(panelId: restoredPanelID, title: resumeCommand)
+            #expect(restored.panelTitle(panelId: restoredPanelID) == friendlyTitle)
+            #expect(restored.title == friendlyTitle)
+            #expect(restored.processTitle == friendlyTitle)
+        }
+    }
+
     @MainActor
     @Test func sessionRestoreDropsPersistedAgentStatusRuntimeState() throws {
         let source = Workspace()
@@ -120,7 +194,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: [launchCwd, "--resume", sessionId],
                 scriptDoesNotContain: [runtimeCwd]
@@ -1090,7 +1164,7 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredBinding.command.contains(freshRuntimeCwd), Comment(rawValue: restoredBinding.command))
             #expect(!restoredBinding.command.contains(staleLaunchCwd), Comment(rawValue: restoredBinding.command))
             #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: [freshRuntimeCwd, "--resume", freshSessionId],
                 scriptDoesNotContain: [staleLaunchCwd, staleSessionId]
@@ -1153,7 +1227,7 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredTerminal?.agent == nil)
             #expect(restoredBinding.kind == "codex")
             #expect(restoredBinding.checkpointId == codexSessionId)
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["codex", "resume", codexSessionId],
                 scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
@@ -1219,7 +1293,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["codex", "resume", codexSessionId],
                 scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
@@ -1403,14 +1477,19 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupCommand(
+    private func assertAgentAutoResumeUsesStartupInput(
         _ panel: TerminalPanel,
         scriptContains needles: [String],
         scriptDoesNotContain excludedNeedles: [String] = []
     ) throws {
-        let command = try #require(panel.surface.debugInitialCommand())
-        #expect(command.hasPrefix("/bin/zsh '"), Comment(rawValue: command))
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        #expect(panel.surface.debugInitialCommand() == nil)
+        let input = try #require(panel.surface.debugInitialInputForTesting())
+        let launcherPrefix = "/bin/zsh '"
+        let launcherRange = try #require(input.range(of: launcherPrefix, options: .backwards))
+        let launcherSuffix = input[launcherRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(launcherSuffix.hasSuffix("'"), Comment(rawValue: input))
+        let scriptPath = String(launcherSuffix.dropLast())
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
@@ -1419,10 +1498,7 @@ struct AgentSessionAutoResumeSwiftTests {
         for needle in excludedNeedles {
             #expect(!script.contains(needle), Comment(rawValue: script))
         }
-        #expect(script.contains("CMUX_SHELL_INTEGRATION_DIR"), Comment(rawValue: script))
-        #expect(script.contains("CMUX_ZSH_ZDOTDIR"), Comment(rawValue: script))
-        #expect(script.contains("\"$_cmux_resume_shell\" -lic"), Comment(rawValue: script))
-        #expect(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), Comment(rawValue: script))
-        #expect(script.contains("exec -l \"$_cmux_resume_shell\""), Comment(rawValue: script))
+        #expect(script.contains("rm -f -- \"$0\""), Comment(rawValue: script))
+        #expect(!script.contains("exec -l"), Comment(rawValue: script))
     }
 }

@@ -83,7 +83,7 @@ public struct UITestConfig {
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
     /// static workspace list with an unread row so layout screenshots can verify
-    /// the avatar column and unread indicator without sign-in or Mac pairing.
+    /// the leading workspace-row indicators without sign-in or Mac pairing.
     /// DEBUG-only.
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
@@ -94,6 +94,38 @@ public struct UITestConfig {
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
         return false
+        #endif
+    }
+
+    /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
+    ///
+    /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.
+    /// Unknown or absent values return `nil` so normal root routing continues.
+    public static var changesPreviewMode: String? {
+        changesPreviewMode(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves a changes preview mode from explicit process inputs.
+    /// - Parameters:
+    ///   - env: Environment dictionary to inspect.
+    ///   - arguments: Launch arguments to inspect after the environment.
+    /// - Returns: A supported preview mode or `nil`.
+    public static func changesPreviewMode(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CHANGES_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CHANGES_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        guard let value, ["1", "diff", "empty", "states"].contains(value) else { return nil }
+        return value
+        #else
+        return nil
         #endif
     }
 

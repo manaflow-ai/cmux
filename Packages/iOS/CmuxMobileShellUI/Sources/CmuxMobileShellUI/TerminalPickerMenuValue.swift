@@ -9,6 +9,9 @@ struct TerminalPickerMenuValue: Equatable {
     let canCreateWorkspace: Bool
     let hasActiveBrowser: Bool
     let isChatMode: Bool
+    let browserStreamRows: [BrowserStreamPickerRow]
+    let supportsBrowserStream: Bool
+    let activeBrowserStreamPanelID: String?
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -18,11 +21,19 @@ struct TerminalPickerMenuValue: Equatable {
         selectedMacSurfaceID: MobileSurfacePreview.ID? = nil,
         canCreateWorkspace: Bool,
         hasActiveBrowser: Bool,
-        isChatMode: Bool
+        isChatMode: Bool,
+        browserStreamRows: [BrowserStreamPickerRow] = [],
+        supportsBrowserStream: Bool = false,
+        activeBrowserStreamPanelID: String? = nil
     ) {
+        // Browser panes get their own "Mac Browsers" section (streamed
+        // rendering) on Macs that support it; only Macs without browser
+        // streaming fall back to a browser row in Mac Surfaces.
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
-                + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
+                + liveSurfaces.filter {
+                    !$0.kind.isTerminal && !(supportsBrowserStream && $0.kind == .browser)
+                }.map(TerminalPickerMenuRow.init)
             : snapshotRows
         rows = resolvedRows
         let selection = resolvedRows.resolvedTerminalPickerSelection(selectedID: selectedID)
@@ -34,14 +45,17 @@ struct TerminalPickerMenuValue: Equatable {
         self.canCreateWorkspace = canCreateWorkspace
         self.hasActiveBrowser = hasActiveBrowser
         self.isChatMode = isChatMode
+        self.browserStreamRows = browserStreamRows
+        self.supportsBrowserStream = supportsBrowserStream
+        self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local
-    /// browser overlays the workspace; a Mac-surface selection whose row has
-    /// disappeared falls back to the resolved terminal, matching
-    /// `selectedName`.
+    /// browser or a Mac browser stream overlays the workspace; a Mac-surface
+    /// selection whose row has disappeared falls back to the resolved
+    /// terminal, matching `selectedName`.
     var checkedRowID: TerminalPickerMenuRow.ID? {
-        if hasActiveBrowser { return nil }
+        if hasActiveBrowser || activeBrowserStreamPanelID != nil { return nil }
         if let selectedMacSurfaceID,
            rows.contains(where: { $0.id == .macSurface(selectedMacSurfaceID) }) {
             return .macSurface(selectedMacSurfaceID)
