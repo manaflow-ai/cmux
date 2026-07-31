@@ -462,7 +462,9 @@ pub(crate) struct StartupMessages {
     pub session_socket: &'static str,
     pub state_database: &'static str,
     pub stop_newer_server: &'static str,
-    pub stopping_does_not_downgrade: &'static str,
+    pub no_server_listening: &'static str,
+    server_check_failed: &'static str,
+    pub saved_state_requires_newer: &'static str,
     pub start_separate_session: &'static str,
 }
 
@@ -479,6 +481,10 @@ impl StartupMessages {
             .replace("{found}", &found.to_string())
             .replace("{version}", version)
             .replace("{supported}", &supported.to_string())
+    }
+
+    pub(crate) fn server_check_failed(&self, error: &str) -> String {
+        self.server_check_failed.replace("{error}", error)
     }
 }
 
@@ -514,7 +520,9 @@ static ENGLISH: Catalog = Catalog {
         session_socket: "session socket",
         state_database: "state database",
         stop_newer_server: "if a newer server is still using this socket, stop it:",
-        stopping_does_not_downgrade: "stopping the server does not downgrade its saved state; upgrade cmux to reopen this session",
+        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        server_check_failed: "could not check whether a server is listening on this socket: {error}",
+        saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
     },
     pairing: PairingMessages {
@@ -762,7 +770,9 @@ static JAPANESE: Catalog = Catalog {
         session_socket: "セッションソケット",
         state_database: "状態データベース",
         stop_newer_server: "新しいサーバーがこのソケットをまだ使用している場合は停止:",
-        stopping_does_not_downgrade: "サーバーを停止しても保存状態のスキーマは変更されません。このセッションを再度開くには cmux をアップグレードしてください",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        server_check_failed: "このソケットをサーバーが待ち受けているか確認できませんでした: {error}",
+        saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
     pairing: PairingMessages {

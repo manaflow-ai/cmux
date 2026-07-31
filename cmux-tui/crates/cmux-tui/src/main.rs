@@ -503,10 +503,22 @@ fn workspace_schema_startup_error(
     let database = database_path.display().to_string();
     let stop_command =
         format!("cmux --socket {} session current shutdown --force", shell_quote(&socket));
+    let socket_recovery = match cmux_tui_core::platform::transport::connect(socket_path) {
+        Ok(_) => format!("{}\n  {stop_command}", messages.stop_newer_server),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            messages.no_server_listening.to_string()
+        }
+        Err(error) => messages.server_check_failed(&error.to_string()),
+    };
     let separate_session = format!("{session}-schema{}", schema.newest_supported());
     let separate_command = format!("cmux --session {}", shell_quote(&separate_session));
     anyhow::anyhow!(format!(
-        "{}\n{}: {}\n{}: {}\n{}\n  {}\n{}\n{}\n  {}",
+        "{}\n{}: {}\n{}: {}\n{}\n{}\n{}\n  {}",
         messages.schema_too_new(
             session,
             schema.found(),
@@ -517,9 +529,8 @@ fn workspace_schema_startup_error(
         socket,
         messages.state_database,
         database,
-        messages.stop_newer_server,
-        stop_command,
-        messages.stopping_does_not_downgrade,
+        socket_recovery,
+        messages.saved_state_requires_newer,
         messages.start_separate_session,
         separate_command,
     ))
