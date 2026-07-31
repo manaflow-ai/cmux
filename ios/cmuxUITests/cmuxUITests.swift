@@ -828,15 +828,15 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceListDragIntoExpandedGroupMovesTheRowWithoutScrolling() throws {
-        let app = launchWorkspaceDragFixture(groupCount: 2)
+        let app = launchWorkspaceDragFixture(groupCount: 1)
         defer { app.terminate() }
 
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         let source = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-8"
+            "MobileWorkspaceRow-workspace-seed-4"
         ]
         let target = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupHeader-seed-group-1"
+            "MobileWorkspaceGroupHeader-seed-group-0"
         ]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
         XCTAssertTrue(waitForHittable(source, timeout: 3))
@@ -877,7 +877,7 @@ final class cmuxUITests: XCTestCase {
 
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         let source = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-8"
+            "MobileWorkspaceRow-workspace-seed-5"
         ]
         let target = app.descendants(matching: .any)[
             "MobileWorkspaceRow-workspace-seed-2"
@@ -911,7 +911,7 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertEqual(
             app.descendants(matching: .any)
-                .matching(identifier: "MobileWorkspaceRow-workspace-seed-8").count,
+                .matching(identifier: "MobileWorkspaceRow-workspace-seed-5").count,
             1,
             "A root reorder must leave exactly one rendered source row"
         )
@@ -919,12 +919,12 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceListCancelledDragRestoresTheSourceAndClearsBoundaries() throws {
-        let app = launchWorkspaceDragFixture(groupCount: 2)
+        let app = launchWorkspaceDragFixture(groupCount: 1)
         defer { app.terminate() }
 
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         let source = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-8"
+            "MobileWorkspaceRow-workspace-seed-4"
         ]
         let inactiveBoundary = app.descendants(matching: .any)[
             "MobileWorkspaceGroupFooterBoundary-inactive"
@@ -963,18 +963,18 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceListRepeatedGroupAndRootDropsKeepOneStableRow() throws {
-        let app = launchWorkspaceDragFixture(groupCount: 2)
+        let app = launchWorkspaceDragFixture(groupCount: 1)
         defer { app.terminate() }
 
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         let source = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-8"
+            "MobileWorkspaceRow-workspace-seed-4"
         ]
         let groupHeader = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupHeader-seed-group-1"
+            "MobileWorkspaceGroupHeader-seed-group-0"
         ]
         let rootTarget = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-9"
+            "MobileWorkspaceRow-workspace-seed-5"
         ]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
         XCTAssertTrue(waitForHittable(source, timeout: 3))
@@ -1027,7 +1027,7 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertEqual(
             app.descendants(matching: .any)
-                .matching(identifier: "MobileWorkspaceRow-workspace-seed-8").count,
+                .matching(identifier: "MobileWorkspaceRow-workspace-seed-4").count,
             1,
             "Repeated drag sessions must leave exactly one source row"
         )
@@ -1035,21 +1035,21 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceListDragIntoCollapsedGroupLandsOnTheHeader() throws {
-        let app = launchWorkspaceDragFixture(groupCount: 2)
+        let app = launchWorkspaceDragFixture(groupCount: 1)
         defer { app.terminate() }
 
         let workspaceList = app.descendants(matching: .any)["MobileWorkspaceList"]
         let source = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-8"
+            "MobileWorkspaceRow-workspace-seed-4"
         ]
         let groupHeader = app.descendants(matching: .any)[
-            "MobileWorkspaceGroupHeader-seed-group-1"
+            "MobileWorkspaceGroupHeader-seed-group-0"
         ]
         let disclosure = app.buttons[
-            "MobileWorkspaceGroupDisclosure-seed-group-1"
+            "MobileWorkspaceGroupDisclosure-seed-group-0"
         ]
         let hiddenMember = app.descendants(matching: .any)[
-            "MobileWorkspaceRow-workspace-seed-5"
+            "MobileWorkspaceRow-workspace-seed-1"
         ]
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 8))
         XCTAssertTrue(waitForHittable(source, timeout: 3))
