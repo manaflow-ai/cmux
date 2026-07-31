@@ -1014,18 +1014,18 @@ html { scroll-behavior: smooth; }
     // text. A diagnostic sentinel keeps the failure visible and span-local; the
     // renderer still escapes it before inserting it into HTML.
     if (!token || typeof token.raw !== 'string') {
-      return '[invalid code span]';
+      return '\uFFFD';
     }
     var openingDelimiter = token.raw.match(/^`+/);
     if (!openingDelimiter) {
-      return '[invalid code span]';
+      return '\uFFFD';
     }
     var delimiter = openingDelimiter[0];
     if (
       token.raw.length < delimiter.length * 2 ||
       token.raw.slice(-delimiter.length) !== delimiter
     ) {
-      return '[invalid code span]';
+      return '\uFFFD';
     }
 
     // Own codespan normalization here instead of relying on marked's token.text,
