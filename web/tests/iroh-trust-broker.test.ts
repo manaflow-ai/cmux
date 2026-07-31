@@ -25,7 +25,6 @@ import {
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
 import {
-  IROH_ACTIVE_BINDING_SANITY_CAP,
   type IrohBindingRecord,
   type IrohChallengeRecord,
   type IrohRepositoryShape,
@@ -272,6 +271,59 @@ describe("Iroh trust broker registration", () => {
 });
 
 describe("Iroh discovery and grants", () => {
+  test("paginates more than 256 active bindings without a total-count cap", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const pageCounts: number[] = [];
+    const bindingIds = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await Effect.runPromise(fixture.broker.discover(
+        USER_A,
+        NOW,
+        { pageSize: "128", ...(cursor ? { cursor } : {}) },
+      )) as {
+        bindings: Array<{ binding_id: string }>;
+        next_cursor: string | null;
+      };
+      pageCounts.push(page.bindings.length);
+      page.bindings.forEach((record) => bindingIds.add(record.binding_id));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+
+    expect(pageCounts).toEqual([128, 128, 44]);
+    expect(bindingIds.size).toBe(300);
+  });
+
+  test("keeps the legacy no-query discovery response at 256 bindings", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const legacy = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: Array<{ binding_id: string }>; next_cursor?: string };
+
+    expect(legacy.bindings).toHaveLength(256);
+    expect(legacy.next_cursor).toBeUndefined();
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -673,8 +725,7 @@ describe("developer binding override", () => {
     expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
     // The override widens challenge issuance and configured account/device
     // quotas. Authenticated re-registration overwrites an existing
-    // (user, device, tag) slot, while genuinely new slots remain bounded by
-    // IROH_ACTIVE_BINDING_SANITY_CAP.
+    // (user, device, tag) slot without imposing a total binding-count cap.
     expect(challengeQuotaForUser(base, USER_A)).toEqual({
       account: 2_048,
       deviceInstance: 128,
@@ -753,14 +804,6 @@ class MemoryRepository implements IrohRepositoryShape {
     if (existing && challenge.createdAt < existing.registeredAt) {
       return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
     }
-    if (
-      !existing
-      && this.bindings.filter((row) =>
-        row.userId === input.userId && !row.revokedAt).length
-        >= IROH_ACTIVE_BINDING_SANITY_CAP
-    ) {
-      return Effect.fail(new IrohConflictError({ code: "active_binding_limit" }));
-    }
     // The endpoint id is a global identity: no OTHER live binding may claim it.
     // Self is excluded so a slot can rotate its own key.
     if (this.bindings.some((row) =>
@@ -798,7 +841,7 @@ class MemoryRepository implements IrohRepositoryShape {
     // a peer host that denied the old id can't strand the resurrected slot. In the
     // real repository the retired row's live pair grants are revoked and the LAN
     // discovery generation rotates; this fake does not model the grant table,
-    // but does mirror the generation bump, staleness gate, and active-slot cap.
+    // but does mirror the generation bump and staleness gate.
     if (existing) {
       existing.revokedAt = input.now;
       existing.revokedReason = "slot_reincarnated";
@@ -831,15 +874,36 @@ class MemoryRepository implements IrohRepositoryShape {
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
+    if (!existing) {
+      this.lanGenerations.set(
+        input.userId,
+        (this.lanGenerations.get(input.userId) ?? 0) + 1,
+      );
+    }
     return Effect.succeed({ binding: inserted, created: true });
   }
 
-  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+  discoveryPage(input: Parameters<IrohRepositoryShape["discoveryPage"]>[0]) {
     return Effect.promise(async () => {
       await this.beforeDiscoverySnapshot?.();
+      const generation = this.lanGenerations.get(input.userId) ?? 1;
+      if (input.cursor && input.cursor.generation !== generation) {
+        throw new IrohConflictError({ code: "discovery_cursor_stale" });
+      }
+      const rows = this.bindings
+        .filter((row) =>
+          row.userId === input.userId &&
+          !row.revokedAt &&
+          (!input.cursor || row.id > input.cursor.afterBindingId))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const bindings = rows.slice(0, input.pageSize);
+      const last = bindings.at(-1);
       return {
-        bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
-        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+        bindings,
+        lanDiscoveryGeneration: generation,
+        nextCursor: rows.length > input.pageSize && last
+          ? { generation, afterBindingId: last.id }
+          : null,
       };
     });
   }

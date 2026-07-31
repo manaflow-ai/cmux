@@ -171,8 +171,8 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func discoveryCatalogRetainsFortyConcurrentDevelopmentBindings() async throws {
-        let bindings = (0..<40).map { index in
+    func discoveryCatalogRetainsBindingsBeyondLegacyPageLimit() async throws {
+        let bindings = (0..<300).map { index in
             mobileIrohBinding(
                 bindingID: String(format: "00000000-0000-4000-8000-%012d", index),
                 deviceID: String(format: "10000000-0000-4000-8000-%012d", index),
@@ -187,7 +187,7 @@ struct MobileIrohRuntimeCompositionTests {
         await catalog.activate(scope: 1)
         await catalog.replace(with: discovery, scope: 1)
 
-        for index in 0..<40 {
+        for index in 0..<300 {
             let deviceID = String(format: "10000000-0000-4000-8000-%012d", index)
             #expect(await catalog.routes(
                 forKnownMacDeviceID: deviceID,
