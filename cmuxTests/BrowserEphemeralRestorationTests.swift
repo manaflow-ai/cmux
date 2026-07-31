@@ -12,6 +12,30 @@ import WebKit
 @Suite(.serialized)
 struct BrowserEphemeralRestorationTests {
     @Test
+    func explicitEphemeralPanelDoesNotUsePersistentProfileHistory() throws {
+        let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let persistentStore = BrowserProfileStore.shared.historyStore(for: profileID)
+        persistentStore.clearHistory()
+        defer { persistentStore.clearHistory() }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            renderInitialNavigation: false,
+            websiteDataStore: .nonPersistent()
+        )
+        let privateURL = try #require(
+            URL(string: "https://example.com/account-private-history")
+        )
+
+        panel.historyStore.recordVisit(url: privateURL, title: "Private")
+
+        #expect(panel.historyStore !== persistentStore)
+        #expect(panel.historyStore.entries.map(\.url) == [privateURL.absoluteString])
+        #expect(persistentStore.entries.isEmpty)
+    }
+
+    @Test
     func sessionSnapshotExcludesNonPersistentBrowser() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
