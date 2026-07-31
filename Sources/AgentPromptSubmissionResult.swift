@@ -6,6 +6,8 @@ nonisolated enum AgentPromptSubmissionResult: Equatable, Sendable {
     case submitted(workspaceID: UUID, surfaceID: UUID, queued: Bool)
     /// Human-owned composer input was preserved and blocked the transaction.
     case rejectedComposerBusy(workspaceID: UUID, surfaceID: UUID)
+    /// The agent process identity is not bound to the composer yet.
+    case agentScopeUnavailable(workspaceID: UUID, surfaceID: UUID)
     /// No workspace exists for the requested identifier.
     case workspaceNotFound(workspaceID: UUID)
     /// The explicit surface does not belong to the workspace.

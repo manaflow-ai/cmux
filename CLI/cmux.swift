@@ -17055,7 +17055,7 @@ struct CMUXCLI {
             return String(localized: "cli.help.agentSubmit", defaultValue: """
             Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
 
-            Submit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If a human draft is present, the command fails with rejected_composer_busy and leaves the draft unchanged.
+            Submit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If a human draft is present, the command fails with rejected_composer_busy and leaves the draft unchanged. agent_scope_unavailable means the agent process identity is not ready yet.
 
             Flags:
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)

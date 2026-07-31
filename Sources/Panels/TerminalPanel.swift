@@ -726,10 +726,12 @@ final class TerminalPanel: Panel, ObservableObject {
         hookConfirmsHumanInput: Bool = false
     ) -> TerminalSurface.PromptSubmissionSendResult {
         if rejectIfHumanComposerBusy {
-            guard let agentInputScope,
-                  !terminalComposerIsBusy(
-                      agentInputScope: agentInputScope
-                  ) else {
+            guard let agentInputScope else {
+                return .agentScopeUnavailable
+            }
+            guard !terminalComposerIsBusy(
+                agentInputScope: agentInputScope
+            ) else {
                 return .composerBusy
             }
         } else {

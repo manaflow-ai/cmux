@@ -45,7 +45,7 @@ struct TerminalSurfaceExplicitInputTests {
             ) == .queued
         )
 
-        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(pending.pasteTextItems == 0)
@@ -75,7 +75,7 @@ struct TerminalSurfaceExplicitInputTests {
             ) == .composerBusy
         )
 
-        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
         #expect(pending.items == 0)
         #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
         #expect(fixture.paneHost.explicitInputCount == 0)
@@ -92,7 +92,7 @@ struct TerminalSurfaceExplicitInputTests {
             ) == .inputQueueFull
         )
 
-        #expect(fixture.surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(fixture.surface.pendingSocketInputSnapshotForTests.items == 0)
         #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
@@ -107,7 +107,7 @@ struct TerminalSurfaceExplicitInputTests {
                 hookRecordingSource: "workspace.agent_submit"
             ) == .queued
         )
-        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(pending.pasteTextItems == 0)
@@ -250,5 +250,49 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func fakeRuntimeSurface() -> ghostty_surface_t {
         UnsafeMutableRawPointer(bitPattern: 0x7540)!
+    }
+}
+
+private extension TerminalSurface {
+    var pendingSocketInputSnapshotForTests: (
+        items: Int,
+        bytes: Int,
+        keyEvents: Int,
+        pasteTextItems: Int,
+        promptSubmissionItems: Int,
+        inputTextItems: Int,
+        processOutputItems: Int
+    ) {
+        let counts = pendingSocketInputQueue.reduce(
+            into: (
+                keyEvents: 0,
+                pasteTextItems: 0,
+                promptSubmissionItems: 0,
+                inputTextItems: 0,
+                processOutputItems: 0
+            )
+        ) { counts, item in
+            switch item {
+            case .key:
+                counts.keyEvents += 1
+            case .pasteText:
+                counts.pasteTextItems += 1
+            case .promptSubmission:
+                counts.promptSubmissionItems += 1
+            case .inputText:
+                counts.inputTextItems += 1
+            case .processOutput:
+                counts.processOutputItems += 1
+            }
+        }
+        return (
+            pendingSocketInputQueue.count,
+            pendingSocketInputBytes,
+            counts.keyEvents,
+            counts.pasteTextItems,
+            counts.promptSubmissionItems,
+            counts.inputTextItems,
+            counts.processOutputItems
+        )
     }
 }

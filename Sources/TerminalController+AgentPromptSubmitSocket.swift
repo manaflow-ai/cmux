@@ -8,6 +8,13 @@ extension TerminalController {
         )
     }
 
+    nonisolated static var agentPromptScopeUnavailableMessage: String {
+        String(
+            localized: "socket.workspace.agentSubmit.scopeUnavailable",
+            defaultValue: "The agent composer is not ready for automation yet. Retry after its process identity is available."
+        )
+    }
+
     /// Worker-lane handler for `workspace.agent_submit`.
     ///
     /// The socket worker owns the definitive reply. `v2MainSync` serializes
@@ -96,6 +103,17 @@ extension TerminalController {
                     "retryable": true,
                     "retry_after":
                         "human_prompt_submit_or_agent_restart",
+                ]
+            )
+        case .agentScopeUnavailable(let workspaceID, let surfaceID):
+            return .err(
+                code: "agent_scope_unavailable",
+                message: agentPromptScopeUnavailableMessage,
+                data: [
+                    "workspace_id": workspaceID.uuidString,
+                    "surface_id": surfaceID.uuidString,
+                    "retryable": true,
+                    "retry_after": "agent_process_identity_available",
                 ]
             )
         case .workspaceNotFound(let workspaceID):

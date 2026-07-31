@@ -7,6 +7,8 @@ public enum PromptSubmissionSendResult: Equatable, Sendable {
     case queued
     /// Physical terminal input may still be present in the agent composer.
     case composerBusy
+    /// No authoritative agent process identity owns the composer yet.
+    case agentScopeUnavailable
     /// The requested submit key is not supported.
     case unknownKey
     /// The pending-input queue is at capacity.
@@ -21,8 +23,8 @@ public enum PromptSubmissionSendResult: Equatable, Sendable {
         switch self {
         case .sent, .queued:
             true
-        case .composerBusy, .unknownKey, .inputQueueFull, .surfaceUnavailable,
-             .processExited:
+        case .composerBusy, .agentScopeUnavailable, .unknownKey,
+             .inputQueueFull, .surfaceUnavailable, .processExited:
             false
         }
     }

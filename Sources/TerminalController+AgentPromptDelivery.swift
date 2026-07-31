@@ -57,6 +57,11 @@ extension TerminalController {
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID
             )
+        case .agentScopeUnavailable:
+            return .agentScopeUnavailable(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
         case .unknownKey:
             return .invalidSubmitKey(
                 workspaceID: workspaceID,

@@ -23,6 +23,21 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func unhookedReturnDoesNotPermanentlyDelayRecovery() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        #expect(ledger.confirmSubmission(message: "human prompt") == .human)
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "no additional prompt")
+                == .unmatched
+        )
+    }
+
     @Test func programmaticHookMatchNeverClearsNewerHumanTyping() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordProgrammaticSubmission(
@@ -109,7 +124,7 @@ import Testing
         #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
-    @Test func unmatchedProgrammaticBoundaryBlocksLaterHumanConfirmation() {
+    @Test func nilProgrammaticHookDoesNotConsumeHumanBoundaryInSameCall() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordProgrammaticSubmission(
             message: "programmatic prompt",
@@ -123,10 +138,6 @@ import Testing
                 == .unmatched
         )
         #expect(ledger.hasUnconfirmedHumanInput)
-        #expect(
-            ledger.confirmSubmission(message: "programmatic prompt")
-                == .unmatched
-        )
         #expect(
             ledger.confirmSubmission(message: "human prompt")
                 == .human
@@ -246,9 +257,7 @@ import Testing
         ledger.recordHumanInput(.unknown)
         ledger.recordHumanInput(.submissionBoundary)
 
-        for _ in 0..<64 {
-            #expect(ledger.confirmSubmission(message: "submitted") == .human)
-        }
+        #expect(ledger.confirmSubmission(message: "submitted") == .human)
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
             ledger.confirmSubmission(message: "untracked") == .unmatched

@@ -125,8 +125,10 @@ public struct TerminalPromptInputLedger: Sendable {
     /// Matches an agent `UserPromptSubmit` hook to a known prompt boundary.
     ///
     /// App-owned records match by message rather than position. An unmatched
-    /// hook may confirm the oldest human boundary only when no earlier
-    /// app-owned record could own it, preserving newer human input.
+    /// hook may confirm the leading run of human boundaries only when no
+    /// earlier app-owned record could own it. This retires submit-capable
+    /// Returns that produced no hook while preserving any input after the
+    /// latest boundary.
     @discardableResult
     public mutating func confirmSubmission(message: String?)
         -> PromptSubmissionConfirmationOrigin
@@ -182,12 +184,19 @@ public struct TerminalPromptInputLedger: Sendable {
             }
             return .unmatched
         }
-        guard let first = pendingBoundaries.first,
-              case .human(let generation) = first else {
+        var latestHumanGeneration: UInt64?
+        while let first = pendingBoundaries.first,
+              case .human(let generation) = first {
+            pendingBoundaries.removeFirst()
+            latestHumanGeneration = generation
+        }
+        guard let latestHumanGeneration else {
             return .unmatched
         }
-        pendingBoundaries.removeFirst()
-        confirmedHumanInputGeneration = generation
+        confirmedHumanInputGeneration = max(
+            confirmedHumanInputGeneration,
+            latestHumanGeneration
+        )
         return .human
     }
 

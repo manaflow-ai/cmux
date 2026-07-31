@@ -111,6 +111,18 @@ extension TerminalController {
                     data: [
                         "surface_id": surfaceID.uuidString,
                         "retryable": true,
+                        "retry_after":
+                            "human_prompt_submit_or_agent_restart",
+                    ]
+                )
+            case .agentScopeUnavailable:
+                return .err(
+                    code: "agent_scope_unavailable",
+                    message: Self.agentPromptScopeUnavailableMessage,
+                    data: [
+                        "surface_id": surfaceID.uuidString,
+                        "retryable": true,
+                        "retry_after": "agent_process_identity_available",
                     ]
                 )
             case .unknownKey:

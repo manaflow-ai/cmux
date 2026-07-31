@@ -6,6 +6,7 @@ import Testing
         #expect(PromptSubmissionSendResult.sent.accepted)
         #expect(PromptSubmissionSendResult.queued.accepted)
         #expect(!PromptSubmissionSendResult.composerBusy.accepted)
+        #expect(!PromptSubmissionSendResult.agentScopeUnavailable.accepted)
         #expect(!PromptSubmissionSendResult.unknownKey.accepted)
         #expect(!PromptSubmissionSendResult.inputQueueFull.accepted)
         #expect(!PromptSubmissionSendResult.surfaceUnavailable.accepted)
