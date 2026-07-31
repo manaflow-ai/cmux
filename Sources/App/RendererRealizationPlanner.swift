@@ -50,11 +50,14 @@ enum RendererRealizationPlanner {
         }
 
         // Only realized surfaces hold releasable GPU resources. Rank by recency
-        // (most-recent first); visible surfaces are stamped ~now so they sort to
-        // the top and land inside the warm set.
+        // (most-recent first), with switch-protected surfaces pinned ahead of
+        // the ordinary warm set so they consume its budget rather than extend it.
         let ranked = inputs
-            .filter { $0.isRealized && !$0.isProtectedForPresentation }
+            .filter(\.isRealized)
             .sorted { lhs, rhs in
+                if lhs.isProtectedForPresentation != rhs.isProtectedForPresentation {
+                    return lhs.isProtectedForPresentation
+                }
                 if lhs.lastVisibleAt == rhs.lastVisibleAt {
                     return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
                 }
@@ -66,6 +69,7 @@ enum RendererRealizationPlanner {
         for (index, input) in ranked.enumerated() {
             if index < warmCap { continue }          // keep the most-recent N warm
             if input.isVisible { continue }          // never release a visible surface
+            if input.isProtectedForPresentation { continue }
             guard now - input.lastVisibleAt >= settings.idleSeconds else { continue }
             selected.insert(input.surfaceId)
         }

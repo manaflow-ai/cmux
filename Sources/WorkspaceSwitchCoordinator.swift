@@ -66,8 +66,7 @@ final class WorkspaceSwitchCoordinator {
         var warmFrameAvailable = false
         var frameSequenceAtSelection: UInt64 = 0
         var observedFrameAfterSelection = false
-        var frameObserver: NSObjectProtocol?
-        var frameNotificationRelease: (() -> Void)?
+        var frameObservation: WorkspaceSwitchFrameObservation?
         var selectionCommitInterval: DynamicTracingSignpostInterval?
         var portalShowInterval: DynamicTracingSignpostInterval?
         var portalHideInterval: DynamicTracingSignpostInterval?
@@ -423,7 +422,7 @@ final class WorkspaceSwitchCoordinator {
         )
         guard let targetView = view else { return }
         let requestID = transaction.requestID
-        transaction.frameObserver = notificationCenter.addObserver(
+        let observer = notificationCenter.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: targetView,
             queue: .main
@@ -432,8 +431,12 @@ final class WorkspaceSwitchCoordinator {
                 self?.noteFirstFrame(surfaceID: surfaceID, requestID: requestID)
             }
         }
-        transaction.frameNotificationRelease =
-            targetView.retainLocalRenderedFrameNotifications()
+        transaction.frameObservation = WorkspaceSwitchFrameObservation(
+            notificationCenter: notificationCenter,
+            observer: observer,
+            releaseRenderedFrameNotifications:
+                targetView.retainLocalRenderedFrameNotifications()
+        )
     }
 
     private func finishFrameObservation(_ transaction: inout ActiveTransaction) {
@@ -445,12 +448,7 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func releaseFrameObservation(_ transaction: inout ActiveTransaction) {
-        if let frameObserver = transaction.frameObserver {
-            notificationCenter.removeObserver(frameObserver)
-            transaction.frameObserver = nil
-        }
-        transaction.frameNotificationRelease?()
-        transaction.frameNotificationRelease = nil
+        transaction.frameObservation = nil
     }
 
     private func finishIfPossible(_ transaction: inout ActiveTransaction) {

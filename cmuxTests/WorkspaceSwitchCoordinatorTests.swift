@@ -409,7 +409,7 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func presentationProtectedRendererIsNeverSelectedForReclamation() {
+    func presentationProtectedRendererConsumesWarmSlotAndIsNeverSelected() {
         let now: TimeInterval = 1_000
         let warmSurfaceID = UUID()
         let reclaimableSurfaceID = UUID()
@@ -425,7 +425,7 @@ struct WorkspaceSwitchCoordinatorTests {
                     surfaceId: warmSurfaceID,
                     isVisible: false,
                     isRealized: true,
-                    lastVisibleAt: now - 1
+                    lastVisibleAt: now - 10
                 ),
                 RendererRealizationPlannerInput(
                     surfaceId: reclaimableSurfaceID,
@@ -445,7 +445,7 @@ struct WorkspaceSwitchCoordinatorTests {
             now: now
         )
 
-        #expect(selected == [reclaimableSurfaceID])
+        #expect(selected == [warmSurfaceID, reclaimableSurfaceID])
     }
 
     @Test
