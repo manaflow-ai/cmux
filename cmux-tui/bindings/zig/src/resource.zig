@@ -13100,6 +13100,17 @@ const FakeStreamOpenAck = enum {
     oversized_cursor_generation,
 };
 
+const FakeStreamOpenPreamble = enum {
+    none,
+    item_before_ack,
+    item_then_end_before_ack,
+    count_overflow,
+    malformed_item,
+    wrong_item,
+    wrong_end,
+    item_after_end,
+};
+
 const FakeCancelResponse = enum {
     empty,
     non_empty,
@@ -13230,6 +13241,7 @@ const FakeShared = struct {
     mode: FakeMode,
     closed: bool = false,
     stream_open_ack: FakeStreamOpenAck = .matching,
+    stream_open_preamble: FakeStreamOpenPreamble = .none,
     cancel_response: FakeCancelResponse = .empty,
     cancel_end: FakeCancelEnd = .matching,
     cancel_delivery: FakeCancelDelivery = .immediate,
@@ -13283,18 +13295,90 @@ const FakeShared = struct {
         self: *FakeShared,
         stream_id: []const u8,
     ) !void {
+        return self.appendSessionStreamItemAt(stream_id, 1);
+    }
+
+    fn appendSessionStreamItemAt(
+        self: *FakeShared,
+        stream_id: []const u8,
+        sequence: usize,
+    ) !void {
         const item = try std.fmt.allocPrint(
             self.allocator,
             "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
                 "\"stream_item\",\"stream_id\":\"{s}\"," ++
-                "\"sequence\":\"1\",\"cursor\":{{\"generation\":" ++
-                "\"g\",\"revision\":\"3\"}},\"item\":{{\"kind\":" ++
+                "\"sequence\":\"{d}\",\"cursor\":{{\"generation\":" ++
+                "\"g\",\"revision\":\"{d}\"}},\"item\":{{\"kind\":" ++
                 "\"future.event\",\"data\":{{\"x\":1}}," ++
                 "\"future\":true}}}}",
-            .{stream_id},
+            .{ stream_id, sequence, sequence },
         );
         defer self.allocator.free(item);
         try self.appendInput(item);
+    }
+
+    fn appendCompletedStreamEnd(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        const end = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                "\"reason\":\"completed\",\"cursor\":{{" ++
+                "\"generation\":\"g\",\"revision\":\"1\"}}}}",
+            .{stream_id},
+        );
+        defer self.allocator.free(end);
+        try self.appendInput(end);
+    }
+
+    fn appendStreamOpenPreamble(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        switch (self.stream_open_preamble) {
+            .none => {},
+            .item_before_ack => try self.appendSessionStreamItemAt(
+                stream_id,
+                1,
+            ),
+            .item_then_end_before_ack => {
+                try self.appendSessionStreamItemAt(stream_id, 1);
+                try self.appendCompletedStreamEnd(stream_id);
+            },
+            .count_overflow => {
+                for (0..RawStream.max_buffered_items + 1) |index| {
+                    try self.appendSessionStreamItemAt(
+                        stream_id,
+                        index + 1,
+                    );
+                }
+            },
+            .malformed_item => {
+                const item = try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                        "\"sequence\":1,\"item\":{{\"kind\":" ++
+                        "\"future.event\"}}}}",
+                    .{stream_id},
+                );
+                defer self.allocator.free(item);
+                try self.appendInput(item);
+            },
+            .wrong_item => try self.appendSessionStreamItemAt(
+                "stream_ffffffffffffffffffffffffffffffff",
+                1,
+            ),
+            .wrong_end => try self.appendCompletedStreamEnd(
+                "stream_ffffffffffffffffffffffffffffffff",
+            ),
+            .item_after_end => {
+                try self.appendCompletedStreamEnd(stream_id);
+                try self.appendSessionStreamItemAt(stream_id, 2);
+            },
+        }
     }
 
     fn appendValidSessionDeltaItem(
@@ -14035,14 +14119,17 @@ const FakeShared = struct {
                     else => return error.ExpectedObject,
                 };
                 const stream_id = try objectString(params, "stream_id");
+                try self.appendStreamOpenPreamble(stream_id);
                 try self.appendStreamOpenResponse(id, stream_id);
                 if (self.mode == .delayed_stream_item) {
                     self.delayed_stream_id = try self.allocator.dupe(
                         u8,
                         stream_id,
                     );
-                } else {
+                } else if (self.stream_open_preamble == .none) {
                     try self.appendSessionStreamItem(stream_id);
+                } else if (self.stream_open_preamble == .item_before_ack) {
+                    try self.appendSessionStreamItemAt(stream_id, 2);
                 }
                 continue;
             }
@@ -17735,6 +17822,167 @@ test "stream open accepts a valid optional cursor" {
     var stream = try client.session(session_id).events();
     defer stream.deinit();
     try std.testing.expect(!stream_shared.closed);
+}
+
+test "stream open buffers pre-ack items in wire order" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_preamble = .item_before_ack,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        stream.raw_stream.pending.items.len,
+    );
+    var first = (try stream.next()) orelse
+        return error.MissingPreAckStreamItem;
+    defer first.deinit();
+    var second = (try stream.next()) orelse
+        return error.MissingPostAckStreamItem;
+    defer second.deinit();
+    try std.testing.expectEqual(@as(u64, 1), first.sequence);
+    try std.testing.expectEqual(@as(u64, 2), second.sequence);
+    try std.testing.expect(!stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
+test "stream open drains pre-ack items before a pre-ack end" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_preamble = .item_then_end_before_ack,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var first = (try stream.next()) orelse
+        return error.MissingPreAckStreamItem;
+    defer first.deinit();
+    try std.testing.expectEqual(@as(u64, 1), first.sequence);
+    try std.testing.expect((try stream.next()) == null);
+    const end = stream.end() orelse return error.MissingStreamEnd;
+    try std.testing.expectEqual(StreamEndReason.completed, end.reason);
+    try std.testing.expectEqual(@as(u64, 1), end.cursor.?.revision);
+    try std.testing.expect(!stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
+test "stream open rejects invalid and overflowing pre-ack envelopes" {
+    const cases = [_]struct {
+        preamble: FakeStreamOpenPreamble,
+        expected: anyerror,
+    }{
+        .{
+            .preamble = .count_overflow,
+            .expected = error.StreamBufferFull,
+        },
+        .{
+            .preamble = .malformed_item,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .preamble = .wrong_item,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .preamble = .wrong_end,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .preamble = .item_after_end,
+            .expected = error.UnexpectedStreamEnvelope,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .stream_open_preamble = case.preamble,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            case.expected,
+            client.session(session_id).events(),
+        );
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
 }
 
 test "stream items require exact canonical envelopes and known payloads" {
