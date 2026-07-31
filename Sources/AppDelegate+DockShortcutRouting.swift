@@ -2,6 +2,12 @@ import AppKit
 import Bonsplit
 import CmuxPanes
 
+enum GhosttyGotoSplitRoute {
+    case direction(NavigationDirection)
+    case previous
+    case next
+}
+
 /// Routes "create a surface" keyboard shortcuts (New Browser, New Terminal,
 /// Split Right/Down) into the Dock when the Dock currently owns keyboard focus.
 ///
@@ -115,19 +121,85 @@ extension AppDelegate {
         }
     }
 
-    func matchesGhosttyGotoSplitShortcut(event: NSEvent, direction: NavigationDirection) -> Bool {
-        guard let shortcut = ghosttyGotoSplitShortcut(for: direction) else { return false }
-        let route: (glyph: String, keyCode: UInt16) = switch direction {
-        case .left: ("←", 123)
-        case .right: ("→", 124)
-        case .up: ("↑", 126)
-        case .down: ("↓", 125)
+    func ghosttyGotoSplitShortcut(for route: GhosttyGotoSplitRoute) -> StoredShortcut? {
+        switch route {
+        case let .direction(direction):
+            ghosttyGotoSplitShortcut(for: direction)
+        case .previous:
+            ghosttyGotoSplitPreviousShortcut
+        case .next:
+            ghosttyGotoSplitNextShortcut
         }
-        return matchDirectionalShortcut(
-            event: event,
-            shortcut: shortcut,
-            arrowGlyph: route.glyph,
-            arrowKeyCode: route.keyCode
-        )
+    }
+
+    /// Ghostty's imported `goto_split` bindings are compatibility fallbacks, not
+    /// peers of cmux's live shortcut configuration. Any configured cmux action
+    /// that currently owns the stroke wins. Keeping this arbitration in one
+    /// place prevents cached Ghostty bindings from shadowing later handlers
+    /// after a Settings rebind.
+    func matchesGhosttyGotoSplitFallback(
+        event: NSEvent,
+        route: GhosttyGotoSplitRoute
+    ) -> Bool {
+        guard event.type == .keyDown,
+              let shortcut = ghosttyGotoSplitShortcut(for: route),
+              matchesRawGhosttyGotoSplitShortcut(event: event, shortcut: shortcut, route: route) else {
+            return false
+        }
+
+        return !KeyboardShortcutSettings.Action.allCases.contains { action in
+            liveConfiguredShortcut(action, owns: event)
+        }
+    }
+
+    private func matchesRawGhosttyGotoSplitShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        route: GhosttyGotoSplitRoute
+    ) -> Bool {
+        switch route {
+        case let .direction(direction):
+            let directionalKey: (glyph: String, keyCode: UInt16) = switch direction {
+            case .left: ("←", 123)
+            case .right: ("→", 124)
+            case .up: ("↑", 126)
+            case .down: ("↓", 125)
+            }
+            return matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: directionalKey.glyph,
+                arrowKeyCode: directionalKey.keyCode
+            )
+        case .previous, .next:
+            guard !shortcut.hasChord else { return false }
+            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        }
+    }
+
+    private func liveConfiguredShortcut(
+        _ action: KeyboardShortcutSettings.Action,
+        owns event: NSEvent
+    ) -> Bool {
+        if action.usesNumberedDigitMatching {
+            return routableNumberedConfiguredShortcutDigit(event: event, action: action) != nil
+        }
+
+        let directionalKey: (glyph: String, keyCode: UInt16)? = switch action {
+        case .focusLeft: ("←", 123)
+        case .focusRight: ("→", 124)
+        case .focusUp: ("↑", 126)
+        case .focusDown: ("↓", 125)
+        default: nil
+        }
+        if let directionalKey {
+            return matchConfiguredDirectionalShortcut(
+                event: event,
+                action: action,
+                arrowGlyph: directionalKey.glyph,
+                arrowKeyCode: directionalKey.keyCode
+            )
+        }
+        return matchConfiguredShortcut(event: event, action: action)
     }
 }
