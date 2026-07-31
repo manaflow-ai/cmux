@@ -654,6 +654,12 @@ enum FilePreviewKindResolver {
         case needsSniff
     }
 
+    /// Bytes read from the head of a file when neither the filename nor the
+    /// UTType decides between text and binary.
+    static let sniffPrefixByteCount = 4096
+
+    private static let maximumUTF8SequenceLength = 4
+
     private static let textFilenames: Set<String> = [
         ".env",
         ".gitignore",
@@ -883,7 +889,14 @@ enum FilePreviewKindResolver {
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        let data = (try? handle.read(upToCount: sniffPrefixByteCount)) ?? Data()
+        return prefixLooksLikeText(data)
+    }
+
+    /// Classifies the head of a file that neither its name nor its UTType could
+    /// resolve. The prefix is a fixed-size read, so a failed decode is not on
+    /// its own evidence of binary content.
+    static func prefixLooksLikeText(_ data: Data) -> Bool {
         guard !data.isEmpty else { return true }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
@@ -891,7 +904,60 @@ enum FilePreviewKindResolver {
         if data.contains(0) {
             return false
         }
-        return String(data: data, encoding: .utf8) != nil
+        if String(data: data, encoding: .utf8) != nil {
+            return true
+        }
+        if let completedSequences = droppingTrailingPartialUTF8Sequence(data),
+           String(data: completedSequences, encoding: .utf8) != nil {
+            return true
+        }
+        // FilePreviewTextLoader falls back to ISO Latin-1 once UTF-8 and UTF-16
+        // fail, so classification has to accept the same files.
+        return isSingleByteEncodedText(data)
+    }
+
+    /// Drops the trailing UTF-8 sequence that the fixed-size read cut in half.
+    /// Returns nil when the tail is not a truncated sequence.
+    private static func droppingTrailingPartialUTF8Sequence(_ data: Data) -> Data? {
+        var continuationCount = 0
+        for byte in Array(data.suffix(maximumUTF8SequenceLength)).reversed() {
+            if byte & 0b1100_0000 == 0b1000_0000 {
+                continuationCount += 1
+                continue
+            }
+            guard let sequenceLength = utf8SequenceLength(leadByte: byte),
+                  sequenceLength > continuationCount + 1 else { return nil }
+            return data.dropLast(continuationCount + 1)
+        }
+        return nil
+    }
+
+    private static func utf8SequenceLength(leadByte: UInt8) -> Int? {
+        switch leadByte {
+        case 0b0000_0000...0b0111_1111: return 1
+        case 0b1100_0000...0b1101_1111: return 2
+        case 0b1110_0000...0b1110_1111: return 3
+        case 0b1111_0000...0b1111_0111: return 4
+        default: return nil
+        }
+    }
+
+    /// Matches the ISO-8859 test in `file(1)`: printable bytes plus the usual
+    /// whitespace and escape controls. NUL is rejected before this runs.
+    private static func isSingleByteEncodedText(_ data: Data) -> Bool {
+        for byte in data {
+            switch byte {
+            case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1B:
+                continue
+            case 0x20...0x7E:
+                continue
+            case 0x80...0xFF:
+                continue
+            default:
+                return false
+            }
+        }
+        return true
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
