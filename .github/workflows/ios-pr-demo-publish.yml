@@ -1,0 +1,483 @@
+name: iOS PR Demo Publish
+
+run-name: Publish cmux DEV request ${{ github.event.workflow_run.id }}
+
+on:
+  workflow_run:
+    workflows: [iOS PR Demo Build]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ios-pr-demo-publisher
+  queue: max
+
+jobs:
+  publish:
+    name: Validate, sign, and publish
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 75
+    environment:
+      name: ios-pr-demo
+    env:
+      IOS_BETA_BUNDLE_ID: dev.cmux.app.dev
+      IOS_BETA_DISPLAY_NAME: cmux DEV
+      CMUX_TESTFLIGHT_INTERNAL_GROUP_NAME: cmux DEV
+    steps:
+      - name: Validate triggering run and artifact set
+        id: run
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        with:
+          script: |
+            const runId = Number(process.env.TRIGGER_RUN_ID);
+            if (!Number.isSafeInteger(runId) || runId <= 0) {
+              throw new Error('invalid triggering workflow run id');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            if (run.name !== 'iOS PR Demo Build') throw new Error('unexpected triggering workflow name');
+            if (!String(run.path || '').startsWith('.github/workflows/ios-pr-demo-build.yml')) {
+              throw new Error('unexpected triggering workflow path');
+            }
+            if (run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') {
+              throw new Error('triggering workflow was not a successful manual dispatch');
+            }
+            if (run.head_branch !== 'main' || run.head_repository?.full_name !== repository) {
+              throw new Error('triggering workflow did not run from this repository main branch');
+            }
+            if (run.head_sha !== process.env.EVENT_HEAD_SHA || !/^[0-9a-f]{40}$/.test(run.head_sha)) {
+              throw new Error('triggering workflow head SHA mismatch');
+            }
+            const artifactsResponse = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+              per_page: 100,
+            });
+            const requestName = `ios-pr-demo-request-${runId}`;
+            const archiveName = `ios-pr-demo-archive-${runId}`;
+            const expectedNames = [requestName, archiveName].sort();
+            const artifacts = artifactsResponse.data.artifacts;
+            const actualNames = artifacts.map((artifact) => artifact.name).sort();
+            if (artifactsResponse.data.total_count !== 2 || artifacts.length !== 2) {
+              throw new Error(`expected exactly two artifacts, found ${artifactsResponse.data.total_count}`);
+            }
+            if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
+              throw new Error(`unexpected artifact names: ${actualNames.join(', ')}`);
+            }
+            if (artifacts.some((artifact) => artifact.expired)) {
+              throw new Error('a required artifact has expired');
+            }
+            const requestArtifact = artifacts.find((artifact) => artifact.name === requestName);
+            const archiveArtifact = artifacts.find((artifact) => artifact.name === archiveName);
+            if (
+              !requestArtifact || !archiveArtifact ||
+              !Number.isSafeInteger(requestArtifact.size_in_bytes) || requestArtifact.size_in_bytes <= 0 ||
+              requestArtifact.size_in_bytes > 128 * 1024 ||
+              !Number.isSafeInteger(archiveArtifact.size_in_bytes) || archiveArtifact.size_in_bytes <= 0 ||
+              archiveArtifact.size_in_bytes > 10 * 1024 * 1024 * 1024
+            ) {
+              throw new Error('triggering artifacts have invalid sizes');
+            }
+            if (!run.actor?.login || !run.triggering_actor?.login) {
+              throw new Error('triggering run actor metadata is missing');
+            }
+            core.setOutput('actor', run.actor.login);
+            core.setOutput('triggering_actor', run.triggering_actor.login);
+            core.setOutput('workflow_sha', run.head_sha);
+
+      - name: Checkout trusted publisher
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+
+      - name: Verify trusted checkout
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_WORKFLOW_SHA" ]]; then
+            echo "Checked out $actual_sha, expected trusted publisher $EXPECTED_WORKFLOW_SHA" >&2
+            exit 1
+          fi
+
+      - name: Download trusted request manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-pr-demo-request-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/request
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Revalidate manifest and live PR
+        id: request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          MANIFEST_PATH: ${{ runner.temp }}/request/request.json
+          NOTES_PATH: ${{ runner.temp }}/release-notes.txt
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGER_WORKFLOW_SHA: ${{ steps.run.outputs.workflow_sha }}
+          RUN_ACTOR: ${{ steps.run.outputs.actor }}
+          RUN_TRIGGERING_ACTOR: ${{ steps.run.outputs.triggering_actor }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const requestDirectory = path.dirname(process.env.MANIFEST_PATH);
+            const directoryEntries = fs.readdirSync(requestDirectory);
+            if (directoryEntries.length !== 1 || directoryEntries[0] !== 'request.json') {
+              throw new Error('request artifact must contain only request.json');
+            }
+            const manifestStat = fs.lstatSync(process.env.MANIFEST_PATH);
+            if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+              throw new Error('request.json must be a regular file');
+            }
+            if (manifestStat.size > 16 * 1024) {
+              throw new Error('request.json is unexpectedly large');
+            }
+            const manifest = JSON.parse(fs.readFileSync(process.env.MANIFEST_PATH, 'utf8'));
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const runId = Number(process.env.TRIGGER_RUN_ID);
+            const requiredKeys = [
+              'schema', 'repository', 'workflow_run_id', 'workflow_sha', 'pr_number',
+              'pr_url', 'title', 'author', 'head_sha', 'head_repo', 'base_ref',
+              'actor', 'triggering_actor', 'demo_notes', 'marketing_version',
+            ].sort();
+            if (!manifest || Array.isArray(manifest) || typeof manifest !== 'object') {
+              throw new Error('request manifest must be an object');
+            }
+            if (JSON.stringify(Object.keys(manifest).sort()) !== JSON.stringify(requiredKeys)) {
+              throw new Error('request manifest schema has unexpected keys');
+            }
+            if (
+              manifest.schema !== 1 || manifest.repository !== repository ||
+              manifest.workflow_run_id !== runId ||
+              manifest.workflow_sha !== process.env.TRIGGER_WORKFLOW_SHA ||
+              manifest.actor !== process.env.RUN_ACTOR ||
+              manifest.triggering_actor !== process.env.RUN_TRIGGERING_ACTOR ||
+              manifest.base_ref !== 'main' || manifest.head_repo !== repository ||
+              !Number.isSafeInteger(manifest.pr_number) || manifest.pr_number <= 0 ||
+              !/^[0-9a-f]{40}$/.test(manifest.head_sha) ||
+              !/^[0-9]+(?:\.[0-9]+){1,2}$/.test(manifest.marketing_version) ||
+              typeof manifest.demo_notes !== 'string' ||
+              Buffer.byteLength(manifest.demo_notes, 'utf8') > 2000
+            ) {
+              throw new Error('request manifest provenance is invalid');
+            }
+
+            const allowedPermissions = new Set(['write', 'maintain', 'admin']);
+            async function requirePublisherPermission(login, label) {
+              const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: login,
+              });
+              const permission = response.data.user?.permission || response.data.permission || '';
+              if (!allowedPermissions.has(permission)) {
+                throw new Error(`${label} @${login} has ${permission || 'no'} repository permission`);
+              }
+            }
+            await requirePublisherPermission(manifest.actor, 'actor');
+            await requirePublisherPermission(manifest.triggering_actor, 'triggering actor');
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: manifest.pr_number,
+            });
+            if (pr.state !== 'open' || pr.merged) throw new Error('PR is no longer open and unmerged');
+            if (pr.base.ref !== 'main' || pr.head.repo?.full_name !== repository) {
+              throw new Error('PR repository or base branch changed');
+            }
+            if (pr.head.sha !== manifest.head_sha) throw new Error('PR head changed after the demo request');
+            if (pr.html_url !== manifest.pr_url || pr.title !== manifest.title || (pr.user?.login || '') !== manifest.author) {
+              throw new Error('PR metadata changed after the demo request');
+            }
+
+            const trustedConfig = fs.readFileSync('ios/Config/Shared.xcconfig', 'utf8');
+            const versionMatch = trustedConfig.match(/^CMUX_IOS_BETA_MARKETING_VERSION\s*=\s*([0-9]+(?:\.[0-9]+){1,2})\s*$/m);
+            if (!versionMatch || versionMatch[1] !== manifest.marketing_version) {
+              throw new Error('trusted marketing version changed after the demo request');
+            }
+
+            function clean(value, maxBytes) {
+              let text = String(value || '')
+                .replace(/\r\n?/g, '\n')
+                .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+                .trim();
+              while (Buffer.byteLength(text, 'utf8') > maxBytes) text = text.slice(0, -1);
+              return text;
+            }
+            const shortSha = manifest.head_sha.slice(0, 7);
+            const lines = [
+              `cmux DEV | PR ${manifest.pr_number} | ${shortSha}`,
+              clean(manifest.title, 300),
+              `Author: @${clean(manifest.author, 100)}`,
+              `Commit: ${manifest.head_sha}`,
+              `PR: ${manifest.pr_url}`,
+            ];
+            const demoNotes = clean(manifest.demo_notes, 2000);
+            if (demoNotes) lines.push(`Demo: ${demoNotes}`);
+            const notes = lines.join('\n');
+            if (Buffer.byteLength(notes, 'utf8') > 3500) {
+              throw new Error('generated TestFlight notes exceed 3500 bytes');
+            }
+            fs.writeFileSync(process.env.NOTES_PATH, `${notes}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+            core.setOutput('head_sha', manifest.head_sha);
+            core.setOutput('marketing_version', manifest.marketing_version);
+            core.setOutput('pr_number', String(manifest.pr_number));
+
+      - name: Download unsigned archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-pr-demo-archive-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/archive-artifact
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Validate untrusted archive before loading secrets
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/archive/cmux-pr-demo.xcarchive
+          ARCHIVE_TAR: ${{ runner.temp }}/archive-artifact/cmux-pr-demo.xcarchive.tar
+          MARKETING_VERSION: ${{ steps.request.outputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          python3 ios/scripts/restamp-testflight-archive.py \
+            --archive "$ARCHIVE_PATH" \
+            --archive-tar "$ARCHIVE_TAR" \
+            --expected-bundle-id "$IOS_BETA_BUNDLE_ID" \
+            --expected-display-name "$IOS_BETA_DISPLAY_NAME" \
+            --expected-marketing-version "$MARKETING_VERSION" \
+            --validate-only
+
+      - name: Materialize App Store Connect API key
+        env:
+          ASC_API_KEY_ID_SECRET: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID_SECRET: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ASC_API_KEY_ID_SECRET" || -z "$ASC_API_ISSUER_ID_SECRET" || -z "$ASC_API_KEY_P8_BASE64" ]]; then
+            echo "Missing App Store Connect API credentials" >&2
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_${ASC_API_KEY_ID_SECRET}.p8"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          {
+            echo "ASC_API_KEY_ID=$ASC_API_KEY_ID_SECRET"
+            echo "ASC_API_ISSUER_ID=$ASC_API_ISSUER_ID_SECRET"
+            echo "ASC_API_KEY_PATH=$key_path"
+          } >> "$GITHUB_ENV"
+
+      - name: Choose build number and validate archive
+        id: build_number
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/archive/cmux-pr-demo.xcarchive
+          MARKETING_VERSION: ${{ steps.request.outputs.marketing_version }}
+        run: |
+          set -euo pipefail
+          asc_max="$(python3 ios/scripts/asc_max_build.py --bundle-id "$IOS_BETA_BUNDLE_ID")"
+          if [[ ! "$asc_max" =~ ^[0-9]+$ ]]; then
+            echo "App Store Connect returned an invalid maximum build number" >&2
+            exit 1
+          fi
+          timestamp="$(date -u +%Y%m%d%H%M%S)"
+          if (( 10#$timestamp <= 10#$asc_max )); then
+            build_number="$((10#$asc_max + 1))"
+          else
+            build_number="$timestamp"
+          fi
+          if [[ ! "$build_number" =~ ^[1-9][0-9]{0,17}$ ]]; then
+            echo "Generated build number is outside the supported numeric range" >&2
+            exit 1
+          fi
+          python3 ios/scripts/restamp-testflight-archive.py \
+            --archive "$ARCHIVE_PATH" \
+            --expected-bundle-id "$IOS_BETA_BUNDLE_ID" \
+            --expected-display-name "$IOS_BETA_DISPLAY_NAME" \
+            --expected-marketing-version "$MARKETING_VERSION" \
+            --build-number "$build_number"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+            xcode_dir="/Applications/Xcode.app/Contents/Developer"
+          else
+            xcode_app="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [[ -z "$xcode_app" ]]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            xcode_dir="$xcode_app/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$xcode_dir" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$xcode_dir" xcodebuild -version
+
+      - name: Import iOS distribution certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CERTIFICATE_BASE64" || -z "$CERTIFICATE_PASSWORD" ]]; then
+            echo "Missing iOS distribution certificate credentials" >&2
+            exit 1
+          fi
+          keychain_path="$RUNNER_TEMP/ios-pr-demo.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/ios-pr-demo.p12"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 7200 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          identity="$(
+            security find-identity -v -p codesigning "$keychain_path" |
+              sed -n 's/.*"\(Apple Distribution: .* (7WLXT3NR37)\)".*/\1/p' |
+              head -n 1
+          )"
+          if [[ -z "$identity" ]]; then
+            echo "No Apple Distribution identity for team 7WLXT3NR37 was found" >&2
+            exit 1
+          fi
+          {
+            echo "IOS_DISTRIBUTION_IDENTITY=$identity"
+            echo "IOS_PR_DEMO_KEYCHAIN_PATH=$keychain_path"
+          } >> "$GITHUB_ENV"
+
+      - name: Install cmux DEV provisioning profile
+        env:
+          PROFILE_BASE64: ${{ secrets.IOS_DEV_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PROFILE_BASE64" ]]; then
+            echo "Missing IOS_DEV_PROVISIONING_PROFILE_BASE64" >&2
+            exit 1
+          fi
+          profile_path="$RUNNER_TEMP/cmux-dev.mobileprovision"
+          profile_plist="$RUNNER_TEMP/cmux-dev-profile.plist"
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile_path"
+          security cms -D -i "$profile_path" > "$profile_plist"
+          app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+          aps_environment="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist")"
+          apple_sign_in="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.applesignin:0' "$profile_plist")"
+          beta_reports="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:beta-reports-active' "$profile_plist")"
+          time_sensitive="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.usernotifications.time-sensitive' "$profile_plist" 2>/dev/null || true)"
+          if [[ "$app_id" != '7WLXT3NR37.dev.cmux.app.dev' || "$aps_environment" != 'production' || "$apple_sign_in" != 'Default' || "$beta_reports" != 'true' || "$time_sensitive" != 'true' ]]; then
+            echo "cmux DEV provisioning profile has unexpected identity or entitlements" >&2
+            exit 1
+          fi
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")"
+          profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$profiles_dir"
+          installed_profile="$profiles_dir/$profile_uuid.mobileprovision"
+          cp "$profile_path" "$installed_profile"
+          {
+            echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$profile_name"
+            echo "IOS_PR_DEMO_INSTALLED_PROFILE=$installed_profile"
+          } >> "$GITHUB_ENV"
+
+      - name: Sign and upload cmux DEV
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/archive/cmux-pr-demo.xcarchive
+          BETA_MARKETING_VERSION: ${{ steps.request.outputs.marketing_version }}
+          EXPECTED_BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/shipped-build-number.txt
+          CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/ios-pr-demo-upload
+        run: |
+          set -euo pipefail
+          ./ios/scripts/upload-testflight.sh \
+            --lane beta \
+            --archive-path "$ARCHIVE_PATH" \
+            --signing manual \
+            --skip-notes
+          shipped_build_number="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
+          if [[ "$shipped_build_number" != "$EXPECTED_BUILD_NUMBER" ]]; then
+            echo "Uploaded build $shipped_build_number, expected $EXPECTED_BUILD_NUMBER" >&2
+            exit 1
+          fi
+
+      - name: Set TestFlight PR tag and demo notes
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+          NOTES_PATH: ${{ runner.temp }}/release-notes.txt
+        run: |
+          set -euo pipefail
+          notes="$(cat "$NOTES_PATH")"
+          ./ios/scripts/set-testflight-notes.sh \
+            --bundle-id "$IOS_BETA_BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER" \
+            --notes "$notes" \
+            --timeout-seconds 900
+
+      - name: Assign build to cmux DEV testers
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          python3 ios/scripts/asc_assign_internal_testflight_group.py \
+            --bundle-id "$IOS_BETA_BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER" \
+            --group-name "$CMUX_TESTFLIGHT_INTERNAL_GROUP_NAME" \
+            --timeout-seconds 900
+
+      - name: Publish summary
+        if: success()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.request.outputs.head_sha }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+        with:
+          script: |
+            await core.summary
+              .addHeading('cmux DEV published')
+              .addTable([
+                [{ data: 'PR', header: true }, process.env.PR_NUMBER],
+                [{ data: 'head SHA', header: true }, process.env.HEAD_SHA],
+                [{ data: 'bundle ID', header: true }, 'dev.cmux.app.dev'],
+                [{ data: 'TestFlight build', header: true }, process.env.BUILD_NUMBER],
+                [{ data: 'tester group', header: true }, 'cmux DEV'],
+              ])
+              .write();
+
+      - name: Clean signing material
+        if: always()
+        run: |
+          set +e
+          if [[ -n "${IOS_PR_DEMO_KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$IOS_PR_DEMO_KEYCHAIN_PATH"
+          fi
+          if [[ -n "${IOS_PR_DEMO_INSTALLED_PROFILE:-}" ]]; then
+            rm -f "$IOS_PR_DEMO_INSTALLED_PROFILE"
+          fi
+          if [[ -n "${ASC_API_KEY_PATH:-}" ]]; then
+            rm -f "$ASC_API_KEY_PATH"
+          fi
+          rm -f "$RUNNER_TEMP/ios-pr-demo.p12" "$RUNNER_TEMP/cmux-dev.mobileprovision" "$RUNNER_TEMP/cmux-dev-profile.plist"
