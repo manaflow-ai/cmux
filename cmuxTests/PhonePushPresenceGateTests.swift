@@ -511,6 +511,28 @@ import Testing
         )
     }
 
+    @Test func transientAuthenticationAcquisitionUsesTheBoundedRetryPolicy() {
+        #expect(PhonePushHTTPResult.authenticationUnavailable.shouldRetry)
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .authenticationUnavailable,
+                retryAfterSeconds: nil,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 1
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: PhonePushRetryPolicy.maximumAttempts,
+                result: .authenticationUnavailable,
+                retryAfterSeconds: nil,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == nil
+        )
+    }
+
     @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
         let recorder = PhonePushClockRecorder()
         let clock = PhonePushClock(
