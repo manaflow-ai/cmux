@@ -16,12 +16,12 @@ import StackAuth
 struct MacAuthComposition {
     /// The shared auth orchestrator (session state, tokens, teams).
     let coordinator: AuthCoordinator
-    /// The hosted-browser sign-in flow (popup + callback URLs + sign-out).
-    let browserSignIn: HostBrowserSignInFlow
     /// Recognizes/parses auth callback URLs (AppDelegate URL routing).
     let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
+    /// Shared observable account projection used by Settings and sidebar UI.
+    let accountFlow: HostAccountFlow
 
     /// Build the auth graph.
     /// - Parameters:
@@ -53,15 +53,6 @@ struct MacAuthComposition {
         )
         self.tokenStore = tokenStore
 
-        let stack = StackClientApp(
-            projectId: stackProjectID,
-            publishableClientKey: stackPublishableClientKey,
-            baseUrl: AuthEnvironment.stackBaseURL.absoluteString,
-            tokenStore: .custom(tokenStore),
-            noAutomaticPrefetch: true
-        )
-        let client = StackAuthClient(stack: stack)
-
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
             key: "cmux.auth.cachedUser"
@@ -88,6 +79,12 @@ struct MacAuthComposition {
                 .appendingPathComponent("auth/callback", isDirectory: false)
                 .absoluteString,
             apiBaseURL: AuthEnvironment.apiBaseURL.absoluteString
+        )
+        let client = StackAuthClient(
+            config: config,
+            tokenStore: .custom(tokenStore),
+            baseURL: AuthEnvironment.stackBaseURL.absoluteString,
+            noAutomaticPrefetch: true
         )
         // DEBUG-only: make a tagged `cmux DEV` build come up already signed in
         // as the dogfood account, mirroring iOS. A tagged build is a separate
@@ -142,7 +139,7 @@ struct MacAuthComposition {
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
         self.callbackRouter = callbackRouter
-        self.browserSignIn = HostBrowserSignInFlow(
+        let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: tokenStore,
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
@@ -159,6 +156,10 @@ struct MacAuthComposition {
                     refreshToken: refreshToken
                 )
             }
+        )
+        self.accountFlow = HostAccountFlow(
+            coordinator: coordinator,
+            browserSignIn: browserSignIn
         )
     }
 
