@@ -100,7 +100,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             independentEventFactory = nil
         }
         self.session = MobileCoreRPCSession(
-            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptKey: MobileRPCConnectAttemptKey(
+                route: route
+            ),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
@@ -111,7 +113,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             },
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
-            transportConnectObserver: transportConnectObserver
+            transportConnectObserver: transportConnectObserver,
+            initialTransportSessionPurpose: sessionPurpose
         )
     }
 
@@ -122,12 +125,47 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Retire this client and await both its installed transport close and any
+    /// transport factory admission that raced retirement. A cancellation-
+    /// ignoring abandoned dial is handed to the shared route registry after a
+    /// bounded cleanup interval. Installed transports retain that same global
+    /// lease until their exact close task finishes. The registry permits one
+    /// recovery dial and blocks further route admission while two physical
+    /// cleanups remain unresolved.
+    public func disconnectAndWaitForTransportDrain() async {
+        retire()
+        await session.tearDown(error: .connectionClosed)
+        async let sessionDrain: Void = session.waitForTransportDrain()
+        async let admissionDrain: Void =
+            lifecycleGate.waitForRetiredTransportDisposals()
+        _ = await (sessionDrain, admissionDrain)
+    }
+
+    /// Returns whether `otherRoute` competes for this client's exact physical
+    /// connection lease. Shell handoffs use this before the target reports its
+    /// logical Mac identity, so anonymous and refreshed Iroh routes still
+    /// release an existing same-peer owner before dialing.
+    public func sharesPhysicalTransportRoute(
+        with otherRoute: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: route)
+            == MobileRPCConnectAttemptKey(route: otherRoute)
+    }
+
     /// Synchronously prevent this client from allocating another transport.
     /// Shell ownership changes call this before scheduling actor-isolated
     /// teardown, closing the window where an already-queued RPC could reopen a
     /// client that is no longer authoritative.
     public func retire() {
         lifecycleGate.retire()
+    }
+
+    /// Reclassifies this client's live transport when shell ownership moves
+    /// between the focused render role and the warm control pool.
+    public func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        await session.updateTransportSessionPurpose(purpose)
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -168,7 +206,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// - Parameters:
     ///   - method: The RPC method name.
     ///   - params: The request parameters.
-    ///   - id: The request id (defaults to a fresh UUID).
+    ///   - id: The request id (defaults to a fresh UUID). Must be unique per
+    ///     logical request: the session does not tombstone the ids of
+    ///     cancelled or timed-out requests on a preserved transport, so
+    ///     reusing an id for a retry lets the original request's late
+    ///     response settle the retry.
     /// - Returns: The encoded request data.
     /// - Throws: A serialization error if the params are not JSON-encodable.
     public static func requestData(
@@ -193,6 +235,46 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             timeoutNanoseconds: timeoutNanoseconds
         ).response
+    }
+
+    /// Enqueues one authorized request and returns before its response arrives.
+    ///
+    /// This path deliberately does not retry an `authorizationFailed` response:
+    /// retrying would place the repeated request behind later pipelined work and
+    /// break application order. The terminal-input caller uses it only on Iroh
+    /// transport-admission routes, where no bearer-token refresh is needed.
+    ///
+    /// Sequential calls from one caller enqueue transport writes in call order.
+    ///
+    /// - Parameters:
+    ///   - requestData: The encoded JSON-RPC request.
+    ///   - timeoutNanoseconds: An optional end-to-end request deadline.
+    /// - Returns: A handle that separately awaits the response settlement.
+    /// - Throws: An encoding, authorization, connection, or enqueue error.
+    public func sendRequestPipelined(
+        _ requestData: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> MobileCoreRPCPipelinedRequest {
+        let deadline = RPCRequestDeadline(
+            timeoutNanoseconds: timeoutNanoseconds
+                ?? runtime.rpcRequestTimeoutNanoseconds
+        )
+        let (id, augmented) = try Self.requestWithGuaranteedID(requestData)
+        let authenticated = try await requestDataWithAuth(
+            augmented,
+            deadline: deadline,
+            hostStatusStackToken: nil
+        )
+        try Task.checkCancellation()
+        try await session.beginSend(
+            payload: authenticated.data,
+            requestID: id,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        return MobileCoreRPCPipelinedRequest(
+            requestID: id,
+            session: session
+        )
     }
 
     /// Sends an authorized request and then proves host identity with the same
@@ -579,6 +661,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
+        case "mobile.browser.list":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "mobile.browser.stream.start", "mobile.browser.stream.stop",
+             "mobile.browser.viewport",
+             "mobile.browser.frame.ack",
+             "mobile.browser.dialog.respond",
+             "mobile.browser.input.pointer", "mobile.browser.input.scroll",
+             "mobile.browser.input.key", "mobile.browser.input.text",
+             "mobile.browser.navigate", "mobile.browser.back",
+             "mobile.browser.forward", "mobile.browser.reload":
+            // Browser panels do not carry a workspace selection on these verbs.
+            // A Mac-wide ticket covers them; a workspace-scoped ticket requires
+            // Stack fallback because panel_id alone cannot prove workspace scope.
+            return !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         default:
             return true
         }
@@ -634,11 +733,5 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
-    }
-}
-
-private extension CmxAttachRoute {
-    var mobileRPCConnectAttemptKey: String {
-        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

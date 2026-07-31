@@ -50,7 +50,8 @@ struct OnboardingFlowView: View {
             onPrimary: handlePrimary,
             onSecondary: startFallbackPairing,
             pageContent: OnboardingPageViewport(
-                stage: stage
+                stage: stage,
+                onNavigate: { navigate(to: $0) }
             ) { pageStage in
                 page(for: pageStage)
             }
