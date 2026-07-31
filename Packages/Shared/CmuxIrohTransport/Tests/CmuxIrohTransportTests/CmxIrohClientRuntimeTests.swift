@@ -36,6 +36,71 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func cachedBindingSyncOverlapsBindAndRegistersAfterActivation() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let revisionOne = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let revisionTwo = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs,
+            cachedBinding: CmxIrohBrokerBindingMetadata(binding: fixture.binding)
+        )
+        let factory = TestBlockingIrohEndpointFactory(
+            endpoint: TestIrohEndpoint(identity: fixture.endpointID)
+        )
+        let bindStarted = await factory.bindStartedEvents()
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [revisionOne, revisionTwo],
+            relay: fixture.relayResponse(),
+            blockedRegistrationCount: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        let start = Task { try await runtime.start() }
+
+        for await _ in bindStarted { break }
+        await broker.waitUntilSyncCount(1)
+        #expect(await broker.registrationCount == 0)
+
+        await factory.release()
+        try await start.value
+        await broker.waitUntilRegistrationCount(1)
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 1)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 1)
+        #expect(await broker.syncCount == 1)
+
+        await broker.releaseBlockedRegistration()
+        await broker.waitUntilSyncCount(2)
+        for _ in 0..<1_000 {
+            if await runtime.liveDiscoverySnapshotGeneration() >= 2 { break }
+            await Task.yield()
+        }
+        #expect(await runtime.liveDiscoverySnapshotGeneration() == 2)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 2)
+        await runtime.stop()
+    }
+
+    @Test
     func pushedRevisionReconcilesReadOnlyAndSkipsObsoleteHints() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let revisionOne = try ClientRuntimeTestFixture.discovery(
@@ -873,22 +938,26 @@ private actor TestRevisionedClientBroker:
     private var discoveries: [CmxIrohDiscoveryResponse]
     private let relay: CmxIrohRelayTokenResponse
     private let blockedSyncCount: Int?
+    private let blockedRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
     private(set) var registrationCount = 0
     private(set) var syncCount = 0
     private var blockedSyncReleased = false
+    private var blockedRegistrationReleased = false
 
     init(
         binding: CmxIrohBrokerBinding,
         discoveries: [CmxIrohDiscoveryResponse],
         relay: CmxIrohRelayTokenResponse,
         blockedSyncCount: Int? = nil,
+        blockedRegistrationCount: Int? = nil,
         embedInitialDiscovery: Bool = false
     ) {
         self.binding = binding
         self.discoveries = discoveries
         self.relay = relay
         self.blockedSyncCount = blockedSyncCount
+        self.blockedRegistrationCount = blockedRegistrationCount
         embeddedRegistrationDiscovery = embedInitialDiscovery
             ? discoveries.first
             : nil
@@ -897,8 +966,13 @@ private actor TestRevisionedClientBroker:
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
-    ) -> CmxIrohRegistrationResponse {
+    ) async -> CmxIrohRegistrationResponse {
         registrationCount += 1
+        if registrationCount == blockedRegistrationCount {
+            while !blockedRegistrationReleased {
+                await Task.yield()
+            }
+        }
         return CmxIrohRegistrationResponse(
             revision: embeddedRegistrationDiscovery?.revision
                 ?? discoveries.first?.revision,
@@ -956,8 +1030,18 @@ private actor TestRevisionedClientBroker:
         }
     }
 
+    func waitUntilRegistrationCount(_ minimum: Int) async {
+        while registrationCount < minimum {
+            await Task.yield()
+        }
+    }
+
     func releaseBlockedSync() {
         blockedSyncReleased = true
+    }
+
+    func releaseBlockedRegistration() {
+        blockedRegistrationReleased = true
     }
 
 }
