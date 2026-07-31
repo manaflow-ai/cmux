@@ -11,6 +11,15 @@ RUST_JOBS = (
     "bindings-e2e",
     "windows-experimental",
 )
+BROWSER_RUNTIME_PIDFD_TESTS = {
+    "browser_capture_scale_applies_to_metrics_screencast_and_input",
+    "browser_tab_creation_is_async_and_surfaces_bootstrap_failure",
+    "control_command_reports_backpressure_when_worker_queue_is_full",
+    "queued_back_and_forward_do_not_collapse_while_worker_is_blocked",
+    "socket_browser_attach_streams_frames_input_and_cell_pixels",
+    "stalled_external_browser_nudges_target_once_before_interaction",
+    "wedged_browser_navigate_does_not_block_same_socket_connection",
+}
 
 
 def job_block(workflow: str, job: str) -> str:
@@ -43,15 +52,20 @@ def test_valgrind_fallback_keeps_non_pidfd_tests() -> None:
     assert all(len(entry) == 2 for entry in entries)
     assert len(entries) == len(set(entries))
     assert {scope for scope, _ in entries} == {
+        "browser_runtime",
         "cmux_tui",
         "cmux_tui_core",
         "pty",
         "websocket_transport",
     }
+    assert {
+        test_name for scope, test_name in entries if scope == "browser_runtime"
+    } == BROWSER_RUNTIME_PIDFD_TESTS
 
     valgrind_job = job_block(WORKFLOW.read_text(), "valgrind-leak-check")
     assert "Skipping pidfd-dependent test binary" not in valgrind_job
     assert "dist/valgrind-pidfd-skips.txt" in valgrind_job
+    assert "test_scope=browser_runtime" in valgrind_job
     assert 'test_args+=(--skip "$test_name")' in valgrind_job
 
 
