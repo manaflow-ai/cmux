@@ -274,6 +274,7 @@ async function ensureMacAfterRelaunch() {
   const socketPath = path.join(tempRoot, "mobile.sock");
   const appPath = path.join(tempRoot, "cmux DEV ready.app");
   const callCounterPath = path.join(tempRoot, "call-count");
+  const pkillArgsPath = path.join(tempRoot, "pkill-args");
   fs.mkdirSync(appPath);
 
   const server = net.createServer();
@@ -300,10 +301,10 @@ async function ensureMacAfterRelaunch() {
           '  if [[ "$count" -ge 2 ]]; then printf "cmux-ios-dev://attach?v=2&kind=iroh"; return 0; fi',
           '  return 1',
           '}',
-          'pkill() { return 0; }',
+          'pkill() { printf "%s\\n" "$*" > "$CMUX_TEST_PKILL_ARGS"; return 0; }',
           'open() { return 0; }',
           'sleep() { return 0; }',
-          'CMUX_ATTACH_ALLOW_RELAUNCH=1 cmux_attach_ensure_mac "ready" "$2" physical_device',
+          'cmux_attach_ensure_mac "ready" "$2" physical_device',
         ].join("\n"),
         "mobile-attach-test",
         validator,
@@ -316,6 +317,7 @@ async function ensureMacAfterRelaunch() {
           ...process.env,
           CMUX_TEST_APP: appPath,
           CMUX_TEST_CALL_COUNTER: callCounterPath,
+          CMUX_TEST_PKILL_ARGS: pkillArgsPath,
           CMUX_TEST_SOCKET: socketPath,
         },
       },
@@ -323,6 +325,9 @@ async function ensureMacAfterRelaunch() {
     result.callCount = fs.existsSync(callCounterPath)
       ? Number.parseInt(fs.readFileSync(callCounterPath, "utf8"), 10)
       : 0;
+    result.pkillArgs = fs.existsSync(pkillArgsPath)
+      ? fs.readFileSync(pkillArgsPath, "utf8").trim()
+      : "";
     return result;
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -713,10 +718,14 @@ test("physical-device mint retries transient empty responses", async () => {
   assert.equal(result.callCount, 2);
 });
 
-test("Mac readiness is revalidated after a tagged relaunch", async () => {
+test("ensure-mac self-heals an unarmed running exact-tag app", async () => {
   const result = await ensureMacAfterRelaunch();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.callCount, 2);
+  assert.match(
+    result.pkillArgs,
+    /^-f cmux DEV ready\.app\/Contents\/MacOS\/cmux DEV$/,
+  );
 });
 
 test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
