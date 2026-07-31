@@ -891,6 +891,25 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
+    /// Device-local Tailscale grants never mirror to the server backup: the
+    /// grant's whole point is that a restored row on another device cannot
+    /// dial plaintext Tailscale without its own user-entered code.
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: cmxCanonicalDeviceID(macDeviceID),
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID),
+            routes: routes
+        )
+    }
+
     /// Clear local paired Macs without deleting the user's server backup.
     public func removeAll() async throws {
         // Sign-out wipe: clear local only. The server backup is intentionally
