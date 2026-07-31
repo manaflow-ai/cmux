@@ -657,7 +657,7 @@ final class cmuxUITests: XCTestCase {
         renameField.typeText("yu")
         let save = renameAlert.buttons[
             String(localized: "mobile.common.save", defaultValue: "Save")
-        ]
+        ].firstMatch
         XCTAssertTrue(save.waitForExistence(timeout: 3))
         save.tap()
         XCTAssertTrue(
