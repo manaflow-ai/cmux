@@ -3,8 +3,8 @@ import Foundation
 
 /// Per-topic shedding policy for server-pushed mobile events.
 ///
-/// "Droppable" topics are the refresh-class streams a client can always
-/// recover without the host replaying the exact dropped payload:
+/// "Droppable" topics are the streams a client can always recover without the
+/// host replaying the exact dropped payload:
 /// - `terminal.render_grid`: the producer is asked to re-emit a full frame for
 ///   every surface whose queued frame was shed
 ///   (``MobileTerminalRenderObserver/requestRenderGridFullResync(surfaceIDStrings:)``),
@@ -13,14 +13,26 @@ import Foundation
 ///   silently dropped delta would corrupt its grid invisibly; the
 ///   poison-until-full rule makes a shed unobservable beyond one stale paint.
 /// - `terminal.bytes`: chunks carry a byte-offset `seq`; the client detects the
-///   gap and requests a replay on its own.
-/// - `terminal.updated` / `workspace.updated`: level-triggered pings; the newer
-///   occurrence that forced the shed supersedes the shed one.
+///   gap on the next delivered chunk and requests a replay on its own.
+/// - `terminal.updated` / `workspace.updated`: level-triggered pings. A newer
+///   queued occurrence supersedes a shed one; when the shed ping was the LAST
+///   one, the drain-repair signal re-emits it once the queue drains.
+/// - `mobile.sync.delta`: revision-cursor stream (state sync v2). The client
+///   already treats `from_rev` past its cursor as a gap and repairs with a
+///   `mobile.sync.fetch`; after a shed, the drain-repair signal emits a
+///   zero-record head marker so a gap is detected even when the shed delta was
+///   the last one (see ``MobileHostShedRepairPlanner``).
+/// - `notification.feed.changed`: revision-carrying invalidation ping; the
+///   drain-repair signal re-emits the newest revision, and the client refetches
+///   iff it missed one.
 ///
 /// Every other topic keeps the close-on-overflow contract: those payloads
 /// cannot be re-derived by the client, so tearing the connection down (the
 /// client reconnects and re-syncs from authoritative state) is the only
-/// lossless bound.
+/// lossless bound. Backpressure on a recoverable topic must NEVER close the
+/// connection: the 2026-07 field incident showed a few seconds of QUIC write
+/// stall filling this queue and killing a healthy session every ~2s
+/// (`sendQueueOverflow`), forcing full phone redials mid path-flap.
 enum MobileHostEventTopicPolicy {
     static let renderGridTopic = "terminal.render_grid"
 
@@ -30,12 +42,45 @@ enum MobileHostEventTopicPolicy {
             // A render-grid event without a surface key cannot be resynced
             // per-surface, so it keeps the lossless close-on-overflow path.
             return coalesceKey != nil
-        case "terminal.bytes", "terminal.updated", "workspace.updated":
+        case "terminal.bytes", "terminal.updated", "workspace.updated",
+             "mobile.sync.delta", "notification.feed.changed":
             return true
         default:
             return false
         }
     }
+
+    /// Whether a shed on `topic` must be followed by one coalesced repair
+    /// signal once the queue drains (``MobileHostConnectionEventQueue/takeShedRepairs()``).
+    ///
+    /// These are the level-triggered invalidations and cursor streams where
+    /// the shed event may have been the last one: without a host-side repair
+    /// the client would stay silently stale until an unrelated future event.
+    /// `terminal.render_grid` repairs through the immediate
+    /// poison-plus-full-resync path and `terminal.bytes` through the client's
+    /// byte-offset gap detection, so neither needs a drain signal.
+    static func needsDrainRepairSignal(topic: String) -> Bool {
+        switch topic {
+        case "terminal.updated", "workspace.updated",
+             "mobile.sync.delta", "notification.feed.changed":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// The coalesced backpressure outcome one drain cycle repairs: every topic
+/// that lost at least one repair-signaled event since the last take, plus the
+/// total number of events shed (all topics) for the diagnostic ring.
+struct MobileHostEventQueueShedRepair: Equatable, Sendable {
+    /// Topics that shed at least one event and need a repair signal
+    /// (``MobileHostEventTopicPolicy/needsDrainRepairSignal(topic:)``).
+    let topics: Set<String>
+    /// Every event dropped under backpressure since the last take, including
+    /// topics that repair through their own mechanism (render-grid resync,
+    /// byte-gap replay).
+    let shedEventCount: Int
 }
 
 /// Outcome of one synchronous admission attempt on a connection's event queue.
@@ -103,13 +148,26 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     /// (queue full of non-droppable events). Re-requested once the drain frees
     /// room, so a fully stalled connection cannot spin the producer.
     private var resyncAfterDrainSurfaceIDs: Set<String> = []
+    /// Queue depth at or below which pending shed repairs are released to the
+    /// drain, so repair events land only once the transport is genuinely
+    /// flowing again and are not immediately shed themselves.
+    private let shedRepairLowWaterMark: Int
+    /// Topics that shed at least one repair-signaled event since the last
+    /// ``takeShedRepairs()``. Coalesced by construction: a topic appears once
+    /// no matter how many of its events were dropped.
+    private var shedRepairPendingTopics: Set<String> = []
+    /// Every event dropped under backpressure since the last
+    /// ``takeShedRepairs()`` (all topics), for the diagnostic ring.
+    private var shedEventCountSinceRepairTake = 0
 
     init(
         maximumEventCount: Int = MobileHostConnectionEventQueue.defaultMaximumEventCount,
-        maximumByteCount: Int = MobileHostConnectionEventQueue.defaultMaximumByteCount
+        maximumByteCount: Int = MobileHostConnectionEventQueue.defaultMaximumByteCount,
+        shedRepairLowWaterMark: Int? = nil
     ) {
         self.maximumEventCount = maximumEventCount
         self.maximumByteCount = maximumByteCount
+        self.shedRepairLowWaterMark = shedRepairLowWaterMark ?? max(1, maximumEventCount / 4)
     }
 
     var count: Int {
@@ -192,6 +250,9 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                     depthAfterEnqueue: nil
                 )
             }
+            // The incoming droppable event itself is being dropped: it is a
+            // shed like any other and joins the coalesced repair cycle.
+            noteShedLocked(topic: topic)
             if isRenderGrid, let coalesceKey {
                 if poisonedRenderGridSurfaceIDs.insert(coalesceKey).inserted {
                     resyncSurfaceIDs.insert(coalesceKey)
@@ -289,6 +350,26 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         return requests
     }
 
+    /// Pending shed repairs, released only once the drain has pulled the
+    /// queue down to the low-water mark so the repair events are not shed in
+    /// turn. Taking resets the pending set and the shed count; a repair event
+    /// that is itself shed later re-marks its topic, so the cycle self-heals.
+    /// Returns `nil` while the queue is still congested or nothing was shed.
+    func takeShedRepairs() -> MobileHostEventQueueShedRepair? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed,
+              queuedEvents.count <= shedRepairLowWaterMark,
+              shedEventCountSinceRepairTake > 0 else { return nil }
+        let repairs = MobileHostEventQueueShedRepair(
+            topics: shedRepairPendingTopics,
+            shedEventCount: shedEventCountSinceRepairTake
+        )
+        shedRepairPendingTopics.removeAll()
+        shedEventCountSinceRepairTake = 0
+        return repairs
+    }
+
     /// Rejects all future admissions and releases every queued payload.
     func close() {
         lock.lock()
@@ -297,6 +378,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         queuedByteCount = 0
         poisonedRenderGridSurfaceIDs.removeAll()
         resyncAfterDrainSurfaceIDs.removeAll()
+        shedRepairPendingTopics.removeAll()
+        shedEventCountSinceRepairTake = 0
         subscribedTopics.removeAll()
         lock.unlock()
     }
@@ -304,6 +387,17 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private func hasRoomLocked(for frame: Data) -> Bool {
         queuedEvents.count < maximumEventCount
             && queuedByteCount + frame.count <= maximumByteCount
+    }
+
+    /// Records one backpressure drop for the repair cycle and the diagnostic
+    /// shed count. Not called for poison-chain suppression (a refused
+    /// render-grid delta whose surface is already awaiting its full frame):
+    /// that drop was accounted for when the chain first broke.
+    private func noteShedLocked(topic: String) {
+        shedEventCountSinceRepairTake += 1
+        if MobileHostEventTopicPolicy.needsDrainRepairSignal(topic: topic) {
+            shedRepairPendingTopics.insert(topic)
+        }
     }
 
     private func shedDroppableEventsLocked(
@@ -322,6 +416,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             }
             queuedEvents.remove(at: index)
             queuedByteCount -= event.frame.count
+            noteShedLocked(topic: event.topic)
             if event.topic == MobileHostEventTopicPolicy.renderGridTopic,
                let surfaceID = event.coalesceKey,
                poisonedRenderGridSurfaceIDs.insert(surfaceID).inserted {
@@ -334,6 +429,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         // chain for the whole connection.
         guard !resyncSurfaceIDs.isEmpty else { return }
         var freedByteCount = 0
+        var purgedEventCount = 0
         let brokenSurfaceIDs = resyncSurfaceIDs
         queuedEvents.removeAll { event in
             guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
@@ -342,8 +438,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 return false
             }
             freedByteCount += event.frame.count
+            purgedEventCount += 1
             return true
         }
         queuedByteCount -= freedByteCount
+        shedEventCountSinceRepairTake += purgedEventCount
     }
 }

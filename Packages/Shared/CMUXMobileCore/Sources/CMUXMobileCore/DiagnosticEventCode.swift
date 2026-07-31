@@ -191,6 +191,14 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// `b` is ``DiagnosticPathKind`` for the affected path, and `c` is the
     /// matching positive, process-local session correlation ID.
     case transportPathEvent = 55
+    /// The Mac host's bounded per-connection event queue shed events under
+    /// backpressure instead of closing the connection (macOS host ring). One
+    /// row per coalesced repair cycle: `a` is the number of events dropped
+    /// since the previous cycle on that connection, `b` is the number of
+    /// topics that received a repair signal once the queue drained. Rings
+    /// showing this code with no nearby ``sessionClosed`` mean backpressure
+    /// was absorbed without a connection death.
+    case hostEventQueueShed = 56
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

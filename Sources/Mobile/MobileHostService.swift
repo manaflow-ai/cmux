@@ -1825,6 +1825,37 @@ extension MobileHostService {
 }
 #endif
 
+/// Builds the per-topic payloads a connection emits after its bounded event
+/// queue shed events on that topic
+/// (``MobileHostEventTopicPolicy/needsDrainRepairSignal(topic:)``). Every
+/// repair rides a mechanism today's clients already implement — no new client
+/// behavior is required:
+/// - `workspace.updated` / `terminal.updated` are level-triggered empty-payload
+///   pings, so re-emitting the ping is the repair (legacy clients refetch).
+/// - `mobile.sync.delta` gets zero-record markers at each collection's current
+///   head: a client that missed a shed delta observes `from_rev` past its
+///   cursor, reports a gap, and repairs with its normal `mobile.sync.fetch`; a
+///   current client ignores the marker as stale.
+/// - `notification.feed.changed` re-carries the newest feed revision; the
+///   client refetches iff that revision is newer than the one it applied.
+@MainActor
+enum MobileHostShedRepairPlanner {
+    static func repairPayloads(topic: String) -> [[String: Any]] {
+        switch topic {
+        case "workspace.updated", "terminal.updated":
+            return [[:]]
+        case MobileStateSyncHost.deltaTopic:
+            return MobileStateSyncHost.shared.shedRepairMarkerPayloads()
+        case TerminalNotificationStore.feedChangedEventTopic:
+            return [[
+                "revision": TerminalNotificationStore.shared.notificationFeedHistory.revision,
+            ]]
+        default:
+            return []
+        }
+    }
+}
+
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
@@ -2538,11 +2569,13 @@ actor MobileHostConnection {
             Task { await self.drainQueuedEvents() }
         }
         if result.shouldClose {
-            // The bounded queue fills when the control stream stops draining
-            // (e.g. the peer's network path died mid-write) while terminal
-            // events keep arriving. The peer violated nothing; field host
-            // rings (2026-07-23 WiFi path flap) showed this close mislabeled
-            // protocolViolation seconds after admission.
+            // Only a NON-recoverable topic overflowing still closes: those
+            // payloads cannot be re-derived by the client, so teardown is the
+            // only lossless bound. Recoverable topics shed and repair instead
+            // (the 2026-07 field incident showed queue-depth closes killing
+            // healthy sessions every ~2s during a path flap). The peer
+            // violated nothing; field host rings (2026-07-23 WiFi path flap)
+            // also showed this close mislabeled protocolViolation.
             await close(
                 reason: "event queue exceeded bounded capacity",
                 exit: CmxIrohAdmittedConnectionExit(
@@ -2622,6 +2655,14 @@ actor MobileHostConnection {
                 return
             }
             guard let event = eventQueue.dequeue() else {
+                // The queue emptied without a delivered event releasing the
+                // pending repairs (every remaining event was skipped as
+                // unsubscribed): emit them now so a shed can never strand a
+                // stale client until unrelated future traffic.
+                if let shedRepairs = eventQueue.takeShedRepairs() {
+                    await emitShedRepairs(shedRepairs)
+                    continue
+                }
                 if eventQueue.finishDrain() { continue }
                 return
             }
@@ -2651,6 +2692,32 @@ actor MobileHostConnection {
                 MobileTerminalRenderObserver.requestRenderGridFullResync(
                     surfaceIDStrings: resyncSurfaceIDs
                 )
+            }
+            // Backpressure repairs are released only once the queue is back
+            // under its low-water mark, i.e. the transport is draining again.
+            if let shedRepairs = eventQueue.takeShedRepairs() {
+                await emitShedRepairs(shedRepairs)
+            }
+        }
+    }
+
+    /// Emits the coalesced repair signals for topics whose events were shed
+    /// under backpressure, and records one host-ring row per repair cycle so
+    /// field exports show backpressure episodes without connection deaths.
+    /// Repair events flow through the same bounded admission as every other
+    /// event; one that is shed in turn re-marks its topic and retries on the
+    /// next drain cycle.
+    private func emitShedRepairs(_ repairs: MobileHostEventQueueShedRepair) async {
+        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+            .hostEventQueueShed,
+            a: repairs.shedEventCount,
+            b: repairs.topics.count
+        ))
+        for topic in repairs.topics.sorted() {
+            guard eventQueue.isSubscribed(topic: topic) else { continue }
+            let payloads = await MobileHostShedRepairPlanner.repairPayloads(topic: topic)
+            for payload in payloads {
+                await sendEvent(topic: topic, payload: payload)
             }
         }
     }
