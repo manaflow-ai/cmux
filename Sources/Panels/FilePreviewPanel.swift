@@ -913,7 +913,11 @@ enum FilePreviewKindResolver {
         if String(data: data, encoding: .utf8) != nil {
             return true
         }
-        if let completedSequences = droppingTrailingPartialUTF8Sequence(data),
+        // Only a prefix that filled the read window can have been cut mid-scalar.
+        // A shorter prefix is the whole file, where a malformed tail is a defect
+        // and not an artifact of the read.
+        if data.count == sniffPrefixByteCount,
+           let completedSequences = droppingTrailingPartialUTF8Sequence(data),
            String(data: completedSequences, encoding: .utf8) != nil {
             return true
         }
@@ -938,12 +942,15 @@ enum FilePreviewKindResolver {
         return nil
     }
 
+    /// Valid UTF-8 lead bytes only. 0xC0 and 0xC1 encode overlong forms and
+    /// 0xF5 through 0xFF exceed U+10FFFF, so a prefix ending in one of those is
+    /// malformed rather than truncated.
     private static func utf8SequenceLength(leadByte: UInt8) -> Int? {
         switch leadByte {
-        case 0b0000_0000...0b0111_1111: return 1
-        case 0b1100_0000...0b1101_1111: return 2
-        case 0b1110_0000...0b1110_1111: return 3
-        case 0b1111_0000...0b1111_0111: return 4
+        case 0x00...0x7F: return 1
+        case 0xC2...0xDF: return 2
+        case 0xE0...0xEF: return 3
+        case 0xF0...0xF4: return 4
         default: return nil
         }
     }
