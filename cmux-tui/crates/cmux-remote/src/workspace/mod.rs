@@ -955,6 +955,49 @@ mod tests {
         assert_eq!(first, second);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn replaced_workspace_path_gets_a_new_identity() {
+        let parent = tempdir().unwrap();
+        let root_path = parent.path().join("workspace");
+        let pinned_path = parent.path().join("pinned-workspace");
+        std::fs::create_dir(&root_path).unwrap();
+        let service = WorkspaceService::new();
+        let root = root_path.to_string_lossy().into_owned();
+        let first = service
+            .handle_request(WorkspaceRequest::OpenWorkspace { root: root.clone() })
+            .await
+            .unwrap();
+        let WorkspaceResponse::Workspace { id: first, .. } = first else { panic!() };
+
+        std::fs::rename(&root_path, &pinned_path).unwrap();
+        std::fs::create_dir(&root_path).unwrap();
+        let second =
+            service.handle_request(WorkspaceRequest::OpenWorkspace { root }).await.unwrap();
+        let WorkspaceResponse::Workspace { id: second, .. } = second else { panic!() };
+        assert_ne!(first, second);
+
+        for (workspace, path, contents) in [
+            (first, "old-root.txt", b"old".as_slice()),
+            (second, "new-root.txt", b"new".as_slice()),
+        ] {
+            service
+                .handle_request(WorkspaceRequest::WriteFile {
+                    workspace,
+                    path: path.into(),
+                    data: ByteString::from_bytes(contents),
+                    precondition: FilePrecondition::Missing,
+                    create_parents: false,
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(std::fs::read(pinned_path.join("old-root.txt")).unwrap(), b"old");
+        assert_eq!(std::fs::read(root_path.join("new-root.txt")).unwrap(), b"new");
+        assert!(!root_path.join("old-root.txt").exists());
+        assert!(!pinned_path.join("new-root.txt").exists());
+    }
+
     #[tokio::test]
     async fn workspace_close_releases_only_the_calling_client_lease() {
         let directory = tempdir().unwrap();

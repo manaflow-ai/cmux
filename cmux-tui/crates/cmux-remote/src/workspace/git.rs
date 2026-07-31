@@ -748,6 +748,36 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn status_uses_the_pinned_root_after_its_path_is_replaced() {
+        let parent = tempdir().unwrap();
+        let root_path = parent.path().join("workspace");
+        let pinned_path = parent.path().join("pinned-workspace");
+        std::fs::create_dir(&root_path).unwrap();
+        git(&root_path, &["init", "-q"]);
+        git(&root_path, &["config", "user.email", "test@example.com"]);
+        git(&root_path, &["config", "user.name", "Test"]);
+        std::fs::write(root_path.join("tracked.txt"), "before\n").unwrap();
+        git(&root_path, &["add", "tracked.txt"]);
+        git(&root_path, &["commit", "-qm", "initial"]);
+        let root =
+            WorkspaceRoot::open(WorkspaceId("pinned-git".into()), root_path.to_str().unwrap())
+                .await
+                .unwrap();
+
+        std::fs::rename(&root_path, &pinned_path).unwrap();
+        std::fs::create_dir(&root_path).unwrap();
+        git(&root_path, &["init", "-q"]);
+        std::fs::write(root_path.join("replacement.txt"), "replacement\n").unwrap();
+        std::fs::write(pinned_path.join("tracked.txt"), "after\n").unwrap();
+
+        let response = status(&root).await.unwrap();
+        let WorkspaceResponse::GitStatus { status } = response else { panic!() };
+        let paths = status.changes.iter().map(|change| change.path.as_str()).collect::<Vec<_>>();
+        assert_eq!(paths, vec!["tracked.txt"]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn status_disables_repository_fsmonitor() {
         use std::os::unix::fs::PermissionsExt;
 
