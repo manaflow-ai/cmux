@@ -106,14 +106,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <UserButton />
             </div>
           </div>
-          {mobileNavOpen ? (
-            <DashboardNav
-              id="dashboard-mobile-nav"
-              groups={groups}
-              onNavigate={() => setMobileNavOpen(false)}
-              className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
-            />
-          ) : null}
+          <DashboardNav
+            id="dashboard-mobile-nav"
+            groups={groups}
+            hidden={!mobileNavOpen}
+            onNavigate={() => setMobileNavOpen(false)}
+            className="max-h-[calc(100vh-2.75rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
+          />
         </header>
         <main className="min-w-0">{children}</main>
       </div>
@@ -124,16 +123,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 function DashboardNav({
   groups,
   className,
+  hidden,
   id,
   onNavigate,
 }: {
   groups: DashboardNavGroup[];
   className?: string;
+  hidden?: boolean;
   id?: string;
   onNavigate?: () => void;
 }) {
   return (
-    <nav id={id} className={className}>
+    <nav id={id} className={className} hidden={hidden}>
       <div className="space-y-4">
         {groups.map((group) => (
           <div key={group.label}>

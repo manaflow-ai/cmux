@@ -62,10 +62,28 @@ final class BrowserAppSessionController {
     func request(
         destinationURL: URL
     ) async -> BrowserAppSessionRequestOutcome {
-        guard let authOwner = currentAuthOwner,
-              admission.allows(authOwner) else {
-            return .notAuthenticated
+        let snapshot: AuthenticatedSessionSnapshot
+        do {
+            snapshot = try await coordinator.authenticatedSessionSnapshot()
+        } catch {
+            guard !Task.isCancelled else { return .cancelled }
+            return BrowserAppSessionRequestOutcome.tokenFailure(error)
         }
+        let expectedOwner = BrowserAppSessionAuthOwner(
+            userID: snapshot.accountID,
+            authSessionGeneration: snapshot.generation
+        )
+        if let admittedOwner = admission.owner,
+           admittedOwner != expectedOwner {
+            beginAuthTransition()
+        }
+        await awaitPendingCleanup()
+        guard !Task.isCancelled,
+              currentAuthOwner == expectedOwner else {
+            return .cancelled
+        }
+        admission.resume(for: expectedOwner)
+
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let requestGeneration = generation
         let operationID = UUID()
@@ -74,7 +92,8 @@ final class BrowserAppSessionController {
             return await performHandoff(
                 destinationURL: destinationURL,
                 websiteDataStore: websiteDataStore,
-                requestGeneration: requestGeneration
+                requestGeneration: requestGeneration,
+                snapshot: snapshot
             )
         }
         activeTasks[operationID] = task
@@ -125,8 +144,7 @@ final class BrowserAppSessionController {
             beginAuthTransition()
         }
         await awaitPendingCleanup()
-        guard !Task.isCancelled,
-              currentAuthOwner == expectedOwner else {
+        guard currentAuthOwner == expectedOwner else {
             return
         }
         admission.resume(for: expectedOwner)
@@ -193,16 +211,9 @@ final class BrowserAppSessionController {
     private func performHandoff(
         destinationURL: URL,
         websiteDataStore: WKWebsiteDataStore,
-        requestGeneration: UInt64
+        requestGeneration: UInt64,
+        snapshot: AuthenticatedSessionSnapshot
     ) async -> BrowserAppSessionRequestOutcome {
-        let snapshot: AuthenticatedSessionSnapshot
-        do {
-            snapshot = try await coordinator.authenticatedSessionSnapshot()
-        } catch {
-            guard localHandoffIsCurrent(requestGeneration) else { return .cancelled }
-            return BrowserAppSessionRequestOutcome.tokenFailure(error)
-        }
-
         guard handoffIsCurrent(
             requestGeneration,
             authSessionGeneration: snapshot.generation
