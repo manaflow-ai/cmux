@@ -40,6 +40,13 @@ extension ControlCommandCoordinator {
             return debugShowProWelcomeChecklist()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
+        case "debug.command_palette.query.set":
+            guard let query = rawString(request.params, "query") else {
+                return .err(code: "invalid_params", message: "Missing query", data: nil)
+            }
+            return debugCommandPaletteEvent(.setQuery(query), request.params)
+        case "debug.command_palette.submit":
+            return debugCommandPaletteEvent(.submit, request.params)
         case "debug.command_palette.rename_tab.open":
             return debugCommandPaletteEvent(.renameTabOpen, request.params)
         case "debug.command_palette.visible":
@@ -316,10 +323,9 @@ extension ControlCommandCoordinator {
 
     // MARK: - debug.command_palette.* (event posts)
 
-    /// The shared body of the four palette-notification commands (`toggle`,
-    /// `rename_tab.open`, `rename_input.interact`,
-    /// `rename_input.delete_backward`): identical param shape, identical
-    /// `not_found` payload, differing only in the posted notification.
+    /// The shared body of the palette-notification commands. They have the
+    /// same window target and `not_found` behavior; the event carries the
+    /// requested action and any action-specific payload.
     func debugCommandPaletteEvent(
         _ event: ControlDebugCommandPaletteEvent,
         _ params: [String: JSONValue]

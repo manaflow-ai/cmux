@@ -16,7 +16,11 @@ const RELEASE_ASSET_GUARD_STATE = Object.freeze({
   COMPLETE: "complete",
 });
 
-function evaluateReleaseAssetGuard({ existingAssetNames, immutableAssetNames = IMMUTABLE_RELEASE_ASSETS }) {
+function evaluateReleaseAssetGuard({
+  existingAssetNames,
+  immutableAssetNames = IMMUTABLE_RELEASE_ASSETS,
+  releaseIsDraft = false,
+}) {
   const immutableAssets = immutableAssetNames || IMMUTABLE_RELEASE_ASSETS;
   const existing = new Set(existingAssetNames || []);
   const conflicts = immutableAssets.filter((assetName) => existing.has(assetName));
@@ -36,6 +40,8 @@ function evaluateReleaseAssetGuard({ existingAssetNames, immutableAssetNames = I
     hasPartialConflict: guardState === RELEASE_ASSET_GUARD_STATE.PARTIAL,
     shouldSkipBuildAndUpload: guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE,
     shouldSkipUpload: guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE,
+    requiresDraftFinalization:
+      guardState === RELEASE_ASSET_GUARD_STATE.COMPLETE && Boolean(releaseIsDraft),
   };
 }
 

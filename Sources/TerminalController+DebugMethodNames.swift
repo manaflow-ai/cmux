@@ -14,6 +14,8 @@ extension TerminalController {
         "debug.workspace_todo.checklist_add_field",
         "debug.pro_welcome_checklist.show",
         "debug.command_palette.toggle",
+        "debug.command_palette.query.set",
+        "debug.command_palette.submit",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",
         "debug.command_palette.selection",

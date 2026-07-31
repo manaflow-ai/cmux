@@ -59,8 +59,8 @@ import Testing
     }
 
     /// A manual "Check for Updates" on a DEV/staging build must not query the public appcast or
-    /// offer the public release for install — it short-circuits to "No Updates Available" before
-    /// starting Sparkle. (Manual checks are the path that survived the passive-pill gating.)
+    /// offer the public release for install. Its terminal must explain that this build does not
+    /// participate in public updates instead of falsely claiming it is the latest release.
     @Test func devLikeBundleManualCheckIsSuppressed() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -80,6 +80,44 @@ import Testing
             Issue.record("dev/staging manual check should surface .notFound, got \(controller.model.state)")
             return
         }
+        #expect(controller.model.description.localizedCaseInsensitiveContains("development"))
+        #expect(!controller.model.description.localizedCaseInsensitiveContains("running the latest"))
+    }
+
+    /// Retry from the production "Update Didn't Start" error must retain install-latest intent,
+    /// then terminate truthfully when the tagged DEV build is ineligible for public updates.
+    @Test func installDidNotStartRetryOnDevBuildShowsDevelopmentOutcome() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true
+        )
+        controller.setInstallDidNotStartError(diagnostic: "test setup")
+        guard case .error(let failure) = controller.model.state else {
+            Issue.record("failed to create retryable install error")
+            return
+        }
+
+        failure.retry()
+
+        guard case .notFound(let result) = controller.model.state else {
+            Issue.record("Retry did not reach a no-update terminal: \(controller.model.state)")
+            return
+        }
+        #expect(result.reason == .developmentBuild)
+        #expect(result.title.localizedCaseInsensitiveContains("unavailable"))
+        #expect(result.message.localizedCaseInsensitiveContains("development"))
+        #expect(!result.message.localizedCaseInsensitiveContains("internet"))
+        #expect(!result.message.localizedCaseInsensitiveContains("latest version"))
+        #expect(!controller.updater.sessionInProgress)
+        #expect(!controller.attemptCoordinator.isMonitoring)
+        #expect(!controller.installWatchdog.isArmed)
     }
 
     /// A DEV/staging build disables Sparkle's automatic checks so its scheduler never queries the
@@ -114,6 +152,27 @@ import Testing
             isDevLikeBundle: false
         )
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == true)
+    }
+
+    /// Persisted automatic downloads bypass the fresh-check install path by installing an older
+    /// captured appcast item on quit. Every startup must migrate that preference back to false,
+    /// even when the older settings migration already ran.
+    @Test func publicBundleForcesPersistedAutomaticDownloadsOff() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+        defaults.set(true, forKey: UpdateSettings.migrationKey)
+
+        _ = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: false
+        )
+
+        #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) == false)
     }
 
     /// Builds a minimal valid `SUAppcastItem` for a version string (nested helper, not API).

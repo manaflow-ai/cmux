@@ -52,7 +52,10 @@ extension UpdateStateModel {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 4005:
-                return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
+                return String(
+                    localized: "update.error.installationFailed.title",
+                    defaultValue: "Update Installation Failed"
+                )
             case 2001:
                 return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
             case 1000, 1002:
@@ -76,6 +79,20 @@ extension UpdateStateModel {
     public static func userFacingErrorMessage(for error: any Swift.Error) -> String {
         let nsError = error as NSError
         if nsError.domain == updateErrorDomain {
+            if nsError.code == installDidNotStartCode {
+                // Use the canonical recovery copy for this typed error instead of trusting an
+                // older embedded description that may have guessed the failure was networking.
+                return String(
+                    localized: "update.error.didNotStart.recovery.message",
+                    defaultValue: "cmux couldn’t start the update. Try again, or download the latest version below."
+                )
+            }
+            if nsError.code == updaterNotReadyCode {
+                return String(
+                    localized: "update.error.notReady",
+                    defaultValue: "The updater isn’t ready to check yet. Try again in a moment."
+                )
+            }
             // cmux-originated errors already carry user-ready, localized copy.
             let description = nsError.localizedDescription
             if !description.isEmpty {
@@ -85,15 +102,24 @@ extension UpdateStateModel {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again.")
+                return String(
+                    localized: "update.error.noInternetService.message",
+                    defaultValue: "cmux can’t reach the update service. Check your internet connection and try again."
+                )
             case NSURLErrorTimedOut:
-                return String(localized: "update.error.timedOut.message", defaultValue: "The update server took too long to respond. Try again in a moment.")
+                return String(
+                    localized: "update.error.operationTimedOut.message",
+                    defaultValue: "The update operation timed out. Try again in a moment."
+                )
             case NSURLErrorCannotFindHost:
                 return String(localized: "update.error.serverNotFound.message", defaultValue: "The update server can’t be found. Check your connection or try again later.")
             case NSURLErrorCannotConnectToHost:
                 return String(localized: "update.error.serverUnreachable.message", defaultValue: "cmux couldn’t connect to the update server. Check your connection or try again later.")
             case NSURLErrorNetworkConnectionLost:
-                return String(localized: "update.error.connectionLost.message", defaultValue: "The network connection was lost while checking for updates. Try again.")
+                return String(
+                    localized: "update.error.connectionLostDuringUpdate.message",
+                    defaultValue: "The network connection was lost while updating cmux. Try again."
+                )
             case NSURLErrorSecureConnectionFailed,
                  NSURLErrorServerCertificateUntrusted,
                  NSURLErrorServerCertificateHasBadDate,
@@ -104,10 +130,19 @@ extension UpdateStateModel {
                 break
             }
         }
+        if isUpdaterAgentConnectionFailure(nsError) {
+            return String(
+                localized: "update.error.installRecovery.message",
+                defaultValue: "Move cmux into Applications and relaunch to enable updates. If it’s already in Applications, restart your Mac and try again, or download the latest version below."
+            )
+        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
-                return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
+                return String(
+                    localized: "update.error.download.message",
+                    defaultValue: "cmux couldn’t download the update. Check your connection and try again."
+                )
             case 1000, 1002:
                 return String(localized: "update.error.feedRead.message", defaultValue: "The update feed could not be read. Please try again later.")
             case 4:
@@ -118,7 +153,14 @@ extension UpdateStateModel {
                 return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
             case 1003, 1005:
                 return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
-            case 4005, 4010:
+            case 4005:
+                return String(
+                    localized: "update.error.installationFailed.message",
+                    defaultValue: "cmux couldn’t install the update automatically. Try again, or download the latest version below."
+                )
+            case 4010:
+                // `isUpdaterAgentConnectionFailure` handles this above. Keep the fallback precise
+                // if Sparkle changes how this code is wrapped in a future release.
                 return String(localized: "update.error.installRecovery.message", defaultValue: "Move cmux into Applications and relaunch to enable updates. If it’s already in Applications, restart your Mac and try again, or download the latest version below.")
             default:
                 break
@@ -126,7 +168,10 @@ extension UpdateStateModel {
         }
         // Catch-all: keep user-facing copy in cmux terms; raw vendor descriptions, domains, and
         // codes stay in `errorDetails` (the copyable Details block + the update log), not here.
-        return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
+        return String(
+            localized: "update.error.operationFailed.message",
+            defaultValue: "Something went wrong while updating cmux. Try again, or check the update log for details."
+        )
     }
 
 }

@@ -187,7 +187,7 @@ public final class UpdateStateModel {
             retry: { [weak self] in self?.setOverrideState(nil) },
             dismiss: { [weak self] in self?.setOverrideState(nil) },
             technicalDetails: "debug scenario: \(scenario.rawValue)",
-            feedURLString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+            feedURLString: "https://files.cmux.com/stable/appcast.xml"
         )))
     }
     #endif
@@ -199,14 +199,14 @@ public final class UpdateStateModel {
 
         var didDismissUpdate = false
         if case .updateAvailable(let update) = state {
-            update.reply(.dismiss)
+            update.dismiss()
             didDismissUpdate = true
             setState(.idle)
         }
 
         if let overrideState, case .updateAvailable(let update) = overrideState {
             if !didDismissUpdate {
-                update.reply(.dismiss)
+                update.dismiss()
             }
             setOverrideState(nil)
         }
@@ -270,8 +270,8 @@ public final class UpdateStateModel {
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
-        case .notFound:
-            return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
+        case .notFound(let result):
+            return result.title
         case .error(let err):
             return Self.userFacingErrorTitle(for: err.error)
         case .startingDownload:
@@ -332,7 +332,10 @@ public final class UpdateStateModel {
         case .permissionRequest:
             return String(localized: "update.configureAutoUpdates", defaultValue: "Configure automatic update preferences")
         case .preparingCheck:
-            return String(localized: "update.preparingCheck.message", defaultValue: "Waiting for the current update session to finish")
+            return String(
+                localized: "update.preparingCheck.readiness.message",
+                defaultValue: "Waiting for the updater to become ready"
+            )
         case .checking:
             return String(localized: "update.pleaseWait", defaultValue: "Please wait while we check for available updates")
         case .updateAvailable(let update):
@@ -343,8 +346,8 @@ public final class UpdateStateModel {
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
-        case .notFound:
-            return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
+        case .notFound(let result):
+            return result.message
         case .error(let err):
             return Self.userFacingErrorMessage(for: err.error)
         case .startingDownload:

@@ -730,6 +730,13 @@ jobs:
           # installs to migrate onto the unified nightly appcast.
           cp appcast.xml appcast-universal.xml
 
+      - name: Validate nightly appcast before publication
+        run: |
+          python3 scripts/ci/validate_release_appcast_assets.py \
+            --appcast appcast.xml \
+            --tag nightly \
+            --enclosure-file "$NIGHTLY_DMG_IMMUTABLE"
+
       - name: Attest remote daemon nightly assets
         id: attest-remote-daemon-nightly-assets
         continue-on-error: true
@@ -803,16 +810,27 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           overwrite_files: true
+          preserve_order: true
 
       - name: Upload nightly appcast to R2
         if: needs.decide.outputs.should_publish == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+
+          NIGHTLY_ASSETS_JSON="$RUNNER_TEMP/nightly-assets-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          gh release view nightly --json assets > "$NIGHTLY_ASSETS_JSON"
+          python3 scripts/ci/validate_release_appcast_assets.py \
+            --appcast appcast.xml \
+            --tag nightly \
+            --assets-json "$NIGHTLY_ASSETS_JSON" \
+            --current-feed-url "https://files.cmux.com/nightly/appcast.xml" \
+            --verify-enclosure
 
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
@@ -822,7 +840,8 @@ jobs:
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
             --key nightly/appcast.xml \
-            --cache-control "no-cache, no-store, must-revalidate"
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --verify-url "https://files.cmux.com/nightly/appcast.xml"
 
           echo "R2 appcast upload complete: https://files.cmux.com/nightly/appcast.xml"
 

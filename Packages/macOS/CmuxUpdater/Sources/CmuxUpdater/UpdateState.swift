@@ -39,21 +39,13 @@ public enum UpdateState: Equatable {
         return false
     }
 
-    /// Whether the flow is in a phase that the "force install" path can drive to completion
-    /// by repeatedly confirming (checking through installing).
+    /// Whether an update prompt is currently available to install.
+    ///
+    /// Progress states are deliberately excluded. Advertising another install action while a
+    /// check or install is already running makes the menu claim an action that will be ignored.
     public var isInstallable: Bool {
-        switch self {
-        case .preparingCheck,
-                .checking,
-                .updateAvailable,
-                .startingDownload,
-                .downloading,
-                .extracting,
-                .installing:
-            return true
-        default:
-            return false
-        }
+        if case .updateAvailable = self { return true }
+        return false
     }
 
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
@@ -62,7 +54,7 @@ public enum UpdateState: Equatable {
         case .preparingCheck(let checking), .checking(let checking):
             checking.cancel()
         case .updateAvailable(let available):
-            available.reply(.dismiss)
+            available.dismiss()
         case .downloading(let downloading):
             downloading.cancel()
         case .notFound(let notFound):
@@ -88,16 +80,6 @@ public enum UpdateState: Equatable {
         }
     }
 
-    /// Confirms the current phase, installing the update when one is available.
-    @MainActor public func confirm() {
-        switch self {
-        case .updateAvailable(let available):
-            available.reply(.install)
-        default:
-            break
-        }
-    }
-
     public static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):
@@ -110,8 +92,8 @@ public enum UpdateState: Equatable {
             return true
         case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
             return lUpdate.appcastItem.displayVersionString == rUpdate.appcastItem.displayVersionString
-        case (.notFound, .notFound):
-            return true
+        case (.notFound(let lResult), .notFound(let rResult)):
+            return lResult.reason == rResult.reason
         case (.error(let lErr), .error(let rErr)):
             return lErr.error.localizedDescription == rErr.error.localizedDescription
         case (.startingDownload, .startingDownload):
@@ -129,14 +111,132 @@ public enum UpdateState: Equatable {
 
     /// Payload for ``UpdateState/notFound(_:)``.
     public struct NotFound {
+        /// Identity for matching delayed presentation and dismissal work to this exact result.
+        let id = UUID()
+        /// Sparkle's authoritative reason that no installable update was returned.
+        public enum Reason: Equatable {
+            /// The installed build matches the latest build in the appcast.
+            case upToDate
+            /// The installed build is newer than the latest build in the appcast.
+            case newerThanLatest(latestVersion: String?)
+            /// The newest update requires a newer macOS version.
+            case systemTooOld(latestVersion: String?, minimumSystemVersion: String?)
+            /// The newest update does not support this macOS version.
+            case systemTooNew(latestVersion: String?, maximumSystemVersion: String?)
+            /// The newest update requires Apple silicon.
+            case unsupportedHardware(latestVersion: String?)
+            /// Development and staging builds do not participate in the public update channel.
+            case developmentBuild
+            /// Sparkle did not provide a reason that cmux understands.
+            case unknown
+        }
+
+        /// Why no update can be offered.
+        public let reason: Reason
         /// Tells Sparkle the "no update" result was acknowledged/dismissed.
         public let acknowledgement: () -> Void
 
         /// Creates the payload.
         ///
+        /// - Parameter reason: The authoritative reason no update can be offered.
         /// - Parameter acknowledgement: Tells Sparkle the result was acknowledged.
-        public init(acknowledgement: @escaping () -> Void) {
+        public init(reason: Reason = .upToDate, acknowledgement: @escaping () -> Void) {
+            self.reason = reason
             self.acknowledgement = acknowledgement
+        }
+
+        /// Whether this low-information success may disappear after the standard short delay.
+        /// Compatibility, development-build, and unknown results stay visible until acknowledged.
+        public var automaticallyDismisses: Bool {
+            switch reason {
+            case .upToDate, .newerThanLatest:
+                return true
+            case .systemTooOld, .systemTooNew, .unsupportedHardware, .developmentBuild, .unknown:
+                return false
+            }
+        }
+
+        /// A truthful localized title for this result.
+        public var title: String {
+            switch reason {
+            case .upToDate:
+                return String(localized: "update.notFound.upToDate.title", defaultValue: "No Updates Available")
+            case .newerThanLatest:
+                return String(localized: "update.notFound.newerThanLatest.title", defaultValue: "No Update Needed")
+            case .systemTooOld, .systemTooNew, .unsupportedHardware:
+                return String(localized: "update.notFound.incompatible.title", defaultValue: "Update Not Compatible")
+            case .developmentBuild:
+                return String(localized: "update.notFound.development.title", defaultValue: "Updates Unavailable for This Build")
+            case .unknown:
+                return String(localized: "update.notFound.unknown.title", defaultValue: "Update Status Unknown")
+            }
+        }
+
+        /// A truthful localized explanation for this result.
+        public var message: String {
+            switch reason {
+            case .upToDate:
+                return String(
+                    localized: "update.notFound.upToDate.message",
+                    defaultValue: "You are running the latest version currently available."
+                )
+            case .newerThanLatest(let latestVersion):
+                if let latestVersion, !latestVersion.isEmpty {
+                    return String(
+                        localized: "update.notFound.newerThanLatest.withVersion.message",
+                        defaultValue: "This cmux build is newer than the latest published version (\(latestVersion))."
+                    )
+                }
+                return String(
+                    localized: "update.notFound.newerThanLatest.message",
+                    defaultValue: "This cmux build is newer than the latest published version."
+                )
+            case .systemTooOld(let latestVersion, let minimumSystemVersion):
+                if let latestVersion, !latestVersion.isEmpty,
+                   let minimumSystemVersion, !minimumSystemVersion.isEmpty {
+                    return String(
+                        localized: "update.notFound.systemTooOld.withVersions.message",
+                        defaultValue: "cmux \(latestVersion) requires macOS \(minimumSystemVersion) or later. Upgrade macOS, then try again."
+                    )
+                }
+                return String(
+                    localized: "update.notFound.systemTooOld.message",
+                    defaultValue: "The latest cmux update requires a newer version of macOS. Upgrade macOS, then try again."
+                )
+            case .systemTooNew(let latestVersion, let maximumSystemVersion):
+                if let latestVersion, !latestVersion.isEmpty,
+                   let maximumSystemVersion, !maximumSystemVersion.isEmpty {
+                    return String(
+                        localized: "update.notFound.systemTooNew.withVersions.message",
+                        defaultValue: "cmux \(latestVersion) supports macOS through \(maximumSystemVersion). Try again when a compatible version is published."
+                    )
+                }
+                return String(
+                    localized: "update.notFound.systemTooNew.message",
+                    defaultValue: "The latest cmux update does not support this macOS version. Try again when a compatible version is published."
+                )
+            case .unsupportedHardware(let latestVersion):
+                if let latestVersion, !latestVersion.isEmpty {
+                    return String(
+                        localized: "update.notFound.unsupportedHardware.withVersion.message",
+                        defaultValue: "cmux \(latestVersion) requires a Mac with Apple silicon."
+                    )
+                }
+                return String(
+                    localized: "update.notFound.unsupportedHardware.message",
+                    defaultValue: "The latest cmux update requires a Mac with Apple silicon."
+                )
+            case .developmentBuild:
+                return String(
+                    localized: "update.notFound.development.message",
+                    defaultValue: "Development and staging builds do not receive updates from the public release channel."
+                )
+            case .unknown:
+                return String(
+                    localized: "update.notFound.unknown.message",
+                    defaultValue: "cmux could not determine whether a compatible update is available. Try again."
+                )
+            }
         }
     }
 
@@ -184,8 +284,9 @@ public enum UpdateState: Equatable {
     public struct UpdateAvailable {
         /// The appcast item describing the available update.
         public let appcastItem: SUAppcastItem
-        /// Replies to Sparkle with the user's install/dismiss choice (at most once).
-        public let reply: UpdatePromptReply
+        /// The one-shot Sparkle reply. Kept internal so external UI cannot bypass the
+        /// controller-owned install-latest flow with a captured appcast item.
+        let reply: UpdatePromptReply
 
         /// Creates the payload.
         @MainActor public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
@@ -198,9 +299,20 @@ public enum UpdateState: Equatable {
             self.reply = reply
         }
 
-        /// A link to the release notes for this update, derived from its version string.
+        /// Skips this version in Sparkle.
+        @MainActor public func skip() {
+            reply(.skip)
+        }
+
+        /// Dismisses this prompt without installing its captured appcast item.
+        @MainActor public func dismiss() {
+            reply(.dismiss)
+        }
+
+        /// A link to the release notes for this update. Appcast metadata is authoritative; the
+        /// version-derived GitHub URL is a fallback for older feeds without a notes link.
         public var releaseNotes: ReleaseNotes? {
-            ReleaseNotes(displayVersionString: appcastItem.displayVersionString)
+            ReleaseNotes(appcastItem: appcastItem)
         }
     }
 
@@ -210,6 +322,16 @@ public enum UpdateState: Equatable {
         case commit(URL)
         /// The version maps to a semantic-version tag; links to the release page.
         case tagged(URL)
+
+        /// Resolves release notes from an appcast item. The feed's explicit URL is authoritative;
+        /// deriving a GitHub URL from the display version only supports older feeds.
+        public init?(appcastItem: SUAppcastItem) {
+            if let appcastURL = appcastItem.fullReleaseNotesURL ?? appcastItem.releaseNotesURL {
+                self = .tagged(appcastURL)
+                return
+            }
+            self.init(displayVersionString: appcastItem.displayVersionString)
+        }
 
         /// Derives a release-notes link from a display version string, returning `nil` when
         /// the string contains neither a semantic version nor a git hash.

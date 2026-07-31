@@ -123,10 +123,45 @@ import Testing
         #expect(!model.text.isEmpty)
     }
 
+    @Test func preparingCheckCopyDoesNotAssumeAnExistingSession() {
+        let model = UpdateStateModel()
+        model.setState(.preparingCheck(.init(cancel: {})))
+        #expect(model.description == "Waiting for the updater to become ready")
+    }
+
     @Test func networkErrorTitleIsUserFacing() {
         let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
         let title = UpdateStateModel.userFacingErrorTitle(for: offline)
         #expect(title == "No Internet Connection")
+    }
+
+    @Test func phaseNeutralNetworkMessagesSurviveSparkleWrapping() {
+        let cases: [(code: Int, expected: String)] = [
+            (
+                NSURLErrorNotConnectedToInternet,
+                "cmux can’t reach the update service. Check your internet connection and try again."
+            ),
+            (
+                NSURLErrorTimedOut,
+                "The update operation timed out. Try again in a moment."
+            ),
+            (
+                NSURLErrorNetworkConnectionLost,
+                "The network connection was lost while updating cmux. Try again."
+            ),
+        ]
+
+        for testCase in cases {
+            let networkError = NSError(domain: NSURLErrorDomain, code: testCase.code)
+            let wrappedError = NSError(
+                domain: SUSparkleErrorDomain,
+                code: 2001,
+                userInfo: [NSUnderlyingErrorKey: networkError]
+            )
+
+            #expect(UpdateStateModel.userFacingErrorMessage(for: networkError) == testCase.expected)
+            #expect(UpdateStateModel.userFacingErrorMessage(for: wrappedError) == testCase.expected)
+        }
     }
 
     @Test func errorDetailsIncludesLogPath() {
@@ -187,14 +222,60 @@ import Testing
         #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
-    @Test func genericInstallFailureKeepsPermissionTitleAndOffersDownload() {
+    @Test func genericInstallFailureUsesInstallationTitleAndOffersDownload() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 4005)
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
         #expect(!title.contains("Start Updater"))
-        #expect(title.contains("Permission"))
+        #expect(title.contains("Installation"))
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
-        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(message.localizedCaseInsensitiveContains("install"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
+        #expect(!message.localizedCaseInsensitiveContains("restart"))
         #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
+    }
+
+    @Test func downloadFailureCopyDoesNotMisdiagnoseTheUpdateFeed() {
+        let err = NSError(domain: SUSparkleErrorDomain, code: 2001)
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("download"))
+        #expect(!message.localizedCaseInsensitiveContains("update feed"))
+    }
+
+    @Test func unknownFailureUsesOperationNeutralCopy() {
+        let err = NSError(domain: SUSparkleErrorDomain, code: 9999)
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("updating cmux"))
+        #expect(!message.localizedCaseInsensitiveContains("checking for updates"))
+    }
+
+    @Test func updaterReadinessTimeoutDoesNotInventAStartupCause() {
+        let err = NSError(
+            domain: UpdateStateModel.updateErrorDomain,
+            code: UpdateStateModel.updaterNotReadyCode,
+            userInfo: [NSLocalizedDescriptionKey: "Updater is still starting."]
+        )
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("isn’t ready"))
+        #expect(!message.localizedCaseInsensitiveContains("starting"))
+    }
+
+    @Test func appcastReleaseNotesURLWinsOverVersionDerivedStableTag() throws {
+        let nightlyURL = try #require(URL(string: "https://github.com/manaflow-ai/cmux/releases/tag/nightly"))
+        let item = SUAppcastItem(dictionary: [
+            "title": "cmux nightly",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "sparkle:fullReleaseNotesLink": nightlyURL.absoluteString,
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": "101",
+                "sparkle:shortVersionString": "0.64.20-nightly.101",
+            ],
+        ]) ?? SUAppcastItem.empty()
+        let update = UpdateState.UpdateAvailable(appcastItem: item, reply: { _ in })
+
+        #expect(update.releaseNotes?.url == nightlyURL)
+        #expect(UpdateState.ReleaseNotes(appcastItem: item)?.url == nightlyURL)
     }
 
     /// A 4005 wrapping a non-agent installer cause (auth failure, relaunch failure) must NOT be
@@ -211,7 +292,10 @@ import Testing
         ])
         let title = UpdateStateModel.userFacingErrorTitle(for: err)
         #expect(!title.contains("Start Updater"))
-        #expect(title.contains("Permission"))
+        #expect(title.contains("Installation"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
+        #expect(!message.localizedCaseInsensitiveContains("restart"))
         #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 

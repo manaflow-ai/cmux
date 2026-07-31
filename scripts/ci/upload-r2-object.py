@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -91,6 +92,37 @@ def _build_signed_request(args: argparse.Namespace, body: bytes, amz_date: str) 
     return urllib.request.Request(url, data=body, headers=request_headers, method="PUT")
 
 
+def _cache_busted(url: str, token: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("cmux_verify", token))
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment)
+    )
+
+
+def verify_publication(url: str, expected_body: bytes, *, attempts: int, delay: float) -> tuple[bool, str]:
+    expected_hash = hashlib.sha256(expected_body).hexdigest()
+    last_error = "no response"
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(
+            _cache_busted(url, f"{expected_hash}-{time.time_ns()}-{attempt}"),
+            headers={"Cache-Control": "no-cache", "User-Agent": "cmux-r2-publication-verifier"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                actual_body = response.read()
+            actual_hash = hashlib.sha256(actual_body).hexdigest()
+            if actual_body == expected_body:
+                return True, actual_hash
+            last_error = f"served SHA-256 {actual_hash}, expected {expected_hash}"
+        except (OSError, urllib.error.URLError) as error:
+            last_error = str(error)
+        if attempt < attempts:
+            time.sleep(delay)
+    return False, last_error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload one object to Cloudflare R2 using AWS SigV4.")
     parser.add_argument("--file", required=True, help="Local file to upload")
@@ -98,6 +130,9 @@ def main() -> int:
     parser.add_argument("--bucket", required=True, help="R2 bucket name")
     parser.add_argument("--key", required=True, help="Object key inside the bucket")
     parser.add_argument("--cache-control", required=True, help="Cache-Control metadata")
+    parser.add_argument("--verify-url", help="Public URL that must serve the uploaded bytes")
+    parser.add_argument("--verify-attempts", type=int, default=10)
+    parser.add_argument("--verify-delay", type=float, default=2.0)
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
 
@@ -127,7 +162,20 @@ def main() -> int:
         with urllib.request.urlopen(request, timeout=30) as response:
             response.read()
             print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
-            return 0
+        if args.verify_url:
+            verified, detail = verify_publication(
+                args.verify_url,
+                body,
+                attempts=args.verify_attempts,
+                delay=args.verify_delay,
+            )
+            if not verified:
+                sys.stderr.write(
+                    f"R2 upload succeeded but public verification failed for {args.verify_url}: {detail}\n"
+                )
+                return 1
+            print(f"Verified public appcast bytes at {args.verify_url} (SHA-256 {detail})")
+        return 0
     except urllib.error.HTTPError as error:
         sys.stderr.write(f"R2 upload failed: HTTP {error.code} {error.reason}\n")
         sys.stderr.write(error.read().decode("utf-8", errors="replace"))

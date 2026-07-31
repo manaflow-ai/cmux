@@ -68377,6 +68377,23 @@
         }
       }
     },
+    "command.updateCmux.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をアップデート"
+          }
+        }
+      }
+    },
     "command.uninstallCLI.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -242636,6 +242653,23 @@
         }
       }
     },
+    "update.error.connectionLostDuringUpdate.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network connection was lost while updating cmux. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のアップデート中にネットワーク接続が切れました。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "update.error.connectionLost.title": {
       "extractionState": "manual",
       "localizations": {
@@ -243945,6 +243979,23 @@
         }
       }
     },
+    "update.error.didNotStart.recovery.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t start the update. Try again, or download the latest version below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアップデートを開始できませんでした。もう一度お試しいただくか、下から最新バージョンをダウンロードしてください。"
+          }
+        }
+      }
+    },
     "update.error.didNotStart.technicalDetails": {
       "extractionState": "manual",
       "localizations": {
@@ -244179,6 +244230,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新未開始"
+          }
+        }
+      }
+    },
+    "update.error.download.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t download the update. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアップデートをダウンロードできませんでした。接続を確認して、もう一度お試しください。"
           }
         }
       }
@@ -245050,6 +245118,40 @@
         }
       }
     },
+    "update.error.installationFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t install the update automatically. Try again, or download the latest version below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアップデートを自動的にインストールできませんでした。もう一度お試しいただくか、下から最新バージョンをダウンロードしてください。"
+          }
+        }
+      }
+    },
+    "update.error.installationFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Installation Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートのインストールに失敗しました"
+          }
+        }
+      }
+    },
     "update.error.installRecovery.message": {
       "extractionState": "manual",
       "localizations": {
@@ -245441,6 +245543,23 @@
         }
       }
     },
+    "update.error.noInternetService.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can’t reach the update service. Check your internet connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアップデートサービスに接続できません。インターネット接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "update.error.noInternet.title": {
       "extractionState": "manual",
       "localizations": {
@@ -245566,13 +245685,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updater is still starting. Try again in a moment."
+            "value": "The updater isn’t ready to check yet. Try again in a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデーターを準備中です。しばらくしてからもう一度お試しください。"
+            "value": "アップデーターはまだ確認を開始できません。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.error.operationFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong while updating cmux. Try again, or check the update log for details."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のアップデート中に問題が発生しました。もう一度お試しいただくか、アップデートログをご確認ください。"
+          }
+        }
+      }
+    },
+    "update.error.operationTimedOut.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update operation timed out. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがタイムアウトしました。しばらくしてから、もう一度お試しください。"
           }
         }
       }
@@ -247838,6 +247991,278 @@
         }
       }
     },
+    "update.notFound.development.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Development and staging builds do not receive updates from the public release channel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ビルドとステージングビルドは公開リリースチャンネルからアップデートを受信しません。"
+          }
+        }
+      }
+    },
+    "update.notFound.development.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates Unavailable for This Build"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドではアップデートできません"
+          }
+        }
+      }
+    },
+    "update.notFound.incompatible.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Not Compatible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートに対応していません"
+          }
+        }
+      }
+    },
+    "update.notFound.newerThanLatest.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build is newer than the latest published version."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドは公開されている最新バージョンより新しいものです。"
+          }
+        }
+      }
+    },
+    "update.notFound.newerThanLatest.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Update Needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートは不要です"
+          }
+        }
+      }
+    },
+    "update.notFound.newerThanLatest.withVersion.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build is newer than the latest published version (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドは公開されている最新バージョン（%@）より新しいものです。"
+          }
+        }
+      }
+    },
+    "update.notFound.systemTooNew.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The latest cmux update does not support this macOS version. Try again when a compatible version is published."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の cmux アップデートはこの macOS バージョンに対応していません。対応バージョンが公開されたら、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.notFound.systemTooNew.withVersions.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ supports macOS through %@. Try again when a compatible version is published."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ は macOS %@ までに対応しています。対応バージョンが公開されたら、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.notFound.systemTooOld.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The latest cmux update requires a newer version of macOS. Upgrade macOS, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の cmux アップデートには新しいバージョンの macOS が必要です。macOS をアップグレードしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.notFound.systemTooOld.withVersions.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ requires macOS %@ or later. Upgrade macOS, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ には macOS %@ 以降が必要です。macOS をアップグレードしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.notFound.unknown.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not determine whether a compatible update is available. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応するアップデートが利用可能かどうかを確認できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "update.notFound.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Status Unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート状況を確認できません"
+          }
+        }
+      }
+    },
+    "update.notFound.unsupportedHardware.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The latest cmux update requires a Mac with Apple silicon."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の cmux アップデートには Apple シリコン搭載 Mac が必要です。"
+          }
+        }
+      }
+    },
+    "update.notFound.unsupportedHardware.withVersion.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ requires a Mac with Apple silicon."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ には Apple シリコン搭載 Mac が必要です。"
+          }
+        }
+      }
+    },
+    "update.notFound.upToDate.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You are running the latest version currently available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在利用可能な最新バージョンを使用しています。"
+          }
+        }
+      }
+    },
+    "update.notFound.upToDate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Updates Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートはありません"
+          }
+        }
+      }
+    },
     "update.permissionRequest.text": {
       "extractionState": "manual",
       "localizations": {
@@ -249772,6 +250197,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のアップデートセッションの終了を待っています"
+          }
+        }
+      }
+    },
+    "update.preparingCheck.readiness.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the updater to become ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデーターの準備ができるまで待機しています"
           }
         }
       }

@@ -105,15 +105,15 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .installDidNotStart:
             return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode, userInfo: [
                 NSLocalizedDescriptionKey: String(
-                    localized: "update.error.didNotStart.message",
-                    defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+                    localized: "update.error.didNotStart.recovery.message",
+                    defaultValue: "cmux couldn’t start the update. Try again, or download the latest version below."
                 ),
             ])
         case .updaterNotReady:
             return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode, userInfo: [
                 NSLocalizedDescriptionKey: String(
                     localized: "update.error.notReady",
-                    defaultValue: "Updater is still starting. Try again in a moment."
+                    defaultValue: "The updater isn’t ready to check yet. Try again in a moment."
                 ),
             ])
         }

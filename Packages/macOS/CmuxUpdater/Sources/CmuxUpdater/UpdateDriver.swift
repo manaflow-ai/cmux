@@ -6,8 +6,8 @@ import Foundation
 ///
 /// Sparkle's `SPUUserDriver`/`SPUUpdaterDelegate` are `@MainActor`, so every callback runs on
 /// the main actor and writes the model directly with no thread hopping. The minimum-display
-/// and check-timeout delays are bounded, cancellable ``UpdateClock`` tasks. Host actions the
-/// driver cannot perform itself (retry, relaunch prep) go through ``UpdateActionDelegate``.
+/// delay is a bounded, cancellable ``UpdateClock`` task. Host relaunch preparation goes through
+/// ``UpdateActionDelegate``; check/install intent stays owned by ``UpdateController``.
 @MainActor
 final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The state model this driver drives.
@@ -25,10 +25,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     weak var eventDelegate: (any UpdateDriverEventDelegate)?
 
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
-    private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
     private var lastCheckStart: Date?
     private var pendingCheckTransitionTask: Task<Void, Never>?
-    private var checkTimeoutTask: Task<Void, Never>?
+    private var pendingCheckTransition: (id: UUID, state: UpdateState)?
     private(set) var lastFeedURLString: String?
 
     init(
@@ -50,7 +49,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     deinit {
         pendingCheckTransitionTask?.cancel()
-        checkTimeoutTask?.cancel()
     }
 
     func show(_ request: SPUUpdatePermissionRequest,
@@ -96,21 +94,27 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         log.append("show update not found: \(formatErrorForLog(error))")
-        setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
+        eventDelegate?.updateDriverWillPresentNoUpdate()
+        setStateAfterMinimumCheckDelay(.notFound(.init(
+            reason: notFoundReason(for: error),
+            acknowledgement: acknowledgement
+        )))
     }
 
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        eventDelegate?.updateDriverDidPresentError()
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
                 self?.model.setState(.idle)
-                self?.actionDelegate?.updaterRequestsRetryCheckForUpdates()
+                self?.eventDelegate?.updateDriverRequestsRetryAfterError()
             },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
+                self?.eventDelegate?.updateDriverDidDismissError()
             },
             technicalDetails: details,
             feedURLString: lastFeedURLString
@@ -218,10 +222,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     private func beginChecking(cancel: @escaping () -> Void) {
         model.setOverrideState(nil)
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
-        checkTimeoutTask?.cancel()
-        checkTimeoutTask = nil
+        finishPendingCheckTransitionAsSuperseded()
         lastCheckStart = Date()
         applyState(.checking(.init(cancellationHandler: { [weak self] source in
             guard let self else {
@@ -237,14 +238,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 self.setState(.idle)
             }
         })))
-        scheduleCheckTimeout()
     }
 
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
-        checkTimeoutTask?.cancel()
-        checkTimeoutTask = nil
+        finishPendingCheckTransitionAsSuperseded()
 
         guard let start = lastCheckStart else {
             lastCheckStart = nil
@@ -260,34 +257,71 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
 
         let delay = minimumCheckDuration - elapsed
+        let transitionID = UUID()
+        pendingCheckTransition = (transitionID, newState)
         pendingCheckTransitionTask = Task { @MainActor [weak self] in
             // Bounded, cancellable minimum-display delay via the injected clock.
             try? await self?.clock.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
-            guard case .checking = self.model.state else { return }
+            guard let pending = self.pendingCheckTransition,
+                  pending.id == transitionID else { return }
+            self.pendingCheckTransition = nil
+            self.pendingCheckTransitionTask = nil
             self.lastCheckStart = nil
-            self.applyState(newState)
+            guard case .checking = self.model.state else {
+                pending.state.finishAsSuperseded()
+                return
+            }
+            self.applyState(pending.state)
         }
     }
 
     private func setState(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
-        checkTimeoutTask?.cancel()
-        checkTimeoutTask = nil
+        finishPendingCheckTransitionAsSuperseded()
         lastCheckStart = nil
         applyState(newState)
     }
 
-    private func scheduleCheckTimeout() {
-        checkTimeoutTask?.cancel()
-        checkTimeoutTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Bounded, cancellable check-timeout deadline via the injected clock.
-            try? await self.clock.sleep(for: .seconds(self.checkTimeoutDuration))
-            guard !Task.isCancelled else { return }
-            guard case .checking = self.model.state else { return }
-            self.setState(.notFound(.init(acknowledgement: {})))
+    /// Finishes a Sparkle result that arrived but is still waiting behind the minimum checking
+    /// display. A replacement request cannot discard the result's lifecycle callback.
+    func finishPendingCheckTransitionAsSuperseded() {
+        pendingCheckTransitionTask?.cancel()
+        pendingCheckTransitionTask = nil
+        guard let pending = pendingCheckTransition else { return }
+        pendingCheckTransition = nil
+        pending.state.finishAsSuperseded()
+    }
+
+    /// Converts Sparkle's no-update metadata into the exact terminal cmux should present.
+    /// A missing or future reason stays unknown; it must never be promoted to "latest".
+    private func notFoundReason(for error: any Error) -> UpdateState.NotFound.Reason {
+        let nsError = error as NSError
+        let rawReason = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
+        let reason = rawReason.flatMap { SPUNoUpdateFoundReason(rawValue: OSStatus($0)) }
+        let latestItem = nsError.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
+        let latestVersion = latestItem?.displayVersionString.nilIfEmpty
+
+        switch reason {
+        case .onLatestVersion:
+            return .upToDate
+        case .onNewerThanLatestVersion:
+            return .newerThanLatest(latestVersion: latestVersion)
+        case .systemIsTooOld:
+            return .systemTooOld(
+                latestVersion: latestVersion,
+                minimumSystemVersion: latestItem?.minimumSystemVersion?.nilIfEmpty
+            )
+        case .systemIsTooNew:
+            return .systemTooNew(
+                latestVersion: latestVersion,
+                maximumSystemVersion: latestItem?.maximumSystemVersion?.nilIfEmpty
+            )
+        case .hardwareDoesNotSupportARM64:
+            return .unsupportedHardware(latestVersion: latestVersion)
+        case .unknown, .none:
+            return .unknown
+        @unknown default:
+            return .unknown
         }
     }
 
@@ -366,5 +400,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         case .installing(let installing):
             return "installing(auto=\(installing.isAutoUpdate))"
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

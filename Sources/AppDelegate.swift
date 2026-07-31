@@ -9141,6 +9141,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdatesInCustomUI()
     }
 
+#if DEBUG
+    func debugShowUpdateError(_ scenario: DebugUpdateErrorScenario) {
+        if scenario == .installDidNotStart {
+            updateController.debugShowInstallDidNotStartError()
+        } else {
+            updateViewModel.debugShowUpdateError(scenario)
+        }
+    }
+#endif
+
     func openWelcomeWorkspace() {
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
             return
@@ -18115,13 +18125,9 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-/// Conforms the composition root to updater host actions, retry, and relaunch seams.
+/// Conforms the composition root to updater host relaunch actions.
 /// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
-    func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates(nil)
-    }
-
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop()
@@ -18133,6 +18139,14 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func attemptUpdate() {
         attemptUpdate(nil)
+    }
+
+    func acknowledgeNoUpdate() {
+        updateController.acknowledgeNoUpdate()
+    }
+
+    func retryNoUpdate() {
+        updateController.retryNoUpdate()
     }
 
     var updateLogPath: String {

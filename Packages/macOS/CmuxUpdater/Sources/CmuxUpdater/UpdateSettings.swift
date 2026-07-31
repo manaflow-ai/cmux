@@ -40,7 +40,8 @@ public struct UpdateSettings: Sendable {
     ///
     /// Registration is idempotent. The migration (guarded by ``migrationKey``) re-enables
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
-    /// installs that predate the embedded defaults.
+    /// installs that predate the embedded defaults. Automatic downloads are always disabled:
+    /// every user-driven install must pass through the authoritative fresh-check pipeline.
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
@@ -48,6 +49,11 @@ public struct UpdateSettings: Sendable {
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
+
+        // A persisted `true` makes Sparkle's background driver install the appcast item captured
+        // by an earlier check. That bypasses cmux's fresh resolution and can produce an immediate
+        // second update after relaunch, so this is a product policy rather than a default.
+        defaults.set(false, forKey: Self.automaticallyUpdateKey)
 
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
@@ -65,9 +71,6 @@ public struct UpdateSettings: Sendable {
             defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
         if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
             defaults.set(false, forKey: Self.sendProfileInfoKey)
         }
