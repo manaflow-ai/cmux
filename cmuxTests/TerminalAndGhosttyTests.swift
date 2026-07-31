@@ -6014,7 +6014,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 
-    func testPortalSignalsWhenLayoutMakesDestinationPresentable() {
+    func testPortalSignalsWhenLayoutAndRebindMakeDestinationPresentable() {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
@@ -6035,6 +6035,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let presentation = expectation(
             description: "portal becomes presentable after geometry settles"
         )
+        presentation.expectedFulfillmentCount = 2
         presentation.assertForOverFulfill = true
         let observer = NotificationCenter.default.addObserver(
             forName: Notification.Name("cmux.terminalPortalDidBecomePresentable"),
@@ -6050,6 +6051,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 80)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        let reboundAnchor = NSView(
+            frame: NSRect(x: 260, y: 40, width: 180, height: 80)
+        )
+        contentView.addSubview(reboundAnchor)
+        portal.bind(hostedView: hosted, to: reboundAnchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(reboundAnchor)
         drainMainQueue()
         drainMainQueue()
 

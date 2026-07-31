@@ -3588,6 +3588,9 @@ struct ContentView: View {
         for change in portalRenderingChanges {
             workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
         }
+        tabManager.workspaceSwitchCoordinator.selectionDidReconcile(
+            workspaceID: effectiveSelectedId.flatMap { mountedWorkspaceIds.contains($0) ? $0 : nil }
+        )
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
             let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }

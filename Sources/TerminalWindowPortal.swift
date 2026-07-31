@@ -1652,6 +1652,9 @@ final class WindowTerminalPortal: NSObject {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
         }()
+        if didChangeAnchor {
+            presentedHostedIds.remove(hostedId)
+        }
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         if becameVisible || (visibleInUI && didChangeAnchor) {
             lastHierarchySyncSignature = nil

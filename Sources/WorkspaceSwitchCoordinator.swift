@@ -79,11 +79,10 @@ final class WorkspaceSwitchCoordinator {
     private let beginRendererProtection: @MainActor (UUID, UUID, @escaping () -> Bool) -> Void
     private let endRendererProtection: @MainActor (UUID) -> Void
     private var active: ActiveTransaction?
+    private var reconciledWorkspaceID: UUID?
     init(
         notificationCenter: NotificationCenter = .default,
-        beginRendererProtection:
-            @escaping @MainActor (UUID, UUID, @escaping () -> Bool) -> Void = {
-            surfaceID, requestID, ownerIsAlive in
+        beginRendererProtection: @escaping @MainActor (UUID, UUID, @escaping () -> Bool) -> Void = { surfaceID, requestID, ownerIsAlive in
             RendererRealizationController.shared.beginWorkspaceSwitchPresentationProtection(
                 surfaceID: surfaceID,
                 requestID: requestID,
@@ -91,9 +90,7 @@ final class WorkspaceSwitchCoordinator {
             )
         },
         endRendererProtection: @escaping @MainActor (UUID) -> Void = { requestID in
-            RendererRealizationController.shared.endWorkspaceSwitchPresentationProtection(
-                requestID: requestID
-            )
+            RendererRealizationController.shared.endWorkspaceSwitchPresentationProtection(requestID: requestID)
         }
     ) {
         self.notificationCenter = notificationCenter
@@ -109,6 +106,8 @@ final class WorkspaceSwitchCoordinator {
         return active.readiness?.presentationIsReady == true
     }
 
+    func selectionDidReconcile(workspaceID: UUID?) { reconciledWorkspaceID = workspaceID }
+
     @discardableResult
     func selectionWillCommit(
         from sourceWorkspaceID: UUID?,
@@ -120,6 +119,7 @@ final class WorkspaceSwitchCoordinator {
     ) -> UUID? {
         guard sourceWorkspaceID != targetWorkspaceID else { return nil }
         cancel()
+        guard targetWorkspaceID != reconciledWorkspaceID else { return nil }
         guard let sourceWorkspaceID, let targetWorkspaceID else { return nil }
 
         let requestID = UUID()
