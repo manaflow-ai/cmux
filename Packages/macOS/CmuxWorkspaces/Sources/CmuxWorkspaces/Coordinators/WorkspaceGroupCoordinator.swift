@@ -50,8 +50,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard let tab = model.tabs.first(where: { $0.id == id }),
-                  !tab.isPinned,
+            guard model.tabs.contains(where: { $0.id == id }),
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -131,7 +130,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
         // nil resolves to the stored global default at call time, matching the
@@ -149,7 +148,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
             select: select,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(

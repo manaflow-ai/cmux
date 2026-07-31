@@ -1791,8 +1791,6 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
-    var customizationDirectory: String? = nil
-    var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil

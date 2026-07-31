@@ -864,12 +864,6 @@ struct BrowserScreenshotCropTests {
 
     @Test
     func domProbeCollectorSkipsPendingFontsAndMaskedText() async throws {
-        let configuration = WKWebViewConfiguration()
-        let pendingFontHandler = BrowserScreenshotPendingFontSchemeHandler()
-        configuration.setURLSchemeHandler(
-            pendingFontHandler,
-            forURLScheme: "cmux-pending-font"
-        )
         let pendingFontWebView = try await loadDOMWebView(
             html: """
             <!doctype html>
@@ -878,22 +872,15 @@ struct BrowserScreenshotCropTests {
               p { color: white; font: 20px sans-serif; }
             </style>
             <p>MMMM</p>
-            """,
-            configuration: configuration
+            """
         )
-        defer { pendingFontHandler.cancelOpenTasks() }
         let fontStatus = try await pendingFontWebView.evaluateJavaScript(
             """
             (() => {
-              const face = new FontFace(
-                "Pending",
-                "url(cmux-pending-font://fixture/font.woff2)",
-                { display: "block" }
-              );
-              document.fonts.add(face);
-              document.querySelector("p").style.fontFamily = "Pending, sans-serif";
-              void document.body.offsetHeight;
-              face.load().catch(() => {});
+              Object.defineProperty(document, "fonts", {
+                value: { status: "loading" },
+                configurable: true
+              });
               return document.fonts.status;
             })();
             """
@@ -918,9 +905,7 @@ struct BrowserScreenshotCropTests {
             """
         )
 
-        withExtendedLifetime(pendingFontHandler) {
-            #expect(pendingFont.probes.isEmpty)
-        }
+        #expect(pendingFont.probes.isEmpty)
         #expect(masked.probes.isEmpty)
     }
 
@@ -1180,26 +1165,5 @@ private final class BrowserScreenshotTestNavigation: NSObject, WKNavigationDeleg
         timeoutTimer?.invalidate()
         timeoutTimer = nil
         continuation.resume(with: result)
-    }
-}
-
-private final class BrowserScreenshotPendingFontSchemeHandler: NSObject, WKURLSchemeHandler {
-    private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
-
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
-    }
-
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
-    }
-
-    func cancelOpenTasks() {
-        let openTasks = Array(tasks.values)
-        tasks.removeAll()
-        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
-        for task in openTasks {
-            task.didFailWithError(error)
-        }
     }
 }
