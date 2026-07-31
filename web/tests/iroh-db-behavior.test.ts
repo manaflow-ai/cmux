@@ -1770,6 +1770,43 @@ describe("Iroh trust broker database behavior", () => {
     expect(retentionState?.untouchedUpdatedAt.getTime()).toBe(untouchedBefore?.updatedAt.getTime());
   });
 
+  dbTest("scoped hint pruning does not advance revision for a no-op candidate", async () => {
+    const userId = "user-retention-noop-revision";
+    const bindingId = await insertBinding({
+      userId,
+      endpointId: "89".repeat(32),
+      pathHints: [
+        storedLanHint(
+          "10.0.0.12:4433",
+          "2026-07-09T19:55:00.000Z",
+          "2026-07-09T20:30:00.000Z",
+        ),
+      ],
+    });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set path_hints_next_expiry = ${new Date(NOW.getTime() - 1)}
+      where id = ${bindingId}
+    `;
+    await requiredSql()`
+      insert into iroh_account_security_states (
+        user_id, lan_discovery_generation, route_revision, created_at, updated_at
+      ) values (${userId}, 1, 7, ${NOW}, ${NOW})
+    `;
+
+    await Effect.runPromise(requiredRepository().pruneExpiredState({
+      userId,
+      now: NOW,
+    }));
+
+    const [state] = await requiredSql()<Array<{ revision: string }>>`
+      select route_revision::text as revision
+      from iroh_account_security_states
+      where user_id = ${userId}
+    `;
+    expect(state).toEqual({ revision: "7" });
+  });
+
   dbTest("retention skips locked hint rows and drains multiple indexed batches", async () => {
     const lockedId = await insertBinding({
       userId: "user-retention-lock",

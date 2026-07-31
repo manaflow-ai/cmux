@@ -54,6 +54,7 @@ describe("Iroh route boundary", () => {
 
   test("publishes committed registration and revocation revisions", async () => {
     const published: Array<{ authorization: string | null; revision: number }> = [];
+    const scheduled: Array<() => Promise<void>> = [];
     const publishConnectivityInvalidation = async (request: Request, revision: number) => {
       published.push({
         authorization: request.headers.get("authorization"),
@@ -66,6 +67,7 @@ describe("Iroh route boundary", () => {
       {
         verify: async () => USER,
         broker: broker({ register: () => Effect.succeed({ revision: 7 }) }),
+        schedulePostResponse: (work) => scheduled.push(work),
         publishConnectivityInvalidation,
       },
     );
@@ -75,25 +77,55 @@ describe("Iroh route boundary", () => {
       {
         verify: async () => USER,
         broker: broker({ revoke: () => Effect.succeed({ revoked: true, revision: 8 }) }),
+        schedulePostResponse: (work) => scheduled.push(work),
         publishConnectivityInvalidation,
       },
     );
 
     expect(register.status).toBe(201);
     expect(revoke.status).toBe(200);
+    expect(published).toEqual([]);
+    expect(scheduled).toHaveLength(2);
+    await Promise.all(scheduled.map((work) => work()));
     expect(published).toEqual([
       { authorization: "Bearer test-access", revision: 7 },
       { authorization: "Bearer test-access", revision: 8 },
     ]);
   });
 
-  test("keeps a committed mutation successful when invalidation delivery fails", async () => {
+  test("returns a committed mutation before invalidation delivery runs", async () => {
+    const scheduled: Array<() => Promise<void>> = [];
+    let published = false;
+
     const response = await handleIrohRoute(
       authedPost("/api/devices/iroh/register", {}),
       "register",
       {
         verify: async () => USER,
         broker: broker({ register: () => Effect.succeed({ revision: 9 }) }),
+        schedulePostResponse: (work) => scheduled.push(work),
+        publishConnectivityInvalidation: async () => {
+          published = true;
+        },
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(published).toBe(false);
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]!();
+    expect(published).toBe(true);
+  });
+
+  test("keeps a committed mutation successful when invalidation delivery fails", async () => {
+    const scheduled: Array<() => Promise<void>> = [];
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 9 }) }),
+        schedulePostResponse: (work) => scheduled.push(work),
         publishConnectivityInvalidation: async () => {
           throw new Error("presence unavailable");
         },
@@ -102,6 +134,8 @@ describe("Iroh route boundary", () => {
 
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ revision: 9 });
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]!();
   });
 
   test("never publishes reads or failed mutations", async () => {

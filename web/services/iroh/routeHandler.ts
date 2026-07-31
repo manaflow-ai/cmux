@@ -27,6 +27,9 @@ type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
+  readonly schedulePostResponse?: (
+    work: () => Promise<void>,
+  ) => void;
   readonly publishConnectivityInvalidation?: (
     request: Request,
     revision: number,
