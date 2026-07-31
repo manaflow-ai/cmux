@@ -154,6 +154,38 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
+  test("keeps correlation on unexpected failures after payload parsing", async () => {
+    const correlationId = "db86fe5c-71f8-43bd-92e3-9347df3aab5c";
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "private terminal output",
+          correlationId,
+        }),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("x-cmux-push-correlation-id"))
+      .toBe(correlationId);
+    const body = await response.json();
+    expect(body).toEqual({
+      error: "push_internal_error",
+      correlationId,
+    });
+    expect(JSON.stringify(body)).not.toContain("private terminal output");
+    expect(JSON.stringify(body)).not.toContain("cloudDb should not be reached");
+  });
+
   const dbTest = process.env.CMUX_DB_TEST === "1" ? test : test.skip;
   dbTest("persists partial outcomes and retries only the unresolved token", async () => {
     if (!sql) throw new Error("test database not initialized");
