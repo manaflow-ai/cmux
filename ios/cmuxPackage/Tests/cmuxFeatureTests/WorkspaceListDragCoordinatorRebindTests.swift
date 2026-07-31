@@ -89,7 +89,7 @@ import UIKit
         )
         coordinator.attach(to: replacementTable)
 
-        #expect(!coordinator.hasActiveWorkspaceDragSessionForTesting)
+        #expect(coordinator.workspaceDragSession == nil)
         #expect(replacementTable.numberOfRows(inSection: 0) == 2)
     }
 }

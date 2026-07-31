@@ -47,13 +47,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let dragPreviewFactory: WorkspaceListDragPreviewFactory
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
-    private var workspaceDragSession: WorkspaceListDragSession?
+    var workspaceDragSession: WorkspaceListDragSession?
     private var isLiftPreviewActive = false
-    #if DEBUG
-    var hasActiveWorkspaceDragSessionForTesting: Bool {
-        workspaceDragSession != nil
-    }
-    #endif
     /// The order last applied to the native data source. Keeping this compact
     /// value avoids materializing a full diffable snapshot on every live
     /// workspace payload update merely to ask whether row identity moved.
