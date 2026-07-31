@@ -982,14 +982,16 @@ private actor BrowserAppSessionRestoredSessionAuthClient: AuthClient {
     func accessToken() async -> String? { "access-token" }
     func refreshToken() async -> String? { "refresh-token" }
     func forceRefreshAccessToken() async -> String? { "access-token" }
-    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
-        CMUXAuthUser(
+    func currentUser(
+        throwOnMissing: Bool
+    ) async throws -> CMUXAuthCore.CMUXAuthUser? {
+        CMUXAuthCore.CMUXAuthUser(
             id: "restored-account",
             primaryEmail: "restored@cmux.test",
             displayName: "Restored Account"
         )
     }
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
+    func listTeams() async throws -> [CMUXAuthCore.CMUXAuthTeam] { [] }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
         "nonce"
     }
