@@ -149,6 +149,46 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func lateClosureCleanupCannotOverwriteAReplacementSession() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let firstSession = TestConnectivitySession(
+            continuityID: 71,
+            gatesCloseAttribution: true
+        )
+        let replacement = TestConnectivitySession(continuityID: 72)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [firstSession, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: ownerID)
+        await firstSession.finishRemotely(failure: .transportIdleTimedOut)
+        try await Self.waitUntil {
+            await firstSession.closeAttributionIsWaiting()
+        }
+        _ = try await peer.connectedSession(
+            for: request,
+            preservesControlOwnerOnClosed: true
+        )
+        await firstSession.releaseCloseAttribution()
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let snapshot = await peer.snapshot()
+        #expect(await peer.connectionContinuityID() == 72)
+        #expect(snapshot.phase == .connected)
+        #expect(snapshot.failure == .none)
+        #expect(snapshot.controlLaneOwned)
+        await peer.releaseControl(ownerID: ownerID)
+    }
+
+    @Test
     func deadOnArrivalSessionIsClosedAndRedialedOnce() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -244,6 +284,44 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func oneRetiredDialTimeoutDoesNotTaxEveryLaterRedial() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(continuityID: 61)
+        let second = TestConnectivitySession(continuityID: 62)
+        let third = TestConnectivitySession(continuityID: 63)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, second, third]
+        )
+        let clock = FirstImmediateThenParkingRelayClock()
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            },
+            clock: clock
+        )
+
+        let firstDial = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await peer.invalidate()
+        let secondDial = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+        _ = try await secondDial.value
+        await peer.invalidate()
+
+        let thirdDial = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 3 }
+        await builder.release(call: 2)
+        _ = try await thirdDial.value
+
+        await builder.release(call: 0)
+        _ = await firstDial.result
+        await peer.invalidate()
+    }
+
+    @Test
     func sessionOwnerRejectsSubstitutedPeerIntentBeforeDialing() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -293,6 +371,29 @@ struct CmxConnectivityPeerSessionTests {
         }
         struct TimedOut: Error {}
         throw TimedOut()
+    }
+}
+
+private struct FirstImmediateThenParkingRelayClock: CmxIrohRelayClock {
+    private let state = FirstImmediateThenParkingRelayClockState()
+
+    func now() -> Date {
+        Date(timeIntervalSince1970: 1_800_000_000)
+    }
+
+    func sleep(until _: Date) async throws {
+        if await state.shouldPark() {
+            try await Task.sleep(for: .seconds(3_600))
+        }
+    }
+}
+
+private actor FirstImmediateThenParkingRelayClockState {
+    private var calls = 0
+
+    func shouldPark() -> Bool {
+        calls += 1
+        return calls > 1
     }
 }
 
@@ -373,14 +474,21 @@ private actor OrderedGatedConnectivitySessionBuilder {
 
 private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
+    private let gatesCloseAttribution: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
     private var closureWaiters: [CheckedContinuation<Void, Never>] = []
+    private var closeAttributionWaiter: CheckedContinuation<Void, Never>?
+    private var closeAttributionWaiting = false
     private var received: [Data] = []
 
-    init(continuityID: UInt64) {
+    init(
+        continuityID: UInt64,
+        gatesCloseAttribution: Bool = false
+    ) {
         self.continuityID = continuityID
+        self.gatesCloseAttribution = gatesCloseAttribution
     }
 
     func receiveControl(maximumByteCount: Int) -> Data? {
@@ -412,8 +520,15 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         }
     }
 
-    func closeAttribution() -> CmxIrohConnectionCloseAttribution {
-        CmxIrohConnectionCloseAttribution(
+    func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        if gatesCloseAttribution {
+            closeAttributionWaiting = true
+            await withCheckedContinuation { continuation in
+                closeAttributionWaiter = continuation
+            }
+            closeAttributionWaiting = false
+        }
+        return CmxIrohConnectionCloseAttribution(
             initiator: .remote,
             applicationErrorCode: nil,
             failureKind: closeFailure
@@ -453,6 +568,15 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     }
 
     func closeCount() -> Int { closes }
+
+    func closeAttributionIsWaiting() -> Bool {
+        closeAttributionWaiting
+    }
+
+    func releaseCloseAttribution() {
+        closeAttributionWaiter?.resume()
+        closeAttributionWaiter = nil
+    }
 
     private func finish(failure: DiagnosticFailureKind) {
         guard !closed else { return }

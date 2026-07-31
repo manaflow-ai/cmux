@@ -86,6 +86,68 @@ struct CmxConnectivityEngineTests {
         #expect(await secondEndpoint.observedCloseCallCount() == 1)
     }
 
+    @Test
+    func healthyReplacementEndpointRemainsActiveWhenRouteRefreshIsOffline() async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "d", count: 64)
+        )
+        let firstEndpoint = TestIrohEndpoint(identity: identity)
+        let secondEndpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(
+                endpoints: [firstEndpoint, secondEndpoint]
+            ),
+            configuration: try Self.endpointConfiguration()
+        )
+        let authority = try InitialThenFailingConnectivityAuthority(
+            initial: Self.changedResponse(revision: 4)
+        )
+        let engine = CmxConnectivityEngine(
+            supervisor: supervisor,
+            contextProvider: FailingConnectivityContextProvider(),
+            authority: authority,
+            installRouteSnapshot: { _ in }
+        )
+        try await engine.start()
+
+        await firstEndpoint.emit(.closedUnexpectedly)
+        try await Self.waitUntil {
+            await engine.snapshot().endpointGeneration == 2
+        }
+
+        let snapshot = await engine.snapshot()
+        #expect(snapshot.phase == .active)
+        #expect(snapshot.routeRevision == 4)
+        #expect(await authority.callCount() >= 2)
+        await engine.stop()
+    }
+
+    @Test
+    func stopFinishesNetworkChangeObservers() async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "e", count: 64)
+        )
+        let engine = CmxConnectivityEngine(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: identity)]
+            ),
+            endpointConfiguration: try Self.endpointConfiguration(),
+            contextProvider: FailingConnectivityContextProvider()
+        )
+        try await engine.start()
+        let finished = ConnectivityObservationFlag()
+        let changes = await engine.networkChanges()
+        let observation = Task {
+            for await _ in changes {}
+            await finished.markFinished()
+        }
+        defer { observation.cancel() }
+
+        await engine.stop()
+
+        try await Self.waitUntil { await finished.value() }
+    }
+
     private static func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {
         CmxIrohEndpointConfiguration(
             secretKey: try CmxIrohSecretKey(bytes: Data(repeating: 5, count: 32)),
@@ -158,6 +220,37 @@ struct CmxConnectivityEngineTests {
         struct TimedOut: Error {}
         throw TimedOut()
     }
+}
+
+private actor InitialThenFailingConnectivityAuthority: CmxConnectivityAuthorityServing {
+    private let initial: CmxConnectivitySyncResponse
+    private var calls = 0
+
+    init(initial: CmxConnectivitySyncResponse) {
+        self.initial = initial
+    }
+
+    func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        calls += 1
+        if knownRevision == nil {
+            return initial
+        }
+        throw URLError(.notConnectedToInternet)
+    }
+
+    func callCount() -> Int { calls }
+}
+
+private actor ConnectivityObservationFlag {
+    private var finished = false
+
+    func markFinished() {
+        finished = true
+    }
+
+    func value() -> Bool { finished }
 }
 
 private actor GatedConnectivityAuthority: CmxConnectivityAuthorityServing {
