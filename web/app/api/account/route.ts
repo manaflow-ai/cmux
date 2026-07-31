@@ -23,6 +23,7 @@ import {
   irohEndpointBindings,
   irohRegistrationChallenges,
   notificationSendEvents,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -1079,6 +1080,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(billingEmailClaims.stackUserId, userId),
       eq(billingEmailClaims.claimedByUserId, userId),
     ));
+    await tx
+      .delete(proWelcomeFulfillments)
+      .where(eq(proWelcomeFulfillments.stackUserId, userId));
     await tx.delete(stripeSubscriptions).where(or(
       and(
         eq(stripeSubscriptions.stackUserId, userId),

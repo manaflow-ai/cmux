@@ -3744,6 +3744,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3814,7 +3815,8 @@ final class Workspace: Identifiable, ObservableObject {
                 return
             }
             guard auth.browserAppSession.isCurrent(
-                generation: navigation.generation
+                generation: navigation.generation,
+                authSessionGeneration: navigation.authSessionGeneration
             ) else {
                 _ = self.recoverAppLinkNavigation(
                     destinationURL,
@@ -10592,12 +10594,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
+        let sourceBrowser = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0) }
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: sourceBrowser?.profileID,
+            websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
@@ -10614,7 +10617,8 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             preferredProfileID: browser.profileID,
             omnibarVisible: browser.isOmnibarVisible,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)
         syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)

@@ -151,6 +151,7 @@ async function processStripeEvent(
         // redelivery retries the same email operation without duplicating it.
         await dependencies.sendProSignupWelcome({
           session: expanded,
+          stackUserId: result.stackUserId,
         });
       }
       return { processed: event.type };

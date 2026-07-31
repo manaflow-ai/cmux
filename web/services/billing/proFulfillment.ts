@@ -1,10 +1,17 @@
+import { eq, sql } from "drizzle-orm";
 import { Resend } from "resend";
 import type Stripe from "stripe";
 
 import { env } from "../../app/env";
+import { cloudDb } from "../../db/client";
+import { proWelcomeFulfillments } from "../../db/schema";
 import { preferredLocaleFromAcceptLanguage } from "../../i18n/accept-language";
 import { loadMessages } from "../../i18n/messages";
 import type { Locale } from "../../i18n/routing";
+import {
+  AccountDeletionMutationBlockedError,
+  assertAccountDeletionUserMutationAllowed,
+} from "../account/deletionLock";
 
 export const DEFAULT_PRO_FROM_EMAIL = "pro@cmux.com";
 export const PRO_REPLY_TO_EMAIL = "pro@cmux.com";
@@ -22,12 +29,23 @@ type ProWelcomeCopy = {
   signoff: string;
 };
 
+export type ProWelcomeFulfillmentStore = {
+  deliverOnce(
+    input: {
+      readonly checkoutSessionId: string;
+      readonly stackUserId: string;
+    },
+    deliver: () => Promise<void>,
+  ): Promise<"sent" | "already_sent" | "account_deleting">;
+};
+
 type ProFulfillmentDependencies = {
   sendEmail: (
     payload: ProWelcomeEmail,
     options: { idempotencyKey: string },
   ) => Promise<{ error: unknown | null }>;
   fromEmail: () => string;
+  fulfillmentStore: ProWelcomeFulfillmentStore;
 };
 
 const defaultDependencies: ProFulfillmentDependencies = {
@@ -36,6 +54,63 @@ const defaultDependencies: ProFulfillmentDependencies = {
     return resend.emails.send(payload, options);
   },
   fromEmail: () => env.CMUX_PRO_FROM_EMAIL ?? DEFAULT_PRO_FROM_EMAIL,
+  fulfillmentStore: {
+    deliverOnce: async (input, deliver) => {
+      const db = cloudDb();
+      try {
+        return await db.transaction(async (tx) => {
+          // Account deletion and email delivery are mutually exclusive. This
+          // prevents a successful webhook from recreating fulfillment state
+          // after the user's rows have been deleted.
+          await assertAccountDeletionUserMutationAllowed(tx, input.stackUserId);
+          await tx.execute(
+            sql`select pg_advisory_xact_lock(hashtextextended(${`pro-welcome:${input.checkoutSessionId}`}, 0))`,
+          );
+          const [existing] = await tx
+            .select({
+              stackUserId: proWelcomeFulfillments.stackUserId,
+              sentAt: proWelcomeFulfillments.sentAt,
+            })
+            .from(proWelcomeFulfillments)
+            .where(
+              eq(
+                proWelcomeFulfillments.checkoutSessionId,
+                input.checkoutSessionId,
+              ),
+            )
+            .limit(1);
+          if (existing?.sentAt) return "already_sent" as const;
+          if (existing && existing.stackUserId !== input.stackUserId) {
+            throw new Error(
+              "cmux Pro welcome checkout ownership changed before fulfillment",
+            );
+          }
+          if (!existing) {
+            await tx.insert(proWelcomeFulfillments).values({
+              checkoutSessionId: input.checkoutSessionId,
+              stackUserId: input.stackUserId,
+            });
+          }
+          await deliver();
+          await tx
+            .update(proWelcomeFulfillments)
+            .set({ sentAt: new Date(), updatedAt: new Date() })
+            .where(
+              eq(
+                proWelcomeFulfillments.checkoutSessionId,
+                input.checkoutSessionId,
+              ),
+            );
+          return "sent" as const;
+        });
+      } catch (error) {
+        if (error instanceof AccountDeletionMutationBlockedError) {
+          return "account_deleting" as const;
+        }
+        throw error;
+      }
+    },
+  },
 };
 
 export type ProWelcomeEmail = {
@@ -51,35 +126,44 @@ export type ProWelcomeEmail = {
 export async function sendProSignupWelcome(
   input: {
     session: Stripe.Checkout.Session;
+    stackUserId: string;
   },
   dependencies: ProFulfillmentDependencies = defaultDependencies,
 ): Promise<void> {
-  const email = checkoutEmail(input.session);
-  if (!email) {
-    // Stripe cannot repair a permanently absent address by redelivering the
-    // webhook. Acknowledge the checkout and leave an operational breadcrumb
-    // instead of retrying the already-granted entitlement forever.
-    console.warn("cmux Pro welcome skipped: checkout is missing a customer email", {
-      checkoutSessionId: input.session.id,
-    });
-    return;
-  }
-
-  const customerName = checkoutCustomerName(input.session);
   const sessionRef = input.session.id;
-  const payload = await buildProWelcomeEmail({
-    from: formatFromAddress(dependencies.fromEmail()),
-    to: email,
-    customerName,
-    locale: checkoutLocale(input.session),
-    sessionRef,
-  });
-  const { error } = await dependencies.sendEmail(payload, {
-    idempotencyKey: `pro-welcome/${sessionRef}`,
-  });
-  if (error) {
-    throw new Error(`cmux Pro welcome email failed: ${errorMessage(error)}`);
-  }
+  await dependencies.fulfillmentStore.deliverOnce(
+    {
+      checkoutSessionId: sessionRef,
+      stackUserId: input.stackUserId,
+    },
+    async () => {
+      const email = checkoutEmail(input.session);
+      if (!email) {
+        // Stripe cannot repair a permanently absent address by redelivering
+        // the webhook. Record the no-op fulfillment once so later events do
+        // not retry an impossible delivery forever.
+        console.warn(
+          "cmux Pro welcome skipped: checkout is missing a customer email",
+          { checkoutSessionId: sessionRef },
+        );
+        return;
+      }
+
+      const payload = await buildProWelcomeEmail({
+        from: formatFromAddress(dependencies.fromEmail()),
+        to: email,
+        customerName: checkoutCustomerName(input.session),
+        locale: checkoutLocale(input.session),
+        sessionRef,
+      });
+      const { error } = await dependencies.sendEmail(payload, {
+        idempotencyKey: `pro-welcome/${sessionRef}`,
+      });
+      if (error) {
+        throw new Error(`cmux Pro welcome email failed: ${errorMessage(error)}`);
+      }
+    },
+  );
 }
 
 export async function buildProWelcomeEmail(input: {

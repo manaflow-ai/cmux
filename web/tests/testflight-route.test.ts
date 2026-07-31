@@ -215,9 +215,11 @@ describe("TestFlight route", () => {
       return reads === 1 ? staleUser : freshUser;
     });
     mockImplementation(isTestflightEligible, async (candidate: unknown) => {
-      await (candidate as typeof staleUser).update({
-        clientReadOnlyMetadata: { cmuxPlan: "pro" },
-      });
+      if (candidate === staleUser) {
+        await staleUser.update({
+          clientReadOnlyMetadata: { cmuxPlan: "pro" },
+        });
+      }
       return true;
     });
 

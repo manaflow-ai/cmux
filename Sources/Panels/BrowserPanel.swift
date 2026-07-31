@@ -2727,6 +2727,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
+    private let preservesExplicitEphemeralWebsiteDataStore: Bool
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -4090,6 +4091,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         )
         self.websiteDataStore = websiteDataStore
+        self.preservesExplicitEphemeralWebsiteDataStore =
+            explicitWebsiteDataStore != nil
+            && websiteDataStore !== WKWebsiteDataStore.default()
+            && websiteDataStore.identifier == nil
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
         if let prewarmed = Self.claimedPrewarmedWebView(
@@ -4688,6 +4693,10 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
     }
 
+    var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
+        preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
+    }
+
     func reattachToWorkspace(
         _ newWorkspaceId: UUID,
         isRemoteWorkspace: Bool,
@@ -4697,9 +4706,11 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
-        let targetStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        let targetStore = preservesExplicitEphemeralWebsiteDataStore
+            ? websiteDataStore
+            : isRemoteWorkspace
+                ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+                : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
         websiteDataStore = targetStore
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
@@ -4718,6 +4729,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
+        guard !preservesExplicitEphemeralWebsiteDataStore else {
+            return false
+        }
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
             : BrowserProfileStore.shared.builtInDefaultProfileID
@@ -6407,6 +6421,10 @@ extension BrowserPanel {
         )
 #endif
     }
+
+    func resetForAppSessionSignOut() {
+        resetForWorkspaceContextChange(reason: "appSessionSignOut")
+    }
 }
 
 func resolveBrowserNavigableURL(_ input: String) -> URL? {
@@ -6559,7 +6577,8 @@ extension BrowserPanel {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")

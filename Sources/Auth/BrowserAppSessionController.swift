@@ -7,6 +7,7 @@ struct BrowserAppSessionNavigation {
     let request: URLRequest
     let websiteDataStore: WKWebsiteDataStore
     let generation: UInt64
+    let authSessionGeneration: UInt64
 }
 
 enum BrowserAppSessionRequestOutcome {
@@ -92,6 +93,9 @@ final class BrowserAppSessionStoreRegistry {
     private var liveStores: [
         ObjectIdentifier: BrowserAppSessionWeakReference<WKWebsiteDataStore>
     ] = [:]
+    private var livePanels: [
+        ObjectIdentifier: BrowserAppSessionWeakReference<BrowserPanel>
+    ] = [:]
 
     init(
         defaults: UserDefaults,
@@ -122,6 +126,21 @@ final class BrowserAppSessionStoreRegistry {
         liveStores[ObjectIdentifier(store)] = BrowserAppSessionWeakReference(store)
     }
 
+    func register(_ panel: BrowserPanel) {
+        pruneReleasedOwnership()
+        guard liveStores[ObjectIdentifier(panel.websiteDataStore)]?.value != nil else {
+            return
+        }
+        livePanels[ObjectIdentifier(panel)] = BrowserAppSessionWeakReference(panel)
+    }
+
+    func panelsForCleanup() -> [BrowserPanel] {
+        pruneReleasedOwnership()
+        return livePanels.values.compactMap(\.value).filter {
+            liveStores[ObjectIdentifier($0.websiteDataStore)]?.value != nil
+        }
+    }
+
     func storesForCleanup() -> [WKWebsiteDataStore] {
         var stores: [ObjectIdentifier: WKWebsiteDataStore] = [:]
         for target in allEnvironmentStoresForCleanup() {
@@ -131,7 +150,7 @@ final class BrowserAppSessionStoreRegistry {
     }
 
     func allEnvironmentStoresForCleanup() -> [BrowserAppSessionStoreCleanupTarget] {
-        liveStores = liveStores.filter { $0.value.value != nil }
+        pruneReleasedOwnership()
         var targets: [CleanupTargetIdentity: BrowserAppSessionStoreCleanupTarget] = [:]
         for (identifier, reference) in liveStores {
             if let store = reference.value {
@@ -149,6 +168,12 @@ final class BrowserAppSessionStoreRegistry {
 
     func removeAllOwnership() {
         liveStores.removeAll()
+        livePanels.removeAll()
+    }
+
+    private func pruneReleasedOwnership() {
+        liveStores = liveStores.filter { $0.value.value != nil }
+        livePanels = livePanels.filter { $0.value.value != nil }
     }
 
     private static func legacyDefaultsKeys(
@@ -187,6 +212,8 @@ final class BrowserAppSessionRedirectRejectingDelegate:
 /// WebKit navigation to own the exchange lifecycle.
 @MainActor
 final class BrowserAppSessionController {
+    static let appSessionWebsiteDataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
     private let projectID: String
@@ -253,8 +280,17 @@ final class BrowserAppSessionController {
         return outcome
     }
 
-    func isCurrent(generation requestGeneration: UInt64) -> Bool {
-        acceptsHandoffs && requestGeneration == generation
+    func isCurrent(
+        generation requestGeneration: UInt64,
+        authSessionGeneration: UInt64
+    ) -> Bool {
+        acceptsHandoffs
+            && requestGeneration == generation
+            && authSessionGeneration == coordinator.authSessionGeneration
+    }
+
+    func register(_ panel: BrowserPanel) {
+        storeRegistry.register(panel)
     }
 
     /// Synchronously closes the handoff admission gate and cancels every
@@ -283,12 +319,14 @@ final class BrowserAppSessionController {
         }
         activeTasks.removeAll()
 
+        let panels = storeRegistry.panelsForCleanup()
+        for panel in panels {
+            panel.resetForAppSessionSignOut()
+        }
+
         let targets = storeRegistry.allEnvironmentStoresForCleanup()
         for target in targets {
-            await clearCmuxWebSession(
-                in: target.store,
-                environment: target.environment
-            )
+            await clearCmuxWebSession(in: target.store)
         }
         storeRegistry.removeAllOwnership()
     }
@@ -298,30 +336,23 @@ final class BrowserAppSessionController {
         websiteDataStore: WKWebsiteDataStore,
         requestGeneration: UInt64
     ) async -> BrowserAppSessionRequestOutcome {
-        let tokens: BrowserAppSessionTokens
+        let snapshot: AuthenticatedRefreshTokenSnapshot
         do {
-            let current = try await coordinator.currentTokens()
-            tokens = BrowserAppSessionTokens(
-                refreshToken: current.refreshToken
-            )
+            snapshot = try await coordinator.authenticatedRefreshTokenSnapshot()
         } catch {
-            guard handoffIsCurrent(requestGeneration) else { return .cancelled }
-            let failure = BrowserAppSessionRequestOutcome.tokenFailure(error)
-            if failure.shouldBeginSignIn { return failure }
-            if let refreshToken = await coordinator.refreshToken(),
-               !refreshToken.isEmpty {
-                tokens = BrowserAppSessionTokens(
-                    refreshToken: refreshToken
-                )
-            } else {
-                return failure
-            }
+            guard localHandoffIsCurrent(requestGeneration) else { return .cancelled }
+            return BrowserAppSessionRequestOutcome.tokenFailure(error)
         }
 
-        guard handoffIsCurrent(requestGeneration) else { return .cancelled }
+        guard handoffIsCurrent(
+            requestGeneration,
+            authSessionGeneration: snapshot.generation
+        ) else { return .cancelled }
         guard let exchangeRequest = handoff.request(
             destinationURL: destinationURL,
-            tokens: tokens
+            tokens: BrowserAppSessionTokens(
+                refreshToken: snapshot.refreshToken
+            )
         ) else { return .failed }
 
         let response: URLResponse
@@ -329,9 +360,15 @@ final class BrowserAppSessionController {
             let result = try await session.data(for: exchangeRequest)
             response = result.1
         } catch {
-            return handoffIsCurrent(requestGeneration) ? .transientFailure : .cancelled
+            return handoffIsCurrent(
+                requestGeneration,
+                authSessionGeneration: snapshot.generation
+            ) ? .transientFailure : .cancelled
         }
-        guard handoffIsCurrent(requestGeneration) else { return .cancelled }
+        guard handoffIsCurrent(
+            requestGeneration,
+            authSessionGeneration: snapshot.generation
+        ) else { return .cancelled }
         guard let httpResponse = response as? HTTPURLResponse else { return .failed }
         if httpResponse.statusCode != 204 {
             return .exchangeFailure(statusCode: httpResponse.statusCode)
@@ -344,56 +381,47 @@ final class BrowserAppSessionController {
         }
 
         storeRegistry.register(websiteDataStore)
-        await clearCmuxWebSession(
-            in: websiteDataStore,
-            environment: environment
-        )
-        guard handoffIsCurrent(requestGeneration) else { return .cancelled }
+        await clearCmuxWebSession(in: websiteDataStore)
+        guard handoffIsCurrent(
+            requestGeneration,
+            authSessionGeneration: snapshot.generation
+        ) else { return .cancelled }
         for cookie in cookies {
             await set(cookie, in: websiteDataStore.httpCookieStore)
-            guard handoffIsCurrent(requestGeneration) else { return .cancelled }
+            guard handoffIsCurrent(
+                requestGeneration,
+                authSessionGeneration: snapshot.generation
+            ) else { return .cancelled }
         }
 
         return .navigation(BrowserAppSessionNavigation(
             request: URLRequest(url: destinationURL),
             websiteDataStore: websiteDataStore,
-            generation: requestGeneration
+            generation: requestGeneration,
+            authSessionGeneration: snapshot.generation
         ))
     }
 
-    private func handoffIsCurrent(_ requestGeneration: UInt64) -> Bool {
+    private func localHandoffIsCurrent(_ requestGeneration: UInt64) -> Bool {
         acceptsHandoffs && !Task.isCancelled && requestGeneration == generation
     }
 
-    private func clearCmuxWebSession(
-        in store: WKWebsiteDataStore,
-        environment: BrowserAppSessionEnvironment
-    ) async {
-        let environmentHandoff = BrowserAppSessionHandoff(
-            webOrigin: environment.webOrigin
-        )
-        let cookies = await allCookies(in: store.httpCookieStore)
-        for cookie in cookies where environmentHandoff.shouldDeleteCookie(
-            name: cookie.name,
-            domain: cookie.domain,
-            projectID: environment.projectID
-        ) {
-            await delete(cookie, from: store.httpCookieStore)
-        }
+    private func handoffIsCurrent(
+        _ requestGeneration: UInt64,
+        authSessionGeneration: UInt64
+    ) -> Bool {
+        localHandoffIsCurrent(requestGeneration)
+            && authSessionGeneration == coordinator.authSessionGeneration
     }
 
-    private func allCookies(in store: WKHTTPCookieStore) async -> [HTTPCookie] {
+    private func clearCmuxWebSession(in store: WKWebsiteDataStore) async {
         await withCheckedContinuation { continuation in
-            store.getAllCookies { continuation.resume(returning: $0) }
-        }
-    }
-
-    private func delete(
-        _ cookie: HTTPCookie,
-        from store: WKHTTPCookieStore
-    ) async {
-        await withCheckedContinuation { continuation in
-            store.delete(cookie) { continuation.resume() }
+            store.removeData(
+                ofTypes: Self.appSessionWebsiteDataTypes,
+                modifiedSince: .distantPast
+            ) {
+                continuation.resume()
+            }
         }
     }
 

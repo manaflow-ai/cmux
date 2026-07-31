@@ -98,7 +98,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 aria-expanded={mobileNavOpen}
                 aria-label={mobileNavOpen ? common("closeMenu") : common("openMenu")}
                 onClick={() => setMobileNavOpen((open) => !open)}
-                className="inline-flex size-8 items-center justify-center text-muted hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+                className="inline-flex size-8 items-center justify-center text-muted hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
               >
                 <DashboardMenuIcon open={mobileNavOpen} />
               </button>

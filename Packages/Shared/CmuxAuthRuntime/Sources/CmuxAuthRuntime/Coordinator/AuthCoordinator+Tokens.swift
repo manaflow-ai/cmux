@@ -176,6 +176,41 @@ extension AuthCoordinator {
         )
     }
 
+    /// Captures the signed-in account id and refresh token under one session
+    /// generation without requiring an access token.
+    ///
+    /// Browser handoff authenticates directly with Stack's refresh token. A
+    /// refresh-token-only launch is therefore valid, but the identity, token,
+    /// and generation must still be read as one consistent session so an
+    /// account switch cannot finish an exchange for the previous account.
+    public func authenticatedRefreshTokenSnapshot() async throws
+        -> AuthenticatedRefreshTokenSnapshot
+    {
+        await awaitBootstrapped()
+        guard isAuthenticated,
+              !sessionTokenTransitionIsActive,
+              let accountID = currentUser?.id,
+              !accountID.isEmpty else {
+            throw AuthError.unauthorized
+        }
+        let generation = sessionGeneration
+        let storageWasAvailable = await isTokenStorageAvailable()
+        guard let refreshToken = await client.refreshToken(),
+              !refreshToken.isEmpty else {
+            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        }
+        guard sessionGeneration == generation,
+              !sessionTokenTransitionIsActive,
+              currentUser?.id == accountID else {
+            throw AuthError.unauthorized
+        }
+        return AuthenticatedRefreshTokenSnapshot(
+            generation: generation,
+            accountID: accountID,
+            refreshToken: refreshToken
+        )
+    }
+
     /// Force-mint a fresh access token, bypassing the cached-token freshness
     /// check. Call this after the host rejected the current token so the retry
     /// presents a genuinely new credential instead of the same rejected one.
@@ -261,6 +296,39 @@ public struct AuthenticatedSessionSnapshot:
             + "generation: \(generation), "
             + "accountID: <redacted>, "
             + "accessToken: <redacted>, "
+            + "refreshToken: <redacted>)"
+    }
+
+    public var debugDescription: String { description }
+}
+
+/// Immutable refresh-token snapshot pinned to one authenticated account and
+/// session generation. Its textual representations redact both identity and
+/// credential values.
+public struct AuthenticatedRefreshTokenSnapshot:
+    Sendable,
+    Equatable,
+    CustomStringConvertible,
+    CustomDebugStringConvertible
+{
+    public let generation: UInt64
+    public let accountID: String
+    public let refreshToken: String
+
+    public init(
+        generation: UInt64,
+        accountID: String,
+        refreshToken: String
+    ) {
+        self.generation = generation
+        self.accountID = accountID
+        self.refreshToken = refreshToken
+    }
+
+    public var description: String {
+        "AuthenticatedRefreshTokenSnapshot("
+            + "generation: \(generation), "
+            + "accountID: <redacted>, "
             + "refreshToken: <redacted>)"
     }
 

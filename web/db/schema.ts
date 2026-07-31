@@ -434,6 +434,20 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const proWelcomeFulfillments = pgTable(
+  "pro_welcome_fulfillments",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {

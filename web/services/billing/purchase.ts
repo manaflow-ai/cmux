@@ -429,27 +429,21 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
-  const metadataSynced = await syncStackUserMetadataWithAccountDeletionGuard({
+  await syncStackUserMetadataWithAccountDeletionGuard({
     db,
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
     sync: async (freshUser) => {
       await syncProPlanMetadata(freshUser, isActive);
+      if (!isActive) {
+        await removeUserFromTestflightOnLapse(
+          freshUser,
+          lockedResult.stackUserId,
+          dependencies,
+        );
+      }
     },
   });
-  if (!isActive && metadataSynced) {
-    const freshUser = await loadOptionalStackUser(
-      lockedResult.stackUserId,
-      dependencies.stackApp,
-    );
-    if (freshUser) {
-      await removeUserFromTestflightOnLapse(
-        freshUser,
-        lockedResult.stackUserId,
-        dependencies,
-      );
-    }
-  }
   return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
 }
 
@@ -624,6 +618,7 @@ async function removeUserFromTestflightOnLapse(
       stackUserId,
       email: user.primaryEmail,
     });
+    throw error;
   }
 }
 
