@@ -143,6 +143,27 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return result
     }
 
+    /// Returns the captured environment that may cross the restore transport boundary.
+    ///
+    /// Pi-family agents also retain their captured `PATH` because Nix and other
+    /// custom installations rely on executable locations outside the login shell.
+    ///
+    /// - Parameters:
+    ///   - env: The captured process environment.
+    ///   - kind: The restored agent kind.
+    /// - Returns: The non-secret environment values safe to transport and replay.
+    public func selectedRestoreEnvironment(
+        from env: [String: String],
+        kind: String?
+    ) -> [String: String] {
+        var selected = selectedEnvironment(from: env, kind: kind)
+        if kind == "pi" || kind == "omp",
+           let path = normalizedValue(env["PATH"]) {
+            selected["PATH"] = path
+        }
+        return selected
+    }
+
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }

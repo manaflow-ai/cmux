@@ -149,14 +149,10 @@ public struct AgentRestorePlanner: Sendable {
         }
         var captured = request.launchCommand?.environment ?? [:]
         captured.merge(request.environment) { _, binding in binding }
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
             from: captured,
             kind: request.kind
         )
-        if request.kind == "pi" || request.kind == "omp",
-           let path = normalized(captured["PATH"]) {
-            selected["PATH"] = path
-        }
         if request.kind == "claude" {
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)

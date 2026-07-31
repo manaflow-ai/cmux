@@ -341,8 +341,41 @@ import Testing
         XCTAssertEqual(result.status, 1, result.stdout)
         XCTAssertTrue(
             result.stdout.contains(
-                "restore: positional form requires a cmux surface context; "
-                    + "use --surface <id|ref>"
+                "restore: the current cmux surface could not be identified. "
+                    + "Retry from this terminal or pass --surface <id|ref>."
+            ),
+            result.stdout
+        )
+    }
+
+    @Test func testRestoreSocketFailureExplainsHowToRetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-restore-offline-\(UUID().uuidString.prefix(8)).sock"
+        unlink(socketPath)
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket",
+                socketPath,
+                "restore",
+                "codex",
+                UUID().uuidString.lowercased(),
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "Retry the visible restore command after cmux finishes opening."
             ),
             result.stdout
         )

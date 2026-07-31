@@ -310,7 +310,12 @@ extension TerminalController {
                 source: "session-snapshot",
                 workingDirectory: workingDirectory,
                 environment: binding?.environment ?? [:],
-                launchCommand: launchCommand.map(controlAgentLaunchCommand),
+                launchCommand: launchCommand.map {
+                    controlAgentLaunchCommand(
+                        $0,
+                        replaySafeEnvironmentFor: agent.kind.rawValue
+                    )
+                },
                 preparedArguments: preparedArguments,
                 permissionMode: permissionMode,
                 legacyCommand: binding?.inlineStartupInput
@@ -339,14 +344,23 @@ extension TerminalController {
     }
 
     private func controlAgentLaunchCommand(
-        _ command: AgentLaunchCommandSnapshot
+        _ command: AgentLaunchCommandSnapshot,
+        replaySafeEnvironmentFor kind: String? = nil
     ) -> ControlAgentLaunchCommand {
-        ControlAgentLaunchCommand(
+        let environment = kind.flatMap { kind in
+            command.environment.map {
+                AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+                    from: $0,
+                    kind: kind
+                )
+            }
+        } ?? command.environment
+        return ControlAgentLaunchCommand(
             launcher: command.launcher,
             executablePath: command.executablePath,
             arguments: command.arguments,
             workingDirectory: command.workingDirectory,
-            environment: command.environment,
+            environment: environment,
             capturedAt: command.capturedAt,
             source: command.source
         )

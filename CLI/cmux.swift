@@ -3788,6 +3788,13 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if command == "restore" {
+                throw CLIError(
+                    message: "restore: cmux is not ready to provide this surface's persisted "
+                        + "record. Retry the visible restore command after cmux finishes opening. "
+                        + "\(error)"
+                )
+            }
             throw error
         }
         defer { client.close() }

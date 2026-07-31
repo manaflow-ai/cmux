@@ -858,7 +858,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 launcher: "codex",
                 executablePath: "/opt/stale/codex",
                 arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
-                workingDirectory: "/tmp/stale"
+                workingDirectory: "/tmp/stale",
+                environment: [
+                    "CODEX_HOME": "/tmp/stale-codex-home",
+                    "OPENAI_API_KEY": "must-not-cross-socket",
+                ]
             )
         )
 
@@ -879,6 +883,30 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+
+        XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
+        let snapshotResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let snapshotRecord = try XCTUnwrap(
+            snapshotResult["restore_record"] as? [String: Any]
+        )
+        let snapshotLaunch = try XCTUnwrap(
+            snapshotRecord["launch_command"] as? [String: Any]
+        )
+        let snapshotEnvironment = try XCTUnwrap(
+            snapshotLaunch["environment"] as? [String: Any]
+        )
+        XCTAssertEqual(
+            snapshotEnvironment["CODEX_HOME"] as? String,
+            "/tmp/stale-codex-home"
+        )
+        XCTAssertNil(snapshotEnvironment["OPENAI_API_KEY"])
     }
 
     func testSurfaceRestoreRecordAppliesBindingEnvironmentAndRestoreTimeCwd() throws {

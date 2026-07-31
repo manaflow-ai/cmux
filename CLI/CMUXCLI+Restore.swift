@@ -59,8 +59,8 @@ extension CMUXCLI {
             params["surface_id"] = caller.surfaceId
         } else {
             throw CLIError(
-                message: "restore: positional form requires a cmux surface context; "
-                    + "use --surface <id|ref>"
+                message: "restore: the current cmux surface could not be identified. "
+                    + "Retry from this terminal or pass --surface <id|ref>."
             )
         }
 
