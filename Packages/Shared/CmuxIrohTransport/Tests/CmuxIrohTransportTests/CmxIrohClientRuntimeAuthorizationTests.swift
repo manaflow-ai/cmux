@@ -134,6 +134,73 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func signedCachedAuthorityActivatesBeforeRegistrationCompletes() async throws {
+        let fixture = try RegistryFixture()
+        let discovery = try fixture.discovery(targetHints: [])
+        let cache = CmxIrohClientOfflinePolicyCache(
+            secureStore: TestSecureCredentialStore()
+        )
+        try await cache.save(
+            localBinding: discovery.bindings[0],
+            targetBinding: discovery.bindings[1],
+            discovery: discovery,
+            pairGrant: fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 3_600
+            ),
+            for: try fixture.offlineExpectation(),
+            now: fixture.now
+        )
+        let identity = try CmxIrohIdentityMaterial(
+            secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
+            generation: fixture.initiator.identityGeneration
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: "account-a",
+            deviceID: fixture.initiator.deviceID,
+            appInstanceID: discovery.bindings[0].appInstanceID,
+            tag: fixture.initiator.tag,
+            displayName: nil,
+            identity: identity,
+            capabilities: discovery.bindings[0].capabilities,
+            managedRelayURLs: [fixture.relayURL]
+        )
+        let gate = HostRuntimeRegistrationGate()
+        let broker = TestIrohClientBroker(
+            binding: discovery.bindings[0],
+            discovery: discovery,
+            relay: CmxIrohRelayTokenResponse(
+                token: "testrelaytoken",
+                expiresAt: "2027-01-15T10:00:00Z",
+                refreshAfter: "2027-01-15T09:00:00Z",
+                relayFleet: [fixture.relayURL]
+            ),
+            registrationHook: { _ in await gate.waitOnce() }
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.initiator.endpointID)]
+            ),
+            broker: broker,
+            configuration: configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: TestSecureCredentialStore()
+            ),
+            offlinePolicyCache: cache,
+            now: { fixture.now }
+        )
+        let start = Task { try await runtime.start() }
+
+        await broker.waitForRegistrationCount(1)
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.snapshot().bindingID == discovery.bindings[0].bindingID)
+        await gate.open()
+        try await start.value
+        await runtime.stop()
+    }
+
+    @Test
     func authenticatedStartupFailureNeverConsultsOfflinePolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let store = TestSecureCredentialStore()

@@ -17,14 +17,24 @@ import Testing
 struct MobileIrohRuntimeCompositionTests {
     @Test
     @MainActor
-    func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
+    func foregroundReadinessDoesNotWaitForAuthRevalidation() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
-        let baseline = await fixture.authClient.observedCurrentUserCallCount()
+        await fixture.authClient.blockNextCurrentUser()
 
         fixture.composition.didBecomeActive()
-        await fixture.composition.prepareForConnection()
+        await fixture.authClient.waitUntilCurrentUserStarts()
+        let readiness = MobileIrohCompletionProbe()
+        let prepare = Task { @MainActor in
+            await fixture.composition.prepareForConnection()
+            await readiness.finish()
+        }
+        for _ in 0 ..< 20 where !(await readiness.isFinished()) {
+            await Task.yield()
+        }
 
-        #expect(await fixture.authClient.observedCurrentUserCallCount() > baseline)
+        #expect(await readiness.isFinished())
+        await fixture.authClient.releaseCurrentUser()
+        await prepare.value
     }
 
     @Test
@@ -1755,6 +1765,9 @@ private actor MobileIrohTestAuthClient: AuthClient {
     private var refresh: String? = "refresh"
     private var user: CMUXAuthUser
     private var currentUserCallCount = 0
+    private var blockCurrentUser = false
+    private var currentUserContinuation: CheckedContinuation<Void, Never>?
+    private var currentUserStartWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(user: CMUXAuthUser) { self.user = user }
 
@@ -1762,8 +1775,31 @@ private actor MobileIrohTestAuthClient: AuthClient {
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }
-    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? {
+    func blockNextCurrentUser() {
+        blockCurrentUser = true
+    }
+    func waitUntilCurrentUserStarts() async {
+        guard currentUserContinuation == nil else { return }
+        await withCheckedContinuation { continuation in
+            currentUserStartWaiters.append(continuation)
+        }
+    }
+    func releaseCurrentUser() {
+        blockCurrentUser = false
+        currentUserContinuation?.resume()
+        currentUserContinuation = nil
+    }
+    func currentUser(throwOnMissing _: Bool) async -> CMUXAuthUser? {
         currentUserCallCount += 1
+        guard blockCurrentUser else { return user }
+        blockCurrentUser = false
+        for waiter in currentUserStartWaiters {
+            waiter.resume()
+        }
+        currentUserStartWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            currentUserContinuation = continuation
+        }
         return user
     }
     func observedCurrentUserCallCount() -> Int { currentUserCallCount }

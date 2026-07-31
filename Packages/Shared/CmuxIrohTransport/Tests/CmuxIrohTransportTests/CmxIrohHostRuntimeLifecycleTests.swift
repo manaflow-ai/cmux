@@ -393,6 +393,41 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    @Test
+    func signedCachedAuthorityActivatesBeforeRegistrationCompletes() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let cachedPolicy = try cachedFixture.policy()
+        let gate = HostRuntimeRegistrationGate()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationHook: {
+                await gate.waitOnce()
+                return true
+            }
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { cachedFixture.now },
+            handleTransport: { session, _ in await session.close() }
+        )
+        let start = Task { try await runtime.start() }
+
+        await broker.waitForRegistrationCount(1)
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        await gate.open()
+        try await start.value
+        await runtime.stop()
+    }
+
     @Test(arguments: [
         CmxIrohTrustBrokerClientError.rateLimited(
             code: "rate_limited",
