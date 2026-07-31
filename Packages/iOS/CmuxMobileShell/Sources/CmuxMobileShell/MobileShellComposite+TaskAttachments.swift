@@ -19,10 +19,10 @@ extension MobileShellComposite {
         ) {
             return supportedHostCapabilities.contains(Self.taskAttachmentCapability)
         }
-        if let subscription = secondaryMacSubscriptions[macDeviceID],
-           instanceTag == nil
-            || subscription.authenticatedInstanceTag == instanceTag
-            || subscription.storedInstanceTag == instanceTag {
+        if let subscription = controlSubscriptionMatching(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) {
             return subscription.supportedHostCapabilities.contains(
                 Self.taskAttachmentCapability
             )

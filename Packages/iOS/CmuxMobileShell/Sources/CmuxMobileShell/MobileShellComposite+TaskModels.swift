@@ -3,6 +3,32 @@ public import CmuxMobileShellModel
 import Foundation
 
 extension MobileShellComposite {
+    /// Resolves a secondary control subscription for a physical Mac: the
+    /// exact pairing when a tag is given, otherwise any same-device pairing.
+    /// Mirrors the pre-MacPairingKey device-id lookup these capability
+    /// checks were written against.
+    func controlSubscriptionMatching(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> SecondaryMacSubscription? {
+        let probe = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        if probe.normalizedInstanceTag != nil,
+           let exact = secondaryMacSubscriptions[probe] {
+            return exact
+        }
+        for key in secondaryMacSubscriptions.keys
+        where key.canonicalMacDeviceID == probe.canonicalMacDeviceID {
+            guard let subscription = secondaryMacSubscriptions[key] else { continue }
+            if instanceTag == nil
+                || key.normalizedInstanceTag == probe.normalizedInstanceTag
+                || subscription.authenticatedInstanceTag == instanceTag
+                || subscription.storedInstanceTag == instanceTag {
+                return subscription
+            }
+        }
+        return nil
+    }
+
     /// Whether the selected Mac instance advertises task model discovery.
     ///
     /// - Parameters:
@@ -19,10 +45,10 @@ extension MobileShellComposite {
         ) {
             return supportedHostCapabilities.contains(Self.taskModelsCapability)
         }
-        if let subscription = secondaryMacSubscriptions[macDeviceID],
-           instanceTag == nil
-            || subscription.authenticatedInstanceTag == instanceTag
-            || subscription.storedInstanceTag == instanceTag {
+        if let subscription = controlSubscriptionMatching(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) {
             return subscription.supportedHostCapabilities.contains(
                 Self.taskModelsCapability
             )
