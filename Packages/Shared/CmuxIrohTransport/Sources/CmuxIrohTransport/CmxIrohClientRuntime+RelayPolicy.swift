@@ -106,6 +106,7 @@ extension CmxIrohClientRuntime {
             broker: broker,
             managedRelayURLs: replacementManagedURLs,
             selectedRelayURLs: profile.allowedRelayURLs,
+            retrySchedule: .foregroundClient,
             automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             credentialDidInstall: { [handleRelayCredential] response in
                 await handleRelayCredential(response, binding)

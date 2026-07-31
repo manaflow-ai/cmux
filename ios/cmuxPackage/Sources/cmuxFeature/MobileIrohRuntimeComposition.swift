@@ -209,7 +209,19 @@ public final class MobileIrohRuntimeComposition:
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
-    private let startNetworkPathObservation: @Sendable () async -> Void
+    private let startNetworkPathObservation: @Sendable (
+        _ onPathChange: @escaping @Sendable () async -> Void
+    ) async -> Void
+    /// Shared client backoff armed by a failed activation. While armed, dial
+    /// and preparation churn cannot re-run registration, discovery, and
+    /// relay-policy against the broker; field phones wedged in that loop sent
+    /// mutation requests every 2-10 seconds for 40+ hours.
+    private let activationRetryBackoff: CmxIrohReconnectBackoff
+    /// Fresh per-lifecycle ladder for the relay-policy refresh loop, sharing
+    /// the activation ladder's foreground bounds but not its failure streak.
+    private let makeRelayPolicyRefreshBackoff: @Sendable () -> CmxIrohReconnectBackoff
+    private var activationRetryAt: Date?
+    private var activationBackoffAccountID: String?
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     private let lanPeerDiscovery: CmxIrohLANPeerDiscovery?
     /// Shared release-safe event ring. Its event schema has no string payloads,
@@ -396,10 +408,13 @@ public final class MobileIrohRuntimeComposition:
             discoveryCompatibilityPolicy: discoveryCompatibilityPolicy,
             now: { Date() },
             lanPeerDiscovery: lanPeerDiscovery,
-            startNetworkPathObservation: {
+            startNetworkPathObservation: { onPathChange in
                 await networkPathState.start(
                     reachability: reachability,
-                    onPathChange: { await lanPeerDiscovery.pathDidChange() }
+                    onPathChange: {
+                        await lanPeerDiscovery.pathDidChange()
+                        await onPathChange()
+                    }
                 )
             },
             networkPathSnapshot: {
@@ -438,10 +453,16 @@ public final class MobileIrohRuntimeComposition:
         now: @escaping @Sendable () -> Date,
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
-        startNetworkPathObservation: @escaping @Sendable () async -> Void = {},
+        startNetworkPathObservation: @escaping @Sendable (
+            _ onPathChange: @escaping @Sendable () async -> Void
+        ) async -> Void = { _ in },
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
+        activationRetryBackoff: CmxIrohReconnectBackoff? = nil,
+        makeRelayPolicyRefreshBackoff: (
+            @Sendable () -> CmxIrohReconnectBackoff
+        )? = nil,
         diagnosticLog: DiagnosticLog? = nil,
         debugDefaults: UserDefaults? = nil
     ) {
@@ -471,6 +492,10 @@ public final class MobileIrohRuntimeComposition:
         self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
         self.networkPathSnapshot = networkPathSnapshot
+        self.activationRetryBackoff = activationRetryBackoff
+            ?? CmxIrohReconnectBackoff()
+        self.makeRelayPolicyRefreshBackoff = makeRelayPolicyRefreshBackoff
+            ?? { CmxIrohReconnectBackoff() }
         self.diagnosticLog = diagnosticLog
     }
 
@@ -502,7 +527,11 @@ public final class MobileIrohRuntimeComposition:
         authObservationTask?.cancel()
         authObservationTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
-            await self?.startNetworkPathObservation()
+            await self?.startNetworkPathObservation({ [weak self] in
+                // A path change is a fresh network state: the failure streak
+                // that armed the activation backoff belonged to the old path.
+                await self?.clearActivationRetryBackoff()
+            })
             await auth.awaitBootstrapped()
             guard !Task.isCancelled, let self else { return }
             let states = self.authObserver.states(for: auth)
@@ -777,6 +806,9 @@ public final class MobileIrohRuntimeComposition:
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.active.rawValue
         ))
+        // The user is looking at the app: any armed activation backoff resets
+        // to its floor so recovery is immediate rather than mid-nap.
+        clearActivationRetryBackoff()
         guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let auth = auth
@@ -1371,12 +1403,23 @@ public final class MobileIrohRuntimeComposition:
               signOutPhase.allowsLifecycle,
               let targetAccountID,
               runtime == nil else { return }
+        if activationBackoffAccountID != targetAccountID {
+            // A different account never inherits another account's streak.
+            clearActivationRetryBackoff()
+        } else if let activationRetryAt, now() < activationRetryAt {
+            // A recent activation failure armed the client backoff: skip the
+            // broker-bound attempt entirely. scenePhase-active transitions,
+            // network-path changes, and account switches clear the window
+            // immediately, so a real state change always retries at the floor.
+            return
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .endpointStarting,
             a: DiagnosticTransportKind.iroh.rawValue
         ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
+            clearActivationRetryBackoff()
         } catch is CancellationError {
             return
         } catch {
@@ -1388,7 +1431,38 @@ public final class MobileIrohRuntimeComposition:
             mobileIrohLog.error(
                 "Iroh client activation failed: \(String(describing: error), privacy: .private)"
             )
+            armActivationRetryBackoff(accountID: targetAccountID, error: error)
         }
+    }
+
+    /// Arms the shared client backoff after one failed broker-bound activation.
+    ///
+    /// External churn (every dial, discovery, and preparation re-triggers a
+    /// reconcile while no runtime exists) must not translate into broker
+    /// traffic; without a client-side window a wedged phone re-ran
+    /// registration, discovery, and relay-policy every few seconds
+    /// indefinitely. Local precondition deferrals never arm the window: they
+    /// made no broker request and the next reconcile may legitimately retry
+    /// immediately.
+    private func armActivationRetryBackoff(accountID: String, error: any Error) {
+        if (error as? CmxIrohClientRuntimeError) == .inactive { return }
+        let delay = activationRetryBackoff.nextDelay(
+            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
+                .retryAfterSeconds
+        )
+        activationBackoffAccountID = accountID
+        activationRetryAt = now().addingTimeInterval(delay)
+        diagnosticLog?.record(DiagnosticEvent(
+            .retryScheduled,
+            ms: UInt32(clamping: Int(delay * 1_000)),
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+    }
+
+    private func clearActivationRetryBackoff() {
+        activationRetryBackoff.reset()
+        activationRetryAt = nil
+        activationBackoffAccountID = nil
     }
 
     private func activate(accountID: String, revision: UInt64) async throws {
@@ -2390,9 +2464,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             relayPolicyRefreshTask = nil
             return
         }
+        let refreshBackoff = makeRelayPolicyRefreshBackoff()
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
             var retryAt: Date?
-            var failureCount = 0
             var relayAuthorityExpired = false
             while !Task.isCancelled {
                 guard let self,
@@ -2446,7 +2520,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     )
                     try await self.applyRelayPolicy(effective)
                     retryAt = nil
-                    failureCount = 0
+                    refreshBackoff.reset()
                     relayAuthorityExpired = false
                     self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                 } catch {
@@ -2470,13 +2544,13 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule().delay(
-                        failureCount: failureCount,
+                    // The shared foreground ladder replaces the host-profile
+                    // exponential schedule whose 30 s first retry produced the
+                    // observed 32-36 s naps after a single transient blip.
+                    let retryDelay = refreshBackoff.nextDelay(
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
-                            .retryAfterSeconds,
-                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                            .retryAfterSeconds
                     )
-                    failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)
                     self.diagnosticLog?.record(DiagnosticEvent(
                         .retryScheduled,
