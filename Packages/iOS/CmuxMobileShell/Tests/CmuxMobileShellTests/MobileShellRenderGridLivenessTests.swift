@@ -79,6 +79,30 @@ import Testing
 }
 
 @MainActor
+@Test func connectionHealthWaitsForSuccessfulEventSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setHoldSubscribe(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(store.connectionState == .connected)
+    #expect(
+        store.macConnectionStatus == .reconnecting,
+        "RPC readiness alone must not publish a healthy connection"
+    )
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil {
+        store.macConnectionStatus == .connected
+    })
+}
+
+@MainActor
 @Test func renderGridCapableHostUsesHybridTerminalOutputSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

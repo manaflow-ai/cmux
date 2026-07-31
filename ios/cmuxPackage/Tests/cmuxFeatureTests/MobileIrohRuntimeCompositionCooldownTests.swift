@@ -79,7 +79,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
-    func nonRateLimitedFailureKeepsInactiveDialBehavior() async throws {
+    func nonRateLimitedFailureBacksOffAcrossConnectionEntryPoints() async throws {
         let fixture = try await MobileIrohCooldownFixture.make(
             registrationError: MobileIrohCooldownTestError.unavailable
         )
@@ -97,8 +97,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             transportError = error
         }
-        #expect(transportError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((transportError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
+        #expect((transportError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
         let laneError: any Error
         do {
@@ -117,8 +116,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             laneError = error
         }
-        #expect(laneError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((laneError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
+        #expect((laneError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
         let eventStreamError: any Error
         do {
@@ -128,10 +126,16 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         } catch {
             eventStreamError = error
         }
-        #expect(eventStreamError as? CmxIrohClientRuntimeError == .inactive)
-        #expect((eventStreamError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
-        // No cooldown for non-rate-limited failures: each dial retried a
-        // fresh activation and reached the broker again.
+        #expect((eventStreamError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
+        #expect(
+            await fixture.broker.totalRequestCount() == settledRequestCount,
+            "transport, lane, and event-stream callers must share one activation backoff"
+        )
+
+        fixture.clock.advance(by: 31)
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() > settledRequestCount
+        }
         #expect(await fixture.broker.totalRequestCount() > settledRequestCount)
     }
 
