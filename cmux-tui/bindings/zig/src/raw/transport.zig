@@ -85,6 +85,29 @@ pub const Connection = struct {
     }
 };
 
+const Deadline = struct {
+    timer: ?std.time.Timer = null,
+    timeout_ns: u64 = 0,
+
+    fn start(timeout_ms: ?u32) !Deadline {
+        const milliseconds = timeout_ms orelse return .{};
+        return .{
+            .timer = try std.time.Timer.start(),
+            .timeout_ns = @as(u64, milliseconds) * std.time.ns_per_ms,
+        };
+    }
+
+    fn remainingMs(self: *Deadline) !?u32 {
+        const timer = if (self.timer) |*value| value else return null;
+        const elapsed_ns = timer.read();
+        if (elapsed_ns >= self.timeout_ns) return error.Timeout;
+        const remaining_ns = self.timeout_ns - elapsed_ns;
+        return @intCast(
+            (remaining_ns - 1) / std.time.ns_per_ms + 1,
+        );
+    }
+};
+
 const UnixConnection = struct {
     allocator: std.mem.Allocator,
     stream: std.net.Stream,
@@ -164,12 +187,14 @@ fn writeAllWithTimeout(
     bytes: []const u8,
     timeout_ms: ?u32,
 ) !void {
+    var deadline = try Deadline.start(timeout_ms);
     var remaining = bytes;
     while (remaining.len > 0) {
-        try state.waitWritable(timeout_ms);
+        try state.waitWritable(try deadline.remainingMs());
         const written = try state.writeSome(remaining);
         if (written == 0) return error.ConnectionClosed;
         remaining = remaining[written..];
+        _ = try deadline.remainingMs();
     }
 }
 
@@ -177,13 +202,74 @@ pub fn connectUnix(
     allocator: std.mem.Allocator,
     path: []const u8,
 ) !Connection {
+    return connectUnixWithTimeout(allocator, path, null);
+}
+
+pub fn connectUnixWithTimeout(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    timeout_ms: ?u32,
+) !Connection {
     const state = try allocator.create(UnixConnection);
     errdefer allocator.destroy(state);
     state.* = .{
         .allocator = allocator,
-        .stream = try std.net.connectUnixSocket(path),
+        .stream = try connectUnixStream(path, timeout_ms),
     };
     return Connection.from(state);
+}
+
+fn connectUnixStream(
+    path: []const u8,
+    timeout_ms: ?u32,
+) !std.net.Stream {
+    var deadline = try Deadline.start(timeout_ms);
+    const socket = try std.posix.socket(
+        std.posix.AF.UNIX,
+        std.posix.SOCK.STREAM |
+            std.posix.SOCK.CLOEXEC |
+            std.posix.SOCK.NONBLOCK,
+        0,
+    );
+    errdefer std.posix.close(socket);
+    var address = try std.net.Address.initUnix(path);
+    std.posix.connect(
+        socket,
+        &address.any,
+        address.getOsSockLen(),
+    ) catch |failure| switch (failure) {
+        error.WouldBlock, error.ConnectionPending => {
+            var poll_fds = [_]std.posix.pollfd{.{
+                .fd = socket,
+                .events = std.posix.POLL.OUT,
+                .revents = 0,
+            }};
+            const remaining_ms = try deadline.remainingMs();
+            const poll_timeout: i32 = if (remaining_ms) |milliseconds|
+                @intCast(@min(
+                    milliseconds,
+                    @as(u32, std.math.maxInt(i32)),
+                ))
+            else
+                -1;
+            if (try std.posix.poll(&poll_fds, poll_timeout) == 0) {
+                return error.Timeout;
+            }
+            try std.posix.getsockoptError(socket);
+        },
+        error.ConnectionTimedOut => return error.Timeout,
+        else => return failure,
+    };
+    const flags = try std.posix.fcntl(socket, std.posix.F.GETFL, 0);
+    const nonblocking = @as(usize, 1) <<
+        @bitOffsetOf(std.posix.O, "NONBLOCK");
+    _ = try std.posix.fcntl(
+        socket,
+        std.posix.F.SETFL,
+        flags & ~nonblocking,
+    );
+    _ = try deadline.remainingMs();
+    return .{ .handle = socket };
 }
 
 pub fn validateSession(session: []const u8) !void {
