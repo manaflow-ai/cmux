@@ -19,7 +19,12 @@ LOG_PATH = Path(os.environ.get("RESOURCE_LOG", soak_root / "resources.jsonl"))
 STATUS_PATH = Path(os.environ.get("RESOURCE_STATUS", soak_root / "resources.status"))
 IPHONE_SIM_ID = os.environ.get("IPHONE_SIM_ID", "")
 IPAD_SIM_ID = os.environ.get("IPAD_SIM_ID", "")
-MAX_GROWTH_KB = int(os.environ.get("RESOURCE_MAX_GROWTH_KB", "524288"))
+MIN_MEMORY_GROWTH_KB = int(
+    os.environ.get("RESOURCE_MIN_MEMORY_GROWTH_KB", "30720")
+)
+MAX_MEMORY_GROWTH_PERCENT = float(
+    os.environ.get("RESOURCE_MAX_MEMORY_GROWTH_PERCENT", "10")
+)
 MAX_RSS_KB = int(os.environ.get("RESOURCE_MAX_RSS_KB", "1258291"))
 MAX_FD_COUNT = int(os.environ.get("RESOURCE_MAX_FD_COUNT", "4096"))
 MAX_FD_GROWTH = int(os.environ.get("RESOURCE_MAX_FD_GROWTH", "512"))
@@ -161,6 +166,15 @@ def exceeds_absolute_or_growth(
     return current > absolute_limit or (baseline > 0 and maximum - baseline > growth_limit)
 
 
+def memory_growth_limit_kb(
+    *,
+    baseline_kb: int,
+    minimum_kb: int,
+    percent: float,
+) -> int:
+    return max(minimum_kb, round(baseline_kb * percent / 100))
+
+
 def reset_process_baselines(label: str) -> None:
     for values in (
         baseline_rss,
@@ -200,6 +214,11 @@ def write_status(status: str, samples: int, failures: int) -> None:
             "last_rss_kb": last_rss.get(label, 0),
             "max_rss_kb": rss_high,
             "rss_growth_kb": max(0, rss_high - rss_base) if rss_base else 0,
+            "rss_growth_limit_kb": memory_growth_limit_kb(
+                baseline_kb=rss_base,
+                minimum_kb=MIN_MEMORY_GROWTH_KB,
+                percent=MAX_MEMORY_GROWTH_PERCENT,
+            ) if rss_base else 0,
             "baseline_fd_count": fd_base,
             "last_fd_count": last_fd_count.get(label, 0),
             "max_fd_count": fd_high,
@@ -366,6 +385,11 @@ def main() -> int:
             max_thread_count[label] = max(max_thread_count.get(label, thread_count), thread_count)
             cpu_high_streak[label] = cpu_high_streak.get(label, 0) + 1 if cpu > MAX_CPU_PERCENT else 0
             rss_growth = max_rss[label] - baseline_rss[label]
+            rss_growth_limit = memory_growth_limit_kb(
+                baseline_kb=baseline_rss[label],
+                minimum_kb=MIN_MEMORY_GROWTH_KB,
+                percent=MAX_MEMORY_GROWTH_PERCENT,
+            )
             fd_growth = max_fd_count[label] - baseline_fd_count[label]
             thread_growth = max_thread_count[label] - baseline_thread_count[label]
 
@@ -375,7 +399,7 @@ def main() -> int:
                 maximum=max_rss[label],
                 baseline=baseline_rss[label],
                 absolute_limit=MAX_RSS_KB,
-                growth_limit=MAX_GROWTH_KB,
+                growth_limit=rss_growth_limit,
             ):
                 limit_violations.append("rss")
             if exceeds_absolute_or_growth(
@@ -408,6 +432,7 @@ def main() -> int:
                 "baseline_rss_kb": baseline_rss[label],
                 "max_rss_kb": max_rss[label],
                 "rss_growth_kb": rss_growth,
+                "rss_growth_limit_kb": rss_growth_limit,
                 "fd_count": fd_count,
                 "baseline_fd_count": baseline_fd_count[label],
                 "max_fd_count": max_fd_count[label],

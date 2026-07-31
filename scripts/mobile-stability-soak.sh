@@ -225,7 +225,6 @@ if [[ "$profile" == "crash-finder" ]]; then
   mac_surface_churn=3
   mac_notification=9
   resource_interval="${RESOURCE_SAMPLE_INTERVAL:-5}"
-  resource_growth_kb=262144
   mobile_reattach_mode="${MOBILE_REATTACH_MODE:-relaunch}"
 else
   mobile_loop_sleep=5
@@ -241,7 +240,6 @@ else
   mac_surface_churn=20
   mac_notification=60
   resource_interval="${RESOURCE_SAMPLE_INTERVAL:-60}"
-  resource_growth_kb=524288
   mobile_reattach_mode="${MOBILE_REATTACH_MODE:-openurl}"
 fi
 
@@ -293,7 +291,8 @@ screen -dmS "${session_prefix}-macos" bash -lc "
 screen -dmS "${session_prefix}-resources" bash -lc "
   export CMUX_TAG='$tag' SOAK_SECONDS='$seconds' IPHONE_SIM_ID='$iphone_sim_id' IPAD_SIM_ID='$ipad_sim_id'
   export RESOURCE_LOG='$root/resources.jsonl' RESOURCE_STATUS='$root/resources.status'
-  export RESOURCE_SAMPLE_INTERVAL='$resource_interval' RESOURCE_WARMUP_SAMPLES=2 RESOURCE_MAX_GROWTH_KB='$resource_growth_kb'
+  export RESOURCE_SAMPLE_INTERVAL='$resource_interval' RESOURCE_WARMUP_SAMPLES=2
+  export RESOURCE_MIN_MEMORY_GROWTH_KB=30720 RESOURCE_MAX_MEMORY_GROWTH_PERCENT=10
   export RESOURCE_FAIL_ON_PID_CHANGE=1
   export RESOURCE_PID_CHANGE_ALLOWED_LABELS='$resource_pid_change_allowed_labels'
   export RESOURCE_STARTUP_GRACE_SECONDS=120
