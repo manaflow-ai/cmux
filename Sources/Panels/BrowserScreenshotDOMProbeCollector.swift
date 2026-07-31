@@ -8,15 +8,18 @@ import WebKit
 final class BrowserScreenshotDOMProbeCollector {
     private weak var webView: WKWebView?
     private let animationFrameTimeout: TimeInterval
+    private let synchronizationJavaScriptTimeout: TimeInterval
     private let javaScriptTimeout: TimeInterval
 
     init(
         webView: WKWebView,
         animationFrameTimeout: TimeInterval = 1,
+        synchronizationJavaScriptTimeout: TimeInterval = 1,
         javaScriptTimeout: TimeInterval = 1
     ) {
         self.webView = webView
         self.animationFrameTimeout = animationFrameTimeout
+        self.synchronizationJavaScriptTimeout = synchronizationJavaScriptTimeout
         self.javaScriptTimeout = javaScriptTimeout
     }
 
@@ -30,7 +33,11 @@ final class BrowserScreenshotDOMProbeCollector {
             if waitForAnimationFrame {
                 try await waitForAnimationFrames(in: webView)
             } else {
-                _ = try await evaluate(layoutFlushScript, in: webView)
+                _ = try await evaluate(
+                    layoutFlushScript,
+                    in: webView,
+                    timeout: synchronizationJavaScriptTimeout
+                )
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -51,7 +58,11 @@ final class BrowserScreenshotDOMProbeCollector {
     func collect() async -> BrowserScreenshotProbeSet? {
         guard let webView else { return nil }
         do {
-            guard let value = try await evaluate(probeScript, in: webView)
+            guard let value = try await evaluate(
+                probeScript,
+                in: webView,
+                timeout: javaScriptTimeout
+            )
                 as? [String: Any] else {
                 return nil
             }
@@ -174,10 +185,14 @@ final class BrowserScreenshotDOMProbeCollector {
         ).wait(script: animationFrameFlushScript)
     }
 
-    private func evaluate(_ script: String, in webView: WKWebView) async throws -> Any? {
+    private func evaluate(
+        _ script: String,
+        in webView: WKWebView,
+        timeout: TimeInterval
+    ) async throws -> Any? {
         try await BrowserScreenshotJavaScriptRequest(
             webView: webView,
-            timeout: javaScriptTimeout
+            timeout: timeout
         ).evaluate(script: script)
     }
 

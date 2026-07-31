@@ -42,6 +42,7 @@ struct BrowserScreenshotCaptureService {
         let probeCollector = BrowserScreenshotDOMProbeCollector(
             webView: webView,
             animationFrameTimeout: timingBudget.synchronizationAllowance,
+            synchronizationJavaScriptTimeout: timingBudget.synchronizationAllowance,
             javaScriptTimeout: timingBudget.probeCollectionAllowance
         )
         self.init(

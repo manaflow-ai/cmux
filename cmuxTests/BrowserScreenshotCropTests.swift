@@ -239,17 +239,17 @@ struct BrowserScreenshotCropTests {
             expectedURLAllowance: 2,
             preparationJavaScriptAllowance: 3,
             leaseOverheadAllowance: 10,
-            probeCollectionAllowance: 4,
-            synchronizationAllowance: 5,
+            probeCollectionAllowance: 5,
+            synchronizationAllowance: 4,
             snapshotCompletionAllowance: 6,
             socketDeliveryAllowance: 7,
             livenessProbeAllowance: 8,
             clientDeliveryAllowance: 9
         )
 
-        #expect(budget.captureLeaseTimeout == 72)
-        #expect(budget.socketResponseTimeout == 79)
-        #expect(budget.clientResponseTimeout == 96)
+        #expect(budget.captureLeaseTimeout == 75)
+        #expect(budget.socketResponseTimeout == 82)
+        #expect(budget.clientResponseTimeout == 99)
     }
 
     @Test
