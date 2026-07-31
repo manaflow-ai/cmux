@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Client, CmuxTimeoutError, sessionId } from "../src/index.js";
+import {
+  Client,
+  CmuxAbortError,
+  CmuxConnectionError,
+  CmuxTimeoutError,
+  sessionId,
+  workspaceId,
+} from "../src/index.js";
 import {
   WebSocketTransport,
   type WebSocketConstructor,
@@ -51,6 +58,7 @@ const Constructor = FakeWebSocket as unknown as WebSocketConstructor;
 const ResourceConstructor =
   FakeWebSocket as unknown as ResourceWebSocketConstructor;
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
+const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 
 test("WebSocketTransport pairs before flushing queued protocol frames", () => {
   const challenges: string[] = [];
@@ -245,6 +253,52 @@ test("resource WebSocket drops a stream open that expires before pairing", async
   client.close();
 });
 
+test("resource WebSocket keeps a queued mutation timeout determinate", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => "d".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("queued", { timeoutMs: 10 });
+
+  socket.open();
+  await assert.rejects(() => renaming, CmuxTimeoutError);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
+test("resource WebSocket keeps a queued mutation abort determinate", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => "e".repeat(32),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const controller = new AbortController();
+  const renaming = client
+    .session(RESOURCE_SESSION)
+    .workspace(RESOURCE_WORKSPACE)
+    .rename("queued", { signal: controller.signal });
+
+  socket.open();
+  controller.abort();
+  await assert.rejects(() => renaming, CmuxAbortError);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  client.close();
+});
+
 test("resource WebSocket flushes queued frames before a reentrant paired callback", () => {
   let transport!: ResourceWebSocketTransport;
   transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
@@ -290,6 +344,35 @@ test("resource WebSocket preserves paired state when the credential callback thr
     "after-callback",
   ]);
   transport.close();
+});
+
+test("resource WebSocket publishes close when authentication rejection callback throws", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    authToken: "expired",
+    onAuthenticationRejected: () => {
+      throw new Error("rejection observer failed");
+    },
+  });
+  const client = new Client({ transport, timeoutMs: 0 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const ping = client.session(RESOURCE_SESSION).ping();
+
+  socket.open();
+  assert.throws(() => socket.rejectAuthentication(), /rejection observer failed/);
+  try {
+    await assert.rejects(
+      Promise.race([
+        ping,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("request remained pending")), 50);
+        }),
+      ]),
+      CmuxConnectionError,
+    );
+  } finally {
+    client.close();
+  }
 });
 
 test("WebSocket resource streams outlive their acknowledged open deadline", async () => {
