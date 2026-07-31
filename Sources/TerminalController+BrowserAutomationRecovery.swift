@@ -96,35 +96,8 @@ extension TerminalController {
                             return
                         }
                         finish((webViewIdentifier, .success(data)))
-                    case .failure(let error as BrowserScreenshotError):
-                        switch error {
-                        case .automationTimedOut:
-                            finish((webViewIdentifier, .timedOut))
-                        case .renderedContentMismatch:
-                            finish((
-                                webViewIdentifier,
-                                .failure(
-                                    code: "screenshot_mismatch",
-                                    message: error.localizedDescription
-                                )
-                            ))
-                        default:
-                            finish((
-                                webViewIdentifier,
-                                .failure(
-                                    code: "internal_error",
-                                    message: error.localizedDescription
-                                )
-                            ))
-                        }
                     case .failure(let error):
-                        finish((
-                            webViewIdentifier,
-                            .failure(
-                                code: "internal_error",
-                                message: error.localizedDescription
-                            )
-                        ))
+                        finish((webViewIdentifier, .captureFailure(error)))
                     }
                 }
             }

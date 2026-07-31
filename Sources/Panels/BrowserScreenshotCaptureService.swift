@@ -73,9 +73,11 @@ struct BrowserScreenshotCaptureService {
             await synchronize(attempt > 1)
             try Task.checkCancellation()
             let before = await collectProbes()
+            try Task.checkCancellation()
             let image = try await snapshot()
             try Task.checkCancellation()
             let after = await collectProbes()
+            try Task.checkCancellation()
 
             guard let before,
                   let after,

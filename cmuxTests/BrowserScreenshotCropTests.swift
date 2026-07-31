@@ -273,6 +273,78 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func javaScriptRequestCancellationResumesExactlyOnce() async throws {
+        var evaluationCompletion: (
+            @MainActor (Result<Any?, Error>) -> Void
+        )?
+        let request = BrowserScreenshotJavaScriptRequest(
+            timeout: 60,
+            startEvaluation: { _, completion in
+                evaluationCompletion = completion
+            }
+        )
+        let task = Task { @MainActor in
+            try await request.evaluate(script: "return true;")
+        }
+        for _ in 0..<100 where evaluationCompletion == nil {
+            await Task.yield()
+        }
+        let completeEvaluation = try #require(evaluationCompletion)
+
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+
+        completeEvaluation(.success(true))
+        completeEvaluation(.failure(NSError(domain: "late", code: 1)))
+    }
+
+    @Test
+    func javaScriptRequestDeadlineBoundsMissingWebKitCallback() async {
+        let request = BrowserScreenshotJavaScriptRequest(
+            timeout: 0,
+            startEvaluation: { _, _ in }
+        )
+
+        await #expect(throws: NSError.self) {
+            try await request.evaluate(script: "return true;")
+        }
+    }
+
+    @Test
+    func screenshotCaptureFailurePreservesWireErrorCodes() {
+        let mismatch = BrowserScreenshotError.renderedContentMismatch(
+            rect: NSRect(x: 1, y: 2, width: 3, height: 4),
+            attempts: 2,
+            mismatchCount: 2
+        )
+        let cases: [
+            (error: Error, expectedCode: String?, expectedTimedOut: Bool)
+        ] = [
+            (BrowserScreenshotError.automationTimedOut, nil, true),
+            (mismatch, "screenshot_mismatch", false),
+            (BrowserScreenshotError.captureAreaTooLarge, "internal_error", false),
+            (NSError(domain: "test", code: 1), "internal_error", false),
+        ]
+
+        for item in cases {
+            let result = BrowserAutomationSnapshotResult.captureFailure(item.error)
+            switch result {
+            case .success:
+                Issue.record("Capture failure unexpectedly produced image data")
+            case .failure(let code, let message):
+                #expect(!item.expectedTimedOut)
+                #expect(code == item.expectedCode)
+                #expect(!message.isEmpty)
+            case .timedOut:
+                #expect(item.expectedTimedOut)
+                #expect(item.expectedCode == nil)
+            }
+        }
+    }
+
+    @Test
     func verifiedCaptureRetriesAFrameWithMultipleBlankTextProbes() async throws {
         var captureCount = 0
         var synchronizationRetries: [Bool] = []
@@ -883,7 +955,9 @@ struct BrowserScreenshotCropTests {
               });
               return document.fonts.status;
             })();
-            """
+            """,
+            in: nil,
+            in: .defaultClient
         ) as? String
         #expect(fontStatus == "loading")
         let pendingFontValue = await BrowserScreenshotDOMProbeCollector(

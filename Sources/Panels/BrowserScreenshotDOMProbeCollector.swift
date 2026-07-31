@@ -8,10 +8,16 @@ import WebKit
 final class BrowserScreenshotDOMProbeCollector {
     private weak var webView: WKWebView?
     private let animationFrameTimeout: TimeInterval
+    private let javaScriptTimeout: TimeInterval
 
-    init(webView: WKWebView, animationFrameTimeout: TimeInterval = 1) {
+    init(
+        webView: WKWebView,
+        animationFrameTimeout: TimeInterval = 1,
+        javaScriptTimeout: TimeInterval = 1
+    ) {
         self.webView = webView
         self.animationFrameTimeout = animationFrameTimeout
+        self.javaScriptTimeout = javaScriptTimeout
     }
 
     func synchronize(waitForAnimationFrame: Bool) async {
@@ -22,10 +28,7 @@ final class BrowserScreenshotDOMProbeCollector {
             await waitForAnimationFrames(in: webView)
         } else {
             do {
-                _ = try await webView.evaluateJavaScript(
-                    layoutFlushScript,
-                    contentWorld: .defaultClient
-                )
+                _ = try await evaluate(layoutFlushScript, in: webView)
             } catch {
 #if DEBUG
                 cmuxDebugLog("browser.screenshot.synchronize.failed error=\(error.localizedDescription)")
@@ -39,10 +42,8 @@ final class BrowserScreenshotDOMProbeCollector {
     func collect() async -> BrowserScreenshotProbeSet? {
         guard let webView else { return nil }
         do {
-            guard let value = try await webView.evaluateJavaScript(
-                probeScript,
-                contentWorld: .defaultClient
-            ) as? [String: Any] else {
+            guard let value = try await evaluate(probeScript, in: webView)
+                as? [String: Any] else {
                 return nil
             }
             return probeSet(from: value)
@@ -162,6 +163,13 @@ final class BrowserScreenshotDOMProbeCollector {
             webView: webView,
             timeout: animationFrameTimeout
         ).wait(script: animationFrameFlushScript)
+    }
+
+    private func evaluate(_ script: String, in webView: WKWebView) async throws -> Any? {
+        try await BrowserScreenshotJavaScriptRequest(
+            webView: webView,
+            timeout: javaScriptTimeout
+        ).evaluate(script: script)
     }
 
     private var animationFrameFlushScript: String {
