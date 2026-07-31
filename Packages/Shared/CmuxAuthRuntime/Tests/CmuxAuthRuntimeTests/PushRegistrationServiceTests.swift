@@ -6,7 +6,7 @@ import Testing
 final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
     // Mutations are serialized by the URL loading system; a lock-free actor
     // box keeps captured requests for assertions.
-    nonisolated(unsafe) static let recorder = RequestRecorder()
+    static let recorder = RequestRecorder()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -863,16 +863,17 @@ actor RetryDelayRecorder {
 
         let requests = await PushRegistrationURLProtocol.script.requests
         #expect(
+            requests.map(\.httpMethod)
+                == ["POST", "POST", "DELETE", "POST"]
+        )
+        #expect(
             requests.map {
-                (
-                    $0.httpMethod,
-                    $0.value(forHTTPHeaderField: "Authorization")
-                )
+                $0.value(forHTTPHeaderField: "Authorization")
             } == [
-                ("POST", "Bearer a-access"),
-                ("POST", "Bearer b-access"),
-                ("DELETE", "Bearer a-access"),
-                ("POST", "Bearer b-access"),
+                "Bearer a-access",
+                "Bearer b-access",
+                "Bearer a-access",
+                "Bearer b-access",
             ]
         )
         #expect(
