@@ -3265,6 +3265,94 @@ mod unix {
     mod tests {
         use super::*;
 
+        #[derive(Debug)]
+        struct ExitTestKiller;
+
+        impl ChildKiller for ExitTestKiller {
+            fn kill(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self)
+            }
+        }
+
+        struct ExitTestMaster;
+
+        impl MasterPty for ExitTestMaster {
+            fn resize(&self, _size: PtySize) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            fn get_size(&self) -> anyhow::Result<PtySize> {
+                Ok(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            }
+
+            fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+                Ok(Box::new(std::io::empty()))
+            }
+
+            fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+                Ok(Box::new(std::io::sink()))
+            }
+
+            fn process_group_leader(&self) -> Option<libc::pid_t> {
+                None
+            }
+
+            fn as_raw_fd(&self) -> Option<RawFd> {
+                None
+            }
+
+            fn tty_name(&self) -> Option<PathBuf> {
+                None
+            }
+        }
+
+        fn exited_host_fixture() -> Arc<HostShared> {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let (parser_commands, _parser_receiver) = sync_channel(1);
+            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
+            Arc::new(HostShared {
+                terminal_id: TerminalId::random().unwrap(),
+                incarnation: HostIncarnation::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+                capabilities: CapabilityStore::new(1),
+                term: Mutex::new(term),
+                writer: Mutex::new(Box::new(std::io::sink())),
+                master: Mutex::new(Box::new(ExitTestMaster)),
+                killer: Mutex::new(Box::new(ExitTestKiller)),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+                size: Mutex::new((80, 24)),
+                viewer_sizes: Mutex::new(HashMap::new()),
+                taps: Mutex::new(HashMap::new()),
+                broadcast_lock: Mutex::new(()),
+                sequence: AtomicU64::new(0),
+                smart: SmartStreamState::new(),
+                source_order_lock: Mutex::new(()),
+                parser_commands,
+                parser_budget: ParserBudget::new(1),
+                next_client: AtomicU64::new(1),
+                dead: AtomicBool::new(false),
+                launch_owner_claimed: AtomicBool::new(true),
+                launch_owner_stream_ready: AtomicBool::new(true),
+                launch_owner_completed: AtomicBool::new(false),
+                child_exit: (Mutex::new(true), Condvar::new()),
+                child_waitable: AtomicBool::new(true),
+                pty_drained: AtomicBool::new(true),
+                exit_published: AtomicBool::new(false),
+                force_pty_drain: AtomicBool::new(false),
+                pty_drain_waker: Mutex::new(pty_drain_waker),
+                termination_started: AtomicBool::new(false),
+                child_signal_lock: Mutex::new(()),
+                child_reaped: AtomicBool::new(true),
+                group_escalation_complete: AtomicBool::new(false),
+            })
+        }
+
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -3538,6 +3626,61 @@ mod unix {
             let live = receiver.recv().unwrap();
             assert_eq!((live.sequence, live.payload), (2, b"live".to_vec()));
             assert!(receiver.try_recv().is_err(), "attach duplicated a retained frame");
+        }
+
+        #[test]
+        fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
+            let host = exited_host_fixture();
+            let exit_host = host.clone();
+            let term = host.term.lock().unwrap();
+            let smart_publication = host.smart.broadcast_lock.lock().unwrap();
+            assert!(!host.dead.load(Ordering::Acquire));
+
+            let exit = thread::spawn(move || exit_host.publish_exit_if_drained());
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                match host.source_order_lock.try_lock() {
+                    Ok(source_order) => {
+                        drop(source_order);
+                        assert!(Instant::now() < deadline, "Exit did not reach publication");
+                        thread::yield_now();
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => break,
+                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                }
+            }
+            // Once Exit owns source ordering, the old implementation is
+            // runnable and only a few uncontended operations from `dead =
+            // true`. Give it a generous scheduling window so this regression
+            // cannot pass merely because that thread was preempted after the
+            // lock probe. The fixed implementation remains blocked on `term`.
+            let transition_deadline = Instant::now() + Duration::from_secs(1);
+            while !host.dead.load(Ordering::Acquire) && Instant::now() < transition_deadline {
+                thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                !host.dead.load(Ordering::Acquire),
+                "Exit bypassed the terminal snapshot lock after the attach dead check"
+            );
+
+            drop(smart_publication);
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(4);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+            assert_eq!(host.smart.subscribe(7, tap).unwrap(), 0);
+            drop(term);
+            exit.join().unwrap();
+
+            assert!(host.dead.load(Ordering::Acquire));
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 1);
+            let exit = receiver.recv().unwrap();
+            assert_eq!((exit.kind, exit.sequence), (MessageKind::Exit, 1));
+            assert!(receiver.try_recv().is_err(), "attach received Exit more than once");
         }
 
         #[test]
