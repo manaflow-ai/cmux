@@ -16,7 +16,11 @@ final class BrowserScreenshotAnimationFrameWaiter {
     private var isCancelled = false
 
     init(webView: WKWebView, timeout: TimeInterval) {
-        self.startFrame = { script, completion in
+        self.startFrame = { [weak webView] script, completion in
+            guard let webView else {
+                completion(nil)
+                return
+            }
             webView.callAsyncJavaScript(
                 script,
                 arguments: [:],
