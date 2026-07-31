@@ -260,7 +260,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
 }
 
 #[test]
-fn newer_workspace_schema_failure_reports_paths_and_recovery_commands() {
+fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     let dir = unique_temp_dir("newer-workspace-schema-recovery");
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("future session.sock");
@@ -310,22 +310,45 @@ fn newer_workspace_schema_failure_reports_paths_and_recovery_commands() {
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(english.contains(&format!("state database: {}", database.display())), "{english}");
     assert!(
-        english.contains(&format!(
-            "cmux --socket '{}' session current shutdown --force",
-            socket.display()
-        )),
+        english.contains("no server is listening on this socket; nothing needs to be stopped"),
         "{english}"
     );
-    assert!(english.contains("stopping the server does not downgrade"), "{english}");
+    assert!(!english.contains("session current shutdown --force"), "{english}");
+    assert!(english.contains("saved state still requires a newer cmux"), "{english}");
     assert!(english.contains(&format!("--session '{session}-schema{supported}'")), "{english}");
+
+    #[cfg(unix)]
+    {
+        let listener = UnixListener::bind(&socket).unwrap();
+        let live_server = launch("C");
+        assert!(!live_server.status.success());
+        let live_server = String::from_utf8(live_server.stderr).unwrap();
+        assert!(
+            live_server.contains(&format!(
+                "cmux --socket '{}' session current shutdown --force",
+                socket.display()
+            )),
+            "{live_server}"
+        );
+        assert!(
+            !live_server
+                .contains("no server is listening on this socket; nothing needs to be stopped"),
+            "{live_server}"
+        );
+        drop(listener);
+    }
 
     let japanese = launch("ja_JP.UTF-8");
     assert!(!japanese.status.success());
     let japanese = String::from_utf8(japanese.stderr).unwrap();
     assert!(japanese.contains("セッションソケット:"), "{japanese}");
     assert!(japanese.contains("状態データベース:"), "{japanese}");
-    assert!(japanese.contains("session current shutdown --force"), "{japanese}");
-    assert!(japanese.contains("停止しても保存状態のスキーマは変更されません"), "{japanese}");
+    assert!(
+        japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
+        "{japanese}"
+    );
+    assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
+    assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
 
     fs::remove_dir_all(dir).unwrap();
 }
