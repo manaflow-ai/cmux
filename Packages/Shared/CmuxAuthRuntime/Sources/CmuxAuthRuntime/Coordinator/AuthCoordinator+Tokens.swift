@@ -206,16 +206,26 @@ extension AuthCoordinator {
     /// owns the store closes that window at both ends of the token read.
     ///
     /// - Returns: The pinned generation, account id, and both tokens.
-    /// - Throws: ``AuthError/unauthorized`` when no account is signed in, a
-    ///   session transition is active, or the session changed mid-read;
-    ///   otherwise the same token errors as ``coherentTokenPair()``.
+    /// - Throws: ``AuthError/networkError`` while a session transition
+    ///   (launch or foreground revalidation, sign-in restore) owns the token
+    ///   store — the same signed-in session serves the pair the moment the
+    ///   transition completes, so the caller retries instead of treating the
+    ///   window as signed out; ``AuthError/unauthorized`` when no account is
+    ///   signed in or the session changed mid-read; otherwise the same token
+    ///   errors as ``coherentTokenPair()``.
     public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
         await awaitBootstrapped()
         guard isAuthenticated,
-              !sessionTokenTransitionIsActive,
               let accountID = currentUser?.id,
               !accountID.isEmpty else {
             throw AuthError.unauthorized
+        }
+        // A transition-owned token store is transient: every foreground return
+        // revalidates the session over the network, and classifying that
+        // window as unauthorized made the iroh broker source fail closed on
+        // every app launch. Match `accessToken()`'s classification.
+        guard !sessionTokenTransitionIsActive else {
+            throw AuthError.networkError
         }
         let generation = sessionGeneration
         // Read both tokens as one coherent pair so a concurrent force refresh
@@ -223,9 +233,11 @@ extension AuthCoordinator {
         // separately-read `currentTokens()` cannot make that guarantee.
         let tokens = try await coherentTokenPair()
         guard sessionGeneration == generation,
-              !sessionTokenTransitionIsActive,
               currentUser?.id == accountID else {
             throw AuthError.unauthorized
+        }
+        guard !sessionTokenTransitionIsActive else {
+            throw AuthError.networkError
         }
         return AuthenticatedSessionSnapshot(
             generation: generation,
