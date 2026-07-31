@@ -4,7 +4,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileRPC
-import CmuxMobileShell
+@testable import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileTransport
 import CryptoKit
@@ -94,12 +94,37 @@ struct MobileIrohRuntimeCompositionTests {
     #if DEBUG
     #if targetEnvironment(simulator)
     @Test
-    func unsignedSimulatorTreatsSeededDeviceIdentityAsSameDeviceEvidence() {
-        let probe = MobileIrohDevelopmentFileEvidenceProbe(
-            bundleIdentifier: "dev.cmux.ios.simulator-identity-regression"
+    func unsignedSimulatorAdoptsLauncherSeedWithoutIdentityFile() throws {
+        let suiteName = "cmux-simulator-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let seededID = UUID().uuidString.lowercased()
+        defaults.set(seededID, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let bundleIdentifier = "dev.cmux.ios.simulator-identity-\(UUID().uuidString)"
+        let identityDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+            .appendingPathComponent("iroh-debug", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("identity", isDirectory: true)
+        #expect(
+            CmxIrohDevelopmentFileIdentityStore(directory: identityDirectory)
+                .containsAnyRecord() == false
         )
 
-        #expect(probe.probe() == .present)
+        let probe = MobileIrohDevelopmentFileEvidenceProbe(
+            bundleIdentifier: bundleIdentifier
+        )
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: UnavailableSimulatorDeviceIdentityStore(),
+            defaults: defaults,
+            deviceWitness: nil,
+            evidence: probe
+        )
+
+        #expect(resolved == seededID)
     }
     #endif
 
@@ -1071,6 +1096,13 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(await source.credentialPair() == nil)
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+private struct UnavailableSimulatorDeviceIdentityStore: DeviceIdentityStoring {
+    func read() -> DeviceIdentityReadResult { .unavailable }
+    func createOrAdopt(_: String) -> String? { nil }
+}
+#endif
 
 private actor MobileIrohTerminalLaneSendStream: CmxIrohSendStream {
     private var sentFrames: [Data] = []
