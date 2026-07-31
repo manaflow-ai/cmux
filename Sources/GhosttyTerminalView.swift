@@ -7868,15 +7868,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            if let terminalSurface {
-                terminalSurface.recordHumanPromptInput(.unknown)
+            guard let terminalSurface,
+                  terminalSurface.sendText(text) else {
+                return false
             }
-            terminalSurface?.sendText(text)
+            terminalSurface.recordHumanPromptInput(.unknown)
             return true
         case .fileURLs(let fileURLs):
-            if let terminalSurface {
-                terminalSurface.recordHumanPromptInput(.unknown)
-            }
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget(),
