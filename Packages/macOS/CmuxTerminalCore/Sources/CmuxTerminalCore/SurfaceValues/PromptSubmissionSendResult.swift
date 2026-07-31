@@ -11,8 +11,6 @@ public enum PromptSubmissionSendResult: Equatable, Sendable {
     case unknownKey
     /// The pending-input queue is at capacity.
     case inputQueueFull
-    /// Hook attribution is at capacity, so safe delivery was not attempted.
-    case submissionUnavailable
     /// No runtime surface exists and none can be started.
     case surfaceUnavailable
     /// The surface's child process already exited.
@@ -23,8 +21,8 @@ public enum PromptSubmissionSendResult: Equatable, Sendable {
         switch self {
         case .sent, .queued:
             true
-        case .composerBusy, .unknownKey, .inputQueueFull,
-             .submissionUnavailable, .surfaceUnavailable, .processExited:
+        case .composerBusy, .unknownKey, .inputQueueFull, .surfaceUnavailable,
+             .processExited:
             false
         }
     }

@@ -17,7 +17,7 @@ public enum PendingSocketInput: Sendable {
         text: Data,
         submitKey: PendingKeyEvent,
         hookRecordingSource: String?,
-        hookConfirmsHumanInput: Bool
+        hookConfirmedHumanInputGeneration: UInt64?
     )
 
     /// The byte cost this entry contributes to the pending-input budget.

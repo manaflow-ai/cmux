@@ -5839,9 +5839,10 @@ class TerminalController {
             }
         case .stop:
             let assistantFinalMessage = event.assistantFinalMessage
-            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
-                guard let self,
-                      let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
+            v2MainSync {
+                guard let workspaceId = v2UUIDAny(rawWorkspaceId) else {
+                    return
+                }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
                 _ = tabManager.handleAssistantFinalMessage(
                     workspaceId: workspaceId,

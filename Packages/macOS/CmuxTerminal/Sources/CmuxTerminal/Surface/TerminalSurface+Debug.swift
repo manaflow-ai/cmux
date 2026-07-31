@@ -186,6 +186,17 @@ extension TerminalSurface {
         )
     }
 
+    /// Pending compound-prompt bodies in queue order (test hook).
+    @MainActor
+    public func debugPendingPromptSubmissionTextsForTesting() -> [String] {
+        pendingSocketInputQueue.compactMap { item in
+            guard case .promptSubmission(let text, _, _, _) = item else {
+                return nil
+            }
+            return String(decoding: text, as: UTF8.self)
+        }
+    }
+
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     public func releaseSurfaceForTesting() {

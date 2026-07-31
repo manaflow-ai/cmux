@@ -61,7 +61,7 @@ struct TerminalSurfaceExplicitInputTests {
     @Test func promptSubmissionRejectsWithoutChangingARecordedHumanDraft() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
-        fixture.surface.recordHumanPromptInput(maySubmitPrompt: false)
+        fixture.surface.recordHumanPromptInput(.unknown)
 
         #expect(
             fixture.surface.sendPromptSubmission(
@@ -76,30 +76,21 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
-    @Test func promptSubmissionRejectsBeforeQueueingWhenAttributionIsFull() {
+    @Test func emptyPromptStillQueuesItsSubmitKeyAsACompoundItem() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        for index in 0..<64 {
-            #expect(
-                fixture.surface.sendPromptSubmission(
-                    "prompt \(index)",
-                    submitKey: "return",
-                    hookRecordingSource: "workspace.agent_submit"
-                ) == .queued
-            )
-        }
-
         #expect(
             fixture.surface.sendPromptSubmission(
-                "overflow",
+                "",
                 submitKey: "return",
                 hookRecordingSource: "workspace.agent_submit"
-            ) == .submissionUnavailable
+            ) == .queued
         )
-        #expect(
-            fixture.surface.debugPendingSocketInputForTesting().items == 64
-        )
+        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
+        #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {

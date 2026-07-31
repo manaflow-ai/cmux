@@ -4,7 +4,7 @@ extension TerminalController {
     nonisolated static var agentPromptComposerBusyMessage: String {
         String(
             localized: "socket.workspace.agentSubmit.composerBusy",
-            defaultValue: "The agent composer contains human input. The draft was left unchanged; retry after it is submitted."
+            defaultValue: "The agent composer may contain human input. It was left unchanged; retry after the human submits it or the agent restarts."
         )
     }
 
@@ -91,6 +91,8 @@ extension TerminalController {
                     "workspace_id": workspaceID.uuidString,
                     "surface_id": surfaceID.uuidString,
                     "retryable": true,
+                    "retry_after":
+                        "human_prompt_submit_or_agent_restart",
                 ]
             )
         case .workspaceNotFound(let workspaceID):
@@ -178,19 +180,6 @@ extension TerminalController {
                 data: [
                     "workspace_id": workspaceID.uuidString,
                     "surface_id": surfaceID.uuidString,
-                ]
-            )
-        case .submissionUnavailable(let workspaceID, let surfaceID):
-            return .err(
-                code: "submission_unavailable",
-                message: String(
-                    localized: "socket.workspace.agentSubmit.unavailable",
-                    defaultValue: "The workspace cannot accept this submission right now."
-                ),
-                data: [
-                    "workspace_id": workspaceID.uuidString,
-                    "surface_id": surfaceID.uuidString,
-                    "retryable": true,
                 ]
             )
         }

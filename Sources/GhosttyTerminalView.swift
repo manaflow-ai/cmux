@@ -4549,7 +4549,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
-        terminalSurface?.recordHumanPromptInput(maySubmitPrompt: false)
+        terminalSurface?.recordHumanPromptInput(.unknown)
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -5665,15 +5665,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// This does not infer that the composer is empty. Only a later structured
     /// `UserPromptSubmit` hook can confirm the boundary; missing an
     /// agent-specific submit chord therefore stays fail-closed.
-    private func keyCanBoundHumanPromptSubmission(_ event: NSEvent) -> Bool {
-        guard event.keyCode == UInt16(kVK_Return)
-                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
-            return false
+    private func humanPromptInputMutation(
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> HumanPromptInputMutation {
+        guard !hasMarkedText() else { return .unknown }
+        let flags = event.modifierFlags.intersection(
+            .deviceIndependentFlagsMask
+        )
+        if (event.keyCode == UInt16(kVK_Return)
+                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter)),
+           !flags.contains(.shift),
+           !flags.contains(.option),
+           !flags.contains(.command) {
+            return ghosttyBindingFlags(for: event, surface: surface) == nil
+                ? .submissionBoundary
+                : .unknown
         }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return !flags.contains(.shift)
-            && !flags.contains(.option)
-            && !flags.contains(.command)
+        if event.keyCode == UInt16(kVK_Delete),
+           !flags.contains(.control),
+           !flags.contains(.option),
+           !flags.contains(.command) {
+            // A binding can replace Backspace with arbitrary terminal input,
+            // so exact draft-length tracking is safe only when Ghostty will
+            // encode the key normally.
+            return ghosttyBindingFlags(for: event, surface: surface) == nil
+                ? .backspace
+                : .unknown
+        }
+        guard !flags.contains(.control),
+              !flags.contains(.option),
+              !flags.contains(.command),
+              let characters = event.characters,
+              !characters.isEmpty,
+              !characters.unicodeScalars.contains(where: {
+                  CharacterSet.controlCharacters.contains($0)
+              }) else {
+            return .unknown
+        }
+        // Printable keys can also be remapped to multi-character text or an
+        // editor action; retain exact length only for ordinary key encoding.
+        return ghosttyBindingFlags(for: event, surface: surface) == nil
+            ? .insert(characterCount: characters.count)
+            : .unknown
     }
 
     override func keyDown(with event: NSEvent) {
@@ -5766,13 +5800,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
-        let mayBoundHumanPromptSubmission =
-            keyCanBoundHumanPromptSubmission(event)
         // Any key forwarded to the terminal can mutate an agent composer:
         // history navigation, control bindings, and user-defined Ghostty
         // bindings are not limited to printable text. Track them fail-closed.
         terminalSurface?.recordHumanPromptInput(
-            maySubmitPrompt: mayBoundHumanPromptSubmission
+            humanPromptInputMutation(for: event, surface: surface)
         )
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
@@ -7850,15 +7882,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.recordHumanPromptInput(
-                maySubmitPrompt: false
-            )
+            terminalSurface?.recordHumanPromptInput(.unknown)
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
-            terminalSurface?.recordHumanPromptInput(
-                maySubmitPrompt: false
-            )
+            terminalSurface?.recordHumanPromptInput(.unknown)
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget(),
@@ -12165,7 +12193,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        terminalSurface?.recordHumanPromptInput(maySubmitPrompt: false)
+        terminalSurface?.recordHumanPromptInput(.unknown)
         terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()

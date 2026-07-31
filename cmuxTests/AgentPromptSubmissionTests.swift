@@ -10,13 +10,12 @@ import Testing
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
     @Test func concurrentSubmissionsToOneWorkspaceStayIntactAndFIFO() async {
-        let workspaceID = UUID()
-        let surfaceID = UUID()
         let controller = await MainActor.run { TerminalController.shared }
-        let probe = AgentPromptTransactionProbe(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID
-        )
+        let probe = await MainActor.run {
+            let panel = TerminalPanel(workspaceId: UUID())
+            panel.surface.releaseSurfaceForTesting()
+            return AgentPromptTransactionProbe(surface: panel.surface)
+        }
         let first = Task.detached {
             controller.v2MainSync {
                 probe.deliver("first", waitsForRelease: true)
@@ -39,19 +38,14 @@ struct AgentPromptSubmissionTests {
         #expect(probe.startedMessages == ["first"])
         probe.releaseFirst()
 
-        #expect(await first.value == .submitted(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            queued: false
-        ))
-        #expect(await second.value == .submitted(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            queued: false
-        ))
+        #expect(await first.value == .queued)
+        #expect(await second.value == .queued)
         #expect(probe.startedMessages == ["first", "second"])
         #expect(probe.completedMessages == ["first", "second"])
-        #expect(probe.submittedWireMessages == ["first", "second"])
+        #expect(
+            await MainActor.run { probe.pendingPromptMessages }
+                == ["first", "second"]
+        )
         #expect(probe.maximumConcurrentDeliveries == 1)
     }
 
@@ -106,7 +100,7 @@ struct AgentPromptSubmissionTests {
         panel.surface.synchronizePromptInputAgentScope(
             "agentPIDKey:codex.session"
         )
-        panel.surface.recordHumanPromptInput(maySubmitPrompt: false)
+        panel.surface.recordHumanPromptInput(.unknown)
 
         var completion: TextBoxSubmit.CompletionContext?
         TextBoxSubmit.send(
@@ -128,7 +122,7 @@ struct AgentPromptSubmissionTests {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
         panel.surface.releaseSurfaceForTesting()
-        panel.surface.recordHumanPromptInput(maySubmitPrompt: false)
+        panel.surface.recordHumanPromptInput(.unknown)
 
         var completion: TextBoxSubmit.CompletionContext?
         TextBoxSubmit.send(
@@ -165,5 +159,9 @@ struct AgentPromptSubmissionTests {
         #expect(data["workspace_id"] as? String == workspaceID.uuidString)
         #expect(data["surface_id"] as? String == surfaceID.uuidString)
         #expect(data["retryable"] as? Bool == true)
+        #expect(
+            data["retry_after"] as? String
+                == "human_prompt_submit_or_agent_restart"
+        )
     }
 }

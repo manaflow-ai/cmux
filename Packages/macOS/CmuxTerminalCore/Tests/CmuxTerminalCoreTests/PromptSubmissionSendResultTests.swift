@@ -8,7 +8,6 @@ import Testing
         #expect(!PromptSubmissionSendResult.composerBusy.accepted)
         #expect(!PromptSubmissionSendResult.unknownKey.accepted)
         #expect(!PromptSubmissionSendResult.inputQueueFull.accepted)
-        #expect(!PromptSubmissionSendResult.submissionUnavailable.accepted)
         #expect(!PromptSubmissionSendResult.surfaceUnavailable.accepted)
         #expect(!PromptSubmissionSendResult.processExited.accepted)
     }

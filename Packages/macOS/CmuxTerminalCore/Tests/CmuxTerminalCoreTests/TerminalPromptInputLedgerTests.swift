@@ -2,11 +2,32 @@ import Testing
 @testable import CmuxTerminalCore
 
 @Suite struct TerminalPromptInputLedgerTests {
+    @Test func deletingKnownTypedDraftBackToEmptyRecoversWithoutHook() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.insert(characterCount: 3))
+        #expect(ledger.hasUnconfirmedHumanInput)
+
+        ledger.recordHumanInput(.backspace)
+        ledger.recordHumanInput(.backspace)
+        #expect(ledger.hasUnconfirmedHumanInput)
+        ledger.recordHumanInput(.backspace)
+
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func backspaceCannotGuessAnUnknownComposerIsEmpty() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.backspace)
+
+        #expect(ledger.hasUnconfirmedHumanInput)
+    }
+
     @Test func submitCapableReturnStaysBusyUntilItsHookArrives() {
         var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
 
-        ledger.recordHumanInput(maySubmitPrompt: true)
+        ledger.recordHumanInput(.submissionBoundary)
 
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(ledger.confirmSubmission(message: "human prompt") == .human)
@@ -15,9 +36,9 @@ import Testing
 
     @Test func lateHumanHookDoesNotClearNewerTyping() {
         var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(maySubmitPrompt: false)
-        ledger.recordHumanInput(maySubmitPrompt: true)
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+        ledger.recordHumanInput(.unknown)
 
         #expect(ledger.confirmSubmission(message: "first prompt") == .human)
         #expect(ledger.hasUnconfirmedHumanInput)
@@ -29,7 +50,7 @@ import Testing
             message: "review this",
             source: "workspace.agent_submit"
         )
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
 
         #expect(
             ledger.confirmSubmission(message: "review this")
@@ -40,13 +61,14 @@ import Testing
 
     @Test func humanOwnedAppSubmissionRecoversOnlyItsPriorInput() {
         var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
         ledger.recordProgrammaticSubmission(
             message: "native composer prompt",
             source: "workspace.prompt_submit",
-            confirmsHumanInput: true
+            confirmsHumanInputGeneration:
+                ledger.humanInputGenerationSnapshot
         )
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
 
         #expect(
             ledger.confirmSubmission(message: "native composer prompt")
@@ -54,26 +76,58 @@ import Testing
         )
         #expect(ledger.hasUnconfirmedHumanInput)
 
-        ledger.recordHumanInput(maySubmitPrompt: true)
+        ledger.recordHumanInput(.submissionBoundary)
         #expect(ledger.confirmSubmission(message: "newer prompt") == .human)
         #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
-    @Test func unrelatedHookDoesNotConsumeProgrammaticRecord() {
+    @Test func olderAppConfirmationCannotUndoANewerConfirmation() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.recordHumanInput(.unknown)
+        let olderGeneration = ledger.humanInputGenerationSnapshot
+        ledger.recordProgrammaticSubmission(
+            message: "older",
+            source: "workspace.prompt_submit",
+            confirmsHumanInputGeneration: olderGeneration
+        )
+        ledger.recordHumanInput(.unknown)
+        let newerGeneration = ledger.humanInputGenerationSnapshot
+        ledger.recordProgrammaticSubmission(
+            message: "newer",
+            source: "workspace.prompt_submit",
+            confirmsHumanInputGeneration: newerGeneration
+        )
+
+        #expect(
+            ledger.confirmSubmission(message: "newer")
+                == .programmatic(source: "workspace.prompt_submit")
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "older")
+                == .programmatic(source: "workspace.prompt_submit")
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func rewrittenHookDegradesSourceAttributionWithoutClearingHuman() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordProgrammaticSubmission(
             message: "programmatic prompt",
             source: "workspace.agent_submit"
         )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
 
         #expect(
-            ledger.confirmSubmission(message: "human prompt")
+            ledger.confirmSubmission(message: "rewritten prompt")
                 == .unmatched
         )
+        #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
-            ledger.confirmSubmission(message: "programmatic prompt")
-                == .programmatic(source: "workspace.agent_submit")
+            ledger.confirmSubmission(message: "human prompt") == .human
         )
+        #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
     @Test func unmatchedProgrammaticBoundaryBlocksLaterHumanConfirmation() {
@@ -82,8 +136,8 @@ import Testing
             message: "programmatic prompt",
             source: "workspace.agent_submit"
         )
-        ledger.recordHumanInput(maySubmitPrompt: false)
-        ledger.recordHumanInput(maySubmitPrompt: true)
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
 
         #expect(
             ledger.confirmSubmission(message: nil)
@@ -92,7 +146,7 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
             ledger.confirmSubmission(message: "programmatic prompt")
-                == .programmatic(source: "workspace.agent_submit")
+                == .unmatched
         )
         #expect(
             ledger.confirmSubmission(message: "human prompt")
@@ -124,7 +178,7 @@ import Testing
 
     @Test func newAgentScopeDiscardsPreviousAgentRecordsAndInput() {
         var ledger = TerminalPromptInputLedger()
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
         ledger.recordProgrammaticSubmission(
             message: "old prompt",
             source: "workspace.agent_submit"
@@ -142,7 +196,7 @@ import Testing
     @Test func unchangedAgentScopePreservesItsHumanDraft() {
         var ledger = TerminalPromptInputLedger()
         ledger.synchronizeAgentScope("agentPIDKey:codex.session")
-        ledger.recordHumanInput(maySubmitPrompt: false)
+        ledger.recordHumanInput(.unknown)
 
         ledger.synchronizeAgentScope("agentPIDKey:codex.session")
 
@@ -152,13 +206,13 @@ import Testing
     @Test func boundaryCapacityRemainsFailClosedAndLaterRecovers() {
         var ledger = TerminalPromptInputLedger()
         for _ in 0..<64 {
-            ledger.recordHumanInput(maySubmitPrompt: false)
-            ledger.recordHumanInput(maySubmitPrompt: true)
+            ledger.recordHumanInput(.unknown)
+            ledger.recordHumanInput(.submissionBoundary)
         }
         // This boundary is deliberately not retained once the bounded queue
         // is full.
-        ledger.recordHumanInput(maySubmitPrompt: false)
-        ledger.recordHumanInput(maySubmitPrompt: true)
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
 
         for _ in 0..<64 {
             #expect(ledger.confirmSubmission(message: "submitted") == .human)
@@ -170,37 +224,57 @@ import Testing
 
         // Draining older boundaries makes the state recoverable again without
         // changing the agent scope.
-        ledger.recordHumanInput(maySubmitPrompt: true)
+        ledger.recordHumanInput(.submissionBoundary)
         #expect(ledger.confirmSubmission(message: "later") == .human)
         #expect(!ledger.hasUnconfirmedHumanInput)
     }
 
-    @Test func programmaticAttributionRejectsCapacityInsteadOfEvicting() {
+    @Test func programmaticAttributionDegradesWithoutBlockingDelivery() {
         var ledger = TerminalPromptInputLedger()
         for index in 0..<64 {
-            #expect(
-                ledger.recordProgrammaticSubmission(
-                    message: "prompt \(index)",
-                    source: "workspace.agent_submit"
-                )
+            ledger.recordProgrammaticSubmission(
+                message: "prompt \(index)",
+                source: "workspace.agent_submit"
             )
         }
+        ledger.recordProgrammaticSubmission(
+            message: "prompt 64",
+            source: "workspace.agent_submit"
+        )
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
 
         #expect(
-            !ledger.recordProgrammaticSubmission(
-                message: "overflow",
-                source: "workspace.agent_submit"
-            )
+            ledger.confirmSubmission(message: "prompt 0") == .unmatched
         )
+        #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
-            ledger.confirmSubmission(message: "prompt 0")
+            ledger.confirmSubmission(message: "prompt 64")
                 == .programmatic(source: "workspace.agent_submit")
         )
+        #expect(ledger.hasUnconfirmedHumanInput)
+        // A rewritten hook consumes the next sequence-only programmatic
+        // boundary before the human boundary can be confirmed.
         #expect(
-            ledger.recordProgrammaticSubmission(
-                message: "after drain",
-                source: "workspace.agent_submit"
-            )
+            ledger.confirmSubmission(message: "rewritten prompt")
+                == .unmatched
+        )
+        // Remaining exact programmatic records still match by message without
+        // consuming the later human boundary.
+        #expect(
+            ledger.confirmSubmission(message: "prompt 63")
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        // Starting a new process epoch deterministically retires any hook
+        // uncertainty without blocking future programmatic submissions.
+        ledger.synchronizeAgentScope("agentPIDKey:next.session")
+        ledger.recordProgrammaticSubmission(
+            message: "next response",
+            source: "workspace.agent_submit"
+        )
+        #expect(
+            ledger.confirmSubmission(message: "next response")
+                == .programmatic(source: "workspace.agent_submit")
         )
     }
 }

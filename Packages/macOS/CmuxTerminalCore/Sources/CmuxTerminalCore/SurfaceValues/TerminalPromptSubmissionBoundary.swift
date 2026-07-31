@@ -8,4 +8,7 @@ enum TerminalPromptSubmissionBoundary: Sendable {
         source: String,
         confirmsHumanInputGeneration: UInt64?
     )
+    /// Programmatic hook ownership retained after exact source attribution was
+    /// evicted. Adjacent retired boundaries coalesce without losing FIFO order.
+    case retiredProgrammatic(count: UInt64)
 }

@@ -44,9 +44,33 @@ import GhosttyKit
                 text: data,
                 submitKey: key,
                 hookRecordingSource: "workspace.agent_submit",
-                hookConfirmsHumanInput: false
+                hookConfirmedHumanInputGeneration: nil
             ).estimatedBytes == 11
         )
+    }
+
+    @Test func queuedPromptCarriesAdmissionTimeHumanGeneration() {
+        let input = PendingSocketInput.promptSubmission(
+            text: Data("prompt".utf8),
+            submitKey: PendingKeyEvent(
+                keycode: 36,
+                mods: GHOSTTY_MODS_NONE,
+                label: "return"
+            ),
+            hookRecordingSource: "workspace.prompt_submit",
+            hookConfirmedHumanInputGeneration: 42
+        )
+
+        guard case .promptSubmission(
+            _,
+            _,
+            _,
+            let generation
+        ) = input else {
+            Issue.record("Expected compound prompt")
+            return
+        }
+        #expect(generation == 42)
     }
 }
 

@@ -21,10 +21,12 @@ extension TerminalSurface {
     /// socket/mobile writes are explicit input too, but they must never make a
     /// later agent hook look like confirmation that a human draft was cleared.
     ///
-    /// - Parameter maySubmitPrompt: Whether this event may commit the draft.
+    /// - Parameter mutation: The conservatively modeled composer mutation.
     @MainActor
-    public func recordHumanPromptInput(maySubmitPrompt: Bool) {
-        promptInputLedger.recordHumanInput(maySubmitPrompt: maySubmitPrompt)
+    public func recordHumanPromptInput(
+        _ mutation: HumanPromptInputMutation
+    ) {
+        promptInputLedger.recordHumanInput(mutation)
     }
 
     /// Aligns composer ownership with the currently bound agent process.
@@ -248,9 +250,7 @@ extension TerminalSurface {
             nil,
         hookConfirmsHumanInput: Bool = false
     ) -> PromptSubmissionSendResult {
-        guard let data = text.data(using: .utf8), !data.isEmpty else {
-            return .sent
-        }
+        let data = Data(text.utf8)
         guard let submitEvent = pendingKeyEvent(for: submitKey) else {
             return .unknownKey
         }
@@ -258,25 +258,10 @@ extension TerminalSurface {
            promptInputLedger.hasUnconfirmedHumanInput {
             return .composerBusy
         }
-        if hookRecordingSource != nil {
-            let queuedAttributionCount = pendingSocketInputQueue.reduce(
-                into: 0
-            ) { count, item in
-                if case .promptSubmission(
-                    _,
-                    _,
-                    hookRecordingSource: .some(_),
-                    _
-                ) = item {
-                    count += 1
-                }
-            }
-            guard promptInputLedger.canRecordProgrammaticSubmission(
-                additionalCount: queuedAttributionCount + 1
-            ) else {
-                return .submissionUnavailable
-            }
-        }
+        let hookConfirmedHumanInputGeneration =
+            hookConfirmsHumanInput
+                ? promptInputLedger.humanInputGenerationSnapshot
+                : nil
 
         didReceiveExplicitInput()
         guard surface != nil else {
@@ -288,7 +273,8 @@ extension TerminalSurface {
                     text: data,
                     submitKey: submitEvent,
                     hookRecordingSource: hookRecordingSource,
-                    hookConfirmsHumanInput: hookConfirmsHumanInput
+                    hookConfirmedHumanInputGeneration:
+                        hookConfirmedHumanInputGeneration
                 )
             ) else {
                 return .inputQueueFull
@@ -313,12 +299,12 @@ extension TerminalSurface {
             keycode: submitEvent.keycode,
             mods: submitEvent.mods
         )
-        let recorded = promptInputLedger.recordProgrammaticSubmission(
+        promptInputLedger.recordProgrammaticSubmission(
             message: text,
             source: hookRecordingSource,
-            confirmsHumanInput: hookConfirmsHumanInput
+            confirmsHumanInputGeneration:
+                hookConfirmedHumanInputGeneration
         )
-        assert(recorded, "Programmatic prompt attribution admission drifted")
         return .sent
     }
 
@@ -922,7 +908,7 @@ extension TerminalSurface {
                 let text,
                 let submitKey,
                 let hookRecordingSource,
-                let hookConfirmsHumanInput
+                let hookConfirmedHumanInputGeneration
             ):
                 writeTextData(text, to: surface)
                 queuedKeys += 1
@@ -932,15 +918,11 @@ extension TerminalSurface {
                     mods: submitKey.mods
                 )
                 let message = String(decoding: text, as: UTF8.self)
-                let recorded = promptInputLedger
-                    .recordProgrammaticSubmission(
-                        message: message,
-                        source: hookRecordingSource,
-                        confirmsHumanInput: hookConfirmsHumanInput
-                    )
-                assert(
-                    recorded,
-                    "Queued programmatic prompt attribution admission drifted"
+                promptInputLedger.recordProgrammaticSubmission(
+                    message: message,
+                    source: hookRecordingSource,
+                    confirmsHumanInputGeneration:
+                        hookConfirmedHumanInputGeneration
                 )
             }
         }

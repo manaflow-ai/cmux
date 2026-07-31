@@ -1,11 +1,13 @@
-import Darwin
+import CmuxTerminal
 import Foundation
 
 /// Thread-safe test probe that can hold the first synchronous delivery while a
 /// second caller queues on the main actor.
+///
+/// Safety: the terminal surface is main-actor isolated and every nonisolated
+/// mutable field is accessed while `condition` is locked.
 nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
-    private let workspaceID: UUID
-    private let surfaceID: UUID
+    @MainActor private let surface: TerminalSurface
     private let condition = NSCondition()
     private var firstStarted = false
     private var firstReleased = false
@@ -14,11 +16,10 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     private var maximumActiveDeliveries = 0
     private var started: [String] = []
     private var completed: [String] = []
-    private var wireBytes = Data()
 
-    init(workspaceID: UUID, surfaceID: UUID) {
-        self.workspaceID = workspaceID
-        self.surfaceID = surfaceID
+    @MainActor
+    init(surface: TerminalSurface) {
+        self.surface = surface
     }
 
     var startedMessages: [String] {
@@ -29,16 +30,13 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         condition.withLock { completed }
     }
 
-    var submittedWireMessages: [String] {
-        condition.withLock {
-            wireBytes.split(separator: 0x0D).compactMap {
-                String(data: Data($0), encoding: .utf8)
-            }
-        }
-    }
-
     var maximumConcurrentDeliveries: Int {
         condition.withLock { maximumActiveDeliveries }
+    }
+
+    @MainActor
+    var pendingPromptMessages: [String] {
+        surface.debugPendingPromptSubmissionTextsForTesting()
     }
 
     func waitUntilFirstStarted() {
@@ -71,10 +69,11 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         condition.unlock()
     }
 
+    @MainActor
     func deliver(
         _ message: String,
         waitsForRelease: Bool
-    ) -> AgentPromptSubmissionResult {
+    ) -> TerminalSurface.PromptSubmissionSendResult {
         condition.lock()
         activeDeliveries += 1
         maximumActiveDeliveries = max(
@@ -91,23 +90,17 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         }
         condition.unlock()
 
-        for byte in message.utf8 {
-            condition.withLock {
-                wireBytes.append(byte)
-            }
-            sched_yield()
-        }
+        let result = surface.sendPromptSubmission(
+            message,
+            submitKey: "return",
+            hookRecordingSource: "workspace.agent_submit"
+        )
 
         condition.withLock {
-            wireBytes.append(0x0D)
             completed.append(message)
             activeDeliveries -= 1
         }
-        return .submitted(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            queued: false
-        )
+        return result
     }
 }
 

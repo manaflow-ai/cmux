@@ -126,13 +126,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent composer contains human input. The draft was left unchanged; retry after it is submitted."
+            "value": "The agent composer may contain human input. It was left unchanged; retry after the human submits it or the agent restarts."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの入力欄に人間が入力した内容があります。下書きは変更されていません。送信後に再試行してください。"
+            "value": "エージェントの入力欄に人間の入力が残っている可能性があります。内容は変更されていません。人間が送信するかエージェントが再起動した後に再試行してください。"
           }
         }
       }
@@ -218,23 +218,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのワークスペースにターミナルサーフェスが見つかりません。"
-          }
-        }
-      }
-    },
-    "socket.workspace.agentSubmit.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace cannot accept this submission right now."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースは現在この送信を受け付けられません。"
           }
         }
       }

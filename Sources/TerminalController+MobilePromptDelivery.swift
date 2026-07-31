@@ -122,20 +122,6 @@ extension TerminalController {
                     message: Self.terminalInputQueueFullMessage,
                     data: ["surface_id": surfaceID.uuidString]
                 )
-            case .submissionUnavailable:
-                return .err(
-                    code: "submission_unavailable",
-                    message: String(
-                        localized:
-                            "socket.workspace.agentSubmit.unavailable",
-                        defaultValue:
-                            "The workspace cannot accept this submission right now."
-                    ),
-                    data: [
-                        "surface_id": surfaceID.uuidString,
-                        "retryable": true,
-                    ]
-                )
             case .surfaceUnavailable:
                 return .err(
                     code: "surface_unavailable",
@@ -157,9 +143,7 @@ extension TerminalController {
                     data: ["surface_id": surfaceID.uuidString]
                 )
             }
-            terminalPanel.surface.recordHumanPromptInput(
-                maySubmitPrompt: false
-            )
+            terminalPanel.surface.recordHumanPromptInput(.unknown)
             terminalPanel.surface.forceRefresh(
                 reason: "mobileHost.terminalPaste"
             )
