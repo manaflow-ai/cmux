@@ -347,7 +347,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
-    private let embedDiscoveryInRegistration: Bool
+    private let embedDiscoveryStartingAtRegistrationCount: Int?
+    private let registrationRevision: UInt64?
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var preflightOperations: [CmxIrohBrokerOperation] = []
@@ -373,6 +374,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
         relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
+        embedDiscoveryStartingAtRegistrationCount: Int? = nil,
+        registrationRevision: UInt64? = nil,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
@@ -384,7 +387,11 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
         self.relayIssueHook = relayIssueHook
-        self.embedDiscoveryInRegistration = embedDiscoveryInRegistration
+        self.embedDiscoveryStartingAtRegistrationCount =
+            embedDiscoveryInRegistration
+                ? 1
+                : embedDiscoveryStartingAtRegistrationCount
+        self.registrationRevision = registrationRevision
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
@@ -422,13 +429,15 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         let binding = registrationBindings.count > 1
             ? registrationBindings.removeFirst()
             : registrationBindings[0]
+        let embedsDiscovery = embedDiscoveryStartingAtRegistrationCount
+            .map { registrationCount >= $0 }
+            ?? false
         return CmxIrohRegistrationResponse(
-            revision: embedDiscoveryInRegistration
-                ? discoveryResponses[0].revision
-                : nil,
+            revision: registrationRevision
+                ?? (embedsDiscovery ? discoveryResponses[0].revision : nil),
             binding: binding,
             relay: .unavailable,
-            discovery: embedDiscoveryInRegistration
+            discovery: embedsDiscovery
                 ? discoveryResponses[0]
                 : nil
         )

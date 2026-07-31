@@ -319,33 +319,26 @@ public actor CmxConnectivityEngine {
     public func selectedTransportPath(
         relayPolicy: CmxIrohEffectiveRelayPolicy?
     ) async -> CmxIrohSelectedTransportPath {
-        let orderedPeers = peers.keys.sorted { lhs, rhs in
-            let left = peerSnapshots[lhs]
-            let right = peerSnapshots[rhs]
-            let leftRank = Self.pathSelectionRank(left)
-            let rightRank = Self.pathSelectionRank(right)
-            if leftRank != rightRank {
-                return leftRank < rightRank
-            }
-            if left?.connectionGeneration != right?.connectionGeneration {
-                return (left?.connectionGeneration ?? 0)
-                    > (right?.connectionGeneration ?? 0)
-            }
-            if lhs.deviceID == rhs.deviceID {
-                return lhs.identity.endpointID < rhs.identity.endpointID
-            }
-            return lhs.deviceID < rhs.deviceID
-        }
-        for peerID in orderedPeers {
-            guard let peer = peers[peerID] else { continue }
+        var selected: (
+            peerID: CmxConnectivityPeerID,
+            path: CmxIrohObservedConnectionPath
+        )?
+        for (peerID, peer) in peers {
             let candidate = await peer.observedSelectedPath()
-            if candidate != .unavailable {
-                return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
-                    .classify(candidate)
+            guard candidate != .unavailable else { continue }
+            if let current = selected,
+               !Self.pathSelectionPrecedes(
+                   peerID,
+                   snapshot: peerSnapshots[peerID],
+                   current.peerID,
+                   snapshot: peerSnapshots[current.peerID]
+               ) {
+                continue
             }
+            selected = (peerID, candidate)
         }
         return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
-            .classify(.unavailable)
+            .classify(selected?.path ?? .unavailable)
     }
 
     /// Emits when peer lifecycle or Iroh path selection can change path classification.
@@ -743,6 +736,22 @@ public actor CmxConnectivityEngine {
         if snapshot?.controlLaneOwned == true { return 1 }
         if snapshot?.phase == .connected { return 2 }
         return 3
+    }
+
+    private static func pathSelectionPrecedes(
+        _ lhs: CmxConnectivityPeerID,
+        snapshot left: CmxConnectivityPeerSnapshot?,
+        _ rhs: CmxConnectivityPeerID,
+        snapshot right: CmxConnectivityPeerSnapshot?
+    ) -> Bool {
+        let leftRank = pathSelectionRank(left)
+        let rightRank = pathSelectionRank(right)
+        if leftRank != rightRank { return leftRank < rightRank }
+        if left?.connectionGeneration != right?.connectionGeneration {
+            return (left?.connectionGeneration ?? 0)
+                > (right?.connectionGeneration ?? 0)
+        }
+        return peerIDPrecedes(lhs, rhs)
     }
 
     private static func peerIDPrecedes(

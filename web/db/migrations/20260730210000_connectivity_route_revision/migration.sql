@@ -4,6 +4,3 @@ ALTER TABLE "iroh_account_security_states"
 ALTER TABLE "iroh_account_security_states"
   ADD CONSTRAINT "iroh_account_security_states_route_revision_check"
   CHECK ("route_revision" >= 0) NOT VALID;
---> statement-breakpoint
-ALTER TABLE "iroh_account_security_states"
-  VALIDATE CONSTRAINT "iroh_account_security_states_route_revision_check";

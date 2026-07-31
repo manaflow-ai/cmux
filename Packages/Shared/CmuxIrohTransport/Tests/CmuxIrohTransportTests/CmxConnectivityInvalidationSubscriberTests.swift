@@ -24,7 +24,13 @@ struct CmxConnectivityInvalidationSubscriberTests {
             #"{"type":"connectivity.invalidate","protocolVersion":2,"revision":1,"at":2}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":0,"at":2}"#,
             #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":true,"at":2}"#,
-            String(repeating: "x", count: CmxConnectivityInvalidation.maximumFrameBytes + 1),
+            {
+                let padding = String(
+                    repeating: "p",
+                    count: CmxConnectivityInvalidation.maximumFrameBytes
+                )
+                return #"{"type":"connectivity.invalidate","protocolVersion":1,"revision":1,"at":2,"pad":"\#(padding)"}"#
+            }(),
         ]
     )
     func rejectsInvalidFrame(_ text: String) {

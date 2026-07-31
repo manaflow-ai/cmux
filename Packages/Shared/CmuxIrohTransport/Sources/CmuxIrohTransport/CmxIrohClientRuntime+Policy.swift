@@ -34,11 +34,20 @@ extension CmxIrohClientRuntime {
                 )
             }
 
+        // The supervisor snapshot and the live endpoint address are separate
+        // actor reads. Re-verify identity before every cached or online policy
+        // path so an endpoint replacement cannot inherit the old tuple.
+        let address = try await connectivityEngine.endpointAddress()
+        guard address.identity == expectedEndpointID else {
+            throw CmxIrohClientRuntimeError.invalidLocalBinding
+        }
+
         // A revision is what orders this read-only snapshot against the signed
         // registration refresh that follows activation. Older brokers may
         // return discovery without one; keep that response off the fast path
         // and fall back to the full registration flow instead of stranding an
         // otherwise valid cached installation.
+        var prefetchedDiscoveryRejectedCachedBinding = false
         if let cachedBinding = configuration.cachedBinding,
            let prefetchedDiscovery,
            prefetchedDiscovery.revision != nil {
@@ -62,12 +71,9 @@ extension CmxIrohClientRuntime {
                     cachedLANRendezvous: nil
                 )
             }
+            prefetchedDiscoveryRejectedCachedBinding = true
         }
 
-        let address = try await connectivityEngine.endpointAddress()
-        guard address.identity == expectedEndpointID else {
-            throw CmxIrohClientRuntimeError.invalidLocalBinding
-        }
         let publicHints = Array(address.pathHints.compactMap {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
@@ -102,7 +108,8 @@ extension CmxIrohClientRuntime {
                 // authenticated discovery can still confirm an existing tuple.
                 registration = nil
             } else {
-                guard Self.isConnectivity(error),
+                guard !prefetchedDiscoveryRejectedCachedBinding,
+                      Self.isConnectivity(error),
                       let cached = try await offlineBootstrap(
                           expectation: offlineExpectation,
                           confirmedLocalBinding: nil
@@ -127,13 +134,16 @@ extension CmxIrohClientRuntime {
             if let embedded = registration?.discovery {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,
-                      snapshotRevision >= registrationRevision else {
+                      snapshotRevision == registrationRevision,
+                      snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
                 authoritativeDiscovery = embedded
                 discovery = embedded
             } else {
-                discovery = try await discoverAuthoritatively()
+                discovery = try await discoverAuthoritatively(
+                    minimumRevision: registration?.revision
+                )
             }
         } catch {
             guard let registration,
@@ -188,24 +198,23 @@ extension CmxIrohClientRuntime {
         try requireCurrent(revision)
     }
 
-    func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
-        let discovery = try await CmxAuthoritativeDiscoveryResolver.resolve(
-            broker: broker,
-            cached: authoritativeDiscovery
+    func discoverAuthoritatively(
+        minimumRevision: UInt64? = nil
+    ) async throws -> CmxIrohDiscoveryResponse {
+        let discovery = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(
+            cached: authoritativeDiscovery,
+            minimumRevision: minimumRevision
         )
         authoritativeDiscovery = discovery
         return discovery
     }
 
     func prefetchAuthoritativeDiscovery() async throws -> CmxIrohDiscoveryResponse {
-        guard let authority = broker as? any CmxConnectivityAuthorityServing else {
-            return try await broker.discover()
-        }
-        let response = try await authority.syncConnectivity(knownRevision: nil)
-        guard let snapshot = response.snapshot else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        return snapshot
+        try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: nil)
     }
 
     func offlineBootstrap(
@@ -283,6 +292,7 @@ extension CmxIrohClientRuntime {
                 broker: broker,
                 managedRelayURLs: managedRelayURLs,
                 selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
+                retrySchedule: .foregroundClient,
                 automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
                     await handleRelayCredential(response, policy.binding)
