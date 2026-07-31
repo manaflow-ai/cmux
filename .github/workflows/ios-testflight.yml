@@ -1,14 +1,12 @@
 name: iOS TestFlight (CMUX INTERNAL)
 
 on:
-  # Scheduled batching instead of per-merge uploads: App Store Connect enforces a
-  # per-app upload quota that merge bursts exhausted. The decide job skips a
-  # scheduled run when main has not changed since the variant's last upload or
-  # when the changes touch no iOS-relevant paths. Manual dispatch remains
-  # available for intentional rebuilds.
+  # Poll frequently, then batch only new iOS-relevant changes. The decide job
+  # enforces a rolling account budget before any macOS runner is allocated so
+  # INTERNAL, DEMO, and manual/BETA uploads preserve App Store Connect headroom.
   schedule:
-    # Hourly cmux INTERNAL upload of current main.
-    - cron: "7 * * * *"
+    # Check current main for a cmux INTERNAL upload every 20 minutes.
+    - cron: "7,27,47 * * * *"
     # Twice-daily (every 12 hours) cmux DEMO upload of current main.
     - cron: "37 5,17 * * *"
   workflow_dispatch:
@@ -72,9 +70,12 @@ jobs:
                 context.payload?.inputs?.variant === 'demo') ||
               (context.eventName === 'schedule' && context.payload?.schedule === demoCron);
             const variant = isDemo ? 'demo' : 'internal';
+            const internalArtifactName = 'ios-testflight-build-metadata';
+            const demoArtifactName = 'ios-testflight-build-metadata-demo';
+            const overrideArtifactName = 'ios-testflight-build-metadata-override';
             const canonicalArtifactName = isDemo
-              ? 'ios-testflight-build-metadata-demo'
-              : 'ios-testflight-build-metadata';
+              ? demoArtifactName
+              : internalArtifactName;
 
             // Per-SHA workflow concurrency preserves every push, but it also lets
             // several runs reach App Store Connect at once. Build numbers must be
@@ -143,6 +144,66 @@ jobs:
                 }
                 await new Promise((resolve) => setTimeout(resolve, 60_000));
               }
+            }
+
+            // App Store Connect does not publish its binary-upload throttle.
+            // Keep a conservative account-wide rolling budget based on metadata
+            // artifacts written only after this workflow uploads successfully.
+            // INTERNAL can consume at most 16 slots, DEMO has two scheduled
+            // opportunities, and the remaining two slots stay available for
+            // manual/BETA uploads. Manual uploads consume the same account budget.
+            const rollingBudgetHours = 24;
+            const rollingUploadLimit = 20;
+            const rollingInternalUploadLimit = 16;
+            const rollingBudgetCutoff =
+              Date.now() - rollingBudgetHours * 60 * 60 * 1000;
+            const budgetArtifactNames = [
+              internalArtifactName,
+              demoArtifactName,
+              overrideArtifactName,
+            ];
+            let uploadBudgetKnown = true;
+            let rollingUploadCount = 0;
+            let rollingInternalUploadCount = 0;
+            try {
+              for (const artifactName of budgetArtifactNames) {
+                for (let page = 1; page <= 20; page += 1) {
+                  const response = await github.rest.actions.listArtifactsForRepo({
+                    owner,
+                    repo,
+                    name: artifactName,
+                    per_page: 100,
+                    page,
+                  });
+                  const artifacts = response.data.artifacts || [];
+                  let reachedCutoff = false;
+                  for (const artifact of artifacts) {
+                    const createdAt = Date.parse(artifact.created_at);
+                    if (!Number.isFinite(createdAt)) {
+                      throw new Error(
+                        `invalid created_at for artifact ${artifact.id}: ${artifact.created_at}`
+                      );
+                    }
+                    if (createdAt < rollingBudgetCutoff) {
+                      reachedCutoff = true;
+                      continue;
+                    }
+                    rollingUploadCount += 1;
+                    if (artifactName === internalArtifactName) {
+                      rollingInternalUploadCount += 1;
+                    }
+                  }
+                  if (artifacts.length < 100 || reachedCutoff) break;
+                  if (page === 20) {
+                    throw new Error(
+                      `could not resolve complete ${rollingBudgetHours}-hour upload history`
+                    );
+                  }
+                }
+              }
+            } catch (e) {
+              uploadBudgetKnown = false;
+              core.warning(`could not resolve rolling TestFlight upload budget: ${e.message}`);
             }
 
             // Resolve the most recent successful canonical upload as the base for
@@ -232,9 +293,29 @@ jobs:
               iosRelevantPaths.some((p) =>
                 p.endsWith('/') ? filename.startsWith(p) : filename === p
               );
+            const isExternalOverride =
+              context.eventName === 'workflow_dispatch' &&
+              Boolean(context.payload?.inputs?.marketing_version_override);
+            const usesInternalBudget = variant === 'internal' && !isExternalOverride;
             let shouldBuild = true;
             let reason = 'manual dispatch';
-            if (context.eventName === 'schedule') {
+            if (!uploadBudgetKnown) {
+              shouldBuild = false;
+              reason = 'rolling upload budget unavailable';
+            } else if (rollingUploadCount >= rollingUploadLimit) {
+              shouldBuild = false;
+              reason =
+                `rolling account upload budget exhausted ` +
+                `(${rollingUploadCount}/${rollingUploadLimit})`;
+            } else if (
+              usesInternalBudget &&
+              rollingInternalUploadCount >= rollingInternalUploadLimit
+            ) {
+              shouldBuild = false;
+              reason =
+                `rolling INTERNAL upload budget exhausted ` +
+                `(${rollingInternalUploadCount}/${rollingInternalUploadLimit})`;
+            } else if (context.eventName === 'schedule') {
               if (!lastUploadedSha) {
                 reason = 'no prior upload found for this variant';
               } else if (lastUploadedSha === context.sha) {
@@ -272,6 +353,18 @@ jobs:
                 [{ data: 'variant', header: true }, variant],
                 [{ data: 'head sha', header: true }, context.sha],
                 [{ data: 'last uploaded sha (notes base)', header: true }, String(lastUploadedSha)],
+                [
+                  { data: `uploads in rolling ${rollingBudgetHours}h`, header: true },
+                  uploadBudgetKnown
+                    ? `${rollingUploadCount}/${rollingUploadLimit}`
+                    : 'unavailable',
+                ],
+                [
+                  { data: `INTERNAL uploads in rolling ${rollingBudgetHours}h`, header: true },
+                  uploadBudgetKnown
+                    ? `${rollingInternalUploadCount}/${rollingInternalUploadLimit}`
+                    : 'unavailable',
+                ],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
                 [{ data: 'reason', header: true }, reason],
               ])
