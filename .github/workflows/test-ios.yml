@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
       device_family:
@@ -382,17 +382,7 @@ jobs:
             XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
           XCODEBUILD_ARGS+=(test)
-          selected_tests_passed_despite_xcodebuild_status() {
-            local log_path="$1"
-            # The negative grep must catch BOTH XCTest failure output and Swift
-            # Testing failure output (✘ markers): the final "Failing tests:"
-            # section is not always flushed into the tee'd log, and without the
-            # ✘ patterns a real Swift Testing failure exiting 65 was
-            # misclassified as a runner cleanup failure and turned the job green.
-            grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
-              grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
-              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
-          }
+          SELECTED_TEST_LOG_VALIDATOR="$GITHUB_WORKSPACE/scripts/ci/validate-ios-selected-tests-log.sh"
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
@@ -401,10 +391,16 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              if [ -n "${TEST_FILTER:-}" ]; then
+                "$SELECTED_TEST_LOG_VALIDATOR" "$LOG_PATH" || {
+                  echo "::error title=No selected iOS tests executed::test_filter '$TEST_FILTER' did not execute a passing test. Use target/class or target/class/method."
+                  exit 1
+                }
+              fi
               exit 0
             fi
             status="${PIPESTATUS[0]}"
-            if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
+            if "$SELECTED_TEST_LOG_VALIDATOR" "$LOG_PATH"; then
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0
             fi
