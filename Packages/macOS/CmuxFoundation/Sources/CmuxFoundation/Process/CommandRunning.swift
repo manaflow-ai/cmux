@@ -18,7 +18,8 @@ public protocol CommandRunning: Sendable {
     ///
     /// The call resolves `executable` against `PATH` (and the runner's fallback
     /// directories) when it is not an absolute path. Output is read concurrently
-    /// so large streams cannot deadlock on a full pipe buffer.
+    /// so large streams cannot deadlock on a full pipe buffer. Cancelling the
+    /// awaiting task terminates the child and returns an `executionError`.
     ///
     /// - Parameters:
     ///   - directory: The working directory for the process.
@@ -54,7 +55,6 @@ extension CommandRunning {
             timeout: timeout
         )
         guard result.executionError == nil,
-              !result.cancelled,
               !result.timedOut,
               result.exitStatus == 0 else {
             return nil

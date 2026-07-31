@@ -9,6 +9,7 @@ private final class BrowserViewportWeakHostBox: NSObject {
 
 private enum BrowserViewportAssociatedKeys {
     static var host: UInt8 = 0
+    static var externalRenderHostDepth: UInt8 = 0
 }
 
 extension WKWebView {
@@ -54,6 +55,45 @@ extension WKWebView {
 
     var cmuxBrowserViewportAttachmentWindow: NSWindow? {
         cmuxBrowserViewportPresentationView.window ?? window
+    }
+
+    var cmuxBrowserViewportExternalRenderHostIsActive: Bool {
+        ((objc_getAssociatedObject(
+            self,
+            &BrowserViewportAssociatedKeys.externalRenderHostDepth
+        ) as? NSNumber)?.intValue ?? 0) > 0
+    }
+
+    func cmuxBeginBrowserViewportExternalRenderHost() {
+        let depth = (objc_getAssociatedObject(
+            self,
+            &BrowserViewportAssociatedKeys.externalRenderHostDepth
+        ) as? NSNumber)?.intValue ?? 0
+        objc_setAssociatedObject(
+            self,
+            &BrowserViewportAssociatedKeys.externalRenderHostDepth,
+            NSNumber(value: depth + 1),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func cmuxEndBrowserViewportExternalRenderHost() {
+        let depth = (objc_getAssociatedObject(
+            self,
+            &BrowserViewportAssociatedKeys.externalRenderHostDepth
+        ) as? NSNumber)?.intValue ?? 0
+        let nextDepth = max(0, depth - 1)
+        objc_setAssociatedObject(
+            self,
+            &BrowserViewportAssociatedKeys.externalRenderHostDepth,
+            nextDepth > 0 ? NSNumber(value: nextDepth) : nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func cmuxIsManagedByExternalRenderHost(relativeTo expectedSuperview: NSView?) -> Bool {
+        cmuxBrowserViewportExternalRenderHostIsActive &&
+            cmuxBrowserViewportPresentationView.superview !== expectedSuperview
     }
 
     var cmuxBrowserViewportContainerBounds: CGRect? {

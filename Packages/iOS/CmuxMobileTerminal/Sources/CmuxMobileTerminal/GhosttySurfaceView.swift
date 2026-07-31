@@ -8,6 +8,7 @@ import GhosttyKit
 import OSLog
 import Synchronization
 import UIKit
+import os
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
@@ -193,6 +194,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
+    var pendingVerifiedReplayViewportAnchorCapture: PendingVerifiedReplayViewportAnchorCapture?
+    var pendingVerifiedReplayViewportAnchorRestore: PendingVerifiedReplayViewportAnchorRestore?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     var pendingVerifiedReplayPresentation: PendingVerifiedReplayPresentation?
     /// Quiet-frame countdown for local visible-path detection. Output, geometry,
@@ -212,7 +215,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
+            || pendingVerifiedReplayViewportAnchorCapture != nil
+            || pendingVerifiedReplayViewportAnchorRestore != nil
             || pendingCopyableTextRead != nil || pendingVerifiedReplayPresentation != nil
+    }
+    /// Viewport-restore gate. `interactionGeneration` records user intent
+    /// bumped on the main actor, while `appliedInteractionGeneration` records
+    /// what `outputQueue` has applied. Anchors use the applied value at snapshot
+    /// time and remain restorable only while intent equals that label, so a
+    /// gesture whose batch has not reached the queue voids the anchor. The lock
+    /// is held only for field reads and writes, never across a Ghostty C call.
+    /// The ticket revokes a timed-out restore whose queued block has not claimed it.
+    nonisolated struct ViewportRestoreGate {
+        var interactionGeneration: UInt64 = 0
+        var appliedInteractionGeneration: UInt64 = 0
+        var activeRestoreTicket: UInt64?
+    }
+    nonisolated let viewportRestoreGate =
+        OSAllocatedUnfairLock<ViewportRestoreGate>(initialState: .init())
+    var userViewportInteractionGeneration: UInt64 {
+        viewportRestoreGate.withLock { $0.interactionGeneration }
+    }
+    func bumpUserViewportInteractionGeneration() {
+        viewportRestoreGate.withLock { $0.interactionGeneration &+= 1 }
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -366,6 +391,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    #if DEBUG
+    var latencyLastAppliedSequence: UInt64?
+    #endif
     private var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -1197,6 +1225,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return abs(height - snapshot.layoutViewportRect.height) <= 1
     }
 
+    /// The cursor's bottom edge in render-local points (the coordinate space
+    /// of `lastRenderRect.size`), or nil when not measurable. Reads the same
+    /// non-blocking `ghostty_surface_ime_point` the cursor overlay uses, so
+    /// the provisional shrink pin can keep the cursor row visible without
+    /// riding the screen bottom.
+    private func cursorBottomInRenderPoints() -> CGFloat? {
+        guard let surface else { return nil }
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        guard y > 0 else { return nil }
+        return CGFloat(y)
+    }
+
     private func layoutRenderedTerminalForCurrentViewport() {
         layoutRenderedTerminalForCurrentViewport(using: viewportSnapshot())
     }
@@ -1207,7 +1251,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !lastRenderRect.isEmpty else { return }
         let renderRect = snapshot.renderRect(
             forRenderSize: lastRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
+            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot),
+            cursorBottomInRender: cursorBottomInRenderPoints()
         )
         guard renderRect != lastRenderRect else { return }
         lastRenderRect = renderRect
@@ -1870,6 +1915,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingLocalScrollLines: Double = 0
+    var pendingLocalScrollCell: (col: Int, row: Int) = (0, 0)
+    var localScrollApplyInFlight = false
+
+    /// Drops scroll work tied to a surface generation that will no longer run.
+    func resetScrollStateForSurfaceReplacement() {
+        pendingScrollLines = 0
+        pendingLocalScrollLines = 0
+        localScrollApplyInFlight = false
+    }
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
@@ -1887,6 +1942,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
+        bumpUserViewportInteractionGeneration()
         if scrollPresentationAuthority.appliesLocally {
             applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
         }
@@ -2332,6 +2388,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pending.continuation.resume(returning: result)
             completed = true
         }
+        if let pending = pendingVerifiedReplayViewportAnchorCapture {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+            completed = true
+        }
+        if let pending = pendingVerifiedReplayViewportAnchorRestore {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            pending.continuation.resume(returning: false)
+            completed = true
+        }
         if let pending = pendingVerifiedReplayPresentation {
             pendingVerifiedReplayPresentation = nil
             pending.continuation.resume(returning: nil)
@@ -2513,13 +2580,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// because it runs after everything already queued, so key-repeat during a
     /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
+        bumpUserViewportInteractionGeneration()
+        let interactionGeneration = viewportRestoreGate.withLock { $0.interactionGeneration }
         guard let surface, !scrollToBottomInFlight else { return }
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
         let action = "scroll_to_bottom"
+        let gate = viewportRestoreGate
         outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+            gate.withLock {
+                $0.appliedInteractionGeneration = max(
+                    $0.appliedInteractionGeneration,
+                    interactionGeneration
+                )
             }
             DispatchQueue.main.async {
                 // Generation-guarded like the `processOutput` completion: a
@@ -2795,6 +2871,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
+        resetScrollStateForSurfaceReplacement()
         guard let surface else { return }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
@@ -2898,6 +2975,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only explicit user input does (plus the one-time initial-output scroll
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
+        bumpUserViewportInteractionGeneration()
         resetCursorBlink()
         // A flick still decelerating would fight the snap: deltas already in
         // `pendingScrollLines` flush on the display-link frame AFTER the snap
@@ -2905,6 +2983,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // pending deltas and freeze the scroll mechanics at the current offset
         // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
+        pendingLocalScrollLines = 0
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
@@ -3118,6 +3197,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.surfaceGeneration == generation else { return }
+                #if DEBUG
+                if let surfaceID = self.hostSurfaceID {
+                    if let sequence = self.latencyLastAppliedSequence {
+                        MobileLatencyTrace.stamp(
+                            "rd.present",
+                            "s=\(surfaceID.prefix(8).lowercased()) seq=\(sequence)"
+                        )
+                    } else {
+                        MobileLatencyTrace.stamp(
+                            "rd.present",
+                            "s=\(surfaceID.prefix(8).lowercased())"
+                        )
+                    }
+                }
+                #endif
                 self.renderInFlight = false
                 self.renderInFlightSince = nil
                 guard !self.isDismantled else {
@@ -3680,7 +3774,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         let renderRect = snapshot.renderRect(
             forRenderSize: measuredRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
+            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot),
+            cursorBottomInRender: cursorBottomInRenderPoints()
         )
         lastRenderRect = renderRect
         #if DEBUG
@@ -4226,6 +4321,22 @@ nonisolated struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
+}
+
+/// One verified-replay viewport-anchor capture awaiting output-queue completion
+/// or its skip-only display-link deadline.
+nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
+}
+
+/// One verified-replay viewport-anchor restore awaiting output-queue completion
+/// or its skip-only display-link deadline.
+nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
+    let id: UInt64
+    let startedAt: CFTimeInterval
+    let continuation: CheckedContinuation<Bool, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.

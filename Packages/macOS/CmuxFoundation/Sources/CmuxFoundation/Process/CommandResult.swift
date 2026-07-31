@@ -2,12 +2,13 @@
 ///
 /// All fields are optional because a command can fail to launch, time out, or be
 /// killed before producing output. Inspect ``executionError`` first (the process
-/// never started), then ``cancelled`` or ``timedOut``, then ``exitStatus`` and
-/// the captured streams.
+/// never started or its awaiting task was cancelled), then ``timedOut`` (it was
+/// terminated for exceeding its deadline), then ``exitStatus`` and the captured
+/// streams.
 ///
 /// ```swift
 /// let result = await runner.run(directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5)
-/// if result.executionError == nil, !result.cancelled, !result.timedOut, result.exitStatus == 0 {
+/// if result.executionError == nil, !result.timedOut, result.exitStatus == 0 {
 ///     print(result.stdout ?? "")
 /// }
 /// ```
@@ -21,10 +22,8 @@ public struct CommandResult: Sendable, Equatable {
     public let exitStatus: Int32?
     /// Whether the process was terminated for exceeding its timeout.
     public let timedOut: Bool
-    /// A description of the launch failure when the process never started, else `nil`.
+    /// A description of the launch or cancellation failure, else `nil`.
     public let executionError: String?
-    /// Whether structured task cancellation terminated the process.
-    public let cancelled: Bool
 
     /// Creates a command result.
     /// - Parameters:
@@ -32,21 +31,18 @@ public struct CommandResult: Sendable, Equatable {
     ///   - stderr: UTF-8 standard error, or `nil`.
     ///   - exitStatus: The process exit status, or `nil` if it did not exit normally.
     ///   - timedOut: Whether the process was killed for exceeding its deadline.
-    ///   - executionError: A launch-failure description, or `nil`.
-    ///   - cancelled: Whether structured task cancellation terminated the process.
+    ///   - executionError: A launch- or cancellation-failure description, or `nil`.
     public init(
         stdout: String?,
         stderr: String?,
         exitStatus: Int32?,
         timedOut: Bool,
-        executionError: String?,
-        cancelled: Bool = false
+        executionError: String?
     ) {
         self.stdout = stdout
         self.stderr = stderr
         self.exitStatus = exitStatus
         self.timedOut = timedOut
         self.executionError = executionError
-        self.cancelled = cancelled
     }
 }
