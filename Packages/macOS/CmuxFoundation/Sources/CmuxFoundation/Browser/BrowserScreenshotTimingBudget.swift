@@ -8,6 +8,8 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     public let expectedURLAllowance: TimeInterval
     /// Deadline for the pre-capture JavaScript layout flush.
     public let preparationJavaScriptAllowance: TimeInterval
+    /// Headroom for render-host setup, layout, image normalization, and task delivery.
+    public let leaseOverheadAllowance: TimeInterval
     /// Deadline for each DOM probe collection.
     public let probeCollectionAllowance: TimeInterval
     /// Deadline for the final page-state synchronization operation.
@@ -27,6 +29,7 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     ///   - maximumAttempts: Number of capture and verification attempts; defaults to two.
     ///   - expectedURLAllowance: Restored-URL deadline; defaults to five seconds.
     ///   - preparationJavaScriptAllowance: Layout-flush deadline; defaults to one second.
+    ///   - leaseOverheadAllowance: Non-deadlined capture overhead; defaults to two seconds.
     ///   - probeCollectionAllowance: Per-probe deadline; defaults to one second.
     ///   - synchronizationAllowance: Page-state barrier deadline; defaults to one second.
     ///   - snapshotCompletionAllowance: Snapshot callback deadline; defaults to ten seconds.
@@ -37,6 +40,7 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
         maximumAttempts: Int = 2,
         expectedURLAllowance: TimeInterval = 5,
         preparationJavaScriptAllowance: TimeInterval = 1,
+        leaseOverheadAllowance: TimeInterval = 2,
         probeCollectionAllowance: TimeInterval = 1,
         synchronizationAllowance: TimeInterval = 1,
         snapshotCompletionAllowance: TimeInterval = 10,
@@ -47,6 +51,7 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
         self.maximumAttempts = maximumAttempts
         self.expectedURLAllowance = expectedURLAllowance
         self.preparationJavaScriptAllowance = preparationJavaScriptAllowance
+        self.leaseOverheadAllowance = leaseOverheadAllowance
         self.probeCollectionAllowance = probeCollectionAllowance
         self.synchronizationAllowance = synchronizationAllowance
         self.snapshotCompletionAllowance = snapshotCompletionAllowance
@@ -59,6 +64,7 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     public var captureLeaseTimeout: TimeInterval {
         expectedURLAllowance
             + preparationJavaScriptAllowance
+            + leaseOverheadAllowance
             + TimeInterval(maximumAttempts) * (
             probeCollectionAllowance * 2
                 + synchronizationAllowance

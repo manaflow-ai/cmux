@@ -557,7 +557,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         expectedURL: URL?,
         timeout: TimeInterval,
         timingBudget: BrowserScreenshotTimingBudget = .init(),
-        operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
+        operation: @escaping @MainActor () async throws -> T,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         let renderHost = BrowserOffscreenRenderHost(
@@ -565,15 +565,17 @@ enum BrowserScreenshotWebViewSnapshotter {
             viewportSize: viewportSize
         )
 
-        var didFinish = false
         var timeoutTimer: Timer?
-        let finish: (Result<T, Error>) -> Void = { result in
-            guard !didFinish else { return }
-            didFinish = true
+        let lease = BrowserScreenshotOffscreenLease<T>(
+            restore: {
+                renderHost.restore()
+            },
+            completion: completion
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            renderHost.restore()
-            completion(result)
         }
 
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in
@@ -581,19 +583,20 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
         timeoutTimer = timer
         RunLoop.main.add(timer, forMode: .common)
-        prepareForVisualCapture(
-            webView,
-            expectedURL: expectedURL,
-            timingBudget: timingBudget
-        ) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                operation(finish)
-            case .failure(let error):
+        let operationTask = Task { @MainActor in
+            do {
+                try await prepareForVisualCapture(
+                    webView,
+                    expectedURL: expectedURL,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation()))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
     static func prepareForVisualCapture(

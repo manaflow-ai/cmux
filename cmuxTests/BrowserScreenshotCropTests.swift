@@ -225,7 +225,7 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifiedCaptureBudgetCoversRetriesAndSocketDelivery() {
         #expect(BrowserScreenshotCaptureService.defaultMaximumAttempts == 2)
-        #expect(BrowserScreenshotCaptureService.automationLeaseTimeout == 32)
+        #expect(BrowserScreenshotCaptureService.automationLeaseTimeout == 34)
         #expect(
             BrowserScreenshotCaptureService.socketResponseTimeout
                 > BrowserScreenshotCaptureService.automationLeaseTimeout
@@ -238,6 +238,7 @@ struct BrowserScreenshotCropTests {
             maximumAttempts: 3,
             expectedURLAllowance: 2,
             preparationJavaScriptAllowance: 3,
+            leaseOverheadAllowance: 10,
             probeCollectionAllowance: 4,
             synchronizationAllowance: 5,
             snapshotCompletionAllowance: 6,
@@ -246,9 +247,9 @@ struct BrowserScreenshotCropTests {
             clientDeliveryAllowance: 9
         )
 
-        #expect(budget.captureLeaseTimeout == 62)
-        #expect(budget.socketResponseTimeout == 69)
-        #expect(budget.clientResponseTimeout == 86)
+        #expect(budget.captureLeaseTimeout == 72)
+        #expect(budget.socketResponseTimeout == 79)
+        #expect(budget.clientResponseTimeout == 96)
     }
 
     @Test
@@ -267,6 +268,70 @@ struct BrowserScreenshotCropTests {
             }
         }
         #expect(!gate.finish(.success(())))
+    }
+
+    @Test
+    func offscreenLeaseRestoresOnlyAfterCancelledOperationStops() async throws {
+        let operationStarted = BrowserScreenshotContinuationGate<Void>()
+        let operationCancelled = BrowserScreenshotContinuationGate<Void>()
+        let leaseCompleted = BrowserScreenshotContinuationGate<Void>()
+        let startedTask = Task { @MainActor in
+            try await withCheckedThrowingContinuation { continuation in
+                operationStarted.install(continuation)
+            }
+        }
+        let cancelledTask = Task { @MainActor in
+            try await withCheckedThrowingContinuation { continuation in
+                operationCancelled.install(continuation)
+            }
+        }
+        let completedTask = Task { @MainActor in
+            try await withCheckedThrowingContinuation { continuation in
+                leaseCompleted.install(continuation)
+            }
+        }
+        var releaseOperation: CheckedContinuation<Void, Never>?
+        var didRestore = false
+        var completionResult: Result<Void, Error>?
+        let operationTask = Task { @MainActor in
+            operationStarted.finish(.success(()))
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    releaseOperation = continuation
+                }
+            } onCancel: {
+                Task { @MainActor in
+                    operationCancelled.finish(.success(()))
+                }
+            }
+        }
+        let lease = BrowserScreenshotOffscreenLease<Void>(
+            restore: {
+                didRestore = true
+            },
+            completion: { result in
+                completionResult = result
+                leaseCompleted.finish(.success(()))
+            }
+        )
+        lease.installOperationTask(operationTask)
+
+        try await startedTask.value
+        #expect(lease.finish(.failure(BrowserScreenshotError.automationTimedOut)))
+        try await cancelledTask.value
+        #expect(!didRestore)
+
+        let continuation = try #require(releaseOperation)
+        releaseOperation = nil
+        continuation.resume()
+        try await completedTask.value
+
+        #expect(didRestore)
+        guard case .failure(let error as BrowserScreenshotError) = completionResult,
+              case .automationTimedOut = error else {
+            Issue.record("Expected the offscreen lease to complete with automationTimedOut")
+            return
+        }
     }
 
     @Test

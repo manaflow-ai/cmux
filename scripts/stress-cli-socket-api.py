@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterable
 
 DEFAULT_DURATION_SECONDS = 12 * 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 12.0
-# Outer harness allowance above BrowserScreenshotTimingBudget's 39.5-second client deadline.
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
 BROWSER_SCREENSHOT_TIMEOUT_SECONDS = 45.0
 DEFAULT_BURST_WORKERS = 6
 DEFAULT_BURST_REQUESTS = 48

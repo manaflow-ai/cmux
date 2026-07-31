@@ -7353,19 +7353,12 @@ extension BrowserPanel {
         withVisualAutomationRenderLease(
             reason: "browser.screenshot",
             timingBudget: timingBudget,
-            operation: { webView, presentation, finish in
-                Task { @MainActor in
-                    do {
-                        let image = try await BrowserScreenshotCaptureService(
-                            webView: webView,
-                            presentation: presentation,
-                            timingBudget: timingBudget
-                        ).capture()
-                        finish(.success(image))
-                    } catch {
-                        finish(.failure(error))
-                    }
-                }
+            operation: { webView, presentation in
+                try await BrowserScreenshotCaptureService(
+                    webView: webView,
+                    presentation: presentation,
+                    timingBudget: timingBudget
+                ).capture()
             },
             completion: { [visualAutomationCaptureGate] result in
                 visualAutomationCaptureGate.end()
@@ -7377,11 +7370,10 @@ extension BrowserPanel {
     private func withVisualAutomationRenderLease<T>(
         reason: String,
         timingBudget: BrowserScreenshotTimingBudget,
-        operation: @escaping (
+        operation: @escaping @MainActor (
             _ webView: WKWebView,
-            _ presentation: BrowserScreenshotPresentation,
-            _ finish: @escaping (Result<T, Error>) -> Void
-        ) -> Task<Void, Never>,
+            _ presentation: BrowserScreenshotPresentation
+        ) async throws -> T,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         activeVisualAutomationCaptureCount += 1
@@ -7423,17 +7415,8 @@ extension BrowserPanel {
                 expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
                 timeout: timeout,
                 timingBudget: timingBudget,
-                operation: { operationFinish in
-                    let task = operation(
-                        captureWebView,
-                        presentation,
-                        operationFinish
-                    )
-                    guard !didFinish else {
-                        task.cancel()
-                        return
-                    }
-                    operationTask = task
+                operation: {
+                    try await operation(captureWebView, presentation)
                 },
                 completion: finish
             )
@@ -7454,7 +7437,13 @@ extension BrowserPanel {
             switch result {
             case .success:
                 guard !didFinish else { return }
-                let task = operation(captureWebView, presentation, finish)
+                let task = Task { @MainActor in
+                    do {
+                        finish(.success(try await operation(captureWebView, presentation)))
+                    } catch {
+                        finish(.failure(error))
+                    }
+                }
                 guard !didFinish else {
                     task.cancel()
                     return
