@@ -337,6 +337,16 @@ mod unix {
     static HOST_REAP_TEST_LOCK: Mutex<()> = Mutex::new(());
     #[cfg(test)]
     static NEXT_HOST_NORMAL_CLEANUP_FAILURES: AtomicUsize = AtomicUsize::new(0);
+
+    #[cfg(not(test))]
+    fn host_forced_drain_window() -> Duration {
+        HOST_FORCED_DRAIN_WINDOW
+    }
+
+    #[cfg(test)]
+    fn host_forced_drain_window() -> Duration {
+        crate::test_timeout(HOST_FORCED_DRAIN_WINDOW)
+    }
     #[cfg(test)]
     static NEXT_HOST_PROCESS_REAPER_SPAWN_FAILURES: AtomicUsize = AtomicUsize::new(0);
     #[cfg(test)]
@@ -2383,7 +2393,7 @@ mod unix {
         loop {
             if force_drain.load(Ordering::Acquire) {
                 let started = forced_at.get_or_insert_with(Instant::now);
-                if started.elapsed() >= HOST_FORCED_DRAIN_WINDOW {
+                if started.elapsed() >= host_forced_drain_window() {
                     return Ok(false);
                 }
             }
@@ -2401,7 +2411,7 @@ mod unix {
             ];
             let timeout_ms = forced_at
                 .map(|started| {
-                    let remaining = HOST_FORCED_DRAIN_WINDOW.saturating_sub(started.elapsed());
+                    let remaining = host_forced_drain_window().saturating_sub(started.elapsed());
                     remaining.as_millis().clamp(1, i32::MAX as u128) as i32
                 })
                 .unwrap_or(-1);
@@ -3152,7 +3162,7 @@ mod unix {
                 // the durable host: wake the reader, drain bytes already
                 // readable for a short bounded window, then publish Exit.
                 self.request_forced_pty_drain();
-                let _ = self.wait_for_pty_drain(HOST_FORCED_DRAIN_WINDOW * 2);
+                let _ = self.wait_for_pty_drain(host_forced_drain_window() * 2);
             }
         }
     }

@@ -4756,11 +4756,25 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn completed_natural_cleanup_does_not_revalidate_reusable_session_id() {
-        // A completed child may have its numeric session ID reassigned. Use
-        // this test process's live session as a deterministic reused value.
-        // SAFETY: getsid(0) only queries the calling process.
-        let reused_session = unsafe { libc::getsid(0) };
-        assert!(reused_session > 1);
+        use std::os::unix::process::CommandExt as _;
+
+        // A completed child may have its numeric session ID reassigned. Use a
+        // dedicated live session instead of assuming the test runner itself
+        // has a reusable session ID greater than one.
+        let mut command = std::process::Command::new("sleep");
+        command.arg("60");
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut reused = command.spawn().unwrap();
+        let reused_session = libc::pid_t::try_from(reused.id()).unwrap();
+        // SAFETY: getsid only queries the live child spawned above.
+        assert_eq!(unsafe { libc::getsid(reused_session) }, reused_session);
         let signals = Arc::new(AtomicUsize::new(0));
         let process = LocalPtyProcess::new(
             u32::try_from(reused_session).ok(),
@@ -4774,6 +4788,12 @@ mod tests {
             "exact completed cleanup was rejected through a reused numeric session ID"
         );
         assert_eq!(signals.load(Ordering::Relaxed), 0);
+        assert!(
+            reused.try_wait().unwrap().is_none(),
+            "completed cleanup signaled a reused session"
+        );
+        let _ = reused.kill();
+        let _ = reused.wait();
     }
 
     #[cfg(unix)]
@@ -4995,9 +5015,12 @@ mod tests {
             LocalProcess::Owned(process) => process.clone(),
             LocalProcess::Untracked(_) => unreachable!("real PTY process must be tracked"),
         };
-        process.normal_cleanup_delay_ms.store(300, Ordering::Release);
+        process.normal_cleanup_delay_ms.store(
+            crate::test_timeout(Duration::from_millis(300)).as_millis() as u64,
+            Ordering::Release,
+        );
         std::fs::write(&release_path, b"ready").unwrap();
-        let sweep_deadline = Instant::now() + Duration::from_secs(1);
+        let sweep_deadline = Instant::now() + crate::test_timeout(Duration::from_secs(1));
         while !process.normal_cleanup_started.load(Ordering::Acquire)
             && Instant::now() < sweep_deadline
         {
@@ -5006,13 +5029,15 @@ mod tests {
         assert!(process.normal_cleanup_started.load(Ordering::Acquire));
 
         let started = Instant::now();
-        let _ = process.terminate_and_wait(started + Duration::from_millis(50));
+        let _ =
+            process.terminate_and_wait(started + crate::test_timeout(Duration::from_millis(50)));
         let elapsed = started.elapsed();
-        let _ = process.terminate_and_wait(Instant::now() + Duration::from_secs(1));
+        let _ = process
+            .terminate_and_wait(Instant::now() + crate::test_timeout(Duration::from_secs(1)));
         let _ = std::fs::remove_dir_all(root);
 
         assert!(
-            elapsed < Duration::from_millis(150),
+            elapsed < crate::test_timeout(Duration::from_millis(150)),
             "explicit shutdown waited behind the natural cleanup sweep: {elapsed:?}"
         );
     }
@@ -5283,31 +5308,45 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn local_same_pair_alt_screen_roundtrip_forces_resolved_cursor_colors() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-local-cursor-activity-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let release_path = root.join("release");
         let mux = Mux::new_for_test("local-cursor-activity", SurfaceOptions::default());
         let options = SurfaceOptions {
             command: Some(vec![
                 "/bin/sh".into(),
                 "-c".into(),
-                "sleep 0.2; printf '\\033[?1049h\\033[?1049l'; sleep 0.2".into(),
+                format!(
+                    "while [ ! -e {} ]; do sleep 0.01; done; \
+                     printf '\\033[?1049h\\033[?1049l'; sleep 0.2",
+                    release_path.display()
+                ),
             ]),
             ..SurfaceOptions::default()
         };
         let surface = Surface::spawn(1, options, Arc::downgrade(&mux)).unwrap();
         let attach = surface.attach_stream().unwrap();
         let expected = (attach.colors.cursor_style, attach.colors.cursor_blink);
-        let deadline = Instant::now() + Duration::from_secs(2);
+        std::fs::write(&release_path, b"ready").unwrap();
+        let deadline = Instant::now() + crate::test_timeout(Duration::from_secs(2));
         let mut output = Vec::new();
         let colors = loop {
             assert!(Instant::now() < deadline, "local cursor activity was not published");
-            match attach.stream.recv_timeout(Duration::from_millis(250)).unwrap() {
-                AttachFrame::Output(bytes) => output.extend_from_slice(&bytes),
-                AttachFrame::ColorsChanged(colors) => break colors,
-                AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {}
-                AttachFrame::OutputWithColors { .. } => {
+            match attach.stream.recv_timeout(crate::test_timeout(Duration::from_millis(250))) {
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(error) => panic!("local cursor activity stream failed: {error}"),
+                Ok(AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+                Ok(AttachFrame::ColorsChanged(colors)) => break colors,
+                Ok(AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. }) => {}
+                Ok(AttachFrame::OutputWithColors { .. }) => {
                     panic!("local PTYs must use ordered Output then ColorsChanged")
                 }
             }
         };
+        let _ = std::fs::remove_dir_all(root);
 
         assert!(
             output.windows(16).any(|window| window == b"\x1b[?1049h\x1b[?1049l"),

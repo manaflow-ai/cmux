@@ -15369,7 +15369,7 @@ mod tests {
     #[test]
     fn daemon_exit_retries_until_async_browser_bootstrap_releases_ownership() {
         let mux = test_mux();
-        mux.set_shutdown_attempt_timeout_for_test(Duration::from_millis(25));
+        mux.set_shutdown_attempt_timeout_for_test(crate::test_timeout(Duration::from_millis(25)));
         let (bootstrap_reached_tx, bootstrap_reached_rx) = std::sync::mpsc::sync_channel(1);
         let (release_bootstrap_tx, release_bootstrap_rx) = std::sync::mpsc::sync_channel(1);
         let release_bootstrap_rx = Arc::new(Mutex::new(release_bootstrap_rx));
@@ -15390,10 +15390,11 @@ mod tests {
                 shutdown_done_tx.send(()).unwrap();
             }
         });
-        let finished_early = shutdown_done_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        let finished_early =
+            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_millis(100))).is_ok();
         release_bootstrap_tx.send(()).unwrap();
         if !finished_early {
-            shutdown_done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            shutdown_done_rx.recv_timeout(crate::test_timeout(Duration::from_secs(2))).unwrap();
         }
         shutdown.join().unwrap();
 

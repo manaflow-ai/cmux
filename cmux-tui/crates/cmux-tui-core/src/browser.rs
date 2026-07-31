@@ -742,24 +742,20 @@ fn authority_capture_attempt_budget() -> Duration {
 }
 #[cfg(test)]
 fn authority_capture_attempt_budget() -> Duration {
-    Duration::from_millis(150).saturating_mul(test_timeout_scale())
-}
-#[cfg(test)]
-fn test_timeout_scale() -> u32 {
-    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
-        .ok()
-        .and_then(|value| value.parse::<u32>().ok())
-        .filter(|scale| *scale > 0)
-        .unwrap_or(1)
+    crate::test_timeout(Duration::from_millis(150))
 }
 const NAVIGATION_AUTHORITY_TIMEOUT: Duration = Duration::from_secs(15);
 const POINTER_RELEASE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(500)];
 #[cfg(not(test))]
-const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(250);
+fn navigation_commit_wait() -> Duration {
+    Duration::from_millis(250)
+}
 #[cfg(test)]
-const NAVIGATION_COMMIT_WAIT: Duration = Duration::from_millis(100);
+fn navigation_commit_wait() -> Duration {
+    crate::test_timeout(Duration::from_millis(100))
+}
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -3957,7 +3953,8 @@ impl BrowserSurface {
         // Command acknowledgment does not mean the document committed. The
         // ingress navigation event owns this barrier and may arrive after the
         // short synchronous wait on a slow page.
-        let _ = self.frame_epoch.wait_until_at_least(expected_frame_epoch, NAVIGATION_COMMIT_WAIT);
+        let _ =
+            self.frame_epoch.wait_until_at_least(expected_frame_epoch, navigation_commit_wait());
     }
 
     fn finish_navigation_command<T>(
@@ -6511,11 +6508,16 @@ mod tests {
         });
         let owner = browser.shutdown_owner().unwrap();
 
-        assert!(!owner.terminate_until(Instant::now() + Duration::from_millis(200)));
-        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert!(
+            !owner
+                .terminate_until(Instant::now() + crate::test_timeout(Duration::from_millis(200)))
+        );
+        assert_eq!(close_rx.recv_timeout(crate::test_timeout(Duration::from_secs(1))).unwrap(), 1);
         assert!(browser.session.lock().unwrap().is_none());
-        assert!(owner.terminate_until(Instant::now() + Duration::from_secs(1)));
-        assert_eq!(close_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert!(
+            owner.terminate_until(Instant::now() + crate::test_timeout(Duration::from_secs(1)))
+        );
+        assert_eq!(close_rx.recv_timeout(crate::test_timeout(Duration::from_secs(1))).unwrap(), 2);
 
         runtime.shutdown();
         server.join().unwrap();
@@ -9384,7 +9386,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+            stream.set_read_timeout(Some(crate::test_timeout(Duration::from_millis(500)))).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
@@ -9523,7 +9525,7 @@ mod tests {
             "document verification must reach the healthy final attempt"
         );
         assert!(
-            elapsed < Duration::from_millis(600).saturating_mul(super::test_timeout_scale()),
+            elapsed < crate::test_timeout(Duration::from_millis(600)),
             "bounded attempts monopolized the input worker for {elapsed:?}"
         );
     }
@@ -9844,7 +9846,9 @@ mod tests {
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            ws.get_ref()
+                .set_read_timeout(Some(crate::test_timeout(Duration::from_millis(250))))
+                .unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9880,7 +9884,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(crate::test_timeout(Duration::from_secs(1))).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9903,11 +9907,13 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let navigate_result = browser.navigate_blocking("https://next.test");
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx
+            .recv_timeout(crate::test_timeout(Duration::from_secs(1)))
+            .unwrap_or(false);
 
         let mut admitted = false;
         if navigate_result.is_ok() {
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + crate::test_timeout(Duration::from_secs(1));
             while Instant::now() < deadline
                 && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
             {
@@ -9955,7 +9961,9 @@ mod tests {
             assert_eq!(first_reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": first_reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+            ws.get_ref()
+                .set_read_timeout(Some(crate::test_timeout(Duration::from_millis(500))))
+                .unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9974,7 +9982,7 @@ mod tests {
             }
             write_ws_json(&mut ws, json!({"id": second_reload["id"], "result": {}}));
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(crate::test_timeout(Duration::from_secs(1))).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9993,7 +10001,9 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let second_reload = browser.reload_blocking();
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx
+            .recv_timeout(crate::test_timeout(Duration::from_secs(1)))
+            .unwrap_or(false);
 
         let _ = stop_tx.send(());
         runtime.shutdown();
@@ -10690,8 +10700,9 @@ mod tests {
         browser.store_frame(test_frame(1));
 
         let result = browser.navigate_blocking("https://example.test#same-document");
-        let post_navigate_delay =
-            post_navigate_delay_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let post_navigate_delay = post_navigate_delay_rx
+            .recv_timeout(crate::test_timeout(Duration::from_secs(1)))
+            .unwrap();
         let state = browser.state.lock().unwrap();
         let pending_frame_epoch = state.pending_frame_epoch;
         let pending_navigation_epoch = state.pending_navigation_epoch;
@@ -10712,7 +10723,7 @@ mod tests {
             "the unchanged document must regain authority through freshly captured pixels"
         );
         assert!(
-            post_navigate_delay < super::NAVIGATION_COMMIT_WAIT / 2,
+            post_navigate_delay < super::navigation_commit_wait() / 2,
             "loaderless same-document navigation waited {post_navigate_delay:?} for an epoch that cannot advance"
         );
     }

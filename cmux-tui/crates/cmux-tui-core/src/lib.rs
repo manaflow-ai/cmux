@@ -75,6 +75,20 @@ pub type SplitId = u64;
 pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 
+#[cfg(test)]
+pub(crate) fn test_timeout_scale() -> u32 {
+    std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|scale| *scale > 0)
+        .unwrap_or(1)
+}
+
+#[cfg(test)]
+pub(crate) fn test_timeout(duration: std::time::Duration) -> std::time::Duration {
+    duration.saturating_mul(test_timeout_scale())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitDir {
     /// Split into left/right columns.
