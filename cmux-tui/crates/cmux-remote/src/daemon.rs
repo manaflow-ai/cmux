@@ -2296,6 +2296,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn successful_reconnects_do_not_retain_obsolete_resume_expiry_tasks() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "resume-expiry-task-lifecycle", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::with_policy(
+            auth,
+            SessionLimits::default(),
+            DaemonSessionPolicy { resume_lease: MAX_RESUME_LEASE },
+        )
+        .unwrap();
+        let key = ClientKey {
+            device_id: "resume-expiry-task-client".into(),
+            session: SessionId([39; 16]),
+        };
+        let (initial, _initial_peer, mut previous_closed, _initial_peer_closed) = tracking_pair();
+        let session =
+            ReliableSession::new(key.session, Arc::new(initial), SessionLimits::default());
+        let server = ServerConnection::new(&daemon, key, session, vec![Lane::ALL.to_vec()]);
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+
+        for generation in 1..=8 {
+            server.note_transport_loss(generation - 1).await;
+            let (replacement, _peer, replacement_closed, _peer_closed) = tracking_pair();
+            server
+                .reconnect_physical(
+                    generation - 1,
+                    generation,
+                    Arc::new(replacement),
+                    vec![Lane::ALL.to_vec()],
+                    &BTreeMap::new(),
+                )
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !previous_closed.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("reconnect did not finish closing the previous carrier");
+            previous_closed = replacement_closed;
+        }
+
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("successful reconnects retained obsolete resume-expiry tasks");
+        server.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn graceful_session_close_removes_connection_immediately() {
         let (_directory, daemon, _group, client, server) =
             connected_fault_pair(Duration::from_secs(5), SessionId([32; 16])).await;
