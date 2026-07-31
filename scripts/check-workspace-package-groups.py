@@ -40,13 +40,17 @@ TOP_LEVEL_PROJECTS = ["group:cmux.xcodeproj", "group:ios/cmux-ios.xcodeproj"]
 # The iOS app's own SwiftPM package lives outside Packages/; it heads the iOS
 # group.
 IOS_APP_PACKAGE_REF = "container:ios/cmuxPackage"
-# The Examples group is curated by hand and lives under a different container.
+# App and example groups are curated by hand and live outside Packages/.
+APPS_GROUP = (
+    "container:Apps",
+    "Apps",
+    ["group:SurfaceStatus/SurfaceStatus.xcodeproj"],
+)
 EXAMPLES_GROUP = (
     "container:Examples",
     "Examples",
     [
         "group:TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj",
-        "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj",
         "group:CmuxExtensionSidebarExamples",
     ],
 )
@@ -91,6 +95,7 @@ def render() -> str:
         if group == "iOS":
             refs = [IOS_APP_PACKAGE_REF] + refs
         out += _group(f"container:Packages/{group}", f"Packages ({group})", refs)
+    out += _group(*APPS_GROUP)
     out += _group(*EXAMPLES_GROUP)
     out += "</Workspace>\n"
     return out

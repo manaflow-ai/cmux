@@ -1,0 +1,234 @@
+// cmux-surface-sidebar-pi-status v2
+// Reports Pi lifecycle states using cmux's own sidebar status contract.
+// Installed by the CMUX Surface Status companion app.
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+export type SidebarState = "unknown" | "running" | "idle" | "done" | "needsInput" | "rateLimited";
+export type SidebarReason = "interaction" | "rateLimit" | "error";
+
+type Report = {
+  state: SidebarState;
+  reason?: SidebarReason;
+};
+
+const retryableErrorPattern =
+  /overloaded|provider.?returned.?error|rate.?limit|quota exceeded|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
+const rateLimitPattern = /rate.?limit|quota exceeded|too many requests|429/i;
+
+function parseDurationEnv(name: string, fallback: number): number {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function lastAssistantMessage(messages: unknown[]): any | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as any;
+    if (message?.role === "assistant") return message;
+  }
+  return undefined;
+}
+
+export function classifyRetryableError(messages: unknown[]): Omit<Report, "state"> | undefined {
+  const assistant = lastAssistantMessage(messages);
+  if (assistant?.stopReason !== "error") return undefined;
+  const errorMessage = String(assistant.errorMessage ?? "").trim();
+  if (!retryableErrorPattern.test(errorMessage)) return undefined;
+  return { reason: rateLimitPattern.test(errorMessage) ? "rateLimit" : "error" };
+}
+
+/**
+ * A precedence-aware lifecycle reducer. Pi's agent_end is only an attempt
+ * boundary; agent_settled is the authoritative end of retries, compaction, and
+ * queued continuations.
+ */
+export class PiSidebarLifecycle {
+  private agentActive = false;
+  private settled = true;
+  private hasCompleted = false;
+  private blockedCount = 0;
+  private terminalFailure: Omit<Report, "state"> | undefined;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastReport: Report | undefined;
+
+  private readonly publish: (report: Report) => void;
+  private readonly idleDebounceMs: number;
+
+  constructor(
+    publish: (report: Report) => void,
+    idleDebounceMs = parseDurationEnv("CMUX_PI_IDLE_DEBOUNCE_MS", 250),
+  ) {
+    this.publish = publish;
+    this.idleDebounceMs = idleDebounceMs;
+  }
+
+  sessionStart(isIdle: boolean): void {
+    this.clearIdleTimer();
+    this.agentActive = !isIdle;
+    this.settled = isIdle;
+    this.hasCompleted = false;
+    this.terminalFailure = undefined;
+    this.publishDesired(true);
+  }
+
+  agentStart(): void {
+    this.clearIdleTimer();
+    this.agentActive = true;
+    this.settled = false;
+    this.hasCompleted = false;
+    this.terminalFailure = undefined;
+    this.publishDesired();
+  }
+
+  agentEnd(messages: unknown[]): void {
+    // Pi may emit a duplicate/late end after an attempt has already ended.
+    // Never let it overwrite the retained result or cancel a retry hold.
+    if (!this.agentActive) return;
+    // agent_end can be followed by an automatic retry. Keep Running until
+    // agent_settled and only remember the latest terminal attempt outcome.
+    this.agentActive = false;
+    this.terminalFailure = classifyRetryableError(messages);
+  }
+
+  agentSettled(): void {
+    this.agentActive = false;
+    this.settled = true;
+    this.hasCompleted = true;
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      this.publishDesired();
+    }, this.idleDebounceMs);
+    this.idleTimer.unref?.();
+  }
+
+  blocker(active: boolean, label?: string): void {
+    if (active) {
+      this.blockedCount += 1;
+    } else {
+      this.blockedCount = Math.max(0, this.blockedCount - 1);
+    }
+    this.publishDesired();
+  }
+
+  shutdown(): void {
+    this.clearIdleTimer();
+  }
+
+  private desiredReport(): Report {
+    if (this.blockedCount > 0) {
+      return { state: "needsInput", reason: "interaction" };
+    }
+    if (this.settled && this.hasCompleted && this.terminalFailure) {
+      return {
+        state: this.terminalFailure.reason === "rateLimit" ? "rateLimited" : "needsInput",
+        ...this.terminalFailure,
+      };
+    }
+    if (this.agentActive || !this.settled) return { state: "running" };
+    return { state: this.hasCompleted ? "done" : "idle" };
+  }
+
+  private publishDesired(force = false): void {
+    const report = this.desiredReport();
+    if (
+      !force &&
+      report.state === this.lastReport?.state &&
+      report.reason === this.lastReport?.reason
+    ) return;
+    this.lastReport = report;
+    this.publish(report);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const rawSurfaceID = process.env.CMUX_SURFACE_ID;
+const surfaceID = rawSurfaceID && uuidPattern.test(rawSurfaceID) ? rawSurfaceID : undefined;
+const rawWorkspaceID = process.env.CMUX_WORKSPACE_ID;
+const workspaceID = rawWorkspaceID && uuidPattern.test(rawWorkspaceID) ? rawWorkspaceID : undefined;
+const agentID = "pi";
+const stateDirectory = path.join(os.homedir(), ".cmuxterm");
+const statusFile = surfaceID
+  ? path.join(stateDirectory, `${agentID}-${surfaceID}-sidebar-agent-status.json`)
+  : undefined;
+function report({ state, reason }: Report): void {
+  if (!statusFile || !surfaceID) return;
+  try {
+    fs.mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
+    const temporary = `${statusFile}.${process.pid}.tmp`;
+    fs.writeFileSync(
+      temporary,
+      `${JSON.stringify({
+        version: 2,
+        agentID,
+        surfaceID,
+        workspaceID,
+        state,
+        reason,
+        pid: process.pid,
+        updatedAt: Date.now() / 1000,
+      })}\n`,
+      { mode: 0o600 },
+    );
+    fs.renameSync(temporary, statusFile);
+  } catch {
+    // Sidebar telemetry must never interfere with Pi.
+  }
+}
+
+function removeOwnedStatus(): void {
+  if (!statusFile) return;
+  try {
+    const current = JSON.parse(fs.readFileSync(statusFile, "utf8"));
+    if (current?.pid === process.pid) fs.unlinkSync(statusFile);
+  } catch {
+    // A missing, replaced, or malformed status file is harmless.
+  }
+}
+
+export default function (pi: any) {
+  if (!surfaceID) return;
+
+  let rootSession = false;
+  const lifecycle = new PiSidebarLifecycle(report);
+
+  pi.on("session_start", (_event: any, ctx: any) => {
+    if (ctx?.hasUI !== true) return;
+    rootSession = true;
+    lifecycle.sessionStart(ctx?.isIdle?.() !== false);
+  });
+
+  pi.on("agent_start", () => {
+    if (rootSession) lifecycle.agentStart();
+  });
+
+  pi.on("agent_end", (event: any) => {
+    if (rootSession) lifecycle.agentEnd(Array.isArray(event?.messages) ? event.messages : []);
+  });
+
+  pi.on("agent_settled", () => {
+    if (rootSession) lifecycle.agentSettled();
+  });
+
+  const handleBlocker = (data: any) => {
+    if (rootSession) lifecycle.blocker(data?.active === true, data?.label);
+  };
+
+  // cmux owns this small optional interaction contract. The Herdr event is a
+  // compatibility adapter only; Pi lifecycle reporting does not require Herdr.
+  pi.events.on("cmux:interaction-blocked", handleBlocker);
+  pi.events.on("herdr:blocked", handleBlocker);
+
+  pi.on("session_shutdown", (event: any) => {
+    if (!rootSession) return;
+    lifecycle.shutdown();
+    if (event?.reason === "quit") removeOwnedStatus();
+  });
+}

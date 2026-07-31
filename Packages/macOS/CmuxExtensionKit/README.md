@@ -19,16 +19,16 @@ They are separate from the public extension-author SDK.
 
 Sidebar extensions are ExtensionKit app extensions. `CmuxExtensionKit` and the reference projects target macOS 14+, matching CMUX.
 
-Use `Examples/SampleSidebarExtensionApp` as the reference project:
+For a complete public-SDK containing-app example, see `Examples/TabsVisibleSidebar`. `Examples/CmuxExtensionSidebarExamples` demonstrates cmux's internal provider/render models instead. For a production integration using the public SDK, see `Apps/SurfaceStatus/SurfaceStatus.xcodeproj`.
 
-1. Open `SampleSidebarExtensionApp.xcodeproj`.
+When creating your own extension:
+
+1. Create a containing macOS app and embedded ExtensionKit extension target.
 2. Change the app and extension bundle identifiers to your own reverse-DNS prefix.
-3. Change the signing team from Manaflow to your team.
+3. Select your signing team.
 4. Keep the extension point identifier as `com.cmuxterm.app.cmux.sidebar`.
 5. Build and launch the containing app once so macOS registers the embedded extension.
-6. In CMUX, open Sidebar Extensions from the puzzle button next to the sidebar help button and enable your extension.
-7. Choose the extension sidebar provider from that puzzle menu.
-8. If more than one sidebar extension is enabled, choose your extension from the extension sidebar header.
+6. In CMUX, open Sidebar Extensions, enable your extension, and select it as the provider.
 
 The extension target declares the extension point manually in its `Info.plist`:
 

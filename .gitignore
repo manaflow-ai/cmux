@@ -28,6 +28,15 @@ cmux-*.zip
 cmux-macos.dmg
 appcast.xml
 
+# Surface Status companion build/package outputs
+# Source payloads, tests, scripts, and localization remain tracked; only
+# reproducible local artifacts belong here.
+/dist/surface-status/
+/dist/surface-status-codex/
+Apps/SurfaceStatus/dist/
+Apps/SurfaceStatus/*.dmg
+Apps/SurfaceStatus/*.dmg.sha256
+
 # Python
 __pycache__/
 *.pyc
@@ -48,6 +57,8 @@ node_modules/
 tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
+*.xcresult/
+*.profraw
 
 # Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
 # still have an untracked mux/target that must never be committed again)

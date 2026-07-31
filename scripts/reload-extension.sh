@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# reload-extension.sh — build a CMUX sample sidebar extension scoped to a dev build tag.
+# reload-extension.sh — build CMUX sidebar extensions scoped to a dev build tag.
 #
 # A tagged cmux dev app (built by reload.sh --tag <t>) declares a host-scoped
 # extension point <host-bundle-id>.cmux.sidebar (baked at build time via the
 # CMUX_SIDEBAR_EXTENSION_POINT_ID build setting; see CMUXSidebarExtensionPoint).
-# For that host to have something to host, the sample extension must register
+# For that host to have something to host, the extension must register
 # against the SAME tagged point and carry per-tag bundle ids so it can coexist
 # with other tags' extensions.
 #
@@ -20,7 +20,7 @@ set -euo pipefail
 # registers with pluginkit, and launches once.
 #
 # Usage:
-#   scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example sample|tabs|both] [--no-launch]
+#   scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example surface-status|tabs|both] [--no-launch]
 #
 # The TAG_ID derivation matches reload.sh exactly (reverse-DNS sanitize) so the host
 # and extension always agree on the point id.
@@ -35,15 +35,14 @@ HOST_BUNDLE_ID_OVERRIDE=""
 
 usage() {
   cat <<EOF
-Usage: scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example sample|tabs|both] [--no-launch]
+Usage: scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example surface-status|tabs|both] [--no-launch]
 
   --tag <tag>        Required. Same tag you pass to reload.sh, so the extension's
                      point id matches the tagged host's.
   --host-bundle-id   Host app bundle id when reload.sh used --bundle-id.
                      Defaults to com.cmuxterm.app.debug.<sanitized-tag>.
   --bundle-id        Alias for --host-bundle-id.
-  --example <which>  sample (CMUX ExtKit Sample Sidebar), tabs (TabsVisibleSidebar),
-                     or both (default).
+  --example <which>  surface-status, tabs (TabsVisibleSidebar), or both (default).
   --no-launch        Build and install but do not launch to register.
   -h, --help         Show this help.
 EOF
@@ -75,8 +74,8 @@ done
 
 [[ -z "$TAG" ]] && { echo "error: --tag is required" >&2; usage; exit 1; }
 case "$EXAMPLE" in
-  sample|tabs|both) ;;
-  *) echo "error: --example must be sample, tabs, or both" >&2; exit 1 ;;
+  surface-status|tabs|both) ;;
+  *) echo "error: --example must be surface-status, tabs, or both" >&2; exit 1 ;;
 esac
 
 # Reverse-DNS sanitize, identical to reload.sh sanitize_bundle: keep alnum, map
@@ -95,8 +94,8 @@ TAGGED_POINT_ID="${HOST_BUNDLE_ID}.${SIDEBAR_POINT_NAME}"
 # Each entry: project_path | scheme | app_name | app_bundle_id | appex_relpath | appex_bundle_id
 example_specs() {
   case "$1" in
-    sample)
-      echo "Examples/SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj|CMUXExtKitSampleSidebarApp|CMUX ExtKit Sample Sidebar|co.manaflow.CMUXExtKitSampleSidebarApp|Contents/Extensions/CMUX ExtKit Sample Sidebar Extension.appex|co.manaflow.CMUXExtKitSampleSidebarApp.Extension" ;;
+    surface-status)
+      echo "Apps/SurfaceStatus/SurfaceStatus.xcodeproj|SurfaceStatus|CMUX Surface Status Sidebar|dev.vincent.CMUXSurfaceStatusSidebar|Contents/Extensions/CMUX Surface Status Sidebar Extension.appex|dev.vincent.CMUXSurfaceStatusSidebar.Extension" ;;
     tabs)
       echo "Examples/TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj|TabsVisibleSidebar|TabsVisibleSidebar|co.manaflow.TabsVisibleSidebar|Contents/Extensions/Tabs Visible Sidebar Extension.appex|co.manaflow.TabsVisibleSidebar.Extension" ;;
   esac
@@ -130,7 +129,7 @@ build_install_example() {
   # enable/disable + availability counts the host reads, so two same-named appexes (a base
   # and a tagged copy installed side by side) are treated as one logical extension and
   # toggling one perturbs the other. A per-tag display name keeps them distinct. Leading
-  # space so it reads "CMUX ExtKit Sample Sidebar <tag>".
+  # space so it reads "<extension name> <tag>".
   #
   # Ad-hoc sign (CODE_SIGN_IDENTITY="-") so resources and Info.plist are bound.
   # CODE_SIGNING_ALLOWED=NO produces a bundle whose Info.plist is "not bound", which
@@ -162,9 +161,9 @@ build_install_example() {
   # it perturbs the real one. Removing the build dir keeps exactly one registered copy.
   rm -rf "$derived" "$derived.log"
 
-  # Do NOT re-sign. xcodebuild already ad-hoc signs with the appex's entitlements
-  # (App Sandbox + the co.manaflow.cmux.sidebar app group) bound in. Those entitlements
-  # are required for the extension's XPC connection to the host; a bare
+  # Do NOT re-sign. xcodebuild already ad-hoc signs with the appex's declared
+  # sandbox and file-access entitlements bound in. Those entitlements are
+  # required for the extension's XPC connection to the host; a bare
   # `codesign --force --sign -` re-sign strips them, and the extension then connects and
   # immediately drops ("Extension Blocked / lost the connection") with no recovery.
   # pkd ingests the as-built bundle fine because its bundle id is per-tag distinct
@@ -183,9 +182,9 @@ build_install_example() {
 }
 
 case "$EXAMPLE" in
-  sample) build_install_example sample ;;
-  tabs)   build_install_example tabs ;;
-  both)   build_install_example sample; build_install_example tabs ;;
+  surface-status) build_install_example surface-status ;;
+  tabs)           build_install_example tabs ;;
+  both)           build_install_example surface-status; build_install_example tabs ;;
 esac
 
 echo "==> done. Tagged extension(s) register against ${TAGGED_POINT_ID}."

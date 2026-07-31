@@ -1,0 +1,758 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "manager.action.cancel": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "manager.action.disable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効にする"
+          }
+        }
+      }
+    },
+    "manager.action.done": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "manager.action.enable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にする"
+          }
+        }
+      }
+    },
+    "manager.action.install": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Integrations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携をインストール"
+          }
+        }
+      }
+    },
+    "manager.action.ok": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "manager.action.openCmux": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを開く"
+          }
+        }
+      }
+    },
+    "manager.action.refresh": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "manager.action.removeGuide": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Surface Status…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Statusを削除…"
+          }
+        }
+      }
+    },
+    "manager.action.showInFinder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show This App in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリをFinderに表示"
+          }
+        }
+      }
+    },
+    "manager.action.uninstall": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall Integrations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携をアンインストール"
+          }
+        }
+      }
+    },
+    "manager.action.useInCmux": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxで使用"
+          }
+        }
+      }
+    },
+    "manager.adapters.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Integrations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント連携"
+          }
+        }
+      }
+    },
+    "manager.agent.claude.detail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses cmux’s native lifecycle store; no adapter is installed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxのネイティブライフサイクルストアを使用し、アダプターはインストールしません。"
+          }
+        }
+      }
+    },
+    "manager.agent.codex.detail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses cmux’s native persistent hooks plus a launch-only shell helper. The helper reports no prompts or lifecycle events; open a new shell after changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxのネイティブ永続フックと起動専用シェルヘルパーを使用します。ヘルパーはプロンプトやライフサイクルイベントを報告しません。変更後は新しいシェルを開いてください。"
+          }
+        }
+      }
+    },
+    "manager.agent.managed.detail": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status-only adapter; does not change shell or session restore settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態表示専用のアダプターです。シェルやセッション復元設定は変更しません。"
+          }
+        }
+      }
+    },
+    "manager.error.cmuxNotFound": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not be found in Applications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applicationsにcmuxが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "manager.error.cmuxSelectionFailed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Status could not update cmux’s sidebar selection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Statusはcmuxのサイドバー選択を更新できませんでした。"
+          }
+        }
+      }
+    },
+    "manager.error.invalidPayload": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The bundled adapter is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同梱のアダプターが無効です。"
+          }
+        }
+      }
+    },
+    "manager.error.invalidReceipt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installation receipt is invalid. No files were changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールレシートが無効です。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "manager.error.modifiedDestination": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installed adapter was modified and was preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済みアダプターは変更されているため保持されました。"
+          }
+        }
+      }
+    },
+    "manager.error.noInstallation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No managed adapter installation was found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象のアダプターインストールが見つかりません。"
+          }
+        }
+      }
+    },
+    "manager.error.operationFailed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation failed and was rolled back."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作に失敗したためロールバックしました。"
+          }
+        }
+      }
+    },
+    "manager.error.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Status Couldn’t Complete the Operation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Statusは操作を完了できませんでした"
+          }
+        }
+      }
+    },
+    "manager.error.unmanagedDestination": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unmanaged adapter file already exists."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象外のアダプターファイルが既に存在します。"
+          }
+        }
+      }
+    },
+    "manager.error.unsafePath": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The adapter path is unsafe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アダプターのパスは安全ではありません。"
+          }
+        }
+      }
+    },
+    "manager.extension.bundled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同梱済み"
+          }
+        }
+      }
+    },
+    "manager.extension.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Extension"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー拡張機能"
+          }
+        }
+      }
+    },
+    "manager.install.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi and OpenCode receive status-only plugins. Codex keeps cmux’s native hooks and adds only a launch-attribution shell helper so its name appears before the first prompt. Open a new shell after changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PiとOpenCodeには状態表示専用プラグインを追加します。Codexはcmuxのネイティブフックを維持し、最初のプロンプト前に名前を表示するための起動帰属専用シェルヘルパーだけを追加します。変更後は新しいシェルを開いてください。"
+          }
+        }
+      }
+    },
+    "manager.install.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install lifecycle integrations?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライフサイクル連携をインストールしますか？"
+          }
+        }
+      }
+    },
+    "manager.removal.intro": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing lifecycle adapters and removing the sidebar extension are separate actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライフサイクルアダプターの削除とサイドバー拡張機能の削除は別の操作です。"
+          }
+        }
+      }
+    },
+    "manager.removal.step1": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In cmux, open Sidebar Extensions, select another sidebar, and disable Surface Status."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxで「Sidebar Extensions」を開き、別のサイドバーを選択してSurface Statusを無効にします。"
+          }
+        }
+      }
+    },
+    "manager.removal.step2": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return here and uninstall the receipt-owned Pi/OpenCode adapters and Codex launch helper if desired."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要に応じてこの画面に戻り、レシートで管理されているPi/OpenCodeアダプターとCodex起動ヘルパーをアンインストールします。"
+          }
+        }
+      }
+    },
+    "manager.removal.step3": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit this app, then move CMUX Surface Status Sidebar.app to the Trash. Removing the containing app removes its embedded extension."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリを終了し、CMUX Surface Status Sidebar.appをゴミ箱に移動します。コンテナアプリを削除すると、内蔵の拡張機能も削除されます。"
+          }
+        }
+      }
+    },
+    "manager.removal.step4": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen cmux’s extension browser if a stale registration remains visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古い登録が表示されたままの場合は、cmuxの拡張機能ブラウザを開き直します。"
+          }
+        }
+      }
+    },
+    "manager.removal.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Surface Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface Statusを削除"
+          }
+        }
+      }
+    },
+    "manager.state.disabled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効"
+          }
+        }
+      }
+    },
+    "manager.state.drifted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Review"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認が必要"
+          }
+        }
+      }
+    },
+    "manager.state.enabled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効"
+          }
+        }
+      }
+    },
+    "manager.state.native": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ"
+          }
+        }
+      }
+    },
+    "manager.state.notInstalled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Installed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未インストール"
+          }
+        }
+      }
+    },
+    "manager.state.unmanaged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unmanaged File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理対象外のファイル"
+          }
+        }
+      }
+    },
+    "manager.state.updateAvailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートあり"
+          }
+        }
+      }
+    },
+    "manager.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage optional Pi/OpenCode lifecycle adapters and Codex launch attribution for the bundled cmux sidebar extension."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同梱のcmuxサイドバー拡張機能用の、任意のPi/OpenCodeライフサイクルアダプターとCodex起動アトリビューションを管理します。"
+          }
+        }
+      }
+    },
+    "manager.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX Surface Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX Surface Status"
+          }
+        }
+      }
+    },
+    "manager.uninstall.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only app-owned Pi/OpenCode adapters and the Codex launch-attribution helper are removed. Native Claude and Codex hooks, agent sessions, Herdr hooks, and cmux settings are preserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリが所有するPi/OpenCodeアダプターとCodex起動帰属ヘルパーだけを削除します。ClaudeとCodexのネイティブフック、エージェントセッション、Herdrフック、cmux設定は保持されます。"
+          }
+        }
+      }
+    },
+    "manager.uninstall.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uninstall lifecycle adapters?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライフサイクルアダプターをアンインストールしますか？"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
