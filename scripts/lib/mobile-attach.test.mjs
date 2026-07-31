@@ -817,6 +817,62 @@ test("mobile launch accepts an explicit no-attach override", () => {
   assert.doesNotMatch(result.stderr, /unknown arg/);
 });
 
+test("ensure-mac fails closed before a simulator can launch unpaired", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-ensure-mac-test-"));
+  const binDir = path.join(tempRoot, "bin");
+  const xcrunLog = path.join(tempRoot, "xcrun.log");
+  fs.mkdirSync(binDir);
+  fs.writeFileSync(
+    path.join(binDir, "defaults"),
+    "#!/bin/bash\nexit 0\n",
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(binDir, "xcrun"),
+    [
+      "#!/bin/bash",
+      'if [[ "$*" == "simctl list devices booted" ]]; then',
+      '  printf "iPhone 17 (AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA) (Booted)\\n"',
+      "  exit 0",
+      "fi",
+      'printf "%s\\n" "$*" >> "$CMUX_TEST_XCRUN_LOG"',
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  try {
+    const result = run(
+      "bash",
+      [
+        "scripts/mobile-dev-launch.sh",
+        "--tag",
+        `ensure-missing-${process.pid}`,
+        "--simulator",
+        "iPhone 17",
+        "--ensure-mac",
+        "--detach",
+        "--agent",
+      ],
+      {
+        HOME: tempRoot,
+        PATH: `${binDir}:${process.env.PATH}`,
+        CMUX_TEST_XCRUN_LOG: xcrunLog,
+        CMUX_UITEST_STACK_EMAIL: "agent@example.com",
+        CMUX_UITEST_STACK_PASSWORD: "test-password",
+      },
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /could not prepare tagged Mac.*auto-pair/i);
+    const calls = fs.existsSync(xcrunLog) ? fs.readFileSync(xcrunLog, "utf8") : "";
+    assert.doesNotMatch(calls, /simctl launch/);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("local iOS reload never hides a requested setup failure with a plain launch", () => {
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
 
