@@ -570,6 +570,28 @@ import Testing
 
     // MARK: - Durable device id (binding-registration path)
 
+    @Test func simulatorSeedIsAnAuthoritativeDurableDeviceID() {
+        // Unsigned simulator apps cannot use the data-protection Keychain. The
+        // launcher writes this deterministic seed before launch, so the
+        // simulator-specific authoritative store must return it directly
+        // instead of treating it as a backup-restorable migration mirror.
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let seeded = "simulator-device-id-\(UUID().uuidString.lowercased())"
+        defaults.set(seeded, forKey: "cmux.deviceRegistry.iosDeviceID")
+        let store = SimulatorDeviceIdentityStore(defaults: defaults)
+
+        let resolved = DeviceRegistryService.durableDeviceID(
+            store: store,
+            defaults: defaults,
+            evidence: StaticEvidenceProbe(.absent)
+        )
+
+        #expect(resolved == seeded)
+        #expect(store.read() == .found(seeded))
+    }
+
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
