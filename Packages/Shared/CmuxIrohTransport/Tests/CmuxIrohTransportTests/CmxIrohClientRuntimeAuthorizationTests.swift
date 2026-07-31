@@ -69,6 +69,7 @@ extension CmxIrohClientRuntimeTests {
         let discovery = try fixture.discovery(targetHints: [])
         let store = TestSecureCredentialStore()
         let cache = CmxIrohClientOfflinePolicyCache(secureStore: store)
+        let registrationGate = HostRuntimeRegistrationGate()
         let expectation = try fixture.offlineExpectation()
         try await cache.save(
             localBinding: discovery.bindings[0],
@@ -105,7 +106,11 @@ extension CmxIrohClientRuntimeTests {
             binding: discovery.bindings[0],
             discovery: discovery,
             relay: relay,
-            registrationError: CmxIrohTrustBrokerClientError.connectivity
+            registrationHook: { count in
+                if count == 1 {
+                    await registrationGate.waitOnce()
+                }
+            }
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
@@ -126,9 +131,12 @@ extension CmxIrohClientRuntimeTests {
 
         try await runtime.start()
 
+        await broker.waitForRegistrationCount(1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == discovery.bindings[0].bindingID)
         #expect(await recorder.observedCachedBindingDeviceIDs() == [[fixture.acceptor.deviceID]])
+        #expect(await broker.observedDiscoveryCount() == 0)
+        await registrationGate.open()
         await runtime.stop()
         #expect(await store.recordCount() == 1)
     }

@@ -125,6 +125,173 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func controlRepairKeepsTheAdmittedConnectionAndFeatureLanes() async throws {
+        let initial = controlStream(decision: .accepted)
+        let replacementReceive = TestIrohReceiveStream(
+            buffer: admissionFrame(status: 3)
+                + Data("replacement-rpc".utf8)
+        )
+        let replacementSend = TestIrohSendStream()
+        let terminalReceive = TestIrohReceiveStream(buffer: Data("feature".utf8))
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            continuityID: 77,
+            bidirectionalStreams: [
+                initial.stream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: replacementReceive,
+                    sendStream: replacementSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: terminalReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential,
+            supportsControlRepair: true,
+            protocolConfiguration: .testApplicationLanes
+        )
+
+        try await session.connect()
+        try await session.repairControl()
+
+        #expect(await session.connectionContinuityID() == 77)
+        #expect(try await session.receiveControl() == Data("replacement-rpc".utf8))
+        let terminal = try await session.openBidirectionalLane(
+            .terminal(
+                resourceID: CmxIrohResourceID("terminal-repair"),
+                cursor: nil
+            ),
+            priority: 9
+        )
+        #expect(
+            try await terminal.receiveStream.receive(maximumByteCount: 64)
+                == Data("feature".utf8)
+        )
+        let replacementHeader = try CmxIrohStreamHeaderCodec().decodePrefix(
+            try #require(await replacementSend.observedSentBuffers().first)
+        ).header
+        let expectedReplacementHeader = try CmxIrohStreamHeader(
+            lane: .controlReplacement(epoch: 2)
+        )
+        #expect(replacementHeader == expectedReplacementHeader)
+        #expect(await initial.send.observedResetCodes() == [0])
+        #expect(await connection.observedCloseCallCount() == 0)
+    }
+
+    @Test
+    func lateEpochOneReadCannotSurfaceAfterControlRepair() async throws {
+        let initialReceive = TestBlockingIrohReceiveStream(
+            buffer: admissionFrame(status: 0) + admissionFrame(status: 3),
+            stopUnblocksReceive: false
+        )
+        let initialSend = TestIrohSendStream()
+        let replacementReceive = TestIrohReceiveStream(
+            buffer: admissionFrame(status: 3) + Data("epoch-two".utf8)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: initialReceive,
+                    sendStream: initialSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: replacementReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential,
+            supportsControlRepair: true,
+            protocolConfiguration: .testApplicationLanes
+        )
+        try await session.connect()
+        var blocked = await initialReceive.blockedEvents().makeAsyncIterator()
+        let oldRead = Task { try await session.receiveControl() }
+        _ = await blocked.next()
+
+        try await session.repairControl()
+        await initialReceive.resume(with: Data("epoch-one-late".utf8))
+
+        await #expect(
+            throws: CmxIrohClientSessionError.controlEpochSuperseded
+        ) {
+            try await oldRead.value
+        }
+        #expect(try await session.receiveControl() == Data("epoch-two".utf8))
+        #expect(await connection.observedCloseCallCount() == 0)
+    }
+
+    @Test
+    func controlRepairTimesOutAndResetsTheUnacknowledgedStream() async throws {
+        let initial = controlStream(decision: .accepted)
+        let replacementReceive = TestBlockingIrohReceiveStream(
+            buffer: Data(),
+            cancellationUnblocksReceive: false
+        )
+        let replacementSend = TestIrohSendStream()
+        let clock = ServerSessionManualClock()
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [
+                initial.stream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: replacementReceive,
+                    sendStream: replacementSend
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential,
+            supportsControlRepair: true,
+            protocolConfiguration: .testApplicationLanes,
+            controlReplacementClock: clock,
+            controlReplacementTimeout: 1
+        )
+        try await session.connect()
+        var blocked = await replacementReceive.blockedEvents().makeAsyncIterator()
+        let repair = Task { try await session.repairControl() }
+        _ = await blocked.next()
+        await clock.waitUntilSleeping()
+
+        await clock.fire()
+
+        await #expect(
+            throws: CmxIrohClientSessionError.controlReplacementTimedOut
+        ) {
+            try await repair.value
+        }
+        #expect(await replacementReceive.observedStoppedCodes() == [1, 1])
+        #expect(await replacementSend.observedResetCodes() == [1])
+        #expect(await connection.observedCloseCallCount() == 0)
+    }
+
+    @Test
     func relayOnlyAdmissionCompletesBarrierWithoutAuthorizingNatTraversal() async throws {
         let events = TestIrohEventRecorder()
         let control = controlStream(

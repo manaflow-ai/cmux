@@ -274,13 +274,25 @@ extension MobileHostIrohRuntime {
                 )
                 let connectionSupervisor = CmxIrohAdmittedConnectionSupervisor(
                     runControl: {
-                        await MobileHostService.acceptTransport(
-                            session.controlTransport,
-                            authorization: .irohAdmission(session.peer),
-                            artifactTransfers: artifactTransfers,
-                            independentEventWriter: eventWriter,
-                            isCurrent: isCurrent
+                        var exit = CmxIrohAdmittedConnectionExit(
+                            lifecycle: .explicitlyInvalidated,
+                            failure: .none
                         )
+                        let controlTransports = await session.controlTransports()
+                        for await controlTransport in controlTransports {
+                            guard !Task.isCancelled, await isCurrent() else {
+                                break
+                            }
+                            exit = await MobileHostService.acceptTransport(
+                                controlTransport,
+                                authorization: .irohAdmission(session.peer),
+                                artifactTransfers: artifactTransfers,
+                                independentEventWriter: eventWriter,
+                                closesIndependentEventWriter: false,
+                                isCurrent: isCurrent
+                            )
+                        }
+                        return exit
                     },
                     runApplicationLanes: {
                         await laneRouter.run(isCurrent: isCurrent)
@@ -293,6 +305,7 @@ extension MobileHostIrohRuntime {
                     }
                 )
                 let observedExit = await connectionSupervisor.run()
+                await eventWriter.close()
                 let exit = await session.connectionExit(resolving: observedExit)
                 await pathEventTask.value
                 connectionDiagnostics.record(await session.closeAttribution())

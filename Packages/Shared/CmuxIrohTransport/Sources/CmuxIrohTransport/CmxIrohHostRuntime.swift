@@ -338,9 +338,7 @@ public actor CmxIrohHostRuntime {
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
                 try requireCurrent(revision)
-                if let routeRevision = discovery.revision {
-                    await connectivityEngine.didInstallRouteRevision(routeRevision)
-                }
+                try await connectivityEngine.didInstallRouteSnapshot(discovery)
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
                     revision: revision
@@ -440,12 +438,13 @@ public actor CmxIrohHostRuntime {
             protocolConfiguration: protocolConfiguration
         )
         let peer = try await session.admit()
+        let connectionAttempt = try await session.admittedConnectionAttempt()
         let onlineLease = try await session.admittedOnlineLease()
         guard await isCurrent(revision: revision, runtimeGeneration: runtimeGeneration) else {
             await session.close()
             throw CmxIrohHostRuntimeError.superseded
         }
-        guard await markAdmitted() else {
+        guard await markAdmitted(connectionAttempt) else {
             await session.close()
             throw CmxIrohHostRuntimeError.superseded
         }

@@ -149,6 +149,158 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func failedControlRepairFallsBackToExactlyOneFreshDial() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let failed = TestConnectivitySession(
+            continuityID: 16,
+            repairError: .unsupported
+        )
+        let replacement = TestConnectivitySession(continuityID: 17)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [failed, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let failedOwner = UUID()
+        let replacementOwner = UUID()
+        _ = try await peer.acquireControl(for: request, ownerID: failedOwner)
+        await peer.releaseControl(
+            ownerID: failedOwner,
+            reason: .controlWriteFailed,
+            failure: .transportIdleTimedOut
+        )
+
+        _ = try await peer.acquireControl(
+            for: request,
+            ownerID: replacementOwner
+        )
+
+        #expect(await failed.repairCallCount() == 1)
+        #expect(await failed.closeCount() == 1)
+        #expect(await builder.callCount() == 2)
+        #expect(await peer.connectionContinuityID() == 17)
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func newClientUsesLegacyHeaderAndFullRedialForAnOldMac() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let credential = try CmxIrohAdmissionCredential.pairGrant("e30.e30.AA")
+        let firstSend = TestIrohSendStream()
+        let secondSend = TestIrohSendStream()
+        let ready = CmxIrohAdmissionAckCodec().encodeFrame(
+            .acceptedPendingNatTraversal
+        ) + CmxIrohAdmissionAckCodec().encodeFrame(.serverReady)
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: peerID.identity,
+            continuityID: 81,
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: ready),
+                    sendStream: firstSend
+                ),
+            ]
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: peerID.identity,
+            continuityID: 82,
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: ready),
+                    sendStream: secondSend
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            processIncarnation: UUID(),
+            engineGeneration: 4,
+            buildSession: { _, attempt in
+                let session = try CmxIrohClientSession(
+                    endpoint: endpoint,
+                    targetIdentity: peerID.identity,
+                    dialPlan: try testIrohDialPlan(),
+                    credential: credential,
+                    connectionAttempt: attempt,
+                    supportsControlRepair: false
+                )
+                try await session.connect()
+                return session
+            }
+        )
+        let firstOwner = UUID()
+        let successorOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: firstOwner)
+        await peer.releaseControl(
+            ownerID: firstOwner,
+            reason: .controlReadFailed,
+            failure: .connectionClosed
+        )
+        _ = try await peer.acquireControl(
+            for: request,
+            ownerID: successorOwner
+        )
+
+        let legacyHeader = Self.legacyPairGrantControlHeader("e30.e30.AA")
+        #expect(await firstSend.observedSentBuffers().first == legacyHeader)
+        #expect(await secondSend.observedSentBuffers().first == legacyHeader)
+        #expect(await firstConnection.observedCloseCallCount() == 1)
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await peer.connectionContinuityID() == 82)
+        await peer.releaseControl(ownerID: successorOwner)
+        await peer.invalidate()
+    }
+
+    @Test
+    func cleanControlEOFRepairsOnTheSameConnectionForTheNextTransport() async throws {
+        let request = try Self.request()
+        let session = TestConnectivitySession(continuityID: 18)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: try CmxConnectivityPeerID(request: request),
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let engine = TestPeerControlEngine(peer: peer)
+        let first = CmxConnectivityByteTransport(
+            request: request,
+            engine: engine
+        )
+        let successor = CmxConnectivityByteTransport(
+            request: request,
+            engine: engine
+        )
+
+        try await first.connect()
+        #expect(try await first.receive() == nil)
+        try await successor.connect()
+
+        #expect(await session.repairCallCount() == 1)
+        #expect(await session.closeCount() == 0)
+        #expect(await builder.callCount() == 1)
+        #expect(await successor.transportContinuityID() == 18)
+        await successor.close()
+    }
+
+    @Test
     func remoteClosureClearsOwnershipAndTheNextOperationRedials() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -324,6 +476,59 @@ struct CmxConnectivityPeerSessionTests {
         struct TimedOut: Error {}
         throw TimedOut()
     }
+
+    private static func legacyPairGrantControlHeader(_ token: String) -> Data {
+        let tokenBytes = Data(token.utf8)
+        var payload = Data()
+        var tokenLength = UInt16(tokenBytes.count).bigEndian
+        withUnsafeBytes(of: &tokenLength) { payload.append(contentsOf: $0) }
+        payload.append(tokenBytes)
+
+        var frame = Data("CMUXIRH1".utf8)
+        frame.append(contentsOf: [1, 1, 0, 1])
+        var payloadLength = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: &payloadLength) { frame.append(contentsOf: $0) }
+        frame.append(payload)
+        return frame
+    }
+}
+
+private actor TestPeerControlEngine: CmxConnectivityControlOwning {
+    private let peer: CmxConnectivityPeerSession
+
+    init(peer: CmxConnectivityPeerSession) {
+        self.peer = peer
+    }
+
+    func acquireControl(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID
+    ) async throws -> any CmxConnectivitySession {
+        try await peer.acquireControl(for: request, ownerID: ownerID)
+    }
+
+    func releaseControl(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
+    ) async {
+        _ = request
+        await peer.releaseControl(
+            ownerID: ownerID,
+            reason: reason,
+            failure: failure
+        )
+    }
+
+    func updateControlPurpose(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
+    ) async {
+        _ = request
+        await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
+    }
 }
 
 private actor GatedConnectivitySessionBuilder {
@@ -403,15 +608,28 @@ private actor OrderedGatedConnectivitySessionBuilder {
 
 private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
+    private let repairError: TestConnectivitySessionError?
     private var closed = false
     private var closes = 0
+    private var repairCalls = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
     private var closureWaiters: [CheckedContinuation<Void, Never>] = []
     private var received: [Data] = []
 
-    init(continuityID: UInt64) {
+    init(
+        continuityID: UInt64,
+        repairError: TestConnectivitySessionError? = nil
+    ) {
         self.continuityID = continuityID
+        self.repairError = repairError
     }
+
+    func repairControl() throws {
+        repairCalls += 1
+        if let repairError { throw repairError }
+    }
+
+    func repairCallCount() -> Int { repairCalls }
 
     func receiveControl(maximumByteCount: Int) -> Data? {
         guard maximumByteCount > 0, !received.isEmpty else { return nil }

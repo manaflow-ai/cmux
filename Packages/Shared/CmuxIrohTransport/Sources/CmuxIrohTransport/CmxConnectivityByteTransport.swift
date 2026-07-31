@@ -1,6 +1,26 @@
 import CMUXMobileCore
 import Foundation
 
+protocol CmxConnectivityControlOwning: Sendable {
+    func acquireControl(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID
+    ) async throws -> any CmxConnectivitySession
+
+    func releaseControl(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        reason: DiagnosticSessionLifecycleKind,
+        failure: DiagnosticFailureKind
+    ) async
+
+    func updateControlPurpose(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
+    ) async
+}
+
 /// Projects a connectivity-v2 peer's control lane through the mobile RPC byte seam.
 actor CmxConnectivityByteTransport:
     CmxByteTransport,
@@ -9,13 +29,16 @@ actor CmxConnectivityByteTransport:
     CmxByteTransportSessionPurposeUpdating
 {
     private var request: CmxByteTransportRequest
-    private let engine: CmxConnectivityEngine
+    private let engine: any CmxConnectivityControlOwning
     private let ownerID = UUID()
     private var session: (any CmxConnectivitySession)?
     private var ownsControlSession = false
     private var closed = false
 
-    init(request: CmxByteTransportRequest, engine: CmxConnectivityEngine) {
+    init(
+        request: CmxByteTransportRequest,
+        engine: any CmxConnectivityControlOwning
+    ) {
         self.request = request
         self.engine = engine
     }
@@ -28,7 +51,12 @@ actor CmxConnectivityByteTransport:
             ownerID: ownerID
         )
         guard !closed else {
-            await engine.releaseControl(for: request, ownerID: ownerID)
+            await engine.releaseControl(
+                for: request,
+                ownerID: ownerID,
+                reason: .controlOwnerReleased,
+                failure: .none
+            )
             throw CmxIrohByteTransportError.alreadyClosed
         }
         ownsControlSession = true
@@ -39,7 +67,17 @@ actor CmxConnectivityByteTransport:
         guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         guard let session else { throw CmxIrohByteTransportError.notConnected }
         do {
-            return try await session.receiveControl(maximumByteCount: 64 * 1_024)
+            let value = try await session.receiveControl(
+                maximumByteCount: 64 * 1_024
+            )
+            if value == nil {
+                self.session = nil
+                await releaseOwnedControlSession(
+                    reason: .controlReadFailed,
+                    failure: .connectionClosed
+                )
+            }
+            return value
         } catch {
             self.session = nil
             await releaseOwnedControlSession(
@@ -111,3 +149,5 @@ actor CmxConnectivityByteTransport:
         )
     }
 }
+
+extension CmxConnectivityEngine: CmxConnectivityControlOwning {}

@@ -380,7 +380,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         return CmxIrohClientContext(
             dialPlan: dialPlan,
             credential: try .pairGrant(pairGrantToken),
-            privateFallbackAuthorization: fallbackAuthorization
+            privateFallbackAuthorization: fallbackAuthorization,
+            supportsControlRepair: targetBinding.capabilities.contains(
+                CmxIrohProtocolCapability.controlRepairV1
+            )
         )
     }
 

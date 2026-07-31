@@ -6,6 +6,9 @@ public struct CmxIrohStreamHeader: Equatable, Sendable {
     /// The admission proof, present only on the first control stream.
     public let credential: CmxIrohAdmissionCredential?
 
+    /// Late-predecessor fence, present on modern initial control streams.
+    public let connectionAttempt: CmxIrohConnectionAttempt?
+
     /// Creates a validated stream header.
     ///
     /// - Parameters:
@@ -14,19 +17,25 @@ public struct CmxIrohStreamHeader: Equatable, Sendable {
     /// - Throws: ``CmxIrohStreamHeaderError`` for an invalid lane and credential combination.
     public init(
         lane: CmxIrohLane,
-        credential: CmxIrohAdmissionCredential? = nil
+        credential: CmxIrohAdmissionCredential? = nil,
+        connectionAttempt: CmxIrohConnectionAttempt? = nil
     ) throws {
-        switch (lane, credential) {
-        case (.control, nil):
+        switch (lane, credential, connectionAttempt) {
+        case (.control, nil, _):
             throw CmxIrohStreamHeaderError.missingControlCredential
-        case (.control, .some):
+        case (.control, .some, _):
             break
-        case (_, .some):
+        case (.controlReplacement, .some, _):
             throw CmxIrohStreamHeaderError.credentialOnNonControlLane
-        case (_, nil):
+        case (_, .some, _):
+            throw CmxIrohStreamHeaderError.credentialOnNonControlLane
+        case (_, nil, .some):
+            throw CmxIrohStreamHeaderError.attemptOnNonControlLane
+        case (_, nil, nil):
             break
         }
         self.lane = lane
         self.credential = credential
+        self.connectionAttempt = connectionAttempt
     }
 }

@@ -40,7 +40,7 @@ extension CmxIrohEndpointServerTests {
             if await started.recordedCount() == 2 {
                 await replacementAuthorization.wait()
             }
-            #expect(await markAdmitted())
+            #expect(await markAdmitted(nil))
             await admitted.record(identity: identity, generation: generation)
             await connectionLifetime.wait()
         }
@@ -120,7 +120,8 @@ extension CmxIrohEndpointServerTests {
         let recorder = EndpointServerRecorder()
         let server = CmxIrohEndpointServer(
             supervisor: supervisor,
-            maximumPendingAdmissions: 3
+            maximumPendingAdmissions: 3,
+            maximumPendingAdmissionsPerIdentity: 1
         ) { connection, generation, _ in
             await recorder.record(
                 identity: await connection.remoteIdentity(),
@@ -187,7 +188,7 @@ extension CmxIrohEndpointServerTests {
                 identity: await connection.remoteIdentity(),
                 generation: generation
             )
-            #expect(await markAdmitted())
+            #expect(await markAdmitted(nil))
             await blocker.wait()
         }
 
@@ -253,7 +254,7 @@ extension CmxIrohEndpointServerTests {
                 generation: generation
             )
             if await recorder.recordedCount() == 1 {
-                #expect(await markAdmitted())
+                #expect(await markAdmitted(nil))
                 await blocker.wait()
             }
         }

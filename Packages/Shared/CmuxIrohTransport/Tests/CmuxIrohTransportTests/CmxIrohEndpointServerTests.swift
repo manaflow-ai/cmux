@@ -197,7 +197,7 @@ struct CmxIrohEndpointServerTests {
                 generation: generation
             )
             await admissionGate.wait()
-            #expect(await markAdmitted())
+            #expect(await markAdmitted(nil))
             await admitted.record(
                 identity: await connection.remoteIdentity(),
                 generation: generation
@@ -256,7 +256,7 @@ struct CmxIrohEndpointServerTests {
                 identity: await connection.remoteIdentity(),
                 generation: generation
             )
-            #expect(await markAdmitted())
+            #expect(await markAdmitted(nil))
             await blocker.wait()
         }
         let first = TestIrohConnection(
@@ -289,6 +289,168 @@ struct CmxIrohEndpointServerTests {
         await supervisor.deactivate()
     }
 
+    @Test
+    func lateSameRuntimePredecessorCannotEvictTheNewerDialGeneration() async throws {
+        let incarnation = UUID()
+        try await verifyLatePredecessorIsRejected(
+            predecessor: CmxIrohConnectionAttempt(
+                processIncarnation: incarnation,
+                engineGeneration: 1,
+                dialGeneration: 1
+            ),
+            winner: CmxIrohConnectionAttempt(
+                processIncarnation: incarnation,
+                engineGeneration: 1,
+                dialGeneration: 2
+            )
+        )
+    }
+
+    @Test
+    func lateOlderEngineCannotEvictANewerEngineInTheSameProcess() async throws {
+        let incarnation = UUID()
+        try await verifyLatePredecessorIsRejected(
+            predecessor: CmxIrohConnectionAttempt(
+                processIncarnation: incarnation,
+                engineGeneration: 1,
+                dialGeneration: 99
+            ),
+            winner: CmxIrohConnectionAttempt(
+                processIncarnation: incarnation,
+                engineGeneration: 2,
+                dialGeneration: 1
+            )
+        )
+    }
+
+    @Test
+    func newProcessIncarnationWinsAndRejectsLatePriorIncarnationCompletion()
+        async throws
+    {
+        try await verifyLatePredecessorIsRejected(
+            predecessor: CmxIrohConnectionAttempt(
+                processIncarnation: UUID(
+                    uuidString: "00000000-0000-0000-0000-000000000001"
+                )!,
+                engineGeneration: 99,
+                dialGeneration: 99
+            ),
+            winner: CmxIrohConnectionAttempt(
+                processIncarnation: UUID(
+                    uuidString: "00000000-0000-0000-0000-000000000002"
+                )!,
+                engineGeneration: 1,
+                dialGeneration: 1
+            )
+        )
+    }
+
+    private func verifyLatePredecessorIsRejected(
+        predecessor: CmxIrohConnectionAttempt,
+        winner: CmxIrohConnectionAttempt
+    ) async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "d", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 10, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let predecessorGate = EndpointServerHandlerBlocker()
+        let winnerLifetime = EndpointServerHandlerBlocker()
+        let events = EndpointServerAttemptRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumPendingAdmissionsPerIdentity: 2
+        ) { connection, _, markAdmitted in
+            let testConnection = try #require(
+                connection as? TestIrohConnection
+            )
+            let id = await testConnection.connectionContinuityID()
+            await events.record(.started(id))
+            let attempt: CmxIrohConnectionAttempt
+            if id == 1 {
+                await predecessorGate.wait()
+                attempt = predecessor
+            } else {
+                attempt = winner
+            }
+            let accepted = await markAdmitted(attempt)
+            await events.record(.completed(id, accepted))
+            if accepted {
+                await winnerLifetime.wait()
+            } else {
+                await connection.close(
+                    errorCode: 0,
+                    reason: "late_predecessor"
+                )
+            }
+        }
+        let oldConnection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            continuityID: 1,
+            bidirectionalStreams: []
+        )
+        let winningConnection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            continuityID: 2,
+            bidirectionalStreams: []
+        )
+
+        await server.start()
+        await endpoint.enqueue(oldConnection)
+        #expect(await events.next() == .started(1))
+        await endpoint.enqueue(winningConnection)
+        #expect(await events.next() == .started(2))
+        #expect(await events.next() == .completed(2, true))
+
+        await predecessorGate.releaseAll()
+
+        #expect(await events.next() == .completed(1, false))
+        await oldConnection.waitUntilClosed()
+        #expect(await oldConnection.observedCloseCallCount() == 1)
+        #expect(await winningConnection.observedCloseCallCount() == 0)
+
+        await winnerLifetime.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
+
+}
+
+private enum EndpointServerAttemptEvent: Equatable, Sendable {
+    case started(UInt64)
+    case completed(UInt64, Bool)
+}
+
+private actor EndpointServerAttemptRecorder {
+    private var events: [EndpointServerAttemptEvent] = []
+    private var waiters: [
+        CheckedContinuation<EndpointServerAttemptEvent, Never>
+    ] = []
+
+    func record(_ event: EndpointServerAttemptEvent) {
+        if waiters.isEmpty {
+            events.append(event)
+        } else {
+            waiters.removeFirst().resume(returning: event)
+        }
+    }
+
+    func next() async -> EndpointServerAttemptEvent {
+        if !events.isEmpty { return events.removeFirst() }
+        return await withCheckedContinuation { waiters.append($0) }
+    }
 }
 
 actor EndpointServerHandlerBlocker {

@@ -216,6 +216,8 @@ public final class MobileIrohRuntimeComposition:
     /// so runtime failures cannot leak peer identities, routes, or credentials.
     private let diagnosticLog: DiagnosticLog?
     private let authObserver = MobileIrohAuthObserver()
+    private let connectionProcessIncarnation = UUID()
+    private var connectionEngineGeneration: UInt64 = 0
 
     private weak var auth: AuthCoordinator?
     private var connectivityInvalidationSubscriber:
@@ -807,9 +809,17 @@ public final class MobileIrohRuntimeComposition:
         guard signOutPhase.allowsLifecycle else { return }
         foregroundRevision &+= 1
         sceneTransitionTask?.cancel()
-        sceneTransitionTask = nil
         foregroundRefreshTask?.cancel()
         foregroundRefreshTask = nil
+        // Archive the diagnostic ring so a later relaunch keeps the events
+        // around a drop exportable.
+        persistDiagnosticsSnapshot()
+        let runtime = runtime
+        let lanPeerDiscovery = lanPeerDiscovery
+        sceneTransitionTask = Task {
+            await lanPeerDiscovery?.pause()
+            await runtime?.didEnterBackground()
+        }
     }
 
     /// Restores endpoint readiness while network policy refreshes independently.
@@ -828,22 +838,23 @@ public final class MobileIrohRuntimeComposition:
         let auth = auth
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
-        if let runtime {
-            sceneTransitionTask = Task { @MainActor [weak self] in
-                guard let self,
-                      foregroundGeneration == self.foregroundRevision,
-                      compositionRevision == self.lifecycleRevision,
-                      self.runtime === runtime else { return }
-                do {
-                    try await runtime.didBecomeActive()
-                } catch {
-                    mobileIrohLog.error(
-                        "Iroh foreground endpoint resume failed: \(String(describing: error), privacy: .private)"
-                    )
-                }
+        sceneTransitionTask = Task { @MainActor [weak self] in
+            guard let self,
+                  foregroundGeneration == self.foregroundRevision,
+                  compositionRevision == self.lifecycleRevision,
+                  self.runtime === runtime else { return }
+            await lanPeerDiscovery?.resume()
+            guard !Task.isCancelled,
+                  foregroundGeneration == self.foregroundRevision,
+                  compositionRevision == self.lifecycleRevision,
+                  self.runtime === runtime else { return }
+            do {
+                try await runtime?.didBecomeActive()
+            } catch {
+                mobileIrohLog.error(
+                    "Iroh foreground endpoint resume failed: \(String(describing: error), privacy: .private)"
+                )
             }
-        } else {
-            sceneTransitionTask = nil
         }
         foregroundRefreshTask = Task { @MainActor [weak self, weak auth] in
             await auth?.revalidateSession()
@@ -1499,14 +1510,17 @@ public final class MobileIrohRuntimeComposition:
                 && $0.identityGeneration == identity.generation
         } ?? false
         let cachedManagedRelayURLs: Set<String>
+        let cachedRelayPolicyAvailable: Bool
         if let relayPolicyTrustRoot,
            let cachedPolicy = try? await relayPolicyCache.load(
                trustRoot: relayPolicyTrustRoot,
                now: now()
            ) {
             cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
+            cachedRelayPolicyAvailable = true
         } else {
             cachedManagedRelayURLs = []
+            cachedRelayPolicyAvailable = false
         }
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
@@ -1557,12 +1571,42 @@ public final class MobileIrohRuntimeComposition:
                 credentialStore: customRelayCredentials,
                 broker: brokerBundle.relayPolicy
             )
-            let effective = await service.restore(
-                accountID: accountID,
-                trustRoot: relayPolicyTrustRoot,
-                relayCredential: cachedRelay,
-                now: now()
-            )
+            let effective: CmxIrohEffectiveRelayPolicy
+            if cachedRelayPolicyAvailable {
+                effective = await service.restore(
+                    accountID: accountID,
+                    trustRoot: relayPolicyTrustRoot,
+                    relayCredential: cachedRelay,
+                    now: now()
+                )
+            } else {
+                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                do {
+                    let outcome = try await service.refreshWithCredential(
+                        endpointID: endpointID,
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        now: now()
+                    )
+                    effective = outcome.effective
+                    freshRelayCredential = outcome.relayCredential
+                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch {
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .relayPolicyRefreshFailed,
+                        b: Self.diagnosticFailureKind(for: error).rawValue
+                    ))
+                    effective = await service.restore(
+                        accountID: accountID,
+                        trustRoot: relayPolicyTrustRoot,
+                        relayCredential: cachedRelay,
+                        now: now()
+                    )
+                    mobileIrohLog.error(
+                        "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
+                    )
+                }
+            }
             endpointRelayProfile = effective.endpointRelayProfile
             managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
             resolvedPolicyService = service
@@ -1607,6 +1651,8 @@ public final class MobileIrohRuntimeComposition:
         let customPrivatePaths = customPrivatePaths
         let networkPathSnapshotComposer = networkPathSnapshotComposer
         let platformNetworkPathSnapshot = networkPathSnapshot
+        connectionEngineGeneration &+= 1
+        let nextConnectionEngineGeneration = connectionEngineGeneration
         let runtime = try CmxIrohClientRuntime(
             factory: endpointFactoryProvider(transportVerificationMode),
             broker: broker,
@@ -1616,6 +1662,8 @@ public final class MobileIrohRuntimeComposition:
                 for: transportVerificationMode
             ),
             diagnosticLog: diagnosticLog,
+            connectionProcessIncarnation: connectionProcessIncarnation,
+            connectionEngineGeneration: nextConnectionEngineGeneration,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: {
                 let platform = try await platformNetworkPathSnapshot()

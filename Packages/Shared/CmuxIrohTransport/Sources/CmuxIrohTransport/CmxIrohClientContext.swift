@@ -11,6 +11,9 @@ public struct CmxIrohClientContext: Equatable, Sendable {
     /// The generation-bound authorization for explicit private fallback hints.
     public let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
 
+    /// Whether the authenticated target advertises replaceable control epochs.
+    public let supportsControlRepair: Bool
+
     /// Creates a client dial context.
     ///
     /// - Parameters:
@@ -21,10 +24,12 @@ public struct CmxIrohClientContext: Equatable, Sendable {
     public init(
         dialPlan: CmxIrohDialPlan,
         credential: CmxIrohAdmissionCredential,
-        privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil
+        privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
+        supportsControlRepair: Bool = false
     ) {
         self.dialPlan = dialPlan
         self.credential = credential
         self.privateFallbackAuthorization = privateFallbackAuthorization
+        self.supportsControlRepair = supportsControlRepair
     }
 }

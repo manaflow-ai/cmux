@@ -500,9 +500,7 @@ extension CmxIrohHostRuntime {
             try requireCurrent(revision)
             await handleRoute(policy.binding, policy.routePathHints)
             try requireCurrent(revision)
-            if let routeRevision = discovery.revision {
-                await connectivityEngine.didInstallRouteRevision(routeRevision)
-            }
+            try await connectivityEngine.didInstallRouteSnapshot(discovery)
             registrationRefreshAllowsBindingReplacement = false
             if bindingChanged, let relayCoordinator {
                 scheduleRelayActivation(

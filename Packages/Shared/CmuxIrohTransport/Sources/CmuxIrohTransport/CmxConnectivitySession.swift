@@ -3,6 +3,7 @@ import Foundation
 
 /// Internal admitted-session boundary owned only by one connectivity peer actor.
 protocol CmxConnectivitySession: Sendable {
+    func repairControl() async throws
     func receiveControl(maximumByteCount: Int) async throws -> Data?
     func sendControl(_ data: Data) async throws
     func openBidirectionalLane(

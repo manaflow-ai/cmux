@@ -1194,6 +1194,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        closesIndependentEventWriter: Bool = true,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -1213,6 +1214,7 @@ final class MobileHostService {
             id: id,
             transport: transport,
             independentEventWriter: independentEventWriter,
+            closesIndependentEventWriter: closesIndependentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
                     for: request,
@@ -1850,6 +1852,7 @@ actor MobileHostConnection {
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    private let closesIndependentEventWriter: Bool
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
@@ -1896,6 +1899,7 @@ actor MobileHostConnection {
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        closesIndependentEventWriter: Bool = true,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -1906,6 +1910,7 @@ actor MobileHostConnection {
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
+        self.closesIndependentEventWriter = closesIndependentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
@@ -1922,6 +1927,7 @@ actor MobileHostConnection {
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        closesIndependentEventWriter: Bool = true,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -1931,6 +1937,7 @@ actor MobileHostConnection {
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
+        self.closesIndependentEventWriter = closesIndependentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
@@ -2035,7 +2042,9 @@ actor MobileHostConnection {
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
-        await independentEventWriter?.close()
+        if closesIndependentEventWriter {
+            await independentEventWriter?.close()
+        }
         await transport.close()
         await onClose(id)
     }

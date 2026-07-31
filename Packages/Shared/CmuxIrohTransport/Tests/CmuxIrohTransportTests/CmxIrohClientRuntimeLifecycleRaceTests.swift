@@ -56,6 +56,7 @@ extension CmxIrohClientRuntimeTests {
         case .failure(let error):
             Issue.record("foreground recovery was superseded by its own refresh: \(error)")
         }
+        await broker.waitForRegistrationCount(2)
         #expect(await runtime.snapshot().state == .active)
         #expect(await factory.observedConfigurations().count == 2)
         await broker.waitForRegistrationCount(2)

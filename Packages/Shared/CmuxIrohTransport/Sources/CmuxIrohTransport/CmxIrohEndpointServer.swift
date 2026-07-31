@@ -10,13 +10,16 @@ public actor CmxIrohEndpointServer {
         _ runtimeGeneration: UInt64,
         _ markAdmitted: @escaping AdmissionMarker
     ) async throws -> Void
-    public typealias AdmissionMarker = @Sendable () async -> Bool
+    public typealias AdmissionMarker = @Sendable (
+        _ attempt: CmxIrohConnectionAttempt?
+    ) async -> Bool
     typealias EndpointRecovery = @Sendable (
         _ expectedGeneration: UInt64
     ) async throws -> CmxIrohEndpointSnapshot
 
     private struct PendingAdmission {
         let generation: UInt64
+        let acceptSequence: UInt64
         let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
@@ -28,6 +31,11 @@ public actor CmxIrohEndpointServer {
         let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
+    }
+
+    private struct AttemptHighWater {
+        let attempt: CmxIrohConnectionAttempt?
+        let acceptSequence: UInt64
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -43,6 +51,13 @@ public actor CmxIrohEndpointServer {
     private var acceptTask: Task<Void, Never>?
     private var pendingAdmissions: [UUID: PendingAdmission] = [:]
     private var activeConnections: [UUID: ActiveConnection] = [:]
+    private var attemptHighWater: [
+        CmxIrohPeerIdentity: AttemptHighWater
+    ] = [:]
+    private var retiredProcessIncarnations: [
+        CmxIrohPeerIdentity: [UUID]
+    ] = [:]
+    private var acceptSequence: UInt64 = 0
     private var currentGeneration: UInt64?
 
     public init(
@@ -123,6 +138,8 @@ public actor CmxIrohEndpointServer {
         pendingAdmissions.removeAll()
         let connections = activeConnections.values
         activeConnections.removeAll()
+        attemptHighWater.removeAll()
+        retiredProcessIncarnations.removeAll()
         for admission in admissions {
             admission.handlerTask.cancel()
             admission.deadlineTask.cancel()
@@ -240,11 +257,18 @@ public actor CmxIrohEndpointServer {
             return
         }
         let id = UUID()
+        acceptSequence &+= 1
+        let admissionAcceptSequence = acceptSequence
         let handler = handler
         let handlerTask = Task { [weak self] in
             do {
-                try await handler(connection, generation) { [weak self] in
-                    await self?.markAdmitted(id, generation: generation) ?? false
+                try await handler(connection, generation) { [weak self] attempt in
+                    await self?.markAdmitted(
+                        id,
+                        generation: generation,
+                        acceptSequence: admissionAcceptSequence,
+                        attempt: attempt
+                    ) ?? false
                 }
                 await self?.finishHandler(id, error: nil)
             } catch {
@@ -262,6 +286,7 @@ public actor CmxIrohEndpointServer {
         }
         pendingAdmissions[id] = PendingAdmission(
             generation: generation,
+            acceptSequence: admissionAcceptSequence,
             remoteIdentity: remoteIdentity,
             connection: connection,
             handlerTask: handlerTask,
@@ -269,13 +294,26 @@ public actor CmxIrohEndpointServer {
         )
     }
 
-    private func markAdmitted(_ id: UUID, generation: UInt64) async -> Bool {
+    private func markAdmitted(
+        _ id: UUID,
+        generation: UInt64,
+        acceptSequence: UInt64,
+        attempt: CmxIrohConnectionAttempt?
+    ) async -> Bool {
         guard currentGeneration == generation,
               let admission = pendingAdmissions.removeValue(forKey: id),
-              admission.generation == generation else {
+              admission.generation == generation,
+              admission.acceptSequence == acceptSequence else {
             return false
         }
         admission.deadlineTask.cancel()
+        guard accepts(
+            attempt: attempt,
+            acceptSequence: acceptSequence,
+            for: admission.remoteIdentity
+        ) else {
+            return false
+        }
 
         // One endpoint identity represents one installed client identity. A
         // newly authenticated connection from that identity is therefore the
@@ -303,6 +341,50 @@ public actor CmxIrohEndpointServer {
                 reason: "superseded_connection"
             )
         }
+        return true
+    }
+
+    private func accepts(
+        attempt: CmxIrohConnectionAttempt?,
+        acceptSequence: UInt64,
+        for identity: CmxIrohPeerIdentity
+    ) -> Bool {
+        if let attempt,
+           retiredProcessIncarnations[identity, default: []]
+            .contains(attempt.processIncarnation) {
+            return false
+        }
+        if let current = attemptHighWater[identity] {
+            if let attempt,
+               let currentAttempt = current.attempt,
+               currentAttempt.processIncarnation == attempt.processIncarnation {
+                guard attempt.engineGeneration > currentAttempt.engineGeneration
+                    || (
+                        attempt.engineGeneration == currentAttempt.engineGeneration
+                            && attempt.dialGeneration > currentAttempt.dialGeneration
+                    ) else {
+                    return false
+                }
+            } else {
+                guard acceptSequence > current.acceptSequence else {
+                    return false
+                }
+                if let currentIncarnation = current.attempt?.processIncarnation {
+                    var retired = retiredProcessIncarnations[identity, default: []]
+                    if !retired.contains(currentIncarnation) {
+                        retired.append(currentIncarnation)
+                    }
+                    if retired.count > 8 {
+                        retired.removeFirst(retired.count - 8)
+                    }
+                    retiredProcessIncarnations[identity] = retired
+                }
+            }
+        }
+        attemptHighWater[identity] = AttemptHighWater(
+            attempt: attempt,
+            acceptSequence: acceptSequence
+        )
         return true
     }
 

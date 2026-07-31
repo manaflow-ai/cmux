@@ -9,15 +9,20 @@ public actor CmxIrohClientSession {
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
+    private let connectionAttempt: CmxIrohConnectionAttempt?
+    private let supportsControlRepair: Bool
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
+    private let controlReplacementClock: any CmxIrohRelayClock
+    private let controlReplacementTimeout: TimeInterval
     private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
     private var connection: (any CmxIrohConnection)?
     private var controlStream: CmxIrohBidirectionalStream?
+    private var controlEpoch: UInt64 = 0
     private var serverEventReceiver: CmxIrohClientServerEventReceiver?
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
@@ -41,19 +46,28 @@ public actor CmxIrohClientSession {
         targetIdentity: CmxIrohPeerIdentity,
         dialPlan: CmxIrohDialPlan,
         credential: CmxIrohAdmissionCredential,
+        connectionAttempt: CmxIrohConnectionAttempt? = nil,
+        supportsControlRepair: Bool = false,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
-        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        controlReplacementClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        controlReplacementTimeout: TimeInterval = 1
     ) throws {
+        precondition(controlReplacementTimeout > 0)
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
         self.dialPlan = dialPlan
         self.credential = credential
+        self.connectionAttempt = connectionAttempt
+        self.supportsControlRepair = supportsControlRepair
         self.privateFallbackAuthorization = privateFallbackAuthorization
         self.privateFallbackValidator = privateFallbackValidator
         self.privateFallbackContextProvider = privateFallbackContextProvider
         self.protocolConfiguration = protocolConfiguration
+        self.controlReplacementClock = controlReplacementClock
+        self.controlReplacementTimeout = controlReplacementTimeout
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -84,11 +98,63 @@ public actor CmxIrohClientSession {
             if connection == nil, controlStream == nil {
                 connection = connected.connection
                 controlStream = connected.stream
+                controlEpoch = 1
                 controlReceiveBuffer = connected.initialReceiveBuffer
             }
             connectionTask = nil
         } catch {
             connectionTask = nil
+            throw error
+        }
+    }
+
+    /// Replaces only the RPC stream on the already-admitted QUIC connection.
+    ///
+    /// The replacement carries no credential. The server authorizes it from
+    /// this connection's retained admission context and acknowledges the exact
+    /// next epoch before either side discards the prior stream.
+    func repairControl() async throws {
+        guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
+        guard supportsControlRepair else {
+            throw CmxIrohClientSessionError.controlReplacementUnavailable
+        }
+        guard let connection, let previous = controlStream else {
+            throw CmxIrohClientSessionError.notConnected
+        }
+        guard !(await connection.isClosed()) else {
+            throw CmxIrohClientSessionError.alreadyClosed
+        }
+        let previousEpoch = controlEpoch
+        let nextEpoch = previousEpoch &+ 1
+        guard nextEpoch > previousEpoch else {
+            throw CmxIrohClientSessionError.invalidAdmissionFrame
+        }
+        let replacement = try await connection.openBidirectionalStream()
+        do {
+            try await replacement.sendStream.send(
+                headerCodec.encode(
+                    try CmxIrohStreamHeader(
+                        lane: .controlReplacement(epoch: nextEpoch)
+                    )
+                )
+            )
+            let acknowledgement = try await readControlReplacementAcknowledgement(
+                from: replacement.receiveStream
+            )
+            guard acknowledgement.frame == .serverReady else {
+                throw CmxIrohClientSessionError.invalidAdmissionFrame
+            }
+            guard !closed, controlEpoch == previousEpoch else {
+                throw CmxIrohClientSessionError.controlEpochSuperseded
+            }
+            controlStream = replacement
+            controlEpoch = nextEpoch
+            controlReceiveBuffer = acknowledgement.trailingBytes
+            await previous.sendStream.reset(errorCode: 0)
+            await previous.receiveStream.stop(errorCode: 0)
+        } catch {
+            await replacement.sendStream.reset(errorCode: 1)
+            await replacement.receiveStream.stop(errorCode: 1)
             throw error
         }
     }
@@ -106,15 +172,20 @@ public actor CmxIrohClientSession {
         }
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
         guard let controlStream else { throw CmxIrohClientSessionError.notConnected }
+        let epoch = controlEpoch
         if !controlReceiveBuffer.isEmpty {
             let count = min(maximumByteCount, controlReceiveBuffer.count)
             let value = Data(controlReceiveBuffer.prefix(count))
             controlReceiveBuffer.removeFirst(count)
             return value
         }
-        return try await controlStream.receiveStream.receive(
+        let received = try await controlStream.receiveStream.receive(
             maximumByteCount: maximumByteCount
         )
+        guard !closed, controlEpoch == epoch else {
+            throw CmxIrohClientSessionError.controlEpochSuperseded
+        }
+        return received
     }
 
     /// Writes application bytes on the admitted control lane.
@@ -124,7 +195,11 @@ public actor CmxIrohClientSession {
     public func sendControl(_ data: Data) async throws {
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
         guard let controlStream else { throw CmxIrohClientSessionError.notConnected }
+        let epoch = controlEpoch
         try await controlStream.sendStream.send(data)
+        guard !closed, controlEpoch == epoch else {
+            throw CmxIrohClientSessionError.controlEpochSuperseded
+        }
     }
 
     /// Opens a terminal or artifact bidirectional lane on the admitted connection.
@@ -141,7 +216,7 @@ public actor CmxIrohClientSession {
         switch lane {
         case .terminal, .artifact:
             break
-        case .control, .serverEvents:
+        case .control, .controlReplacement, .serverEvents:
             throw CmxIrohClientSessionError.invalidOutgoingLane
         }
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
@@ -274,6 +349,7 @@ public actor CmxIrohClientSession {
             terminalCloseAttribution = await connection.closeAttribution()
         }
         controlStream = nil
+        controlEpoch = 0
         self.connection = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
     }
@@ -307,7 +383,8 @@ public actor CmxIrohClientSession {
                 fallbackContext = CmxIrohClientContext(
                     dialPlan: dialPlan,
                     credential: credential,
-                    privateFallbackAuthorization: privateFallbackAuthorization
+                    privateFallbackAuthorization: privateFallbackAuthorization,
+                    supportsControlRepair: supportsControlRepair
                 )
             }
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
@@ -350,7 +427,8 @@ public actor CmxIrohClientSession {
             let stream = try await establishedConnection.openBidirectionalStream()
             let header = try CmxIrohStreamHeader(
                 lane: .control,
-                credential: credential
+                credential: credential,
+                connectionAttempt: supportsControlRepair ? connectionAttempt : nil
             )
             try await stream.sendStream.send(headerCodec.encode(header))
             let admission = try await readAdmissionFrame(from: stream.receiveStream)
@@ -410,6 +488,36 @@ public actor CmxIrohClientSession {
             try admissionCodec.decodeFramePrefix(buffer),
             Data(buffer.dropFirst(CmxIrohAdmissionAckCodec.frameByteCount))
         )
+    }
+
+    private func readControlReplacementAcknowledgement(
+        from receiveStream: any CmxIrohReceiveStream
+    ) async throws -> (frame: CmxIrohAdmissionFrame, trailingBytes: Data) {
+        let clock = controlReplacementClock
+        let deadline = clock.now().addingTimeInterval(controlReplacementTimeout)
+        return try await withThrowingTaskGroup(
+            of: (frame: CmxIrohAdmissionFrame, trailingBytes: Data).self
+        ) { group in
+            group.addTask { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.readAdmissionFrame(from: receiveStream)
+            }
+            group.addTask {
+                try await clock.sleep(until: deadline)
+                try Task.checkCancellation()
+                throw CmxIrohClientSessionError.controlReplacementTimedOut
+            }
+            defer { group.cancelAll() }
+            do {
+                guard let first = try await group.next() else {
+                    throw CancellationError()
+                }
+                return first
+            } catch CmxIrohClientSessionError.controlReplacementTimedOut {
+                await receiveStream.stop(errorCode: 1)
+                throw CmxIrohClientSessionError.controlReplacementTimedOut
+            }
+        }
     }
 
 }

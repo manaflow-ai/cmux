@@ -126,6 +126,41 @@ struct CmxIrohEndpointSupervisorTests {
     }
 
     @Test
+    func backgroundClosureDefersAndCoalescesRecoveryUntilForeground() async throws {
+        let firstEndpoint = TestIrohEndpoint(identity: identity)
+        let replacementEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(
+            endpoints: [firstEndpoint, replacementEndpoint]
+        )
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: endpointConfiguration()
+        )
+        var events = await supervisor.events().makeAsyncIterator()
+        _ = await events.next()
+        _ = try await supervisor.activate()
+        _ = await events.next()
+        _ = await events.next()
+
+        await supervisor.didEnterBackground()
+        await firstEndpoint.emit(.closedUnexpectedly)
+        #expect(await events.next() == .snapshot(CmxIrohEndpointSnapshot(
+            runtimeGeneration: 1,
+            state: .failed,
+            identity: nil
+        )))
+        #expect(await factory.observedConfigurations().count == 1)
+
+        let recovered = try await supervisor.didBecomeActive()
+
+        #expect(recovered.runtimeGeneration == 2)
+        #expect(recovered.state == .active)
+        #expect(await factory.observedConfigurations().count == 2)
+        #expect(try await supervisor.activeEndpoint().identity() == identity)
+        await supervisor.deactivate()
+    }
+
+    @Test
     func foregroundHealthCheckPreservesAHealthyGeneration() async throws {
         let endpoint = TestIrohEndpoint(identity: identity)
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])

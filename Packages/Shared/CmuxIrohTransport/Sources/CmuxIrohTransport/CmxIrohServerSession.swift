@@ -16,8 +16,13 @@ public actor CmxIrohServerSession {
     private let streamHeaderClock: any CmxIrohRelayClock
     private let streamHeaderTimeout: TimeInterval
     private var controlStream: CmxIrohBidirectionalStream?
+    private var controlEpoch: UInt64 = 0
     private var controlReceiveBuffer = Data()
+    private var controlObservers: [
+        UUID: AsyncStream<CmxIrohServerByteTransport>.Continuation
+    ] = [:]
     private var admittedPeer: CmxIrohAdmittedPeer?
+    private var connectionAttempt: CmxIrohConnectionAttempt?
     private var onlineAdmissionLease: CmxIrohOnlineAdmissionLease?
     private var admissionInProgress = false
     private var admitted = false
@@ -120,15 +125,17 @@ public actor CmxIrohServerSession {
                     .maximumConcurrentClientApplicationLaneCount
                 if applicationLaneCount > 0 {
                     try await connection.setIncomingStreamLimits(
-                        maximumBidirectionalStreamCount: 1 + applicationLaneCount,
+                        maximumBidirectionalStreamCount: 2 + applicationLaneCount,
                         maximumUnidirectionalStreamCount: 0
                     )
                     try Task.checkCancellation()
                 }
                 admitted = true
                 admittedPeer = peer
+                connectionAttempt = decoded.header.connectionAttempt
                 onlineAdmissionLease = onlineLease
                 controlStream = stream
+                controlEpoch = 1
                 controlReceiveBuffer = clientReady.trailingBytes
                 return peer
             case let .denied(code):
@@ -152,21 +159,65 @@ public actor CmxIrohServerSession {
     public func receiveControl(
         maximumByteCount: Int = 64 * 1_024
     ) async throws -> Data? {
+        try await receiveControl(
+            epoch: controlEpoch,
+            maximumByteCount: maximumByteCount
+        )
+    }
+
+    func receiveControl(
+        epoch: UInt64,
+        maximumByteCount: Int = 64 * 1_024
+    ) async throws -> Data? {
         guard maximumByteCount > 0 else {
             throw CmxIrohServerSessionError.unexpectedEndOfStream
         }
-        let stream = try admittedControlStream()
+        let stream = try admittedControlStream(epoch: epoch)
         if !controlReceiveBuffer.isEmpty {
             let count = min(maximumByteCount, controlReceiveBuffer.count)
             let value = Data(controlReceiveBuffer.prefix(count))
             controlReceiveBuffer.removeFirst(count)
             return value
         }
-        return try await stream.receiveStream.receive(maximumByteCount: maximumByteCount)
+        let received = try await stream.receiveStream.receive(
+            maximumByteCount: maximumByteCount
+        )
+        guard !closed, controlEpoch == epoch else {
+            throw CmxIrohServerSessionError.controlEpochSuperseded
+        }
+        return received
     }
 
     public func sendControl(_ data: Data) async throws {
-        try await admittedControlStream().sendStream.send(data)
+        try await sendControl(data, epoch: controlEpoch)
+    }
+
+    func sendControl(_ data: Data, epoch: UInt64) async throws {
+        let stream = try admittedControlStream(epoch: epoch)
+        try await stream.sendStream.send(data)
+        guard !closed, controlEpoch == epoch else {
+            throw CmxIrohServerSessionError.controlEpochSuperseded
+        }
+    }
+
+    /// Observes each control epoch without coupling it to the QUIC lifetime.
+    ///
+    /// The first element is the bootstrap stream. Later elements are
+    /// connection-bound replacements admitted by ``acceptBidirectionalLane()``.
+    public func controlTransports() -> AsyncStream<CmxIrohServerByteTransport> {
+        let observerID = UUID()
+        let current = admitted && !closed && controlStream != nil
+            ? CmxIrohServerByteTransport(session: self, epoch: controlEpoch)
+            : nil
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            controlObservers[observerID] = continuation
+            if let current {
+                continuation.yield(current)
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeControlObserver(observerID) }
+            }
+        }
     }
 
     /// Returns the exact binding retained when this control stream was admitted.
@@ -174,6 +225,12 @@ public actor CmxIrohServerSession {
         try requireAdmitted()
         guard let admittedPeer else { throw CmxIrohServerSessionError.notAdmitted }
         return admittedPeer
+    }
+
+    /// Returns the modern late-predecessor token, or nil for a legacy client.
+    public func admittedConnectionAttempt() throws -> CmxIrohConnectionAttempt? {
+        try requireAdmitted()
+        return connectionAttempt
     }
 
     /// Returns the online revocation lease retained during admission, when applicable.
@@ -191,36 +248,44 @@ public actor CmxIrohServerSession {
         guard protocolConfiguration.maximumConcurrentClientApplicationLaneCount > 0 else {
             throw CmxIrohServerSessionError.applicationLanesUnavailable
         }
-        let stream = try await connection.acceptBidirectionalStream()
-        do {
-            let decoded = try await readApplicationHeader(
-                from: stream.receiveStream
-            )
-            switch decoded.header.lane {
-            case .terminal, .artifact:
-                break
-            case .control, .serverEvents:
-                throw CmxIrohServerSessionError.invalidPeerLane
-            }
-            let buffered = CmxIrohBufferedReceiveStream(
-                base: stream.receiveStream,
-                buffer: decoded.trailingBytes
-            )
-            return (
-                decoded.header.lane,
-                CmxIrohBidirectionalStream(
-                    receiveStream: buffered,
-                    sendStream: stream.sendStream
+        while true {
+            let stream = try await connection.acceptBidirectionalStream()
+            do {
+                let decoded = try await readApplicationHeader(
+                    from: stream.receiveStream
                 )
-            )
-        } catch is CancellationError {
-            await stream.sendStream.reset(errorCode: 1)
-            await stream.receiveStream.stop(errorCode: 1)
-            throw CancellationError()
-        } catch {
-            await stream.sendStream.reset(errorCode: 1)
-            await stream.receiveStream.stop(errorCode: 1)
-            throw CmxIrohServerSessionError.applicationLaneRejected
+                switch decoded.header.lane {
+                case .terminal, .artifact:
+                    let buffered = CmxIrohBufferedReceiveStream(
+                        base: stream.receiveStream,
+                        buffer: decoded.trailingBytes
+                    )
+                    return (
+                        decoded.header.lane,
+                        CmxIrohBidirectionalStream(
+                            receiveStream: buffered,
+                            sendStream: stream.sendStream
+                        )
+                    )
+                case let .controlReplacement(epoch):
+                    try await installControlReplacement(
+                        stream,
+                        epoch: epoch,
+                        initialReceiveBuffer: decoded.trailingBytes
+                    )
+                    continue
+                case .control, .serverEvents:
+                    throw CmxIrohServerSessionError.invalidPeerLane
+                }
+            } catch is CancellationError {
+                await stream.sendStream.reset(errorCode: 1)
+                await stream.receiveStream.stop(errorCode: 1)
+                throw CancellationError()
+            } catch {
+                await stream.sendStream.reset(errorCode: 1)
+                await stream.receiveStream.stop(errorCode: 1)
+                throw CmxIrohServerSessionError.applicationLaneRejected
+            }
         }
     }
 
@@ -235,7 +300,7 @@ public actor CmxIrohServerSession {
             break
         case .artifact:
             throw CmxIrohServerSessionError.applicationLanesUnavailable
-        case .control, .terminal:
+        case .control, .controlReplacement, .terminal:
             throw CmxIrohServerSessionError.invalidServerLane
         }
         let stream = try await connection.openSendStream()
@@ -284,15 +349,75 @@ public actor CmxIrohServerSession {
         }
         await connection.close(errorCode: 0, reason: "server_closed")
         self.controlStream = nil
+        controlEpoch = 0
         admittedPeer = nil
+        connectionAttempt = nil
         onlineAdmissionLease = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+        let observers = controlObservers.values
+        controlObservers.removeAll()
+        for observer in observers {
+            observer.finish()
+        }
     }
 
-    private func admittedControlStream() throws -> CmxIrohBidirectionalStream {
+    func releaseControl(epoch: UInt64) async {
+        guard !closed, controlEpoch == epoch, let controlStream else { return }
+        self.controlStream = nil
+        controlReceiveBuffer.removeAll(keepingCapacity: false)
+        await controlStream.sendStream.reset(errorCode: 0)
+        await controlStream.receiveStream.stop(errorCode: 0)
+    }
+
+    private func admittedControlStream(
+        epoch: UInt64
+    ) throws -> CmxIrohBidirectionalStream {
         try requireAdmitted()
-        guard let controlStream else { throw CmxIrohServerSessionError.notAdmitted }
+        guard controlEpoch == epoch else {
+            throw CmxIrohServerSessionError.controlEpochSuperseded
+        }
+        guard let controlStream else {
+            throw CmxIrohServerSessionError.notAdmitted
+        }
         return controlStream
+    }
+
+    private func installControlReplacement(
+        _ replacement: CmxIrohBidirectionalStream,
+        epoch: UInt64,
+        initialReceiveBuffer: Data
+    ) async throws {
+        try requireAdmitted()
+        let previousEpoch = controlEpoch
+        guard epoch == (previousEpoch &+ 1), epoch > previousEpoch else {
+            throw CmxIrohServerSessionError.invalidPeerLane
+        }
+        try await replacement.sendStream.send(
+            admissionCodec.encodeFrame(.serverReady)
+        )
+        try requireAdmitted()
+        guard controlEpoch == previousEpoch else {
+            throw CmxIrohServerSessionError.controlEpochSuperseded
+        }
+        let previous = controlStream
+        controlStream = replacement
+        controlEpoch = epoch
+        controlReceiveBuffer = initialReceiveBuffer
+        let transport = CmxIrohServerByteTransport(
+            session: self,
+            epoch: epoch
+        )
+        for observer in controlObservers.values {
+            observer.yield(transport)
+        }
+        if let previous {
+            await previous.sendStream.reset(errorCode: 0)
+            await previous.receiveStream.stop(errorCode: 0)
+        }
+    }
+
+    private func removeControlObserver(_ id: UUID) {
+        controlObservers[id] = nil
     }
 
     private func requireAdmitted() throws {

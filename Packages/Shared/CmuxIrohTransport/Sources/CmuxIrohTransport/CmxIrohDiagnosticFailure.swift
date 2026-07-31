@@ -176,8 +176,13 @@ extension CmxIrohClientSessionError: DiagnosticFailureProviding {
             .identityMismatch
         case .admissionDenied:
             .admissionDenied
-        case .alreadyClosed, .notConnected, .unexpectedEndOfStream:
+        case .alreadyClosed, .notConnected, .unexpectedEndOfStream,
+             .controlEpochSuperseded:
             .connectionClosed
+        case .controlReplacementTimedOut:
+            .timedOut
+        case .controlReplacementUnavailable:
+            .protocolViolation
         case .invalidAdmissionFrame, .invalidMaximumByteCount,
              .invalidOutgoingLane, .applicationLanesUnavailable:
             .protocolViolation
@@ -190,7 +195,8 @@ extension CmxIrohServerSessionError: DiagnosticFailureProviding {
         switch self {
         case .admissionDenied:
             .admissionDenied
-        case .alreadyClosed, .notAdmitted, .unexpectedEndOfStream:
+        case .alreadyClosed, .notAdmitted, .unexpectedEndOfStream,
+             .controlEpochSuperseded:
             .connectionClosed
         case .streamHeaderTimedOut:
             .timedOut

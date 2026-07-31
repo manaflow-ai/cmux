@@ -2,6 +2,7 @@
 public enum CmxIrohServerSessionError: Error, Equatable, Sendable {
     case alreadyAdmitted
     case notAdmitted
+    case controlEpochSuperseded
     case alreadyClosed
     case unexpectedEndOfStream
     case invalidAdmissionFrame

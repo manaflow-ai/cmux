@@ -319,6 +319,52 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         await coordinator.deactivate()
     }
 
+    @Test
+    func backgroundPauseSuppressesDueRefreshUntilForegroundResume() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(
+            steps: [.response(try fixture.response(
+                refreshAfter: fixture.expiresAt,
+                expiresAt: fixture.expiresAt.addingTimeInterval(12 * 60 * 60)
+            ))]
+        )
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response()
+        )
+        #expect(await clockEvents.next() == .sleep(fixture.refreshAfter))
+
+        await coordinator.pause()
+        #expect(await clockEvents.next() == .cancelled)
+        clock.setNowWithoutResuming(fixture.refreshAfter)
+        clock.advance(to: fixture.refreshAfter)
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(await broker.observedEndpointIDs().isEmpty)
+
+        await coordinator.resume()
+        #expect(await clockEvents.next() == .sleep(fixture.refreshAfter))
+        clock.advance(to: fixture.refreshAfter)
+        await broker.waitForIssueCount(1)
+        try await coordinator.refreshIfNeeded()
+
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        #expect(await endpoint.observedRelayUpdates().count == 2)
+        await coordinator.deactivate()
+    }
+
 }
 
 private actor TestRelayActivationCompletionRecorder {
@@ -432,6 +478,12 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
 
     func observedEndpointIDs() -> [CmxIrohPeerIdentity] {
         endpointIDs
+    }
+
+    func waitForIssueCount(_ minimum: Int) async {
+        while issueCount < minimum {
+            await Task.yield()
+        }
     }
 }
 

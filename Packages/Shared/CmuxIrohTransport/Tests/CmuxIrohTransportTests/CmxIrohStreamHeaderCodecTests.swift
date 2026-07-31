@@ -8,7 +8,17 @@ struct CmxIrohStreamHeaderCodecTests {
     func pairGrantControlRoundTripsWithoutConsumingApplicationBytes() throws {
         let codec = try CmxIrohStreamHeaderCodec()
         let credential = try CmxIrohAdmissionCredential.pairGrant("e30.e30.AA")
-        let header = try CmxIrohStreamHeader(lane: .control, credential: credential)
+        let header = try CmxIrohStreamHeader(
+            lane: .control,
+            credential: credential,
+            connectionAttempt: CmxIrohConnectionAttempt(
+                processIncarnation: UUID(
+                    uuidString: "00000000-0000-0000-0000-000000000041"
+                )!,
+                engineGeneration: 3,
+                dialGeneration: 9
+            )
+        )
         let encoded = try codec.encode(header)
         let applicationBytes = Data([0xde, 0xad, 0xbe, 0xef])
 
@@ -39,6 +49,7 @@ struct CmxIrohStreamHeaderCodecTests {
         let terminalID = try CmxIrohResourceID("terminal:1")
         let artifactID = try CmxIrohResourceID("artifact.preview:2")
         let lanes: [CmxIrohLane] = [
+            .controlReplacement(epoch: 2),
             .serverEvents(cursor: nil),
             .serverEvents(cursor: 91),
             .terminal(resourceID: terminalID, cursor: nil),
@@ -62,6 +73,24 @@ struct CmxIrohStreamHeaderCodecTests {
         #expect(throws: CmxIrohStreamHeaderError.credentialOnNonControlLane) {
             try CmxIrohStreamHeader(
                 lane: .serverEvents(cursor: nil),
+                credential: credential
+            )
+        }
+        #expect(throws: CmxIrohStreamHeaderError.attemptOnNonControlLane) {
+            try CmxIrohStreamHeader(
+                lane: .controlReplacement(epoch: 2),
+                connectionAttempt: CmxIrohConnectionAttempt(
+                    processIncarnation: UUID(
+                        uuidString: "00000000-0000-0000-0000-000000000001"
+                    )!,
+                    engineGeneration: 1,
+                    dialGeneration: 1
+                )
+            )
+        }
+        #expect(throws: CmxIrohStreamHeaderError.credentialOnNonControlLane) {
+            try CmxIrohStreamHeader(
+                lane: .controlReplacement(epoch: 2),
                 credential: credential
             )
         }

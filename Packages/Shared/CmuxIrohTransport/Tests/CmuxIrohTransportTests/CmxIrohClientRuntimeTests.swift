@@ -339,7 +339,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func rateLimitedRegistrationAndDiscoveryConnectivityNeverReadOfflineCache() async throws {
+    func rateLimitedRegistrationAndDiscoveryConnectivityCannotUseMissingCachedPolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let store = TestSecureCredentialStore()
@@ -470,6 +470,11 @@ struct CmxIrohClientRuntimeTests {
         try await runtime.start()
 
         await runtime.didEnterBackground()
+        await runtime.handleSupervisorNetworkChange(
+            revision: await runtime.lifecycleRevision
+        )
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await factory.observedConfigurations().count == 1)
         try await runtime.didBecomeActive()
         await broker.waitForRegistrationCount(2)
 
@@ -549,6 +554,9 @@ struct CmxIrohClientRuntimeTests {
 
         try await runtime.didBecomeActive()
         await broker.waitForRegistrationCount(2)
+        if let refresh = await runtime.registrationRefreshTask {
+            _ = try? await refresh.value
+        }
         await recorder.waitForPolicyInvalidation()
 
         #expect(await runtime.snapshot().state == .failed)
@@ -585,6 +593,10 @@ struct CmxIrohClientRuntimeTests {
         await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
 
         try await runtime.didBecomeActive()
+        await broker.waitForRegistrationCount(2)
+        if let refresh = await runtime.registrationRefreshTask {
+            _ = try? await refresh.value
+        }
 
         #expect(await runtime.snapshot().state == .active)
         #expect(await endpoint.observedCloseCallCount() == 0)
@@ -634,6 +646,10 @@ struct CmxIrohClientRuntimeTests {
         await broker.setRegistrationError(failure)
 
         try await runtime.didBecomeActive()
+        await broker.waitForRegistrationCount(2)
+        if let refresh = await runtime.registrationRefreshTask {
+            _ = try? await refresh.value
+        }
 
         #expect(await runtime.snapshot().state == .active)
         #expect(await endpoint.observedCloseCallCount() == 0)

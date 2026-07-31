@@ -160,6 +160,55 @@ struct CmxIrohLANPeerDiscoveryTests {
     }
 
     @Test
+    func backgroundPauseStopsBrowseWithoutRevokingAuthorizedProfile() async throws {
+        let fixture = try Fixture()
+        let discoveryTask = Task {
+            await fixture.discovery.discover(
+                rendezvous: fixture.rendezvous,
+                authenticatedBindings: [fixture.binding],
+                expectedMacDeviceID: fixture.binding.deviceID,
+                expectedEndpointID: fixture.binding.endpointID,
+                timeout: 5
+            )
+        }
+        await fixture.browser.waitUntilStarted()
+        await fixture.browser.emit(.resolved(fixture.serviceID, fixture.service))
+        guard case .found = await discoveryTask.value else {
+            Issue.record("Expected initial result")
+            return
+        }
+        let authorized = await fixture.path.snapshot().activeNetworkProfiles
+
+        await fixture.discovery.pause()
+
+        #expect(await fixture.browser.wasStopped())
+        #expect(await fixture.path.snapshot().activeNetworkProfiles == authorized)
+        #expect(
+            await fixture.discovery.discover(
+                rendezvous: fixture.rendezvous,
+                authenticatedBindings: [fixture.binding],
+                expectedMacDeviceID: fixture.binding.deviceID,
+                expectedEndpointID: fixture.binding.endpointID,
+                timeout: 0.01
+            ) == .notFound
+        )
+        #expect(await fixture.factory.callCount() == 1)
+
+        await fixture.discovery.resume()
+        guard case .found = await fixture.discovery.discover(
+            rendezvous: fixture.rendezvous,
+            authenticatedBindings: [fixture.binding],
+            expectedMacDeviceID: fixture.binding.deviceID,
+            expectedEndpointID: fixture.binding.endpointID,
+            timeout: 0.01
+        ) else {
+            Issue.record("Expected preserved authorized profile after resume")
+            return
+        }
+        #expect(await fixture.factory.callCount() == 1)
+    }
+
+    @Test
     func pathChangeDuringAllowlistInstallationCannotResurrectBrowser() async throws {
         let fixture = try Fixture()
         await fixture.browser.blockNextAllowlistReplacement()

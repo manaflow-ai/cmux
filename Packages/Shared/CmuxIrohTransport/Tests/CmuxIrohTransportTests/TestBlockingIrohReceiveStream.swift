@@ -4,6 +4,7 @@ import Foundation
 actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
     private var buffer: Data
     private let cancellationUnblocksReceive: Bool
+    private let stopUnblocksReceive: Bool
     private var waiter: CheckedContinuation<Data?, any Error>?
     private var cancelled = false
     private var stoppedCodes: [UInt64] = []
@@ -14,10 +15,12 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
 
     init(
         buffer: Data,
-        cancellationUnblocksReceive: Bool = true
+        cancellationUnblocksReceive: Bool = true,
+        stopUnblocksReceive: Bool = true
     ) {
         self.buffer = buffer
         self.cancellationUnblocksReceive = cancellationUnblocksReceive
+        self.stopUnblocksReceive = stopUnblocksReceive
         let blocked = AsyncStream<Void>.makeStream()
         blockedStream = blocked.stream
         blockedContinuation = blocked.continuation
@@ -59,8 +62,10 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
     func stop(errorCode: UInt64) {
         stoppedCodes.append(errorCode)
         stoppedContinuation.yield(errorCode)
-        waiter?.resume(returning: nil)
-        waiter = nil
+        if stopUnblocksReceive {
+            waiter?.resume(returning: nil)
+            waiter = nil
+        }
     }
 
     func blockedEvents() -> AsyncStream<Void> {
@@ -73,6 +78,11 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
 
     func stoppedEvents() -> AsyncStream<UInt64> {
         stoppedStream
+    }
+
+    func resume(with data: Data?) {
+        waiter?.resume(returning: data)
+        waiter = nil
     }
 
     private func cancelWaiter() {

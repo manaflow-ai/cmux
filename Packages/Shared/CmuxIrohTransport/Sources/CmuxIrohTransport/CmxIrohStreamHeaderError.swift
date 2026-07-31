@@ -5,4 +5,7 @@ public enum CmxIrohStreamHeaderError: Error, Equatable, Sendable {
 
     /// A non-control stream attempted to carry a second credential.
     case credentialOnNonControlLane
+
+    /// A non-control stream attempted to carry a connection-attempt token.
+    case attemptOnNonControlLane
 }

@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-import Foundation
+public import Foundation
 
 /// Process-wide owner of one Iroh endpoint and one session actor per remote peer.
 public actor CmxConnectivityEngine {
@@ -20,13 +20,18 @@ public actor CmxConnectivityEngine {
     private let installRouteSnapshot: RouteSnapshotInstaller?
     private let diagnosticLog: DiagnosticLog?
     private let clock: any CmxIrohRelayClock
+    private let clientProcessIncarnation: UUID
+    private let clientEngineGeneration: UInt64
     private var desiredActive = false
+    private var foregroundActive = true
     private var lifecycleRevision: UInt64 = 0
     private var endpointGeneration: UInt64?
     private var localIdentity: CmxIrohPeerIdentity?
     private var routeRevision: UInt64?
+    private var routeAuthorityIndex: CmxConnectivityRouteAuthorityIndex?
     private var endpointEventTask: Task<Void, Never>?
     private var routeSyncOperation: RouteSyncOperation?
+    private var backgroundRouteReconciliationTask: Task<Void, Never>?
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
     private var peerSnapshots: [CmxConnectivityPeerID: CmxConnectivityPeerSnapshot] = [:]
     private var observers: [UUID: AsyncStream<CmxConnectivityEngineSnapshot>.Continuation] = [:]
@@ -50,9 +55,12 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        clientProcessIncarnation: UUID = UUID(),
+        clientEngineGeneration: UInt64 = 1
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
+        precondition(clientEngineGeneration > 0)
         supervisor = CmxIrohEndpointSupervisor(
             factory: factory,
             configuration: endpointConfiguration
@@ -63,6 +71,8 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.clientProcessIncarnation = clientProcessIncarnation
+        self.clientEngineGeneration = clientEngineGeneration
     }
 
     /// Creates a stopped endpoint-only engine for a host acceptor.
@@ -81,6 +91,8 @@ public actor CmxConnectivityEngine {
         installRouteSnapshot = nil
         diagnosticLog = nil
         clock = CmxIrohSystemRelayClock()
+        clientProcessIncarnation = UUID()
+        clientEngineGeneration = 1
     }
 
     init(
@@ -90,9 +102,12 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        clientProcessIncarnation: UUID = UUID(),
+        clientEngineGeneration: UInt64 = 1
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
+        precondition(clientEngineGeneration > 0)
         self.supervisor = supervisor
         self.contextProvider = contextProvider
         self.protocolConfiguration = protocolConfiguration
@@ -100,6 +115,8 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.clientProcessIncarnation = clientProcessIncarnation
+        self.clientEngineGeneration = clientEngineGeneration
     }
 
     /// Returns the current immutable UI-safe state.
@@ -134,7 +151,7 @@ public actor CmxConnectivityEngine {
     /// Creates an accept loop whose endpoint recovery is serialized by this engine.
     func makeEndpointServer(
         maximumPendingAdmissions: Int = 10,
-        maximumPendingAdmissionsPerIdentity: Int = 1,
+        maximumPendingAdmissionsPerIdentity: Int = 2,
         maximumConnections: Int = 10,
         maximumConnectionsPerIdentity: Int = 2,
         admissionTimeout: TimeInterval = 15,
@@ -168,6 +185,7 @@ public actor CmxConnectivityEngine {
             throw CmxConnectivityEngineError.superseded
         }
         desiredActive = true
+        foregroundActive = true
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         phase = .starting
@@ -179,6 +197,12 @@ public actor CmxConnectivityEngine {
                 throw CmxConnectivityEngineError.superseded
             }
             try await installEndpoint(endpoint)
+            if routeRevision != nil {
+                phase = .active
+                publishSnapshot()
+                scheduleRouteReconciliation()
+                return
+            }
             try await reconcileRoutes()
             guard desiredActive, lifecycleRevision == revision else {
                 throw CmxConnectivityEngineError.superseded
@@ -197,19 +221,44 @@ public actor CmxConnectivityEngine {
 
     /// Verifies the preserved endpoint after suspension and recreates it if stale.
     public func resume() async throws {
-        guard desiredActive, phase == .active else {
+        try await resumeLocally()
+        if routeRevision == nil {
+            try await reconcileRoutes()
+        } else {
+            scheduleRouteReconciliation()
+        }
+        guard desiredActive else {
+            throw CmxConnectivityEngineError.superseded
+        }
+        phase = .active
+        publishSnapshot()
+    }
+
+    /// Cancels broker reconciliation and pauses endpoint recreation without
+    /// closing a healthy endpoint or any admitted peer connection.
+    public func didEnterBackground() async {
+        foregroundActive = false
+        routeSyncOperation?.task.cancel()
+        routeSyncOperation = nil
+        backgroundRouteReconciliationTask?.cancel()
+        backgroundRouteReconciliationTask = nil
+        await supervisor.didEnterBackground()
+    }
+
+    /// Restores only local endpoint readiness. Broker reconciliation remains a
+    /// separate background concern so a healthy foreground return is immediate.
+    public func resumeLocally() async throws {
+        guard desiredActive,
+              phase == .active || phase == .failed else {
             throw CmxConnectivityEngineError.inactive
         }
+        foregroundActive = true
         let revision = lifecycleRevision
-        let endpoint = try await supervisor.ensureHealthy()
+        let endpoint = try await supervisor.didBecomeActive()
         guard desiredActive, lifecycleRevision == revision else {
             throw CmxConnectivityEngineError.superseded
         }
         try await installEndpoint(endpoint)
-        try await reconcileRoutes()
-        guard desiredActive, lifecycleRevision == revision else {
-            throw CmxConnectivityEngineError.superseded
-        }
         phase = .active
         publishSnapshot()
     }
@@ -218,6 +267,7 @@ public actor CmxConnectivityEngine {
     public func stop() async {
         guard phase != .stopped else { return }
         desiredActive = false
+        foregroundActive = false
         lifecycleRevision &+= 1
         phase = .stopping
         publishSnapshot()
@@ -225,6 +275,8 @@ public actor CmxConnectivityEngine {
         endpointEventTask = nil
         routeSyncOperation?.task.cancel()
         routeSyncOperation = nil
+        backgroundRouteReconciliationTask?.cancel()
+        backgroundRouteReconciliationTask = nil
         await invalidateAllPeers(failure: .cancelled)
         await supervisor.deactivate()
         endpointGeneration = nil
@@ -236,9 +288,18 @@ public actor CmxConnectivityEngine {
     /// Records the last route revision installed atomically by the composition root.
     public func didInstallRouteRevision(_ revision: UInt64) async {
         guard routeRevision != revision else { return }
-        await invalidateAllPeers(failure: .superseded)
         routeRevision = revision
         publishSnapshot()
+    }
+
+    /// Installs a complete locally verified authority snapshot and retires only
+    /// peers whose binding authority was removed or materially substituted.
+    public func didInstallRouteSnapshot(
+        _ discovery: CmxIrohDiscoveryResponse
+    ) async throws {
+        await installAuthorityIndex(
+            try CmxConnectivityRouteAuthorityIndex(discovery: discovery)
+        )
     }
 
     /// Returns the exact active local endpoint identity.
@@ -342,6 +403,34 @@ public actor CmxConnectivityEngine {
             .classify(.unavailable)
     }
 
+    /// Reads selected-path health for one exact route and expected peer.
+    ///
+    /// This is a local actor-state query. It never dials, refreshes authority,
+    /// mints credentials, or sends application bytes. A healthy background
+    /// peer therefore cannot mask a missing foreground peer path.
+    public func currentSelectedPathHealth(
+        for request: CmxByteTransportRequest
+    ) async -> CmxIrohSelectedPathHealth {
+        guard let peerID = try? CmxConnectivityPeerID(request: request),
+              let peer = peers[peerID] else {
+            return .unknown
+        }
+        let currentSnapshot = await peer.snapshot()
+        var currentSnapshots = peerSnapshots
+        currentSnapshots[peerID] = currentSnapshot
+        let observedPaths: [CmxConnectivityPeerID: CmxIrohObservedConnectionPath]
+        if currentSnapshot.phase == .connected {
+            observedPaths = [peerID: await peer.observedSelectedPath()]
+        } else {
+            observedPaths = [:]
+        }
+        return CmxIrohSelectedPathHealthClassifier().classify(
+            request: request,
+            snapshots: currentSnapshots,
+            observedPaths: observedPaths
+        )
+    }
+
     /// Emits when peer lifecycle or Iroh path selection can change path classification.
     public func selectedTransportPathChanges() -> AsyncStream<Void> {
         let snapshots = snapshots()
@@ -364,6 +453,7 @@ public actor CmxConnectivityEngine {
     public func reconcileRoutes() async throws {
         guard let authority, let installRouteSnapshot else { return }
         guard desiredActive,
+              foregroundActive,
               phase == .starting || phase == .active else {
             throw CmxConnectivityEngineError.inactive
         }
@@ -490,9 +580,13 @@ public actor CmxConnectivityEngine {
         let protocolConfiguration = protocolConfiguration
         let diagnosticLog = diagnosticLog
         let clock = clock
+        let clientProcessIncarnation = clientProcessIncarnation
+        let clientEngineGeneration = clientEngineGeneration
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
-            buildSession: { request in
+            processIncarnation: clientProcessIncarnation,
+            engineGeneration: clientEngineGeneration,
+            buildSession: { request, attempt in
                 let endpoint = try await supervisor.activeEndpoint()
                 let context = try await contextProvider.context(for: request)
                 let session = try CmxIrohClientSession(
@@ -500,6 +594,8 @@ public actor CmxConnectivityEngine {
                     targetIdentity: peerID.identity,
                     dialPlan: context.dialPlan,
                     credential: context.credential,
+                    connectionAttempt: attempt,
+                    supportsControlRepair: context.supportsControlRepair,
                     privateFallbackAuthorization: context.privateFallbackAuthorization,
                     privateFallbackValidator: contextProvider,
                     privateFallbackContextProvider: {
@@ -550,7 +646,11 @@ public actor CmxConnectivityEngine {
             throw CmxConnectivityEngineError.superseded
         }
         try await installEndpoint(endpoint)
-        try await reconcileRoutes()
+        if routeRevision == nil {
+            try await reconcileRoutes()
+        } else {
+            scheduleRouteReconciliation()
+        }
         guard desiredActive, lifecycleRevision == revision else {
             throw CmxConnectivityEngineError.superseded
         }
@@ -607,7 +707,14 @@ public actor CmxConnectivityEngine {
         case .active:
             do {
                 try await installEndpoint(endpoint)
-                try await reconcileRoutes()
+                if !foregroundActive {
+                    phase = .active
+                    publishSnapshot()
+                } else if routeRevision == nil {
+                    try await reconcileRoutes()
+                } else {
+                    scheduleRouteReconciliation()
+                }
                 guard desiredActive else { return }
                 phase = .active
                 publishSnapshot()
@@ -654,6 +761,12 @@ public actor CmxConnectivityEngine {
               lifecycleRevision == expectedLifecycleRevision else {
             throw CmxConnectivityEngineError.superseded
         }
+        if !response.changed {
+            guard let knownRevision,
+                  response.revision == knownRevision else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+        }
         if response.changed {
             guard let snapshot = response.snapshot else {
                 throw CmxIrohTrustBrokerClientError.invalidResponse
@@ -664,10 +777,61 @@ public actor CmxConnectivityEngine {
                   lifecycleRevision == expectedLifecycleRevision else {
                 throw CmxConnectivityEngineError.superseded
             }
+            await installAuthorityIndex(
+                try CmxConnectivityRouteAuthorityIndex(discovery: snapshot)
+            )
         }
         if routeRevision != response.revision {
-            await invalidateAllPeers(failure: .superseded)
             routeRevision = response.revision
+            publishSnapshot()
+        }
+    }
+
+    private func installAuthorityIndex(
+        _ replacement: CmxConnectivityRouteAuthorityIndex
+    ) async {
+        let invalidated = replacement.invalidatedPeers(
+            replacing: routeAuthorityIndex,
+            activePeers: Set(peers.keys)
+        )
+        routeAuthorityIndex = replacement
+        if let revision = replacement.revision {
+            routeRevision = revision
+        }
+        for peerID in invalidated {
+            await peers[peerID]?.invalidate(failure: .superseded)
+        }
+        publishSnapshot()
+    }
+
+    private func scheduleRouteReconciliation() {
+        guard authority != nil,
+              backgroundRouteReconciliationTask == nil,
+              desiredActive,
+              foregroundActive else {
+            return
+        }
+        backgroundRouteReconciliationTask = Task { [weak self] in
+            await self?.performBackgroundRouteReconciliation()
+        }
+    }
+
+    private func performBackgroundRouteReconciliation() async {
+        defer { backgroundRouteReconciliationTask = nil }
+        do {
+            try await reconcileRoutes()
+        } catch is CancellationError {
+            return
+        } catch {
+            guard desiredActive else { return }
+            if CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error) {
+                return
+            }
+            await invalidateAllPeers(
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            phase = .failed
             publishSnapshot()
         }
     }
@@ -729,6 +893,7 @@ public actor CmxConnectivityEngine {
         if snapshot?.phase == .connected { return 2 }
         return 3
     }
+
 }
 
 extension CmxConnectivityEngine: CmxIrohRelayEndpointControlling {}

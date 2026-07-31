@@ -15,6 +15,15 @@ public enum CmxIrohClientSessionError: Error, Equatable, Sendable {
     /// An operation required an admitted control stream.
     case notConnected
 
+    /// A newer control epoch replaced the stream while this operation was suspended.
+    case controlEpochSuperseded
+
+    /// The peer did not acknowledge a control replacement within its deadline.
+    case controlReplacementTimedOut
+
+    /// The discovered peer did not advertise replaceable control epochs.
+    case controlReplacementUnavailable
+
     /// The session was explicitly closed.
     case alreadyClosed
 

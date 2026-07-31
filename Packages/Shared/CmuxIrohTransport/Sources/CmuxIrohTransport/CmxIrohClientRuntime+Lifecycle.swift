@@ -61,6 +61,7 @@ extension CmxIrohClientRuntime {
     }
 
     func tearDownNetwork(preserveBinding: Bool = false) async {
+        foregroundActive = false
         relayActivationTask?.cancel()
         relayActivationTask = nil
         relayForegroundRefreshTask?.cancel()
@@ -71,6 +72,8 @@ extension CmxIrohClientRuntime {
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         registrationRefreshAllowsBindingReplacement = false
+        foregroundMaintenanceTask?.cancel()
+        foregroundMaintenanceTask = nil
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
         await relayCoordinator?.deactivate()
@@ -89,6 +92,40 @@ extension CmxIrohClientRuntime {
         guard fleet.count == managedRelayURLs.count,
               Set(fleet) == managedRelayURLs else {
             throw CmxIrohClientRuntimeError.relayFleetMismatch
+        }
+    }
+
+    /// Applies sticky terminal authority evidence to every runtime entrypoint.
+    ///
+    /// Broker availability failures never enter this path. Invalid auth,
+    /// malformed policy, missing/replaced local binding, and fleet/contract
+    /// substitution close networking and remove the signed offline cache.
+    func failClosedAfterTerminalPolicyError(
+        previousBinding: CmxIrohBrokerBinding,
+        expectedRevision: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == expectedRevision else {
+            return
+        }
+        lifecyclePhase = .stopping
+        lifecycleRevision &+= 1
+        let failureRevision = lifecycleRevision
+        currentSnapshot = CmxIrohClientRuntimeSnapshot(
+            state: .failed,
+            endpointID: nil,
+            bindingID: previousBinding.bindingID
+        )
+        await tearDownNetwork()
+        guard lifecyclePhase == .stopping,
+              lifecycleRevision == failureRevision else {
+            return
+        }
+        try? await offlinePolicyCache?.deactivate()
+        await handlePolicyInvalidation()
+        if lifecyclePhase == .stopping,
+           lifecycleRevision == failureRevision {
+            lifecyclePhase = .failed
         }
     }
 

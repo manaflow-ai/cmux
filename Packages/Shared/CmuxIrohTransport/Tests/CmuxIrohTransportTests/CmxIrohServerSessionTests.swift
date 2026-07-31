@@ -143,7 +143,7 @@ struct CmxIrohServerSessionTests {
         )
 
         let admittedPeer = try await session.admit()
-        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "18:0"])
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedNatTraversalActivationCount() == 1)
         #expect(admittedPeer == fixture.admittedPeer)
@@ -153,7 +153,7 @@ struct CmxIrohServerSessionTests {
             "control.send",
             "connection.authorizeNatTraversal",
             "control.send",
-            "connection.limits:17:0",
+            "connection.limits:18:0",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
@@ -237,13 +237,13 @@ struct CmxIrohServerSessionTests {
 
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
         #expect(await connection.observedNatTraversalActivationCount() == 0)
-        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "18:0"])
         #expect(await events.observedEvents() == [
             "connection.limits:1:0",
             "connection.openBidirectionalStream",
             "control.send",
             "control.send",
-            "connection.limits:17:0",
+            "connection.limits:18:0",
         ])
         let acknowledgements = await fixture.controlSend.observedSentBuffers()
         #expect(
@@ -439,7 +439,288 @@ struct CmxIrohServerSessionTests {
 
         let buffers = await fixture.controlSend.observedSentBuffers()
         #expect(buffers.last == Data("response".utf8))
+        #expect(await connection.observedCloseCallCount() == 0)
+        await session.close()
         #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func controlReplacementPreservesTheConnectionAndFeatureLane() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let replacementReceive = TestIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(lane: .controlReplacement(epoch: 2))
+            ) + Data("replacement-rpc".utf8)
+        )
+        let replacementSend = TestIrohSendStream()
+        let terminalID = try CmxIrohResourceID("terminal-replacement")
+        let terminalReceive = TestIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(
+                    lane: .terminal(resourceID: terminalID, cursor: 7)
+                )
+            ) + Data("feature-survived".utf8)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            continuityID: 44,
+            bidirectionalStreams: [
+                fixture.controlStream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: replacementReceive,
+                    sendStream: replacementSend
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: terminalReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+        var controls = await admitted.controlTransports().makeAsyncIterator()
+        let initial = try #require(await controls.next())
+        try await initial.connect()
+        #expect(try await initial.receive() == Data("rpc".utf8))
+
+        let feature = Task { try await admitted.acceptBidirectionalLane() }
+        let replacement = try #require(await controls.next())
+        try await replacement.connect()
+        #expect(
+            try await replacement.receive() == Data("replacement-rpc".utf8)
+        )
+        await initial.close()
+
+        let terminal = try await feature.value
+        #expect(
+            terminal.lane
+                == .terminal(resourceID: terminalID, cursor: 7)
+        )
+        #expect(
+            try await terminal.stream.receiveStream.receive(
+                maximumByteCount: 64
+            ) == Data("feature-survived".utf8)
+        )
+        #expect(
+            try CmxIrohAdmissionAckCodec().decodeFramePrefix(
+                try #require(
+                    await replacementSend.observedSentBuffers().first
+                )
+            ) == .serverReady
+        )
+        #expect(await connection.observedCloseCallCount() == 0)
+        #expect(await connection.connectionContinuityID() == 44)
+        await admitted.close()
+    }
+
+    @Test
+    func replacementBurstBuffersOnlyTheNewestControlEpoch() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let replacementStreams = try (2 ... 4).map { epoch in
+            CmxIrohBidirectionalStream(
+                receiveStream: TestIrohReceiveStream(
+                    buffer: try fixture.headerCodec.encode(
+                        CmxIrohStreamHeader(
+                            lane: .controlReplacement(epoch: UInt64(epoch))
+                        )
+                    ) + Data("epoch-\(epoch)".utf8)
+                ),
+                sendStream: TestIrohSendStream()
+            )
+        }
+        let terminalID = try CmxIrohResourceID("terminal-after-burst")
+        let terminal = CmxIrohBidirectionalStream(
+            receiveStream: TestIrohReceiveStream(
+                buffer: try fixture.headerCodec.encode(
+                    CmxIrohStreamHeader(
+                        lane: .terminal(resourceID: terminalID, cursor: nil)
+                    )
+                )
+            ),
+            sendStream: TestIrohSendStream()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [
+                fixture.controlStream,
+            ] + replacementStreams + [terminal]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+        var controls = await admitted.controlTransports().makeAsyncIterator()
+        let initial = try #require(await controls.next())
+        try await initial.connect()
+        let feature = Task { try await admitted.acceptBidirectionalLane() }
+
+        _ = try await feature.value
+
+        let newest = try #require(await controls.next())
+        try await newest.connect()
+        await #expect(
+            throws: CmxIrohServerSessionError.controlEpochSuperseded
+        ) {
+            try await initial.receive()
+        }
+        #expect(try await newest.receive() == Data("epoch-4".utf8))
+        #expect(await connection.observedCloseCallCount() == 0)
+        await admitted.close()
+    }
+
+    @Test
+    func lateEpochOneReadIsDiscardedAfterReplacementBecomesAuthoritative() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
+        let initialReceive = TestBlockingIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(
+                    lane: .control,
+                    credential: credential
+                )
+            ) + admissionFrame(status: 2),
+            stopUnblocksReceive: false
+        )
+        let replacementReceive = TestIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(lane: .controlReplacement(epoch: 2))
+            ) + Data("epoch-two".utf8)
+        )
+        let terminalID = try CmxIrohResourceID("terminal-epoch-fence")
+        let terminalReceive = TestIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(
+                    lane: .terminal(resourceID: terminalID, cursor: nil)
+                )
+            )
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: initialReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: replacementReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: terminalReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+        var controls = await admitted.controlTransports().makeAsyncIterator()
+        let initial = try #require(await controls.next())
+        var blocked = await initialReceive.blockedEvents().makeAsyncIterator()
+        let oldRead = Task { try await initial.receive() }
+        _ = await blocked.next()
+
+        let lane = Task { try await admitted.acceptBidirectionalLane() }
+        let replacement = try #require(await controls.next())
+        await initialReceive.resume(with: Data("epoch-one-late".utf8))
+
+        await #expect(
+            throws: CmxIrohServerSessionError.controlEpochSuperseded
+        ) {
+            try await oldRead.value
+        }
+        #expect(try await replacement.receive() == Data("epoch-two".utf8))
+        #expect(
+            try await lane.value.lane
+                == .terminal(resourceID: terminalID, cursor: nil)
+        )
+        #expect(await connection.observedCloseCallCount() == 0)
+        await admitted.close()
+    }
+
+    @Test
+    func replacementHasDedicatedCreditWhenAllApplicationLanesAreOccupied() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        var occupiedStreams: [CmxIrohBidirectionalStream] = []
+        for index in 0 ..< 16 {
+            let resourceID = try CmxIrohResourceID("terminal-full-\(index)")
+            occupiedStreams.append(
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(
+                        buffer: try fixture.headerCodec.encode(
+                            CmxIrohStreamHeader(
+                                lane: .terminal(
+                                    resourceID: resourceID,
+                                    cursor: nil
+                                )
+                            )
+                        )
+                    ),
+                    sendStream: TestIrohSendStream()
+                )
+            )
+        }
+        let replacement = CmxIrohBidirectionalStream(
+            receiveStream: TestIrohReceiveStream(
+                buffer: try fixture.headerCodec.encode(
+                    CmxIrohStreamHeader(lane: .controlReplacement(epoch: 2))
+                )
+            ),
+            sendStream: TestIrohSendStream()
+        )
+        let finalID = try CmxIrohResourceID("terminal-after-replacement")
+        let finalLane = CmxIrohBidirectionalStream(
+            receiveStream: TestIrohReceiveStream(
+                buffer: try fixture.headerCodec.encode(
+                    CmxIrohStreamHeader(
+                        lane: .terminal(resourceID: finalID, cursor: nil)
+                    )
+                )
+            ),
+            sendStream: TestIrohSendStream()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+                + occupiedStreams
+                + [replacement, finalLane]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+        var controls = await admitted.controlTransports().makeAsyncIterator()
+        _ = await controls.next()
+        for _ in 0 ..< 16 {
+            _ = try await admitted.acceptBidirectionalLane()
+        }
+
+        let accepting = Task { try await admitted.acceptBidirectionalLane() }
+        _ = try #require(await controls.next())
+        let acceptedAfterReplacement = try await accepting.value
+
+        #expect(
+            acceptedAfterReplacement.lane
+                == .terminal(resourceID: finalID, cursor: nil)
+        )
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "18:0"])
+        #expect(await connection.observedCloseCallCount() == 0)
+        await admitted.close()
     }
 
     @Test

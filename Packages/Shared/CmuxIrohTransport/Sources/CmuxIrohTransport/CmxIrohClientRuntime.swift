@@ -49,6 +49,7 @@ public actor CmxIrohClientRuntime {
 
     private struct ConnectivityReconciliationOperation {
         let id: UUID
+        let hintedRevision: UInt64
         let task: Task<CmxIrohLiveDiscoveryRefreshOutcome, Never>
     }
 
@@ -108,6 +109,8 @@ public actor CmxIrohClientRuntime {
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var registrationRefreshAllowsBindingReplacement = false
+    var foregroundActive = true
+    var foregroundMaintenanceTask: Task<Void, Never>?
     var liveDiscoveryGeneration: UInt64 = 0
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
@@ -146,6 +149,8 @@ public actor CmxIrohClientRuntime {
         pendingRevocations: CmxIrohPendingRevocationOutbox,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         diagnosticLog: DiagnosticLog? = nil,
+        connectionProcessIncarnation: UUID = UUID(),
+        connectionEngineGeneration: UInt64 = 1,
         offlinePolicyCache: CmxIrohClientOfflinePolicyCache? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
@@ -177,7 +182,9 @@ public actor CmxIrohClientRuntime {
             supervisor: supervisor,
             contextProvider: contextRouter,
             protocolConfiguration: protocolConfiguration,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            clientProcessIncarnation: connectionProcessIncarnation,
+            clientEngineGeneration: connectionEngineGeneration
         )
         self.supervisor = supervisor
         self.connectivityEngine = connectivityEngine
@@ -265,8 +272,11 @@ public actor CmxIrohClientRuntime {
             pendingConnectivityRevision ?? hintedRevision,
             hintedRevision
         )
+        guard foregroundActive else {
+            return .failed(.cancelled)
+        }
 
-        while lifecyclePhase == .active {
+        while lifecyclePhase == .active, foregroundActive {
             let installed = await connectivityEngine.snapshot().routeRevision
             if let installed,
                installed >= hintedRevision,
@@ -292,7 +302,11 @@ public actor CmxIrohClientRuntime {
                         hintedRevision: targetRevision
                     )
                 }
-                operation = ConnectivityReconciliationOperation(id: id, task: task)
+                operation = ConnectivityReconciliationOperation(
+                    id: id,
+                    hintedRevision: targetRevision,
+                    task: task
+                )
                 connectivityReconciliationOperation = operation
             }
             let outcome = await operation.task.value
@@ -310,6 +324,9 @@ public actor CmxIrohClientRuntime {
         hintedRevision: UInt64
     ) async -> CmxIrohLiveDiscoveryRefreshOutcome {
         let revision = lifecycleRevision
+        guard foregroundActive else {
+            return .failed(.cancelled)
+        }
         do {
             if let refresh = registrationRefreshTask {
                 _ = try await refresh.value
@@ -382,10 +399,25 @@ public actor CmxIrohClientRuntime {
             guard published else {
                 return .failed(.superseded)
             }
-            await connectivityEngine.didInstallRouteRevision(discoveredRevision)
+            try await connectivityEngine.didInstallRouteSnapshot(discovery)
             liveDiscoveryGeneration &+= 1
             return .refreshed
+        } catch is CancellationError {
+            return .failed(.cancelled)
         } catch {
+            guard lifecyclePhase == .active,
+                  foregroundActive,
+                  lifecycleRevision == revision else {
+                return .failed(DiagnosticFailureKind.classify(error))
+            }
+            if !CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error),
+               let previousBinding = localBinding {
+                await failClosedAfterTerminalPolicyError(
+                    previousBinding: previousBinding,
+                    expectedRevision: revision
+                )
+            }
             return .failed(DiagnosticFailureKind.classify(error))
         }
     }
@@ -397,7 +429,7 @@ public actor CmxIrohClientRuntime {
     private func refreshLiveDiscoveryOutcomeThrowing() async throws
         -> CmxIrohLiveDiscoveryRefreshOutcome
     {
-        guard lifecyclePhase == .active else {
+        guard lifecyclePhase == .active, foregroundActive else {
             return .failed(.endpointUnavailable)
         }
         let priorGeneration = liveDiscoveryGeneration
@@ -408,6 +440,7 @@ public actor CmxIrohClientRuntime {
         }
         var lastAwaitedTaskID: UUID?
         while lifecyclePhase == .active,
+              foregroundActive,
               let refresh = registrationRefreshTask,
               let refreshID = registrationRefreshTaskID,
               refreshID != lastAwaitedTaskID {
@@ -425,7 +458,7 @@ public actor CmxIrohClientRuntime {
             mayScheduleFreshRequest = false
             scheduleRegistrationRefresh(revision: lifecycleRevision)
         }
-        return lifecyclePhase == .active
+        return lifecyclePhase == .active && foregroundActive
             ? latestOutcome
             : .failed(.endpointUnavailable)
     }
@@ -445,6 +478,16 @@ public actor CmxIrohClientRuntime {
         )
     }
 
+    /// Returns local selected-path health for the request's exact expected Mac.
+    ///
+    /// The query is credential-free and performs no network operation. An
+    /// unrelated healthy background peer never contributes to the result.
+    public func currentSelectedPathHealth(
+        for request: CmxByteTransportRequest
+    ) async -> CmxIrohSelectedPathHealth {
+        await connectivityEngine.currentSelectedPathHealth(for: request)
+    }
+
     /// Emits when connection lifecycle changes may alter the selected path.
     ///
     /// Consumers re-read ``selectedTransportPath(relayPolicy:)`` for the
@@ -461,6 +504,7 @@ public actor CmxIrohClientRuntime {
             throw CmxIrohClientRuntimeError.alreadyActive
         }
         lifecyclePhase = .starting
+        foregroundActive = true
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
@@ -489,26 +533,30 @@ public actor CmxIrohClientRuntime {
                   endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            let cached = try await cachedPolicy(expectedEndpointID: endpointID)
+            let cachedPolicy = try await resolveCachedPolicy(
+                expectedEndpointID: endpointID,
+                revision: revision
+            )
             let policy: ResolvedPolicy
-            if let cached {
-                policy = cached
+            if let cachedPolicy {
+                policy = cachedPolicy
             } else {
                 policy = try await resolvePolicy(
                     expectedEndpointID: endpointID,
-                    revision: revision
+                    revision: revision,
+                    pendingRevocationsDrained: true
                 )
             }
-            let activatedFromCache = policy.registration == nil
-                && policy.discovery == nil
-            registrationRefreshAllowsBindingReplacement = activatedFromCache
+            let restoredFromCache = cachedPolicy != nil
+            registrationRefreshAllowsBindingReplacement = restoredFromCache
             try requireCurrent(revision)
             try await install(
                 policy: policy,
                 revision: revision,
-                startRelays: !activatedFromCache
+                startRelays: !restoredFromCache
             )
-            if !protocolConfiguration.allowsNATTraversalAfterAdmission {
+            if !restoredFromCache,
+               !protocolConfiguration.allowsNATTraversalAfterAdmission {
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
                 }
@@ -526,30 +574,22 @@ public actor CmxIrohClientRuntime {
                 let published = await handleBinding(registration, discovery)
                 try requireCurrent(revision)
                 if published {
-                    if let routeRevision = discovery.revision {
-                        await connectivityEngine.didInstallRouteRevision(
-                            routeRevision
-                        )
-                    }
+                    try await connectivityEngine.didInstallRouteSnapshot(discovery)
                     liveDiscoveryGeneration &+= 1
                 }
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
             registrationRefreshEnabled = true
-            if activatedFromCache {
-                registrationRefreshPending = false
-                scheduleRegistrationRefresh(revision: revision)
-            } else if registrationRefreshPending {
-                registrationRefreshPending = false
-                scheduleRegistrationRefresh(revision: revision)
-            }
-            if activatedFromCache
-                || protocolConfiguration.allowsNATTraversalAfterAdmission {
+            if restoredFromCache {
                 scheduleRelayActivation(
                     binding: policy.binding,
                     revision: revision
                 )
+                scheduleRegistrationRefresh(revision: revision)
+            } else if registrationRefreshPending {
+                registrationRefreshPending = false
+                scheduleRegistrationRefresh(revision: revision)
             }
         } catch {
             guard lifecyclePhase == .starting,
@@ -575,8 +615,30 @@ public actor CmxIrohClientRuntime {
     ///
     /// iOS may suspend the process immediately, so the runtime deliberately
     /// performs no network or persistence work on this transition.
-    public func didEnterBackground() {
-        // Endpoint ownership is process-scoped and survives ordinary suspension.
+    public func didEnterBackground() async {
+        guard lifecyclePhase == .active else { return }
+        foregroundActive = false
+        foregroundMaintenanceTask?.cancel()
+        foregroundMaintenanceTask = nil
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
+        registrationRefreshEnabled = false
+        if registrationRefreshTask != nil {
+            registrationRefreshPending = true
+        }
+        registrationRefreshTask?.cancel()
+        registrationRefreshTask = nil
+        registrationRefreshTaskID = nil
+        if let operation = connectivityReconciliationOperation {
+            pendingConnectivityRevision = max(
+                pendingConnectivityRevision ?? operation.hintedRevision,
+                operation.hintedRevision
+            )
+            operation.task.cancel()
+            connectivityReconciliationOperation = nil
+        }
+        await relayCoordinator?.pause()
+        await connectivityEngine.didEnterBackground()
     }
 
     /// Health-checks the preserved endpoint and refreshes its signed registration.
@@ -588,29 +650,72 @@ public actor CmxIrohClientRuntime {
     ///   failure keeps the last verified local policy for a later retry.
     public func didBecomeActive() async throws {
         guard lifecyclePhase == .active else { return }
+        foregroundActive = true
         let revision = lifecycleRevision
         registrationRefreshEnabled = false
-        registrationRefreshTask?.cancel()
-        registrationRefreshTask = nil
-        registrationRefreshTaskID = nil
-        registrationRefreshPending = false
+        if registrationRefreshTask != nil {
+            registrationRefreshPending = true
+            registrationRefreshTask?.cancel()
+            registrationRefreshTask = nil
+            registrationRefreshTaskID = nil
+        }
+        relayForegroundRefreshTask?.cancel()
+        relayForegroundRefreshTask = nil
         do {
-            try await connectivityEngine.resume()
+            try await connectivityEngine.resumeLocally()
             let checked = await connectivityEngine.snapshot()
             try requireCurrent(revision)
             guard checked.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            try requireCurrent(revision)
+            await relayCoordinator?.resume()
+            scheduleRelayActivation(
+                binding: localBinding,
+                revision: revision
+            )
             registrationRefreshEnabled = true
+            registrationRefreshPending = false
             scheduleRegistrationRefresh(revision: revision)
-            scheduleRelayForegroundRefresh(revision: revision)
+            if let pendingConnectivityRevision {
+                foregroundMaintenanceTask?.cancel()
+                foregroundMaintenanceTask = Task { [weak self] in
+                    _ = await self?.reconcileConnectivityRevision(
+                        pendingConnectivityRevision
+                    )
+                }
+            }
         } catch {
             if lifecyclePhase == .active, lifecycleRevision == revision {
-                registrationRefreshEnabled = true
+                registrationRefreshEnabled = false
             }
             throw error
         }
+    }
+
+    private func scheduleRelayActivation(
+        binding: CmxIrohBrokerBinding?,
+        revision: UInt64
+    ) {
+        guard let binding, let coordinator = relayCoordinator else { return }
+        relayActivationTask?.cancel()
+        let bootstrap = configuration.cachedRelayCredential
+        relayActivationTask = Task { [weak self] in
+            guard !(await coordinator.isActive()) else { return }
+            do {
+                try await coordinator.activate(
+                    bindingID: binding.bindingID,
+                    endpointIdentity: binding.endpointID,
+                    bootstrap: bootstrap
+                )
+            } catch {}
+            guard !Task.isCancelled else { return }
+            await self?.relayActivationDidFinish(revision: revision)
+        }
+    }
+
+    private func relayActivationDidFinish(revision: UInt64) {
+        guard lifecycleRevision == revision else { return }
+        relayActivationTask = nil
     }
 
     /// Opens a terminal or artifact lane on the admitted pooled peer connection.
@@ -664,9 +769,14 @@ public actor CmxIrohClientRuntime {
             return
         }
         lifecyclePhase = .stopping
+        foregroundActive = false
         lifecycleRevision &+= 1
         connectivityReconciliationOperation?.task.cancel()
         connectivityReconciliationOperation = nil
+        foregroundMaintenanceTask?.cancel()
+        foregroundMaintenanceTask = nil
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
         pendingConnectivityRevision = nil
         let revision = lifecycleRevision
         currentSnapshot = CmxIrohClientRuntimeSnapshot(

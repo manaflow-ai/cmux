@@ -17,7 +17,7 @@ extension CmxIrohClientRuntime {
     func handleSupervisorNetworkChange(revision: UInt64) {
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
-        guard registrationRefreshEnabled else {
+        guard foregroundActive, registrationRefreshEnabled else {
             registrationRefreshPending = true
             return
         }
@@ -26,6 +26,7 @@ extension CmxIrohClientRuntime {
 
     func scheduleRegistrationRefresh(revision: UInt64) {
         guard lifecyclePhase == .active,
+              foregroundActive,
               lifecycleRevision == revision else { return }
         guard registrationRefreshTask == nil else {
             registrationRefreshPending = true
@@ -124,6 +125,7 @@ extension CmxIrohClientRuntime {
             }
         }
         guard lifecyclePhase == .active,
+              foregroundActive,
               lifecycleRevision == revision else {
             return .failed(.superseded)
         }
@@ -163,9 +165,7 @@ extension CmxIrohClientRuntime {
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
                 registrationRefreshAllowsBindingReplacement = false
-                if let routeRevision = discovery.revision {
-                    await connectivityEngine.didInstallRouteRevision(routeRevision)
-                }
+                try await connectivityEngine.didInstallRouteSnapshot(discovery)
                 liveDiscoveryGeneration &+= 1
                 if bindingChanged {
                     scheduleRelayActivation(
@@ -192,25 +192,10 @@ extension CmxIrohClientRuntime {
                 // prevents a refresh.
                 return .failed(DiagnosticFailureKind.classify(error))
             }
-            lifecyclePhase = .stopping
-            lifecycleRevision &+= 1
-            let failureRevision = lifecycleRevision
-            currentSnapshot = CmxIrohClientRuntimeSnapshot(
-                state: .failed,
-                endpointID: nil,
-                bindingID: previousBinding.bindingID
+            await failClosedAfterTerminalPolicyError(
+                previousBinding: previousBinding,
+                expectedRevision: revision
             )
-            await tearDownNetwork()
-            guard lifecyclePhase == .stopping,
-                  lifecycleRevision == failureRevision else {
-                throw error
-            }
-            try? await offlinePolicyCache?.deactivate()
-            await handlePolicyInvalidation()
-            if lifecyclePhase == .stopping,
-               lifecycleRevision == failureRevision {
-                lifecyclePhase = .failed
-            }
             throw error
         }
     }

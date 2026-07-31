@@ -24,6 +24,8 @@ public actor CmxIrohEndpointSupervisor {
     private var runtimeGeneration: UInt64 = 0
     private var lifecycleRevision: UInt64 = 0
     private var desiredActive = false
+    private var foregroundActive = true
+    private var recoveryPending = false
     private var snapshot = CmxIrohEndpointSnapshot(
         runtimeGeneration: 0,
         state: .inactive,
@@ -130,6 +132,7 @@ public actor CmxIrohEndpointSupervisor {
                 throw CmxIrohEndpointSupervisorError.superseded
             }
             endpoint = candidate
+            recoveryPending = false
             bindingOperation = nil
             publishSnapshot(
                 CmxIrohEndpointSnapshot(
@@ -160,6 +163,7 @@ public actor CmxIrohEndpointSupervisor {
     /// Closes the active endpoint and invalidates all generation-owned work.
     public func deactivate() async {
         desiredActive = false
+        recoveryPending = false
         lifecycleRevision &+= 1
         invalidateRelayReadiness(error: CmxIrohEndpointSupervisorError.inactive)
         bindingOperation?.task.cancel()
@@ -263,7 +267,7 @@ public actor CmxIrohEndpointSupervisor {
     /// - Throws: The replacement bind error when the stale generation cannot recover.
     @discardableResult
     public func ensureHealthy() async throws -> CmxIrohEndpointSnapshot {
-        guard desiredActive else {
+        guard desiredActive, foregroundActive else {
             throw CmxIrohEndpointSupervisorError.inactive
         }
         if let endpoint, snapshot.state == .active, await endpoint.isHealthy() {
@@ -282,6 +286,34 @@ public actor CmxIrohEndpointSupervisor {
         self.endpoint = nil
         await staleEndpoint?.close()
         return try await activate()
+    }
+
+    /// Pauses endpoint recreation while preserving a healthy endpoint and its
+    /// health observation across ordinary iOS suspension.
+    public func didEnterBackground() {
+        foregroundActive = false
+        guard let operation = bindingOperation else { return }
+        lifecycleRevision &+= 1
+        operation.task.cancel()
+        bindingOperation = nil
+        recoveryPending = desiredActive && endpoint == nil
+    }
+
+    /// Coalesces any background closure into one foreground health check or bind.
+    @discardableResult
+    public func didBecomeActive() async throws -> CmxIrohEndpointSnapshot {
+        foregroundActive = true
+        guard desiredActive else {
+            throw CmxIrohEndpointSupervisorError.inactive
+        }
+        if !recoveryPending,
+           let endpoint,
+           snapshot.state == .active,
+           await endpoint.isHealthy() {
+            return snapshot
+        }
+        recoveryPending = false
+        return try await ensureHealthy()
     }
 
     /// Installs a fresh relay set on the live endpoint before committing it for future binds.
@@ -491,6 +523,20 @@ public actor CmxIrohEndpointSupervisor {
             let previousGeneration = generation
             endpoint = nil
             healthTask = nil
+            invalidateRelayReadiness(
+                error: CmxIrohEndpointSupervisorError.superseded
+            )
+            guard foregroundActive else {
+                recoveryPending = true
+                publishSnapshot(
+                    CmxIrohEndpointSnapshot(
+                        runtimeGeneration: previousGeneration,
+                        state: .failed,
+                        identity: nil
+                    )
+                )
+                return
+            }
             do {
                 let recovered = try await activate()
                 publish(

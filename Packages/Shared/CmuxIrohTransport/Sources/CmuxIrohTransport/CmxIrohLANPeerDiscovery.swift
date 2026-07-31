@@ -85,6 +85,7 @@ public actor CmxIrohLANPeerDiscovery {
     private var results: [RequestKey: [CmxIrohBonjourServiceID: CmxIrohLANResolvedPeer]] = [:]
     private var permissionDenied = false
     private var lifecycleRevision: UInt64 = 0
+    private var maintenanceEnabled = true
 
     public init(
         browserFactory: @escaping BrowserFactory = { CmxIrohSystemBonjourBrowser() },
@@ -112,6 +113,7 @@ public actor CmxIrohLANPeerDiscovery {
         expectedEndpointID: CmxIrohPeerIdentity,
         timeout: TimeInterval = 0.75
     ) async -> CmxIrohLANPeerDiscoveryOutcome {
+        guard maintenanceEnabled else { return .notFound }
         let path = await networkPath()
         let key = RequestKey(
             deviceID: cmxCanonicalDeviceID(expectedMacDeviceID),
@@ -168,12 +170,31 @@ public actor CmxIrohLANPeerDiscovery {
         await changeSignal.publish()
     }
 
+    /// Stops Bonjour work during suspension without revoking an already
+    /// authorized local profile or starting any new discovery.
+    public func pause() async {
+        maintenanceEnabled = false
+        lifecycleRevision &+= 1
+        browserTask?.cancel()
+        browserTask = nil
+        await browser?.stop()
+        browser = nil
+        await changeSignal.publish()
+    }
+
+    /// Allows the next explicit foreground reconnect to browse lazily.
+    public func resume() {
+        maintenanceEnabled = true
+    }
+
     /// Clears account material and browsing on sign-out.
     public func stop() async {
+        maintenanceEnabled = false
         await pathDidChange()
     }
 
     private func startBrowserIfNeeded() async {
+        guard maintenanceEnabled else { return }
         let allowlist = serviceNameAllowlist(at: clock.now())
         if let browser {
             await browser.replaceServiceNameAllowlist(allowlist)

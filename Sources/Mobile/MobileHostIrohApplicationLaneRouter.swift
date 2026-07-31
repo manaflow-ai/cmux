@@ -516,7 +516,7 @@ actor MobileHostIrohApplicationLaneRouter {
             laneClass = .terminal
         case .artifact:
             laneClass = .artifact
-        case .control, .serverEvents:
+        case .control, .controlReplacement, .serverEvents:
             await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
         }
@@ -545,7 +545,7 @@ actor MobileHostIrohApplicationLaneRouter {
                 if !didTakeOwnership {
                     await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
                 }
-            case .control, .serverEvents:
+            case .control, .controlReplacement, .serverEvents:
                 await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
             }
             await self?.laneDidFinish(id)

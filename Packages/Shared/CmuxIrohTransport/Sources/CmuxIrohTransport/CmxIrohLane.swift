@@ -3,6 +3,9 @@ public enum CmxIrohLane: Equatable, Sendable {
     /// The authenticated request, response, and lifecycle control lane.
     case control
 
+    /// A post-admission control epoch on the already-authenticated connection.
+    case controlReplacement(epoch: UInt64)
+
     /// Ordered server events resumed after the optional last applied sequence.
     case serverEvents(cursor: UInt64?)
 

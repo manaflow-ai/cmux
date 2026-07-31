@@ -44,6 +44,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private var inFlightRefresh: InFlightRefresh?
     private var persistenceTask: Task<Void, Never>?
     private var pendingPersistence: PendingPersistence?
+    private var maintenanceEnabled = true
 
     /// Creates an inactive relay credential coordinator.
     public init(
@@ -92,6 +93,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         bootstrap: CmxIrohRelayTokenResponse? = nil,
         waitForInitialCredential: Bool = false
     ) async throws {
+        maintenanceEnabled = true
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         refreshTask?.cancel()
@@ -213,6 +215,7 @@ public actor CmxIrohRelayCredentialCoordinator {
 
     /// Cancels all scheduled refresh work and forgets binding-scoped state.
     public func deactivate() {
+        maintenanceEnabled = false
         lifecycleRevision &+= 1
         refreshTask?.cancel()
         refreshTask = nil
@@ -230,6 +233,45 @@ public actor CmxIrohRelayCredentialCoordinator {
         installedCredential?.expiresAt
     }
 
+    /// Whether an exact endpoint binding is retained for foreground scheduling.
+    public func isActive() -> Bool {
+        binding != nil
+    }
+
+    /// Cancels timer and broker work while retaining the installed credential
+    /// and exact binding for a later foreground resume.
+    public func pause() {
+        maintenanceEnabled = false
+        refreshTask?.cancel()
+        refreshTask = nil
+        inFlightRefresh?.task.cancel()
+        inFlightRefresh = nil
+    }
+
+    /// Restarts scheduling from current credential state with a fresh deadline.
+    ///
+    /// A due credential is refreshed by the new background loop after this
+    /// method returns; foreground readiness never awaits the broker.
+    public func resume() {
+        guard binding != nil else { return }
+        maintenanceEnabled = true
+        refreshTask?.cancel()
+        let now = clock.now()
+        let deadline: Date?
+        if let installedCredential,
+           now < installedCredential.refreshAfter,
+           installedCredential.expiresAt.timeIntervalSince(now)
+            > Self.minimumUsefulValidity {
+            deadline = installedCredential.refreshAfter
+        } else {
+            deadline = now
+        }
+        startLoopIfEnabled(
+            revision: lifecycleRevision,
+            firstRefresh: deadline
+        )
+    }
+
     /// Immediately catches up a missing or refresh-due relay credential.
     ///
     /// iOS suspends task scheduling in the background, so the ordinary sleep
@@ -241,7 +283,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         guard let binding else {
             throw CmxIrohRelayCredentialCoordinatorError.inactive
         }
-        guard automaticRefreshEnabled else { return }
+        guard automaticRefreshEnabled, maintenanceEnabled else { return }
         let now = clock.now()
         if let installedCredential,
            now < installedCredential.refreshAfter,
@@ -282,7 +324,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         firstRefresh: Date?,
         initialFailureCount: Int = 0
     ) {
-        guard automaticRefreshEnabled else { return }
+        guard automaticRefreshEnabled, maintenanceEnabled else { return }
         refreshTask = Task { [weak self] in
             await self?.run(
                 revision: revision,
@@ -299,7 +341,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     ) async {
         var deadline = firstRefresh
         var failureCount = initialFailureCount
-        while isCurrent(revision) {
+        while isCurrent(revision), maintenanceEnabled {
             if let deadline {
                 do {
                     try await clock.sleep(until: deadline)
@@ -307,7 +349,10 @@ public actor CmxIrohRelayCredentialCoordinator {
                     return
                 }
             }
-            guard isCurrent(revision), !Task.isCancelled, let binding else { return }
+            guard isCurrent(revision),
+                  maintenanceEnabled,
+                  !Task.isCancelled,
+                  let binding else { return }
             do {
                 let installed = try await refreshCredential(
                     binding: binding,

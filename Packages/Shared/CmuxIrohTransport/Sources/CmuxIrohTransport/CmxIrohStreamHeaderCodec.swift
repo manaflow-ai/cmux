@@ -60,6 +60,17 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
                 try appendLengthPrefixedString(invitationID.value, lengthByteCount: 1, to: &payload)
                 payload.append(proof)
             }
+            if let attempt = header.connectionAttempt {
+                append(attempt.processIncarnation, to: &payload)
+                append(attempt.engineGeneration, to: &payload)
+                append(attempt.dialGeneration, to: &payload)
+            }
+
+        case let .controlReplacement(epoch):
+            laneCode = 5
+            credentialCode = 0
+            flags = 0
+            append(epoch, to: &payload)
 
         case let .serverEvents(cursor):
             laneCode = 2
@@ -166,7 +177,30 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
                 throw CmxIrohStreamHeaderCodecError.invalidFlags(flags)
             }
             let credential = try decodeCredential(code: credentialCode, payload: &payload)
-            return try CmxIrohStreamHeader(lane: .control, credential: credential)
+            let attempt: CmxIrohConnectionAttempt?
+            switch payload.remainingByteCount {
+            case 0:
+                attempt = nil
+            case 32:
+                let processIncarnation = try readUUID(from: &payload)
+                let engineGeneration = try payload.readUInt64()
+                let dialGeneration = try payload.readUInt64()
+                guard engineGeneration > 0, dialGeneration > 0 else {
+                    throw CmxIrohStreamHeaderCodecError.invalidPayload
+                }
+                attempt = CmxIrohConnectionAttempt(
+                    processIncarnation: processIncarnation,
+                    engineGeneration: engineGeneration,
+                    dialGeneration: dialGeneration
+                )
+            default:
+                throw CmxIrohStreamHeaderCodecError.invalidPayload
+            }
+            return try CmxIrohStreamHeader(
+                lane: .control,
+                credential: credential,
+                connectionAttempt: attempt
+            )
         case 2:
             try validateNonControl(flags: flags, credentialCode: credentialCode)
             let cursor = try optionalCursor(flags: flags, payload: &payload)
@@ -186,6 +220,16 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             let resourceID = try readResourceID(payload: &payload)
             let offset = try payload.readUInt64()
             return try CmxIrohStreamHeader(lane: .artifact(resourceID: resourceID, offset: offset))
+        case 5:
+            guard flags == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidFlags(flags)
+            }
+            guard credentialCode == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidCredentialKind(credentialCode)
+            }
+            return try CmxIrohStreamHeader(
+                lane: .controlReplacement(epoch: payload.readUInt64())
+            )
         default:
             throw CmxIrohStreamHeaderCodecError.unknownLane(laneCode)
         }
@@ -276,5 +320,22 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     private func append(_ value: UInt64, to data: inout Data) {
         let bigEndian = value.bigEndian
         withUnsafeBytes(of: bigEndian) { data.append(contentsOf: $0) }
+    }
+
+    private func append(_ value: UUID, to data: inout Data) {
+        var bytes = value.uuid
+        withUnsafeBytes(of: &bytes) { data.append(contentsOf: $0) }
+    }
+
+    private func readUUID(
+        from payload: inout CmxIrohBinaryCursor
+    ) throws -> UUID {
+        let bytes = [UInt8](try payload.readData(byteCount: 16))
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 }

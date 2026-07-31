@@ -32,6 +32,13 @@ public struct CmxIrohAdmittedServerSession: Sendable {
         try await session.acceptBidirectionalLane()
     }
 
+    /// Observes the bootstrap RPC stream and every same-QUIC replacement.
+    public func controlTransports() async
+        -> AsyncStream<CmxIrohServerByteTransport>
+    {
+        await session.controlTransports()
+    }
+
     /// Opens one server-event or artifact lane to the admitted iOS peer.
     public func openSendLane(
         _ lane: CmxIrohLane,
