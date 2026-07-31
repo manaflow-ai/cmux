@@ -117,6 +117,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
+        4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
@@ -133,6 +135,13 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    /// Bounds worker threads and completion contexts parked for synchronous
+    /// `reload_config` acknowledgements. Excess callers receive backpressure.
+    private nonisolated let reloadConfigurationWaiterAdmission =
+        SocketReloadConfigurationWaiterAdmission(
+            maximumConcurrentWaiters:
+                maximumConcurrentReloadConfigurationWaiters
+        )
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -1178,6 +1187,8 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "reload_config":
+                return (true, reloadConfigurationAndWait(args))
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -1202,6 +1213,42 @@ class TerminalController {
                 return (true, "ERROR: internal: v1 worker command '\(cmd)' has no worker handler")
             }
         }
+    }
+
+    private nonisolated func reloadConfigurationAndWait(
+        _ args: String
+    ) -> String {
+        guard args.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty else {
+            return "ERROR: Usage: reload_config"
+        }
+        guard let waiterLease =
+                reloadConfigurationWaiterAdmission.claim() else {
+            return "ERROR: reload_config busy"
+        }
+        let reloadDidComplete: Bool? = socketAwaitCallback(
+            timeout: 30
+        ) { completion in
+            Task { @MainActor in
+                let completionWasAdmitted =
+                    self.controlSidebarReloadConfigWithAdmission {
+                        completion(true)
+                        waiterLease.retire()
+                    }
+                if !completionWasAdmitted {
+                    completion(false)
+                    waiterLease.retire()
+                }
+            }
+        }
+        guard let reloadDidComplete else {
+            return "ERROR: reload_config timed out"
+        }
+        guard reloadDidComplete else {
+            return "ERROR: reload_config busy"
+        }
+        return "OK Reloaded config"
     }
 
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
@@ -2239,7 +2286,9 @@ class TerminalController {
         // extension.sidebar.snapshot handled by ControlCommandCoordinator.
         // workspace.next/previous/last/equalize_splits + workspace.remote.* (configure/
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
-        // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
+        // terminal_session_launching/terminal_session_connected/
+        // terminal_session_end) handled by
+        // ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
         case "workspace.cloud_vm_open":
             return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
@@ -2393,6 +2442,20 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
+            "mobile.browser.list",
+            "mobile.browser.stream.start",
+            "mobile.browser.stream.stop",
+            "mobile.browser.viewport",
+            "mobile.browser.frame.ack",
+            "mobile.browser.dialog.respond",
+            "mobile.browser.input.pointer",
+            "mobile.browser.input.scroll",
+            "mobile.browser.input.key",
+            "mobile.browser.input.text",
+            "mobile.browser.navigate",
+            "mobile.browser.back",
+            "mobile.browser.forward",
+            "mobile.browser.reload",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.input",
@@ -2464,7 +2527,9 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "workspace.remote.terminal_session_launching",
+            "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -2629,6 +2694,7 @@ class TerminalController {
             "version": 2,
             "socket_path": socketServer.currentSocketPath,
             "access_mode": socketServer.accessMode.rawValue,
+            "capabilities": MobileHostService.mobileHostCapabilities,
             "methods": methods.sorted()
         ]
     }
@@ -10966,7 +11032,7 @@ class TerminalController {
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
           set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
-          agent_hibernation <on|off> - Enable or disable Agent Hibernation
+          agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -11094,7 +11160,7 @@ class TerminalController {
             return "OK"
         }
 
-        guard let parsed = parseShortcutCombo(combo) else {
+        guard let parsed = SyntheticKeyEventFactory.parseShortcutCombo(combo) else {
             return "ERROR: Invalid combo. Example: cmd+ctrl+h"
         }
 
@@ -11128,42 +11194,12 @@ class TerminalController {
         }
     }
 
-    /// Builds a key event backed by a real CGEvent. Events built with
-    /// NSEvent.keyEvent(...) carry no CGEvent, and NSTextInputContext raises an
-    /// NSException on such events inside interpretKeyEvents, which terminates
-    /// the app; that path runs for every simulated key that is not consumed as
-    /// a shortcut before reaching GhosttyNSView.keyDown.
-    private func syntheticKeyEvent(
-        parsed: ParsedShortcutCombo,
-        keyDown: Bool,
-        timestamp: TimeInterval
-    ) -> NSEvent? {
-        guard let cgEvent = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: parsed.keyCode,
-            keyDown: keyDown
-        ) else { return nil }
-        var flags: CGEventFlags = []
-        if parsed.modifierFlags.contains(.command) { flags.insert(.maskCommand) }
-        if parsed.modifierFlags.contains(.control) { flags.insert(.maskControl) }
-        if parsed.modifierFlags.contains(.option) { flags.insert(.maskAlternate) }
-        if parsed.modifierFlags.contains(.shift) { flags.insert(.maskShift) }
-        // parseShortcutCombo emits only the four flags above today; map the
-        // remaining NSEvent modifiers anyway so this builder stays correct if
-        // combos ever carry them.
-        if parsed.modifierFlags.contains(.capsLock) { flags.insert(.maskAlphaShift) }
-        if parsed.modifierFlags.contains(.function) { flags.insert(.maskSecondaryFn) }
-        cgEvent.flags = flags
-        cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
-        return NSEvent(cgEvent: cgEvent)
-    }
-
     func simulateShortcut(_ args: String) -> String {
         let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !combo.isEmpty else {
             return "ERROR: Usage: simulate_shortcut <combo>"
         }
-        guard let parsed = parseShortcutCombo(combo) else {
+        guard let parsed = SyntheticKeyEventFactory.parseShortcutCombo(combo) else {
             return "ERROR: Invalid combo. Example: cmd+ctrl+h"
         }
 
@@ -11189,8 +11225,8 @@ class TerminalController {
             prepareWindowForSyntheticInput(targetWindow)
             // Key events route to the key window, which prepareWindowForSyntheticInput
             // establishes; CGEvent-backed events carry no window number.
-            guard let keyDownEvent = self.syntheticKeyEvent(
-                parsed: parsed,
+            guard let keyDownEvent = SyntheticKeyEventFactory.keyEvent(
+                specification: parsed,
                 keyDown: true,
                 timestamp: requestTimestamp
             ) else {
@@ -11794,167 +11830,6 @@ class TerminalController {
         return result
     }
 
-    private struct ParsedShortcutCombo {
-        let storedKey: String
-        let keyCode: UInt16
-        let modifierFlags: NSEvent.ModifierFlags
-        let characters: String
-        let charactersIgnoringModifiers: String
-    }
-
-    private func parseShortcutCombo(_ combo: String) -> ParsedShortcutCombo? {
-        let raw = combo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { return nil }
-
-        let parts = raw
-            .split(separator: "+")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !parts.isEmpty else { return nil }
-
-        var flags: NSEvent.ModifierFlags = []
-        var keyToken: String?
-
-        for part in parts {
-            let lower = part.lowercased()
-            switch lower {
-            case "cmd", "command", "super":
-                flags.insert(.command)
-            case "ctrl", "control":
-                flags.insert(.control)
-            case "opt", "option", "alt":
-                flags.insert(.option)
-            case "shift":
-                flags.insert(.shift)
-            default:
-                // Treat as the key component.
-                if keyToken == nil {
-                    keyToken = part
-                } else {
-                    // Multiple non-modifier tokens is ambiguous.
-                    return nil
-                }
-            }
-        }
-
-        guard var keyToken else { return nil }
-        keyToken = keyToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !keyToken.isEmpty else { return nil }
-
-        // Normalize a few named keys.
-        let storedKey: String
-        let keyCode: UInt16
-        let charactersIgnoringModifiers: String
-
-        switch keyToken.lowercased() {
-        case "left":
-            storedKey = "\u{F702}"
-            keyCode = 123
-            charactersIgnoringModifiers = storedKey
-        case "right":
-            storedKey = "\u{F703}"
-            keyCode = 124
-            charactersIgnoringModifiers = storedKey
-        case "down":
-            storedKey = "\u{F701}"
-            keyCode = 125
-            charactersIgnoringModifiers = storedKey
-        case "up":
-            storedKey = "\u{F700}"
-            keyCode = 126
-            charactersIgnoringModifiers = storedKey
-        case "enter", "return", "tab":
-            storedKey = keyToken.lowercased() == "tab" ? "\t" : "\r"
-            keyCode = UInt16(keyToken.lowercased() == "tab" ? kVK_Tab : kVK_Return)
-            charactersIgnoringModifiers = storedKey
-        default:
-            let key = keyToken.lowercased()
-            guard let code = keyCodeForShortcutKey(key) else { return nil }
-            storedKey = key
-            keyCode = code
-
-            // Replicate a common system behavior: Ctrl+letter yields a control character in
-            // charactersIgnoringModifiers (e.g. Ctrl+H => backspace). This is important for
-            // testing keyCode fallback matching.
-            if flags.contains(.control),
-               key.count == 1,
-               let scalar = key.unicodeScalars.first,
-               scalar.isASCII,
-               scalar.value >= 97, scalar.value <= 122 { // a-z
-                let upper = scalar.value - 32
-                let controlValue = upper - 64 // 'A' => 1
-                charactersIgnoringModifiers = String(UnicodeScalar(controlValue)!)
-            } else {
-                charactersIgnoringModifiers = storedKey
-            }
-        }
-
-        // For our shortcut matcher, characters aren't important beyond exercising edge cases.
-        let chars = charactersIgnoringModifiers
-
-        return ParsedShortcutCombo(
-            storedKey: storedKey,
-            keyCode: keyCode,
-            modifierFlags: flags,
-            characters: chars,
-            charactersIgnoringModifiers: charactersIgnoringModifiers
-        )
-    }
-
-    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        // Matches macOS ANSI key codes for common printable keys and a few named specials.
-        switch key {
-        case "a": return 0   // kVK_ANSI_A
-        case "s": return 1   // kVK_ANSI_S
-        case "d": return 2   // kVK_ANSI_D
-        case "f": return 3   // kVK_ANSI_F
-        case "h": return 4   // kVK_ANSI_H
-        case "g": return 5   // kVK_ANSI_G
-        case "z": return 6   // kVK_ANSI_Z
-        case "x": return 7   // kVK_ANSI_X
-        case "c": return 8   // kVK_ANSI_C
-        case "v": return 9   // kVK_ANSI_V
-        case "b": return 11  // kVK_ANSI_B
-        case "q": return 12  // kVK_ANSI_Q
-        case "w": return 13  // kVK_ANSI_W
-        case "e": return 14  // kVK_ANSI_E
-        case "r": return 15  // kVK_ANSI_R
-        case "y": return 16  // kVK_ANSI_Y
-        case "t": return 17  // kVK_ANSI_T
-        case "1": return 18  // kVK_ANSI_1
-        case "2": return 19  // kVK_ANSI_2
-        case "3": return 20  // kVK_ANSI_3
-        case "4": return 21  // kVK_ANSI_4
-        case "6": return 22  // kVK_ANSI_6
-        case "5": return 23  // kVK_ANSI_5
-        case "=": return 24  // kVK_ANSI_Equal
-        case "9": return 25  // kVK_ANSI_9
-        case "7": return 26  // kVK_ANSI_7
-        case "-": return 27  // kVK_ANSI_Minus
-        case "8": return 28  // kVK_ANSI_8
-        case "0": return 29  // kVK_ANSI_0
-        case "]": return 30  // kVK_ANSI_RightBracket
-        case "o": return 31  // kVK_ANSI_O
-        case "u": return 32  // kVK_ANSI_U
-        case "[": return 33  // kVK_ANSI_LeftBracket
-        case "i": return 34  // kVK_ANSI_I
-        case "p": return 35  // kVK_ANSI_P
-        case "l": return 37  // kVK_ANSI_L
-        case "j": return 38  // kVK_ANSI_J
-        case "'": return 39  // kVK_ANSI_Quote
-        case "k": return 40  // kVK_ANSI_K
-        case ";": return 41  // kVK_ANSI_Semicolon
-        case "\\": return 42 // kVK_ANSI_Backslash
-        case ",": return 43  // kVK_ANSI_Comma
-        case "/": return 44  // kVK_ANSI_Slash
-        case "n": return 45  // kVK_ANSI_N
-        case "m": return 46  // kVK_ANSI_M
-        case ".": return 47  // kVK_ANSI_Period
-        case "`": return 50  // kVK_ANSI_Grave
-        default:
-            return nil
-        }
-    }
 #endif
 
     #if !DEBUG
@@ -14172,6 +14047,12 @@ class TerminalController {
                 params: request.params,
                 executionContext: executionContext
             )
+        case let method where method.hasPrefix("mobile.browser."):
+            result = await v2MobileBrowserDispatch(
+                method: method,
+                params: request.params,
+                connectionID: executionContext?.connectionID
+            )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
@@ -14837,6 +14718,12 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        #if DEBUG
+        HostLatencyTrace.stamp(
+            "host.in.recv",
+            "s=\(surfaceId.uuidString.prefix(8).lowercased()) bytes=\(text.utf8.count)"
+        )
+        #endif
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14869,6 +14756,14 @@ class TerminalController {
         ]
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
+            #if DEBUG
+            if sendResult == .sent {
+                HostLatencyTrace.stamp(
+                    "host.in.applied",
+                    "s=\(surfaceId.uuidString.prefix(8).lowercased()) seq=\(seq)"
+                )
+            }
+            #endif
         }
         return .ok(payload)
     }

@@ -6,11 +6,8 @@ public import Foundation
 /// Assembling a request from one snapshot prevents pairing a stale access token
 /// with a freshly-rotated refresh token (or vice versa) when a force refresh
 /// lands between two independent token reads.
-public struct CmxIrohBrokerCredentials:
-    Sendable,
-    CustomStringConvertible,
-    CustomDebugStringConvertible
-{
+public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
+    CustomDebugStringConvertible {
     public let accessToken: String
     public let refreshToken: String
 
@@ -19,33 +16,37 @@ public struct CmxIrohBrokerCredentials:
         self.refreshToken = refreshToken
     }
 
+    /// Redacted: the synthesized reflection would copy live bearer/refresh
+    /// tokens into logs, assertion output, and crash reports.
     public var description: String {
-        "CmxIrohBrokerCredentials("
-            + "accessToken: <redacted>, "
-            + "refreshToken: <redacted>)"
+        "CmxIrohBrokerCredentials(accessToken: <redacted>, refreshToken: <redacted>)"
     }
 
     public var debugDescription: String { description }
 }
 
 /// Supplies the short-lived Stack credentials required by native API calls.
+///
+/// The ONLY construction input is `credentialPair`, which must return BOTH
+/// tokens from ONE capture. Making the pair the required source removes the
+/// torn-credential hazard structurally: a source assembled from two
+/// independent token reads (where a session transition between them pairs one
+/// session's access token with another's refresh token) is no longer
+/// expressible. The single-token accessors are derived from the pair for
+/// callers that need one token.
 public struct CmxIrohBrokerTokenSource: Sendable {
     public let accessToken: @Sendable () async -> String?
     public let refreshToken: @Sendable () async -> String?
-    /// Preferred source: returns BOTH tokens from ONE snapshot so a request can
-    /// never mix an old access token with a rotated refresh token. When `nil`,
-    /// the two independent closures above are read in sequence instead (their
-    /// only use now is legacy callers and tests that predate the pair).
-    public let credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)?
+    /// Both tokens from ONE snapshot, so a request can never mix an old access
+    /// token with a rotated refresh token.
+    public let credentialPair: @Sendable () async -> CmxIrohBrokerCredentials?
 
     public init(
-        accessToken: @escaping @Sendable () async -> String?,
-        refreshToken: @escaping @Sendable () async -> String?,
-        credentialPair: (@Sendable () async -> CmxIrohBrokerCredentials?)? = nil
+        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?
     ) {
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
         self.credentialPair = credentialPair
+        self.accessToken = { await credentialPair()?.accessToken }
+        self.refreshToken = { await credentialPair()?.refreshToken }
     }
 }
 
@@ -217,11 +218,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     public func discover() async throws -> CmxIrohDiscoveryResponse {
-        try await sendWithoutBody(
-            path: "api/devices/iroh",
-            method: "GET",
-            operation: .discovery
-        )
+        try await withBackpressure(operation: .discovery) {
+            try await self.discoverAllPages()
+        }
     }
 
     public func issuePairGrant(
@@ -355,6 +354,66 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    private func discoverAllPages() async throws -> CmxIrohDiscoveryResponse {
+        var bindings: [CmxIrohBrokerBinding] = []
+        var bindingIDs: Set<String> = []
+        var seenCursors: Set<String> = []
+        var cursor: String?
+        var first: CmxIrohDiscoveryResponse?
+
+        repeat {
+            var queryItems = [
+                URLQueryItem(
+                    name: "page_size",
+                    value: String(CmxIrohDiscoveryPage.bindingLimit)
+                ),
+            ]
+            if let cursor {
+                queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+            }
+            let page: CmxIrohDiscoveryPage = try await performRequest(
+                path: "api/devices/iroh",
+                method: "GET",
+                body: nil,
+                queryItems: queryItems
+            )
+            if let first {
+                guard page.discovery.routeContractVersion == first.routeContractVersion,
+                      page.discovery.relayFleet == first.relayFleet,
+                      page.discovery.lanRendezvous == first.lanRendezvous,
+                      page.discovery.grantVerificationKeys
+                        == first.grantVerificationKeys else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+            } else {
+                first = page.discovery
+            }
+            for binding in page.discovery.bindings {
+                guard bindingIDs.insert(binding.bindingID).inserted else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                bindings.append(binding)
+            }
+            if let nextCursor = page.nextCursor {
+                guard seenCursors.insert(nextCursor).inserted else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+            }
+            cursor = page.nextCursor
+        } while cursor != nil
+
+        guard let first else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return CmxIrohDiscoveryResponse(
+            routeContractVersion: first.routeContractVersion,
+            bindings: bindings,
+            relayFleet: first.relayFleet,
+            lanRendezvous: first.lanRendezvous,
+            grantVerificationKeys: first.grantVerificationKeys
+        )
+    }
+
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(
         path: String,
         method: String,
@@ -382,30 +441,32 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private func performRequest<Response: Decodable & Sendable>(
         path: String,
         method: String,
-        body: Data?
+        body: Data?,
+        queryItems: [URLQueryItem] = []
     ) async throws -> Response {
-        // Build the request from ONE credential snapshot when the source offers
-        // it. Reading access then refresh through two independent snapshot calls
-        // lets a force refresh land between them and pair a stale access token
-        // with a rotated refresh token, which the broker rejects. The two-closure
-        // path remains for legacy callers/tests that predate `credentialPair`.
-        let accessToken: String?
-        let refreshToken: String?
-        if let credentialPair = tokenSource.credentialPair {
-            let pair = await credentialPair()
-            accessToken = pair?.accessToken
-            refreshToken = pair?.refreshToken
-        } else {
-            accessToken = await tokenSource.accessToken()
-            refreshToken = await tokenSource.refreshToken()
-        }
-        guard let accessToken, let refreshToken else {
+        // Build the request from ONE credential snapshot. Reading access then
+        // refresh through two independent calls lets a force refresh land
+        // between them and pair a stale access token with a rotated refresh
+        // token, which the broker rejects.
+        guard let pair = await tokenSource.credentialPair() else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
+        let accessToken = pair.accessToken
+        let refreshToken = pair.refreshToken
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
-        let url = baseURL.appendingPathComponent(path)
+        let pathURL = baseURL.appendingPathComponent(path)
+        guard var components = URLComponents(
+            url: pathURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = requestTimeout

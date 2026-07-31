@@ -1,53 +1,16 @@
-import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
-import { env } from "../../app/env";
 import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
-import {
-  checkIrohVercelFirewall,
-  type IrohFirewallCheck,
-  type IrohFirewallCheckResult,
-} from "./firewall";
 import {
   IrohTrustBroker,
   IrohTrustBrokerRuntime,
   type IrohTrustBrokerShape,
 } from "./trustBroker";
+import { parseIrohDiscoveryRequest } from "./discoveryPagination";
 
 const MAX_BODY_BYTES = 64 * 1_024;
-const FIREWALL_TIMEOUT_MS = 2_500;
-const FIREWALL_MAX_IN_FLIGHT = 64;
-
-export class IrohFirewallAdmission {
-  private readonly active = new Map<string, Promise<IrohFirewallCheckResult>>();
-
-  constructor(private readonly maxInFlight: number) {
-    if (!Number.isSafeInteger(maxInFlight) || maxInFlight <= 0) {
-      throw new RangeError("maxInFlight must be a positive integer");
-    }
-  }
-
-  get activeCount(): number {
-    return this.active.size;
-  }
-
-  run(key: string, start: () => Promise<IrohFirewallCheckResult>): Promise<IrohFirewallCheckResult> {
-    if (this.active.has(key) || this.active.size >= this.maxInFlight) {
-      throw new Error("firewall_admission_unavailable");
-    }
-
-    const work = Promise.resolve().then(start);
-    const tracked = work.finally(() => {
-      if (this.active.get(key) === tracked) this.active.delete(key);
-    });
-    this.active.set(key, tracked);
-    return tracked;
-  }
-}
-
-const firewallAdmission = new IrohFirewallAdmission(FIREWALL_MAX_IN_FLIGHT);
 
 export type IrohRouteOperation =
   | "challenge"
@@ -62,12 +25,6 @@ type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
-  readonly firewall?: {
-    readonly id: string;
-    readonly check: IrohFirewallCheck;
-    readonly timeoutMs?: number;
-    readonly admission?: IrohFirewallAdmission;
-  };
 };
 
 export async function handleIrohRoute(
@@ -89,77 +46,14 @@ export async function handleIrohRoute(
     if (mutationForbidden) return mutationForbidden;
   }
 
-  // Challenge and registration bodies carry the authenticated app identity.
-  // Read their already-bounded JSON before the platform firewall so concurrent
-  // app instances do not consume one account-wide bucket. The broker's database
-  // quotas remain account- and physical-device-wide, so varying this partition
-  // cannot bypass the global safety bounds.
   let bodyResult: Awaited<ReturnType<typeof readBoundedJson>> | undefined;
-  if (operation === "challenge" || operation === "register") {
-    bodyResult = await readBoundedJson(request);
-    if (!bodyResult.ok) return bodyResult.response;
+  if (operation === "discover") {
+    const discovery = discoveryRequest(request);
+    if (!discovery.ok) return discovery.response;
+    bodyResult = { ok: true, value: discovery.value };
   }
 
-  const firewall = dependencies.firewall ?? (
-    process.env.VERCEL === "1" && env.CMUX_IROH_RATE_LIMIT_ID
-      ? { id: env.CMUX_IROH_RATE_LIMIT_ID, check: checkIrohVercelFirewall }
-      : undefined
-  );
-  if (firewall) {
-    const identityPartition = bodyResult?.ok
-      ? registrationFirewallPartition(operation, bodyResult.value)
-      : undefined;
-    const rateLimitKey = createHash("sha256")
-      .update(`iroh-rate:${user.id}:${operation}:${identityPartition ?? "account"}`)
-      .digest("hex");
-    const abortController = new AbortController();
-    const timeout = setTimeout(
-      () => abortController.abort(new Error("firewall_timeout")),
-      firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
-    );
-    let result: IrohFirewallCheckResult | undefined;
-    try {
-      result = await (firewall.admission ?? firewallAdmission).run(
-        `${firewall.id}:${rateLimitKey}`,
-        () => firewall.check(firewall.id, {
-          request,
-          rateLimitKey,
-          signal: abortController.signal,
-        }),
-      );
-    } catch {
-      console.error("iroh trust broker firewall unavailable", {
-        operation,
-        failure: "request_failed_or_timed_out",
-      });
-      // Discovery is an authenticated, read-only lookup. Its database and
-      // account boundaries remain enforced by the broker, so an optional
-      // platform rate-limit outage must not take existing devices offline.
-      // Mutations still fail closed because they create or rotate trusted
-      // state.
-      if (operation !== "discover") {
-        return jsonResponse({ error: "iroh_service_unavailable" }, 503);
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (result) {
-      const { error, rateLimited } = result;
-      if (rateLimited || error === "blocked") {
-        return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
-      }
-      if (error === "not-found") {
-        // The configured rule no longer exists (Vercel returns 404). That means
-        // the operator deleted the limit, so treat it as "no limit" and fail open
-        // rather than 503-ing every request.
-        console.warn("iroh rate-limit rule not found; failing open", { operation });
-      }
-    }
-  }
-
-  bodyResult ??= operation === "discover"
-    ? { ok: true as const, value: undefined }
-    : await readBoundedJson(request);
+  bodyResult ??= await readBoundedJson(request);
   if (!bodyResult.ok) return bodyResult.response;
 
   try {
@@ -184,45 +78,6 @@ export async function handleIrohRoute(
   }
 }
 
-function registrationFirewallPartition(
-  operation: IrohRouteOperation,
-  body: unknown,
-): string | undefined {
-  let identity: unknown = body;
-  if (operation === "register") {
-    const payload = recordString(body, "payload");
-    if (!payload || payload.length > 48_000) return undefined;
-    try {
-      const decoded = Buffer.from(payload, "base64url");
-      if (decoded.byteLength === 0 || decoded.byteLength > 32_768) return undefined;
-      identity = JSON.parse(decoded.toString("utf8"));
-    } catch {
-      return undefined;
-    }
-  } else if (operation !== "challenge") {
-    return undefined;
-  }
-
-  const deviceId = registrationUUID(identity, "deviceId");
-  const appInstanceId = registrationUUID(identity, "appInstanceId");
-  if (!deviceId || !appInstanceId) return undefined;
-  return `device:${deviceId}:instance:${appInstanceId}`;
-}
-
-function recordString(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" ? field : undefined;
-}
-
-function registrationUUID(value: unknown, key: string): string | undefined {
-  const candidate = recordString(value, key);
-  if (!candidate || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)) {
-    return undefined;
-  }
-  return candidate.toLowerCase();
-}
-
 function invoke(
   broker: IrohTrustBrokerShape,
   operation: IrohRouteOperation,
@@ -232,11 +87,47 @@ function invoke(
   switch (operation) {
     case "challenge": return broker.issueChallenge(userId, body);
     case "register": return broker.register(userId, body);
-    case "discover": return broker.discover(userId);
+    case "discover": return broker.discover(userId, undefined, body);
     case "endpoint_attestation": return broker.issueEndpointAttestation(userId, body);
     case "revoke": return broker.revoke(userId, body);
     case "pair_grant": return broker.issuePairGrant(userId, body);
     case "relay_token": return broker.issueRelayToken(userId, body);
+  }
+}
+
+function discoveryRequest(request: Request):
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly response: Response } {
+  const url = new URL(request.url);
+  const allowed = new Set(["page_size", "cursor"]);
+  if (
+    [...url.searchParams.keys()].some((key) => !allowed.has(key)) ||
+    url.searchParams.getAll("page_size").length > 1 ||
+    url.searchParams.getAll("cursor").length > 1
+  ) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: "invalid_discovery_page_size" }, 400),
+    };
+  }
+  const pageSize = url.searchParams.get("page_size");
+  const cursor = url.searchParams.get("cursor");
+  if (pageSize === null && cursor === null) {
+    return { ok: true, value: undefined };
+  }
+  const value = {
+    ...(pageSize === null ? {} : { pageSize }),
+    ...(cursor === null ? {} : { cursor }),
+  };
+  try {
+    parseIrohDiscoveryRequest(value);
+    return { ok: true, value };
+  } catch (error) {
+    const code = error && typeof error === "object" &&
+        (error as { _tag?: unknown })._tag === "IrohInvalidInputError"
+      ? (error as { code: string }).code
+      : "invalid_discovery_page_size";
+    return { ok: false, response: jsonResponse({ error: code }, 400) };
   }
 }
 

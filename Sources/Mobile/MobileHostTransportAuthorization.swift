@@ -27,6 +27,10 @@ extension MobileHostConnectionAuthorizationContext {
 
 /// Immutable trust context carried from transport admission into RPC dispatch.
 struct MobileHostRPCExecutionContext: Sendable {
+    /// The per-connection identity, used to key long-lived subscriptions
+    /// (e.g. browser stream sessions) and route pushed events back to the
+    /// originating phone connection.
+    let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
 
@@ -221,6 +225,13 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return connections.values.map(\.connection)
+    }
+
+    /// Returns one connection for connection-scoped event delivery.
+    func connection(id: UUID) -> MobileHostConnection? {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id]?.connection
     }
 
     func snapshot(irohBindingID: String) -> [MobileHostConnection] {

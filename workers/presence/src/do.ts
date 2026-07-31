@@ -353,13 +353,17 @@ export class TeamPresence extends DurableObject {
    * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
    * scoped clients restore/push through the scoped HTTP backup API until scoped
    * WebSocket subscriptions exist. Returns the number of records changed (no-op
-   * upserts of an unchanged payload are not counted). */
+   * upserts of an unchanged payload are not counted) plus the verified team the
+   * ops were stored under, echoed so the phone can persist which per-team DO a
+   * record's backup lives in and route its later delete tombstone there. */
   async backupPairedMacs(
     teamId: string,
     userId: string,
     ops: readonly PairedMacBackupOp[],
     clientScope?: string | null,
-  ): Promise<{ ok: true; changed: number } | { ok: false; error: string; status: number }> {
+  ): Promise<
+    { ok: true; changed: number; teamId: string } | { ok: false; error: string; status: number }
+  > {
     await this.rememberTeamId(teamId);
     let deltas;
     try {
@@ -379,22 +383,25 @@ export class TeamPresence extends DurableObject {
     // next tombstone-GC deadline for this user's collection now.
     const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId, clientScope));
     if (gcTime !== null) await this.ensureAlarmAt(gcTime);
-    return { ok: true, changed: deltas.length };
+    return { ok: true, changed: deltas.length, teamId };
   }
 
   /** Read a user's backed-up saved-host list (the GET restore path). Called only
    * by the worker after it verifies the token, so `userId` is trusted. Returns
-   * live records plus retained delete tombstones for the per-user collection. */
+   * live records plus retained delete tombstones for the per-user collection,
+   * and echoes the verified team the collection was read from so the phone can
+   * persist where each restored record's backup lives. */
   async listPairedMacs(
     teamId: string,
     userId: string,
     clientScope?: string | null,
-  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
+  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[]; teamId: string }> {
     await this.rememberTeamId(teamId);
     // A tagged scope is authoritative from its first read. An unscoped record
     // cannot prove which Mac app tag produced its routes, so falling back across
     // that boundary could reconnect one iOS build to another app instance.
-    return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
+    const snapshot = await listBackupSnapshot(this.syncStorage(), userId, clientScope);
+    return { records: snapshot.records, deletedMacDeviceIDs: snapshot.deletedMacDeviceIDs, teamId };
   }
 
   /** Deliver a directed wake-up to `deviceId`'s device-scoped subscribers.
