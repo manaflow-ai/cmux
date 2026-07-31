@@ -1,6 +1,6 @@
 # cmux Go SDK
 
-The Go SDK covers all 91 protocol-10 commands and 44 event shapes using only
+The Go SDK covers all 92 protocol-10 commands and 44 event shapes using only
 the Go standard library.
 
 ```go
