@@ -1626,8 +1626,11 @@ mod unix {
         })?;
         // SAFETY: both pointers reference live NUL-terminated path strings,
         // and RENAME_NOREPLACE asks the kernel to leave an existing target intact.
+        // Call the syscall directly because musl does not export a `renameat2`
+        // wrapper symbol.
         if unsafe {
-            libc::renameat2(
+            libc::syscall(
+                libc::SYS_renameat2,
                 libc::AT_FDCWD,
                 from.as_ptr(),
                 libc::AT_FDCWD,
