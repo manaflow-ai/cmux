@@ -118,8 +118,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Create a brand-new workspace inheriting the anchor's cwd, attach it
     /// to the group, and position it within the group's tabs[] range per
-    /// `placement`. The customization flag lets generated-purpose workspaces
-    /// opt out of inheriting project identity. Returns the new workspace.
+    /// `placement`. Generated-purpose workspaces can keep a creation title as
+    /// automatic metadata instead of adopting it as a user-owned custom title.
+    /// Returns the new workspace.
     @discardableResult
     public func createWorkspaceInGroup(
         groupId: UUID,
@@ -131,7 +132,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Tab? {
         guard let host else { return nil }
         // nil resolves to the stored global default at call time, matching the
@@ -149,7 +150,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
             select: select,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
         model.assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
         placeWithinGroup(
