@@ -9,7 +9,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14-large
+          - os: macos-14
             timeout: 60
             run_unit_tests: false
             startup_smoke: true
