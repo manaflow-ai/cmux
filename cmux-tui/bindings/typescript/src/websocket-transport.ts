@@ -120,15 +120,7 @@ export class WebSocketTransport implements Transport {
     this.onPairingCredential = options.onPairingCredential;
     this.onAuthenticationRejected = options.onAuthenticationRejected;
     this.socket = new Constructor(url, options.protocols);
-    this.listen("open", () => {
-      if (this.authToken !== undefined) {
-        this.socket.send(JSON.stringify({ auth: { token: this.authToken } }));
-        this.authenticated = true;
-        this.flush();
-      } else {
-        this.socket.send(JSON.stringify({ pair: { request: true } }));
-      }
-    });
+    this.listen("open", () => this.open());
     this.listen("message", (event) => this.receive(event));
     this.listen("error", (event) => this.fail(eventError(event)));
     this.listen("close", (event) => this.finish(event));
@@ -207,6 +199,37 @@ export class WebSocketTransport implements Transport {
       return;
     }
     throw new CmuxConnectionError("WebSocket does not support event listeners");
+  }
+
+  private open(): void {
+    if (this.closed) return;
+    if (this.authToken === undefined) {
+      this.sendPreamble(
+        "pairing",
+        JSON.stringify({ pair: { request: true } }),
+      );
+      return;
+    }
+    if (!this.sendPreamble(
+      "authentication",
+      JSON.stringify({ auth: { token: this.authToken } }),
+    )) {
+      return;
+    }
+    this.authenticated = true;
+    this.flush();
+  }
+
+  private sendPreamble(kind: "pairing" | "authentication", json: string): boolean {
+    try {
+      this.socket.send(json);
+      return true;
+    } catch (error) {
+      this.failAndClose(new CmuxConnectionError(
+        `WebSocket ${kind} preamble failed: ${error instanceof Error ? error.message : String(error)}`,
+      ));
+      return false;
+    }
   }
 
   private flush(): void {
