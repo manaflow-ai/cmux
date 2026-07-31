@@ -82,6 +82,38 @@ public enum CmxIrohTrustBrokerClientError:
         }
     }
 
+    /// Availability-only failures: the broker could not answer, as opposed to
+    /// an authenticated denial.
+    ///
+    /// Dial-time cached-policy fallbacks key on this set so an authoritative
+    /// rejection — 401/403 INCLUDED — never unlocks cached grants or the
+    /// offline policy store: a revoked account or binding must stop dialing at
+    /// the next dial, not at grant expiry. Contrast with
+    /// ``preservesVerifiedPolicyDuringRefresh(_:)``, which additionally
+    /// accepts auth rejections because keeping already-verified IN-MEMORY
+    /// state during a refresh grants nothing new.
+    static func isAvailabilityFailure(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
+        guard let brokerError = error as? Self else { return false }
+        switch brokerError {
+        case .connectivity, .rateLimited:
+            return true
+        case let .rejected(statusCode, _):
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
+        case .invalidBaseURL,
+             .missingAuthentication,
+             .invalidAuthentication,
+             .nonHTTPResponse,
+             .invalidResponse:
+            return false
+        }
+    }
+
     /// The validated server retry floor, when present.
     public var retryAfterSeconds: Int? {
         guard case let .rateLimited(_, retryAfterSeconds) = self else { return nil }

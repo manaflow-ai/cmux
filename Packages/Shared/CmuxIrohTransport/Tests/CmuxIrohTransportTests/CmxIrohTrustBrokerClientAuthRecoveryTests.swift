@@ -126,23 +126,27 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
-    func authRejectionsRecoverWithCachedPolicy() {
-        #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
-            CmxIrohTrustBrokerClientError.connectivity
-        ))
-        #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
+    func authRejectionsAreNotAvailabilityFailures() {
+        // The security boundary: an authenticated denial must never unlock
+        // dial-time cached grants or the offline policy store, even though
+        // the same rejection preserves in-memory verified state during a
+        // refresh. Revocation takes effect at the next dial.
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
             CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 401,
                 code: "unauthorized"
             )
         ))
-        #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))
-        #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
-            CmxIrohTrustBrokerClientError.rejected(statusCode: 500, code: nil)
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.connectivity
         ))
-        #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(statusCode: 503, code: nil)
+        ))
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
             CmxIrohTrustBrokerClientError.invalidResponse
         ))
     }
