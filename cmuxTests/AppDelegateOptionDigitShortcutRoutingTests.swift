@@ -166,14 +166,14 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             let terminalPanel = try #require(secondWorkspace.terminalPanel(for: terminalPanelId))
             let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
             let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
-            let originalGhosttyLeft = appDelegate.ghosttyGotoSplitLeftShortcut
-            let originalGhosttyRight = appDelegate.ghosttyGotoSplitRightShortcut
+            let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
+            let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
             defer {
-                appDelegate.ghosttyGotoSplitLeftShortcut = originalGhosttyLeft
-                appDelegate.ghosttyGotoSplitRightShortcut = originalGhosttyRight
+                appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
+                appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
             }
-            appDelegate.ghosttyGotoSplitLeftShortcut = back
-            appDelegate.ghosttyGotoSplitRightShortcut = forward
+            appDelegate.ghosttyGotoSplitPreviousShortcut = back
+            appDelegate.ghosttyGotoSplitNextShortcut = forward
 
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
@@ -189,14 +189,121 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
             #expect(
                 manager.selectedTabId == firstWorkspace.id,
-                "The live configured Focus Back action must win over an imported Ghostty fallback"
+                "The live configured Back action must win over an imported Ghostty fallback"
             )
 
             #expect(Self.dispatch(forward, in: testWindow, using: appDelegate))
             #expect(
                 manager.selectedTabId == secondWorkspace.id,
-                "The live configured Focus Forward action must win over an imported Ghostty fallback"
+                "The live configured Forward action must win over an imported Ghostty fallback"
             )
+
+            let reboundBack = StoredShortcut(
+                key: "y",
+                command: false,
+                shift: false,
+                option: true,
+                control: false
+            )
+            let reboundForward = StoredShortcut(
+                key: "u",
+                command: false,
+                shift: true,
+                option: true,
+                control: false
+            )
+            try withTemporaryShortcut(action: .focusHistoryBack, shortcut: reboundBack) {
+                try withTemporaryShortcut(action: .focusHistoryForward, shortcut: reboundForward) {
+                    #expect(Self.dispatch(reboundBack, in: testWindow, using: appDelegate))
+                    #expect(manager.selectedTabId == firstWorkspace.id)
+                    #expect(Self.dispatch(reboundForward, in: testWindow, using: appDelegate))
+                    #expect(manager.selectedTabId == secondWorkspace.id)
+
+                    _ = Self.dispatch(back, in: testWindow, using: appDelegate)
+                    #expect(
+                        manager.selectedTabId == secondWorkspace.id,
+                        "The retired Back binding must not keep stale ownership after a live rebind"
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    func focusHistoryDefaultsNavigateWithSidebarFocusDespiteGhosttyCollision() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: true)
+            let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
+            let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+            let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
+            let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
+            let sidebarFocusView = OptionDigitFocusableTestView(
+                frame: NSRect(x: 0, y: 0, width: 120, height: 24)
+            )
+            testWindow.contentView?.addSubview(sidebarFocusView)
+            defer {
+                sidebarFocusView.removeFromSuperview()
+                appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
+                appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
+            }
+            appDelegate.ghosttyGotoSplitPreviousShortcut = back
+            appDelegate.ghosttyGotoSplitNextShortcut = forward
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: testWindow)
+            #expect(testWindow.makeFirstResponder(sidebarFocusView))
+
+            #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
+            #expect(manager.selectedTabId == firstWorkspace.id)
+            #expect(Self.dispatch(forward, in: testWindow, using: appDelegate))
+            #expect(manager.selectedTabId == secondWorkspace.id)
+        }
+    }
+
+    @Test
+    func focusHistoryDefaultsNavigateWithBrowserFocusDespiteGhosttyCollision() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: true)
+            let focusHistoryScopeKey = "focusHistoryIncludesPanesAndTabs"
+            let originalFocusHistoryScope = UserDefaults.standard.object(forKey: focusHistoryScopeKey)
+            UserDefaults.standard.set(false, forKey: focusHistoryScopeKey)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: secondWorkspace.id))
+            let browserPanel = try #require(secondWorkspace.browserPanel(for: browserPanelId))
+            let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
+            let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+            let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
+            let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
+            defer {
+                if let originalFocusHistoryScope {
+                    UserDefaults.standard.set(originalFocusHistoryScope, forKey: focusHistoryScopeKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: focusHistoryScopeKey)
+                }
+                appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
+                appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
+            }
+            appDelegate.ghosttyGotoSplitPreviousShortcut = back
+            appDelegate.ghosttyGotoSplitNextShortcut = forward
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(browserPanel.webView))
+
+            #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
+            #expect(manager.selectedTabId == firstWorkspace.id)
+            #expect(Self.dispatch(forward, in: testWindow, using: appDelegate))
+            #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(secondWorkspace.focusedPanelId == browserPanelId)
         }
     }
 

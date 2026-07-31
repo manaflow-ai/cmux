@@ -781,8 +781,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var ghosttyGotoSplitRightShortcut: StoredShortcut?
     var ghosttyGotoSplitUpShortcut: StoredShortcut?
     var ghosttyGotoSplitDownShortcut: StoredShortcut?
-    private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
-    private var ghosttyGotoSplitNextShortcut: StoredShortcut?
+    var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
+    var ghosttyGotoSplitNextShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
@@ -13980,7 +13980,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .left) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.left)) {
             if performFocusedDockShortcut(.focusPane(.left), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -13995,7 +13995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .right) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.right)) {
             if performFocusedDockShortcut(.focusPane(.right), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14010,7 +14010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .up) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.up)) {
             if performFocusedDockShortcut(.focusPane(.up), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14025,7 +14025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || matchesGhosttyGotoSplitShortcut(event: event, direction: .down) {
+        ) || matchesGhosttyGotoSplitFallback(event: event, route: .direction(.down)) {
             if performFocusedDockShortcut(.focusPane(.down), event: event) { return true }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
@@ -14036,7 +14036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .previous) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14052,7 +14052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitNextShortcut(event) {
+        if matchesGhosttyGotoSplitFallback(event: event, route: .next) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
@@ -15814,19 +15814,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        return matchesGhosttyGotoSplitPreviousShortcut(event)
-            || matchesGhosttyGotoSplitNextShortcut(event)
-    }
-
-    private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitPreviousShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitPreviousShortcut)
-    }
-
-    private func matchesGhosttyGotoSplitNextShortcut(_ event: NSEvent) -> Bool {
-        guard let ghosttyGotoSplitNextShortcut else { return false }
-        return matchShortcut(event: event, shortcut: ghosttyGotoSplitNextShortcut)
+        matchesGhosttyGotoSplitFallback(event: event, route: .previous)
+            || matchesGhosttyGotoSplitFallback(event: event, route: .next)
     }
 
     private func matchesKeyboardShortcutEvent(

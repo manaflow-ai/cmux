@@ -10,12 +10,12 @@ extension cmuxApp {
             let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
             let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
 
-            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
+            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
                 historyTabManager.navigateBack()
             }
             .disabled(!canNavigateFocusHistoryBack)
 
-            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
+            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
                 historyTabManager.navigateForward()
             }
             .disabled(!canNavigateFocusHistoryForward)

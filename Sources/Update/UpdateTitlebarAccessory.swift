@@ -1074,7 +1074,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.focusHistoryBack",
-                accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
+                accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Back"),
                 action: onFocusHistoryBack,
                 isEnabled: focusHistoryAvailability.canNavigateBack,
                 rightClickAction: { anchorView, event in
@@ -1083,13 +1083,13 @@ struct TitlebarControlsView: View {
             ) {
                 iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
             }
-            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
+            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Back")))
 
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.focusHistoryForward",
-                accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
+                accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Forward"),
                 action: onFocusHistoryForward,
                 isEnabled: focusHistoryAvailability.canNavigateForward,
                 rightClickAction: { anchorView, event in
@@ -1098,7 +1098,7 @@ struct TitlebarControlsView: View {
             ) {
                 iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
-            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
+            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Forward")))
 
         }
 

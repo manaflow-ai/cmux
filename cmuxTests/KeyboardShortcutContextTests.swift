@@ -516,7 +516,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 modifierPressed: true
             )
         )
-        XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Focus Back").contains(remappedShortcut.displayString))
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip("Back").contains(remappedShortcut.displayString))
 
         KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
 
