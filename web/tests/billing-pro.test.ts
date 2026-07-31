@@ -7,8 +7,11 @@ import {
   resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../services/billing/pro";
-import type { AccountDeletionUserMutationLease } from
-  "../services/account/deletionLock";
+import {
+  AccountDeletionMutationBlockedError,
+  AccountDeletionUserMutationInProgressError,
+  type AccountDeletionUserMutationLease,
+} from "../services/account/deletionLock";
 import type {
   FreshProMetadataUserMutation,
   ProMetadataJson,
@@ -144,6 +147,20 @@ describe("reconcileProPlanMetadata", () => {
     ).toBe(false);
     expect(user.updates).toEqual([]);
   });
+
+  test("defers reconciliation while account deletion blocks metadata mutation", async () => {
+    const user = metadataUser({}, "user-deleting");
+
+    await expect(
+      reconcileProPlanMetadata(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: async () => {
+          throw new AccountDeletionMutationBlockedError("user-deleting");
+        },
+      }),
+    ).resolves.toBe(false);
+    expect(user.updates).toEqual([]);
+  });
 });
 
 describe("resolveProPlanStatus", () => {
@@ -250,6 +267,29 @@ describe("resolveProPlanStatus", () => {
       billingManagement: "stripe",
       metadataPlanId: null,
       hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    expect(user.updates).toEqual([]);
+  });
+
+  test("still resolves the Stripe plan while another metadata mutation owns the lease", async () => {
+    const user = metadataUser({}, "user-checkout-race");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: async () => {
+          throw new AccountDeletionUserMutationInProgressError(
+            "user-checkout-race",
+          );
+        },
+      }),
+    ).resolves.toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "stripe",
+      metadataPlanId: null,
+      hasManualVmPlanOverride: false,
       metadataChanged: false,
     });
     expect(user.updates).toEqual([]);
