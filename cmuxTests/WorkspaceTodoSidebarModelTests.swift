@@ -96,6 +96,7 @@ struct WorkspaceTodoSidebarModelTests {
         defaults.set(false, forKey: key.userDefaultsKey)
         #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
         #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
     }
 
     @Test
