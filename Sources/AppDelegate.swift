@@ -39,6 +39,36 @@ private struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
+/// Owns debug-window coordinators at the application composition root.
+@MainActor
+final class CmuxDebugWindowsCoordinator {
+    private let aboutTitlebarCoordinator: DebugWindowsCoordinator
+#if DEBUG
+    private lazy var sidebarFooterIconBalanceController =
+        SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
+#endif
+    private weak var decorator: (any WindowDecorating)?
+
+    init(decorator: (any WindowDecorating)?) {
+        self.decorator = decorator
+        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(decorator: decorator)
+    }
+
+    var aboutTitlebarStore: AboutTitlebarDebugStore {
+        aboutTitlebarCoordinator.aboutTitlebarStore
+    }
+
+    func showAboutTitlebarDebugWindow() {
+        aboutTitlebarCoordinator.showAboutTitlebarDebugWindow()
+    }
+
+#if DEBUG
+    func showSidebarFooterIconBalanceWindow() {
+        sidebarFooterIconBalanceController.show()
+    }
+#endif
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -508,7 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
-    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var debugWindowsCoordinator = CmuxDebugWindowsCoordinator(decorator: self)
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
@@ -1212,10 +1242,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         AuthDebugLog().log("auth.openURLs.authCallbacks count=\(authCallbacks.count)")
         #endif
-        if let browserSignIn = auth?.browserSignIn {
+        if let accountFlow = auth?.accountFlow {
             for url in authCallbacks {
                 Task { @MainActor in
-                    let signedIn = await browserSignIn.handleCallbackURL(url)
+                    let signedIn = await accountFlow.handleCallbackURL(url)
                     if signedIn { await NativePricingPlanRefresh.refreshForProWelcomeChecklist() } else {
                         AuthDebugLog().log("auth.callback did not complete sign-in")
                     }
@@ -2143,7 +2173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
             TerminalController.shared.startSimulatorMutationRecovery()
@@ -7393,6 +7423,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard didCreate, let createdWorkspace else { return nil }
         focusInitialBrowserWebView(in: createdWorkspace)
         return createdWorkspace
+    }
+
+    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// existing pairing workspace in the target window when one is open.
+    ///
+    /// - Parameters:
+    ///   - preferredTabManager: The target window's workspace manager.
+    ///   - preferredWindow: The target main window, when known.
+    ///   - focusWorkspace: Whether to select and focus the pairing workspace.
+    ///   - enforceFeatureFlag: Whether the Mobile Connect button flag gates the action.
+    ///   - bringWindowForward: Whether to activate the resolved main window.
+    ///   - debugSource: The entrypoint name used in debug diagnostics.
+    /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
+    @discardableResult
+    func performMobileConnectWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        focusWorkspace: Bool = true,
+        enforceFeatureFlag: Bool = true,
+        bringWindowForward: Bool = false,
+        debugSource: String = "mobileConnect"
+    ) -> Workspace? {
+        guard !enforceFeatureFlag || CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")
+#endif
+            return nil
+        }
+        guard let manager = preferredTabManager
+            ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        if bringWindowForward {
+            guard let context = mainWindowContext(for: manager),
+                  let window = resolvedWindow(for: context),
+                  focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+                return nil
+            }
+        }
+
+        if let workspace = manager.tabs.first(where: { workspace in
+            workspace.panels.values.contains { $0 is MobilePairingPanel }
+        }), let panel = workspace.panels.values.first(where: { $0 is MobilePairingPanel }) {
+            if focusWorkspace {
+                manager.selectedTabId = workspace.id
+                workspace.focusPanel(panel.id)
+            }
+            return workspace
+        }
+
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let workspace = manager.addWorkspace(
+            title: title,
+            select: focusWorkspace,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false,
+            allowTextBoxFocusDefault: false
+        )
+        guard let initialPanelID = workspace.focusedPanelId,
+              let paneID = workspace.paneId(forPanelId: initialPanelID),
+              workspace.newMobilePairingSurface(inPane: paneID, focus: focusWorkspace) != nil else {
+            manager.closeWorkspace(workspace, recordHistory: false)
+            return nil
+        }
+        _ = workspace.closePanel(initialPanelID, force: true)
+        return workspace
     }
 
     func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
@@ -15744,9 +15841,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
+                let workspace = performMobileConnectWorkspaceAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context),
+                    debugSource: "configured.cmux.mobileConnect"
+                )
+                if workspace != nil { onExecuted?() }
+                return workspace != nil
             case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
