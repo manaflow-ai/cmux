@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "Full xcodebuild UI selector, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test class or class/method; full target/class/method selectors also work"
         required: false
         default: ""
       device_family:
@@ -372,8 +372,12 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
+          TEST_SELECTOR=""
           if [ -n "${TEST_FILTER:-}" ]; then
-            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+            TEST_SELECTOR="$(python3 scripts/ci/normalize_ios_ui_test_selector.py "$TEST_FILTER")"
+            echo "Requested test filter: $TEST_FILTER"
+            echo "Normalized test selector: $TEST_SELECTOR"
+            XCODEBUILD_ARGS+=(-only-testing:"$TEST_SELECTOR")
           else
             # Full UI tests currently exceed the pull-request simulator budget
             # on macos-26. Keep them runnable via workflow_dispatch +
@@ -395,8 +399,8 @@ jobs:
           }
           require_requested_tests_ran() {
             local log_path="$1"
-            if [ -n "${TEST_FILTER:-}" ]; then
-              python3 scripts/ci/require_xcode_tests_ran.py "$log_path" "$TEST_FILTER"
+            if [ -n "$TEST_SELECTOR" ]; then
+              python3 scripts/ci/require_xcode_tests_ran.py "$log_path" "$TEST_SELECTOR"
             fi
           }
           for attempt in 1 2; do
