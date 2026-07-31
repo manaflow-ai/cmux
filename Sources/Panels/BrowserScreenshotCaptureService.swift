@@ -49,7 +49,7 @@ struct BrowserScreenshotCaptureService {
     init(
         webView: WKWebView,
         presentation: Presentation,
-        maximumAttempts: Int = 3
+        maximumAttempts: Int = 2
     ) {
         let probeCollector = BrowserScreenshotDOMProbeCollector(webView: webView)
         self.init(
@@ -75,7 +75,7 @@ struct BrowserScreenshotCaptureService {
     }
 
     init(
-        maximumAttempts: Int,
+        maximumAttempts: Int = 2,
         synchronize: @escaping Synchronizer,
         collectProbes: @escaping ProbeCollector,
         snapshot: @escaping SnapshotProvider,

@@ -37,12 +37,12 @@ final class BrowserScreenshotDOMProbeCollector {
                     """,
                     arguments: [:],
                     in: nil,
-                    contentWorld: .page
+                    contentWorld: .defaultClient
                 )
             } else {
                 _ = try await webView.evaluateJavaScript(
                     layoutFlushScript,
-                    contentWorld: .page
+                    contentWorld: .defaultClient
                 )
             }
         } catch {
@@ -59,7 +59,7 @@ final class BrowserScreenshotDOMProbeCollector {
         do {
             guard let value = try await webView.evaluateJavaScript(
                 probeScript,
-                contentWorld: .page
+                contentWorld: .defaultClient
             ) as? [String: Any] else {
                 return nil
             }
@@ -203,6 +203,16 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
+          const styleCache = new WeakMap();
+          const styleFor = (element) => {
+            let style = styleCache.get(element);
+            if (!style) {
+              style = getComputedStyle(element);
+              styleCache.set(element, style);
+            }
+            return style;
+          };
+
           const parseColor = (value) => {
             if (!value) return null;
             const match = value.match(
@@ -241,7 +251,7 @@ final class BrowserScreenshotDOMProbeCollector {
 
           const hasComplexCompositing = (element) => {
             for (let current = element; current; current = current.parentElement) {
-              const style = getComputedStyle(current);
+              const style = styleFor(current);
               if (
                 Number(style.opacity) < 0.999
                 || style.filter !== "none"
@@ -257,7 +267,7 @@ final class BrowserScreenshotDOMProbeCollector {
           const solidBackground = (element) => {
             const layers = [];
             for (let current = element; current; current = current.parentElement) {
-              const style = getComputedStyle(current);
+              const style = styleFor(current);
               if (style.backgroundImage !== "none") {
                 return null;
               }
@@ -311,13 +321,11 @@ final class BrowserScreenshotDOMProbeCollector {
           };
 
           const preferredCharacterIndex = (text) => {
+            // A coarse sparse grid can miss the ink in narrow glyphs such as
+            // "i" or "1". Skip those nodes instead of risking a false blank.
             const preferred = /[MW@#%&8BDEFHKLNPRSTXZ2345679]/;
-            const fallback = /[A-Za-z0-9]/;
             for (let index = 0; index < text.length; index += 1) {
               if (preferred.test(text[index])) return index;
-            }
-            for (let index = 0; index < text.length; index += 1) {
-              if (fallback.test(text[index])) return index;
             }
             return -1;
           };
@@ -339,7 +347,7 @@ final class BrowserScreenshotDOMProbeCollector {
             visited += 1;
             const element = node.parentElement;
             if (!element) continue;
-            const style = getComputedStyle(element);
+            const style = styleFor(element);
             if (
               style.display === "none"
               || style.visibility !== "visible"

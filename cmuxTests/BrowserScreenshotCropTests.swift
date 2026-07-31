@@ -248,6 +248,40 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifiedCaptureDefaultsToOneRetry() async throws {
+        var captureCount = 0
+        let probes = textProbeSet()
+        let image = try makeBlankBitmapImage(width: 100, height: 100)
+        let service = BrowserScreenshotCaptureService(
+            synchronize: {},
+            collectProbes: { probes },
+            snapshot: {
+                captureCount += 1
+                return image
+            },
+            makePixelSource: { _ in
+                SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
+            }
+        )
+
+        do {
+            _ = try await service.capture()
+            Issue.record("Expected a rendered-content mismatch")
+        } catch let BrowserScreenshotError.renderedContentMismatch(
+            _,
+            _,
+            attempts,
+            _
+        ) {
+            #expect(attempts == 2)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(captureCount == 2)
+    }
+
+    @Test
     func verifiedCaptureAcceptsPagesWithoutTextProbes() async throws {
         var captureCount = 0
         let image = try makeBlankBitmapImage(width: 100, height: 100)
