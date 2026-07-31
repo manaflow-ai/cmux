@@ -1020,6 +1020,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             }
         };
         let route = group.description().to_string();
+        let invitation = matches!(&self.options.auth, ClientAuthMode::Invitation { .. });
+        let connection_timeout = if invitation { self.options.startup_timeout } else { timeout };
+        let connection_deadline =
+            if invitation { tokio::time::Instant::now() + connection_timeout } else { deadline };
         let reconnect_groups: Arc<dyn ReconnectGroupSource> =
             Arc::new(RuntimeReconnectGroups::with_shutdown(
                 self.options.clone(),
@@ -1029,7 +1033,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
             result = tokio::time::timeout_at(
-                deadline,
+                connection_deadline,
                 ClientConnection::connect_with_reconnect_groups(
                     group.clone(),
                     ClientConnectionConfig {
@@ -1048,7 +1052,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                 Ok(connection) => connection,
                 Err(_) => {
                     close_failed_initial_group(&group).await;
-                    return Err(initial_route_timeout(&display_endpoint, timeout));
+                    return Err(initial_route_timeout(&display_endpoint, connection_timeout));
                 }
             },
             _ = wait_for_shutdown(&mut shutdown) => {
