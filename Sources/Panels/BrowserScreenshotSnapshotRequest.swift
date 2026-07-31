@@ -5,7 +5,7 @@ import WebKit
 @MainActor
 final class BrowserScreenshotSnapshotRequest {
     typealias SnapshotStarter = @MainActor (
-        _ completion: @escaping @MainActor (NSImage?, Error?) -> Void
+        _ completion: @escaping @MainActor @Sendable (NSImage?, Error?) -> Void
     ) -> Void
 
     private let timeout: TimeInterval?

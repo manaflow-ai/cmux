@@ -1252,7 +1252,7 @@ struct BrowserScreenshotCropTests {
             """,
             configuration: WKWebViewConfiguration()
         )
-        _ = pendingFontWebView.evaluateJavaScript(
+        pendingFontWebView.evaluateJavaScript(
             """
             (() => {
               Object.defineProperty(document, "fonts", {

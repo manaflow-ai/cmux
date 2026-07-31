@@ -7430,7 +7430,9 @@ extension BrowserPanel {
             timeoutTimer = nil
         }
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.automationTimedOut))
+            MainActor.assumeIsolated {
+                finish(.failure(BrowserScreenshotError.automationTimedOut))
+            }
         }
         timeoutTimer = timer
         RunLoop.main.add(timer, forMode: .common)

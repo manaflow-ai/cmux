@@ -6,11 +6,11 @@ import WebKit
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
-    static let defaultMaximumAttempts =
+    nonisolated static let defaultMaximumAttempts =
         BrowserScreenshotTimingBudget().maximumAttempts
-    static let automationLeaseTimeout =
+    nonisolated static let automationLeaseTimeout =
         BrowserScreenshotTimingBudget().captureLeaseTimeout
-    static let socketResponseTimeout =
+    nonisolated static let socketResponseTimeout =
         BrowserScreenshotTimingBudget().socketResponseTimeout
 
     // Waiting for a displayed update can stall after window occlusion. The
