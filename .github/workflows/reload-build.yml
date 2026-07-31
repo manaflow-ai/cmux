@@ -207,7 +207,9 @@ jobs:
               CODE_SIGN_IDENTITY="" \
               SWIFT_OPTIMIZATION_LEVEL=-O \
               SWIFT_COMPILATION_MODE=wholemodule \
-              GCC_OPTIMIZATION_LEVEL=s
+              GCC_OPTIMIZATION_LEVEL=s \
+              ARCHS=arm64 \
+              ONLY_ACTIVE_ARCH=NO
             sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
             [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
             # Match the fleet bundle layout: xcarchive and simulator/cmux.app
