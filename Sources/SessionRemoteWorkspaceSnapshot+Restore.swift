@@ -103,7 +103,10 @@ extension SessionRemoteWorkspaceSnapshot {
             restoreMoshRelayNamespace ||
             restoreOrdinarySSHRelayNamespace
         let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
-        let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
+        let selectedSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
+        let restoredSSHOptions = configuredRemoteCommand == nil
+            ? selectedSSHOptions
+            : Self.removingRemoteCommand(from: selectedSSHOptions)
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
