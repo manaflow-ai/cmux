@@ -23,7 +23,7 @@ final class AgentChatProseStreamerTests: XCTestCase {
                     return rows
                 }
             }
-            await withCheckedContinuation { continuation in
+            return await withCheckedContinuation { continuation in
                 self.continuation = continuation
             }
         }
