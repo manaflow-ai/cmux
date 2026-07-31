@@ -44,6 +44,11 @@ public actor UserDefaultsSettingsStore {
         storage.value(for: key)
     }
 
+    /// Synchronously resolves the value inherited after resetting a user key.
+    public nonisolated func initialResetValue<Value>(for key: DefaultsKey<Value>) -> Value {
+        storage.inheritedValue(for: key)
+    }
+
     /// Writes a value for the key.
     @discardableResult
     public func set<Value>(
@@ -79,7 +84,11 @@ public actor UserDefaultsSettingsStore {
             return nil
         }
         recordAcceptedMutation(source, for: key.userDefaultsKey)
-        recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
+        recordMutationSource(
+            source,
+            value: storage.inheritedValue(for: key),
+            for: key.userDefaultsKey
+        )
         if let source {
             observedMutationWatermarks.beginMutationSource(source, for: key.userDefaultsKey)
         }
@@ -98,12 +107,13 @@ public actor UserDefaultsSettingsStore {
         for entry in keys {
             guard case let .userDefaults(storageKey, suite, _) = entry.kind else { continue }
             recordSourceLessMutation(for: storageKey)
-            knownValues[storageKey] = entry.userDefaultsDefaultValue
             knownValueLogicalOrders[storageKey] = DispatchTime.now().uptimeNanoseconds
             let defaults: UserDefaults
             if let suite, let custom = UserDefaults(suiteName: suite) {
                 defaults = custom
+                knownValues[storageKey] = entry.userDefaultsInheritedValue(defaults)
             } else {
+                knownValues[storageKey] = storage.inheritedValue(for: entry)
                 storage.removeObject(forKey: storageKey)
                 emitStoreOwnedSourceLessMutation(for: storageKey)
                 continue
@@ -125,6 +135,7 @@ public actor UserDefaultsSettingsStore {
             UserDefaultsSettingsStoreSignal(
                 isBackingDefaultsNotification: true,
                 canCarryActiveMutationSource: false,
+                isInheritedDefaultNotification: false,
                 logicalOrder: logicalOrder,
                 deliveredMutationSource: deliveredMutationSource
             ),
@@ -280,12 +291,15 @@ public actor UserDefaultsSettingsStore {
         includeMutationSourceMetadata: Bool = true,
         includeMutationSourceMetadataWhenValueDiffersFrom previousMetadataValue: Value? = nil,
         supersedesPendingMutationSource: Bool = false,
-        isInitialSnapshot: Bool = false
+        isInitialSnapshot: Bool = false,
+        isInheritedDefaultChange: Bool = false,
+        classifyInitialSnapshotAsInheritedDefault: Bool = false
     ) -> (
         event: UserDefaultsSettingsValueEvent<Value>,
         consumedSourceSequence: UInt64
     ) {
-        let value = storage.value(for: key)
+        let resolution = storage.resolution(for: key)
+        let value = resolution.value
         let valueDiffersForPendingDelivery = previousValue.map { value != $0 } ?? false
         let valueDiffersForMetadata = previousMetadataValue.map { value != $0 } ?? false
         let shouldIncludeMutationSourceMetadata = includeMutationSourceMetadata || valueDiffersForMetadata
@@ -330,7 +344,10 @@ public actor UserDefaultsSettingsStore {
                 value: value,
                 mutationSource: source,
                 supersededMutationSource: supersededSource,
-                isInitialSnapshot: isInitialSnapshot
+                isInitialSnapshot: isInitialSnapshot,
+                isInheritedDefaultChange: isInheritedDefaultChange
+                    || (classifyInitialSnapshotAsInheritedDefault
+                        && resolution.source != .user)
             ),
             nextConsumedSourceSequence
         )

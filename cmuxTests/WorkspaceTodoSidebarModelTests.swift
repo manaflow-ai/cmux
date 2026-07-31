@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -76,7 +77,7 @@ struct WorkspaceTodoSidebarModelTests {
     // MARK: - Minimal todo visibility
 
     @Test
-    func workspaceTodoControlsGateDefaultsOffAndAllowsLocalOrRemoteOptIn() throws {
+    func workspaceTodoControlsResolvesEffectiveUserAndRemoteDefaults() throws {
         let suiteName = "cmux.workspace.todo.controls.setting.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
@@ -85,18 +86,64 @@ struct WorkspaceTodoSidebarModelTests {
         let key = BetaFeaturesCatalogSection().workspaceTodoControls
 
         #expect(key.defaultValue == false)
-        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(!WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
         #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
         #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
 
         defaults.set(true, forKey: key.userDefaultsKey)
-        #expect(WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
         #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
 
         defaults.set(false, forKey: key.userDefaultsKey)
-        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
+        #expect(!WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
         #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
         #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
+    }
+
+    @MainActor
+    @Test
+    func liveRemoteDefaultUpdatesSidebarConsumerUntilUserOverrides() async throws {
+        let suiteName = "cmux.workspace.todo.controls.live.\(UUID().uuidString)"
+        nonisolated(unsafe) let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = BetaFeaturesCatalogSection().workspaceTodoControls
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let model = DefaultsValueModel(store: store, key: key)
+        model.startObserving()
+
+        key.setRemoteDefault(true, in: defaults)
+        for _ in 0..<100_000 where model.current == false {
+            await Task.yield()
+        }
+        #expect(model.current)
+        #expect(SidebarWorkspaceManualTaskStatusIndicatorModel(
+            featureEnabled: model.current,
+            taskStatus: .review,
+            hasManualOverride: true
+        ).showsIndicator)
+
+        model.set(false)
+        for _ in 0..<100_000 where Bool.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) != false {
+            await Task.yield()
+        }
+        key.setRemoteDefault(false, in: defaults)
+        key.setRemoteDefault(true, in: defaults)
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+
+        #expect(model.current == false)
+        #expect(Bool.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) == false)
+        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel(
+            featureEnabled: model.current,
+            taskStatus: .review,
+            hasManualOverride: true
+        ).showsIndicator)
     }
 
     @Test

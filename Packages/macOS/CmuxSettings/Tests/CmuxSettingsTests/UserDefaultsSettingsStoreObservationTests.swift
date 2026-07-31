@@ -13,9 +13,16 @@ struct UserDefaultsSettingsStoreObservationTests {
             defaults: observedDefaults,
             notificationCenter: notificationCenter
         )
-        let (stream, continuation) = AsyncStream<(Bool, Bool)>.makeStream(bufferingPolicy: .unbounded)
-        let token = storage.addDidChangeObserver { isBackingDefaultsNotification, canCarryActiveMutationSource in
-            continuation.yield((isBackingDefaultsNotification, canCarryActiveMutationSource))
+        let (stream, continuation) = AsyncStream<(Bool, Bool, Bool)>.makeStream(bufferingPolicy: .unbounded)
+        let token = storage.addDidChangeObserver {
+            isBackingDefaultsNotification,
+            canCarryActiveMutationSource,
+            isInheritedDefaultNotification in
+            continuation.yield((
+                isBackingDefaultsNotification,
+                canCarryActiveMutationSource,
+                isInheritedDefaultNotification
+            ))
         }
         defer {
             token.remove()
@@ -32,10 +39,68 @@ struct UserDefaultsSettingsStoreObservationTests {
         let thirdEvent = await iterator.next()
         #expect(firstEvent?.0 == false)
         #expect(firstEvent?.1 == false)
+        #expect(firstEvent?.2 == false)
         #expect(secondEvent?.0 == false)
         #expect(secondEvent?.1 == true)
+        #expect(secondEvent?.2 == false)
         #expect(thirdEvent?.0 == true)
         #expect(thirdEvent?.1 == true)
+        #expect(thirdEvent?.2 == false)
+    }
+
+    @Test func storageChangeObserverClassifiesRemoteCacheMutationAsInherited() async {
+        let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        let notificationCenter = NotificationCenter()
+        let storage = UserDefaultsSettingsStorage(
+            defaults: observedDefaults,
+            notificationCenter: notificationCenter
+        )
+        let (stream, continuation) = AsyncStream<(Bool, Bool, Bool)>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        let storageKey = "tests.beta.enabled"
+        let token = storage.addDidChangeObserver(for: storageKey) {
+            isBackingDefaultsNotification,
+            canCarryActiveMutationSource,
+            isInheritedDefaultNotification in
+            continuation.yield((
+                isBackingDefaultsNotification,
+                canCarryActiveMutationSource,
+                isInheritedDefaultNotification
+            ))
+        }
+        defer {
+            token.remove()
+            continuation.finish()
+        }
+
+        let userInfo = [
+            CmuxSettingsRemoteDefaultNotification.storageKeyUserInfoKey: storageKey,
+        ]
+        notificationCenter.post(
+            name: .cmuxSettingsRemoteDefaultWillChange,
+            object: observedDefaults,
+            userInfo: userInfo
+        )
+        notificationCenter.post(
+            name: UserDefaults.didChangeNotification,
+            object: observedDefaults
+        )
+        notificationCenter.post(
+            name: .cmuxSettingsRemoteDefaultDidChange,
+            object: observedDefaults,
+            userInfo: userInfo
+        )
+
+        var iterator = stream.makeAsyncIterator()
+        let broadEvent = await iterator.next()
+        let targetedEvent = await iterator.next()
+        #expect(broadEvent?.0 == true)
+        #expect(broadEvent?.1 == false)
+        #expect(broadEvent?.2 == true)
+        #expect(targetedEvent?.0 == true)
+        #expect(targetedEvent?.1 == false)
+        #expect(targetedEvent?.2 == true)
     }
 
     @Test func valueEventBufferCarriesDroppedSourcesOntoSourceTaggedSurvivor() async {

@@ -12,7 +12,7 @@ import SwiftUI
 extension TabItemView {
     @ViewBuilder
     var workspaceTodoContextMenuSection: some View {
-        if WorkspaceTodoFeature.isEnabled {
+        if snapshot.todoControlsEnabled {
             let isMulti = contextMenuWorkspaceIds.count > 1
             let markDoneLabel = isMulti
                 ? String(localized: "contextMenu.markWorkspacesDone", defaultValue: "Mark Workspaces as Done")
@@ -105,13 +105,14 @@ enum WorkspaceTodoPaletteCommands {
     }
 
     static func contributions(
+        todoControlsEnabled: Bool,
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
     ) -> [CommandPaletteCommandContribution] {
         let hasWorkspace: (CommandPaletteContextSnapshot) -> Bool = {
             $0.bool(CommandPaletteContextKeys.hasWorkspace)
         }
         var contributions: [CommandPaletteCommandContribution] = []
-        if WorkspaceTodoFeature.isEnabled {
+        if todoControlsEnabled {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: statusAutoCommandId,

@@ -10,6 +10,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
+        let todoControlsEnabled: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -58,9 +59,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         // Workspace todo status/checklist; taskStatus is nil when the
-        // workspace opted out of status display or the remote todo-controls
-        // flag is off. Manual status draws a compact row indicator, while
-        // automatic status still only drives the done-row dim.
+        // workspace opted out of status display or the effective Todo
+        // Controls beta setting is off. Manual status draws a compact row
+        // indicator, while automatic status only drives the done-row dim.
         let taskStatus: WorkspaceTaskStatus?
         let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
         let hasManualTaskStatus: Bool

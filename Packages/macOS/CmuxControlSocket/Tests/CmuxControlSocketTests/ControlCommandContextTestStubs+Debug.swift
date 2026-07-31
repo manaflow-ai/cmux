@@ -33,6 +33,13 @@ extension ControlDebugContext {
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlDebugBetaRemoteDefaultSnapshot(
+        identifier: String
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? { nil }
+    func controlDebugSetBetaRemoteDefault(
+        identifier: String,
+        value: Bool?
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? { nil }
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution { .noWindow }
     func controlDebugTabManagerAvailable() -> Bool { false }
     func controlDebugTextBoxInlineFixture(

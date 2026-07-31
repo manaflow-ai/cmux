@@ -22,6 +22,7 @@ struct SidebarWorkspaceRowCommands {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+    let todoControlsEnabled: Bool
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void
@@ -310,7 +311,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         menu.addItem(.separator())
         // Legacy parity: the todo section renders only while the feature is
         // enabled (SwiftUI merges the surrounding dividers when it is not).
-        if WorkspaceTodoFeature.isEnabled {
+        if commands.todoControlsEnabled {
             addTodoSection(to: menu, tabManager: tabManager)
             menu.addItem(.separator())
         }

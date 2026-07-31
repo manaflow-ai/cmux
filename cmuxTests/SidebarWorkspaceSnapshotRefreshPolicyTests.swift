@@ -174,6 +174,7 @@ import Testing
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
         showsAgentActivity: Bool = true,
+        todoControlsEnabled: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -189,6 +190,7 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }

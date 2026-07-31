@@ -8,6 +8,8 @@ extension TerminalController {
         "debug.shortcut.set",
         "debug.shortcut.simulate",
         "debug.type",
+        "debug.beta_remote_defaults.get",
+        "debug.beta_remote_defaults.set",
         "debug.textbox.inline_fixture",
         "debug.textbox.interact",
         "debug.app.activate",

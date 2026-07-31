@@ -1272,6 +1272,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
+#if DEBUG
+        CmuxFeatureFlags.applyUITestBetaRemoteDefaultsIfPresent(environment: env)
+#endif
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
             environment: env,

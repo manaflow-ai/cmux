@@ -162638,13 +162638,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps workspace todo summaries read-only unless remote rollout enables the controls."
+            "value": "Keeps workspace todo summaries read-only until you enable the controls here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートロールアウトでコントロールが有効になるまで、ワークスペース Todo の概要を読み取り専用にします。"
+            "value": "ここでコントロールを有効にするまで、ワークスペース Todo の概要を読み取り専用にします。"
           }
         }
       }

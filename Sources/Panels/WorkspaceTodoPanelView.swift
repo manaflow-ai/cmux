@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -15,6 +17,7 @@ import SwiftUI
 /// NSPopover host, anchored in-pane.
 struct WorkspaceTodoPanelView: View {
     @ObservedObject var panel: WorkspaceTodoPanel
+    @LiveSetting(\.betaFeatures.workspaceTodoControls) private var todoControlsEnabled
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
 
@@ -29,7 +32,8 @@ struct WorkspaceTodoPanelView: View {
                         todoState: workspace.todoState,
                         paneTitle: panel.displayTitle,
                         isFocused: isFocused,
-                        addFieldArmToken: panel.addFieldArmToken
+                        addFieldArmToken: panel.addFieldArmToken,
+                        todoControlsEnabled: todoControlsEnabled
                     )
                 } else {
                     Text(String(
@@ -115,6 +119,7 @@ private struct WorkspaceTodoPaneContent: View {
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
     let addFieldArmToken: Int
+    let todoControlsEnabled: Bool
 
     @State private var isStatusPopoverPresented = false
     @State private var pendingItemText = ""
@@ -140,7 +145,6 @@ private struct WorkspaceTodoPaneContent: View {
             override: todoState.statusOverride,
             inferred: inferred
         )
-        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let hasOverride = todoControlsEnabled && todoState.statusOverride != nil && !resolution.shouldClearOverride
         let progress = todoState.checklist.checklistProgressSummary
         let headerTitle = WorkspaceTodoPaneHeaderTitle.title(paneTitle: paneTitle)

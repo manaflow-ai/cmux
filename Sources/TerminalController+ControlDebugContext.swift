@@ -38,6 +38,46 @@ func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
 
 extension TerminalController: ControlDebugContext {
 #if DEBUG
+    func controlDebugBetaRemoteDefaultSnapshot(
+        identifier: String
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? {
+        guard let state = CmuxFeatureFlags.shared.betaRemoteDefaultState(
+            identifier: identifier
+        ) else {
+            return nil
+        }
+        return ControlDebugBetaRemoteDefaultSnapshot(
+            settingID: state.settingID,
+            flagKey: state.flagKey,
+            userKeyPresent: state.userKeyPresent,
+            userValue: state.userValue,
+            remoteDefault: state.remoteDefault,
+            effectiveValue: state.effectiveValue,
+            source: state.source.rawValue
+        )
+    }
+
+    func controlDebugSetBetaRemoteDefault(
+        identifier: String,
+        value: Bool?
+    ) -> ControlDebugBetaRemoteDefaultSnapshot? {
+        guard let state = CmuxFeatureFlags.shared.setBetaRemoteDefaultForDebug(
+            identifier: identifier,
+            value: value
+        ) else {
+            return nil
+        }
+        return ControlDebugBetaRemoteDefaultSnapshot(
+            settingID: state.settingID,
+            flagKey: state.flagKey,
+            userKeyPresent: state.userKeyPresent,
+            userValue: state.userValue,
+            remoteDefault: state.remoteDefault,
+            effectiveValue: state.effectiveValue,
+            source: state.source.rawValue
+        )
+    }
+
     // MARK: - Session-snapshot benchmarks
 
     func controlDebugSessionSnapshotBenchmark(includeScrollback: Bool, persist: Bool) -> JSONValue? {

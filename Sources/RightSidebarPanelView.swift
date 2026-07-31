@@ -132,10 +132,8 @@ struct RightSidebarPanelView: View {
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
-    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @LiveSetting(\.betaFeatures.rightSidebarFeed) private var feedEnabled
+    @LiveSetting(\.betaFeatures.rightSidebarDock) private var dockEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push

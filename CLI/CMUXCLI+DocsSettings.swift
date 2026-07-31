@@ -370,6 +370,7 @@ extension CMUXCLI {
 
         Targets:
           account, app, terminal, sidebar-appearance, custom-sidebars,
+          beta-features,
           automation, browser, browser-import, global-hotkey,
           keyboard-shortcuts, shortcuts, workspace-colors, cmux-json,
           json, reset
@@ -407,6 +408,8 @@ extension CMUXCLI {
             return "sidebarAppearance"
         case "custom-sidebars", "customsidebars":
             return "customSidebars"
+        case "beta-features", "betafeatures", "beta":
+            return "betaFeatures"
         case "automation":
             return "automation"
         case "browser":
