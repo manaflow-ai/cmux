@@ -134,9 +134,7 @@ struct CmxIrohClientSessionPoolPathEvictionTests {
             clock: clock
         )
 
-        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
-            .makeTransport(for: fixture.request)
-        try await transport.connect()
+        let originalSession = try await pool.session(for: fixture.request)
 
         await connection.setObservedSelectedPath(.unavailable)
         #expect(await clock.waitForSleeper())
@@ -150,9 +148,8 @@ struct CmxIrohClientSessionPoolPathEvictionTests {
         #expect(recovered)
         await clock.release()
 
-        // Give a mistaken eviction every chance to land before asserting.
-        await Task.yield()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        let reusedSession = try await pool.session(for: fixture.request)
+        #expect(reusedSession === originalSession)
         #expect(await connection.observedCloseCallCount() == 0)
         #expect(await pool.selectedObservedPath() == .relay(url: "https://relay.example"))
     }
