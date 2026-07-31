@@ -10,7 +10,7 @@ let activeLocale = "en";
 // bun's mock.module replaces these modules process-wide. Keep the shared
 // export set complete so this file cannot break an unrelated suite.
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
-mock.module("next-intl/server", () => ({
+mock.module("../app/app-pro-welcome/locale", () => ({
   getLocale: async () => activeLocale,
 }));
 

@@ -7,6 +7,9 @@ mock.module("@stackframe/stack", () => ({
 }));
 
 mock.module("next-intl", () => ({
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+  useLocale: () => "en",
   useTranslations: () => (key: string) => key,
 }));
 

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { getLocale } from "next-intl/server";
+import { getLocale } from "./locale";
 
 import { loadMessages } from "../../i18n/messages";
 import { routing, type Locale } from "../../i18n/routing";
