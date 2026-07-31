@@ -78,6 +78,20 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             case protocolVersion = "protocol_version"
             case knownRevision = "known_revision"
         }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(protocolVersion, forKey: .protocolVersion)
+            if let knownRevision {
+                try container.encode(knownRevision, forKey: .knownRevision)
+            } else {
+                // The v2 wire contract distinguishes an initial sync (`null`)
+                // from an absent field. Swift's synthesized Optional encoding
+                // omits nil values, which the bounded server parser correctly
+                // rejects as an incomplete request.
+                try container.encodeNil(forKey: .knownRevision)
+            }
+        }
     }
 
     private struct BindingRequest: Encodable { let bindingId: String }

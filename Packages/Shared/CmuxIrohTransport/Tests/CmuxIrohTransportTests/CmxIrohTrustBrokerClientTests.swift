@@ -421,6 +421,32 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func connectivityInitialSyncEncodesExplicitNullRevision() async throws {
+        let snapshot = try Self.discoveryObject(revision: 1)
+        let responseBody = try Self.jsonString([
+            "protocol_version": 2,
+            "revision": 1,
+            "changed": true,
+            "reset": false,
+            "snapshot": snapshot,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: responseBody),
+        ])
+        let client = try makeClient(transport: transport)
+
+        _ = try await client.syncConnectivity(knownRevision: nil)
+
+        let captured = try #require(await transport.requests().first)
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object.keys.contains("known_revision"))
+        #expect(object["known_revision"] is NSNull)
+    }
+
+    @Test
     func connectivitySyncRequiresAnAtomicSnapshotAtTheEnvelopeRevision() async throws {
         let snapshot = try Self.discoveryObject(revision: 42)
         let body = try Self.jsonString([
