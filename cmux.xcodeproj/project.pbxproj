@@ -410,6 +410,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9210001000000000000000D /* BrowserScreenshotPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9210001000000000000000E /* BrowserScreenshotPresentation.swift */; };
 		A9210001000000000000000B /* BrowserScreenshotSnapshotRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9210001000000000000000C /* BrowserScreenshotSnapshotRequest.swift */; };
 		4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */; };
+		A92100010000000000000011 /* BrowserScreenshotSynchronizationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92100010000000000000012 /* BrowserScreenshotSynchronizationOutcome.swift */; };
 		80560000000000000000000B /* BrowserScreenshotTilePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80560000000000000000000C /* BrowserScreenshotTilePlacement.swift */; };
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
 		C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */; };
@@ -3032,6 +3033,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9210001000000000000000E /* BrowserScreenshotPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPresentation.swift; sourceTree = "<group>"; };
 		A9210001000000000000000C /* BrowserScreenshotSnapshotRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotRequest.swift; sourceTree = "<group>"; };
 		4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotter.swift; sourceTree = "<group>"; };
+		A92100010000000000000012 /* BrowserScreenshotSynchronizationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSynchronizationOutcome.swift; sourceTree = "<group>"; };
 		80560000000000000000000C /* BrowserScreenshotTilePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotTilePlacement.swift; sourceTree = "<group>"; };
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
 		C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServerTrustFingerprint.swift; sourceTree = "<group>"; };
@@ -6496,6 +6498,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
 				4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */,
 				A9210001000000000000000C /* BrowserScreenshotSnapshotRequest.swift */,
+				A92100010000000000000012 /* BrowserScreenshotSynchronizationOutcome.swift */,
 				80560000000000000000000C /* BrowserScreenshotTilePlacement.swift */,
 				C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */,
 				C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */,
@@ -8535,6 +8538,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9210001000000000000000D /* BrowserScreenshotPresentation.swift in Sources */,
 				A9210001000000000000000B /* BrowserScreenshotSnapshotRequest.swift in Sources */,
 				4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */,
+				A92100010000000000000011 /* BrowserScreenshotSynchronizationOutcome.swift in Sources */,
 				80560000000000000000000B /* BrowserScreenshotTilePlacement.swift in Sources */,
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */,

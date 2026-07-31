@@ -374,7 +374,10 @@ struct BrowserScreenshotCropTests {
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: { synchronizationRetries.append($0) },
+            synchronize: {
+                synchronizationRetries.append($0)
+                return .completed
+            },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -403,27 +406,52 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifiedCaptureDoesNotMisreportSynchronizationTimeoutAsPixelMismatch() async {
         var captureCount = 0
+        let probes = textProbeSet()
         let service = BrowserScreenshotCaptureService(
-            synchronize: { _ in
-                throw BrowserScreenshotError.automationTimedOut
-            },
-            collectProbes: { self.textProbeSet() },
+            synchronize: { _ in .timedOut },
+            collectProbes: { probes },
             snapshot: {
                 captureCount += 1
                 return try self.makeBlankBitmapImage(width: 100, height: 100)
             },
-            makePixelSource: { _ in nil }
+            makePixelSource: { _ in
+                SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
+            }
         )
 
         do {
             _ = try await service.capture()
             Issue.record("Expected the synchronization timeout")
         } catch BrowserScreenshotError.automationTimedOut {
-            // Expected: no snapshot was taken and no mismatch was fabricated.
+            // Expected: persistent disagreement after an unconfirmed barrier is a timeout.
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
-        #expect(captureCount == 0)
+        #expect(captureCount == 2)
+    }
+
+    @Test
+    func verifiedCaptureAcceptsPaintedFrameWhenSynchronizationTimesOut() async throws {
+        var captureCount = 0
+        let probes = textProbeSet()
+        let service = BrowserScreenshotCaptureService(
+            synchronize: { _ in .timedOut },
+            collectProbes: { probes },
+            snapshot: {
+                captureCount += 1
+                return try self.makeBlankBitmapImage(width: 100, height: 100)
+            },
+            makePixelSource: { _ in
+                TextPaintPixelSource(
+                    pixelSize: probes.viewportSize,
+                    textRects: probes.probes.map(\.rect)
+                )
+            }
+        )
+
+        _ = try await service.capture()
+
+        #expect(captureCount == 1)
     }
 
     @Test
@@ -434,7 +462,7 @@ struct BrowserScreenshotCropTests {
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: { _ in },
+            synchronize: { _ in .completed },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -471,7 +499,7 @@ struct BrowserScreenshotCropTests {
         let probes = textProbeSet()
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
-            synchronize: { _ in },
+            synchronize: { _ in .completed },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -504,7 +532,7 @@ struct BrowserScreenshotCropTests {
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: { _ in },
+            synchronize: { _ in .completed },
             collectProbes: {
                 BrowserScreenshotProbeSet(
                     viewportSize: NSSize(width: 100, height: 100),

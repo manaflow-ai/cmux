@@ -5,7 +5,9 @@ import WebKit
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
-    typealias Synchronizer = @MainActor (_ isRetry: Bool) async throws -> Void
+    typealias Synchronizer = @MainActor (
+        _ isRetry: Bool
+    ) async throws -> BrowserScreenshotSynchronizationOutcome
     typealias ProbeCollector = @MainActor () async -> BrowserScreenshotProbeSet?
     typealias SnapshotProvider = @MainActor () async throws -> NSImage
     typealias PixelSourceProvider = @MainActor (
@@ -66,11 +68,15 @@ struct BrowserScreenshotCaptureService {
     }
 
     func capture() async throws -> NSImage {
-        var lastMismatch: (probe: BrowserScreenshotProbe, count: Int)?
+        var lastMismatch: (
+            probe: BrowserScreenshotProbe,
+            count: Int,
+            synchronization: BrowserScreenshotSynchronizationOutcome
+        )?
 
         for attempt in 1...maximumAttempts {
             try Task.checkCancellation()
-            try await synchronize(attempt > 1)
+            let synchronization = try await synchronize(attempt > 1)
             try Task.checkCancellation()
             let before = await collectProbes()
             try Task.checkCancellation()
@@ -89,7 +95,7 @@ struct BrowserScreenshotCaptureService {
             case .accepted:
                 return image
             case .mismatch(let probe, let count):
-                lastMismatch = (probe, count)
+                lastMismatch = (probe, count, synchronization)
 #if DEBUG
                 cmuxDebugLog(
                     "browser.screenshot.verify.retry attempt=\(attempt) " +
@@ -101,6 +107,9 @@ struct BrowserScreenshotCaptureService {
 
         guard let lastMismatch else {
             throw BrowserScreenshotError.emptySnapshot
+        }
+        guard lastMismatch.synchronization == .completed else {
+            throw BrowserScreenshotError.automationTimedOut
         }
         // A plausible-but-wrong frame is more damaging to automated visual QA
         // than an explicit failure that the caller can diagnose and retry.

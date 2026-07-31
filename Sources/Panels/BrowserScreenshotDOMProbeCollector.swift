@@ -20,17 +20,27 @@ final class BrowserScreenshotDOMProbeCollector {
         self.javaScriptTimeout = javaScriptTimeout
     }
 
-    func synchronize(waitForAnimationFrame: Bool) async throws {
-        guard let webView else { return }
+    func synchronize(
+        waitForAnimationFrame: Bool
+    ) async throws -> BrowserScreenshotSynchronizationOutcome {
+        guard let webView else { return .timedOut }
         forceAppKitLayout(for: webView)
 
-        if waitForAnimationFrame {
-            try await waitForAnimationFrames(in: webView)
-        } else {
-            _ = try await evaluate(layoutFlushScript, in: webView)
+        do {
+            if waitForAnimationFrame {
+                try await waitForAnimationFrames(in: webView)
+            } else {
+                _ = try await evaluate(layoutFlushScript, in: webView)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch BrowserScreenshotError.automationTimedOut {
+            forceAppKitLayout(for: webView)
+            return .timedOut
         }
 
         forceAppKitLayout(for: webView)
+        return .completed
     }
 
     func collect() async -> BrowserScreenshotProbeSet? {
@@ -354,6 +364,7 @@ final class BrowserScreenshotDOMProbeCollector {
           };
 
           const candidates = [];
+          const occupiedCells = new Set();
           const walker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_TEXT,
@@ -403,6 +414,10 @@ final class BrowserScreenshotDOMProbeCollector {
             const centerY = rect.top + rect.height / 2;
             const hit = document.elementFromPoint(centerX, centerY);
             if (!hit || (hit !== element && !element.contains(hit))) continue;
+            const column = Math.min(3, Math.floor(centerX / viewportWidth * 4));
+            const row = Math.min(3, Math.floor(centerY / viewportHeight * 4));
+            const cell = `${column}:${row}`;
+            if (occupiedCells.has(cell)) continue;
 
             const background = solidBackground(element);
             // WebKit's text-fill color is inherited and reflects the actual
@@ -412,6 +427,7 @@ final class BrowserScreenshotDOMProbeCollector {
             const foreground = composite(rawForeground, background);
             if (!foreground || contrast(foreground, background) < 3) continue;
 
+            occupiedCells.add(cell);
             const text = node.data.replace(/\\s+/g, " ").trim().slice(0, 80);
             candidates.push({
               node,
@@ -428,27 +444,17 @@ final class BrowserScreenshotDOMProbeCollector {
               centerX,
               centerY
             });
+            if (candidates.length === 12) break;
           }
 
-          const probes = [];
-          const occupiedCells = new Set();
-          for (const candidate of candidates) {
-            const column = Math.min(3, Math.floor(candidate.centerX / viewportWidth * 4));
-            const row = Math.min(3, Math.floor(candidate.centerY / viewportHeight * 4));
-            const key = `${column}:${row}`;
-            if (occupiedCells.has(key)) continue;
-            occupiedCells.add(key);
-            probes.push(candidate);
-            if (probes.length === 12) break;
-          }
-          if (probes.length === 0) {
+          if (candidates.length === 0) {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
           return {
             viewportWidth,
             viewportHeight,
-            probes: probes.map(({
+            probes: candidates.map(({
               node,
               characterIndex,
               centerX,
