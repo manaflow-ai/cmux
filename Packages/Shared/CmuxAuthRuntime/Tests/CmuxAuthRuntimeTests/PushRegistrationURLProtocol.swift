@@ -74,6 +74,13 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
         let context = PushRegistrationLoadingContext(
             loadingProtocol: self
         )
+        if stub.error != nil {
+            Task.detached { [capturedRequest, context] in
+                await Task.yield()
+                context.complete(stub, request: capturedRequest)
+            }
+            return
+        }
         guard stub.started != nil || stub.blocker != nil else {
             context.complete(stub, request: capturedRequest)
             return
@@ -160,6 +167,19 @@ final class PushRegistrationURLScript: @unchecked Sendable {
         get async {
             lock.withLock { capturedBodies }
         }
+    }
+
+    func waitForRequestCount(
+        _ expectedCount: Int,
+        timeout: Duration = .seconds(1)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while lock.withLock({ capturedRequests.count }) < expectedCount {
+            guard clock.now < deadline else { return false }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return true
     }
 
     func reset(

@@ -209,6 +209,20 @@ actor RetryDelayRecorder {
         return (service, defaults)
     }
 
+    private func wait(
+        for state: PushRegistrationBackendState,
+        from service: PushRegistrationService,
+        timeout: Duration = .seconds(1)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while await service.snapshot.backendState != state {
+            guard clock.now < deadline else { return false }
+            try? await clock.sleep(for: .milliseconds(1))
+        }
+        return true
+    }
+
     @Test func disabledByDefault() async {
         let (service, _) = makeService()
         #expect(await service.isEnabled == false)
@@ -448,9 +462,10 @@ actor RetryDelayRecorder {
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
 
-        for _ in 0..<100 where await service.snapshot.backendState != .registered {
-            await Task.yield()
-        }
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
         #expect(await service.snapshot.backendState == .registered)
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
@@ -469,9 +484,10 @@ actor RetryDelayRecorder {
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
-        for _ in 0..<100 where await service.snapshot.backendState != .registered {
-            await Task.yield()
-        }
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
 
         #expect(await service.snapshot.backendState == .registered)
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
@@ -491,9 +507,10 @@ actor RetryDelayRecorder {
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
 
-        for _ in 0..<100 where await service.snapshot.backendState != .registered {
-            await Task.yield()
-        }
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
         #expect(await service.snapshot.backendState == .registered)
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
@@ -513,9 +530,10 @@ actor RetryDelayRecorder {
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
-        for _ in 0..<100 where await service.snapshot.backendState != .registered {
-            await Task.yield()
-        }
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
 
         #expect(await delays.values.first == .seconds(30))
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
@@ -553,9 +571,10 @@ actor RetryDelayRecorder {
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
-        for _ in 0..<100 where await service.snapshot.backendState != .registered {
-            await Task.yield()
-        }
+        #expect(
+            await PushRegistrationURLProtocol.script.waitForRequestCount(2)
+        )
+        #expect(await wait(for: .registered, from: service))
 
         #expect(await service.snapshot.backendState == .registered)
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)

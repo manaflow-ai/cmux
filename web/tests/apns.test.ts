@@ -15,6 +15,7 @@ import {
 } from "../services/apns/deliveryState";
 import {
   APNS_DEFAULT_MAX_DELIVERY_DURATION_MS,
+  APNS_MAX_PAYLOAD_BYTES,
   APNS_RATE_LIMIT_FALLBACK_SECONDS,
   APNS_SERVER_ERROR_RETRY_SECONDS,
   sendApnsNotification,
@@ -405,6 +406,18 @@ describe("apns route policy", () => {
         correlationId: "opaque-but-not-a-uuid",
       }),
     ).toEqual({ ok: false, error: "invalid_correlation_id" });
+    expect(
+      parsePushPayload({
+        title: "agent",
+        body: "done",
+        correlationId: "4D02DE48-A21D-4BA1-97B5-42E9400EE09B",
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        correlationId: "4d02de48-a21d-4ba1-97b5-42e9400ee09b",
+      },
+    });
   });
 
   test("parses a dismiss push: text-free, requires ids, carries the badge", () => {
@@ -1313,6 +1326,176 @@ describe("apns sender transport", () => {
     expect(closed).toEqual([productionHost, sandboxHost]);
   });
 
+  test("bootstraps one authenticated stream then honors the remote stream limit for 200 targets", async () => {
+    const remoteLimit = 3;
+    let active = 0;
+    let maximumActive = 0;
+    let requestCount = 0;
+    let bootstrapComplete = false;
+    let requestsBeforeBootstrap = 0;
+
+    class FakeRequest extends EventEmitter {
+      constructor(private readonly ordinal: number) {
+        super();
+      }
+
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        if (!bootstrapComplete) requestsBeforeBootstrap += 1;
+        this.emit("response", { ":status": 200 });
+        setTimeout(() => {
+          active -= 1;
+          if (this.ordinal === 1) bootstrapComplete = true;
+          this.emit("end");
+        }, 1);
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      readonly remoteSettings = {
+        maxConcurrentStreams: remoteLimit,
+      };
+
+      request() {
+        requestCount += 1;
+        return new FakeRequest(requestCount);
+      }
+
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const targets = Array.from({ length: 200 }, (_, index) => ({
+      deviceToken: index.toString(16).padStart(64, "0"),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    }));
+
+    const results = await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-STREAMS", teamId: "TEAM456" },
+      targets,
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    expect(results).toHaveLength(200);
+    expect(results.every((result) => result.status === 200)).toBe(true);
+    expect(requestCount).toBe(200);
+    expect(requestsBeforeBootstrap).toBe(1);
+    expect(maximumActive).toBeLessThanOrEqual(remoteLimit);
+  });
+
+  test("rejects 4097-byte Unicode payloads locally but sends 4096 bytes", async () => {
+    let requests = 0;
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request() {
+        return new FakeRequest();
+      }
+
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const target = {
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+    const inputAtSize = (targetBytes: number) => {
+      const baseInput = { title: "agent", body: "" };
+      const baseBytes = Buffer.byteLength(
+        JSON.stringify(buildApnsPayload(baseInput)),
+      );
+      const remaining = targetBytes - baseBytes;
+      const body =
+        "🙂".repeat(Math.floor(remaining / 4))
+        + "a".repeat(remaining % 4);
+      const input = { ...baseInput, body };
+      expect(
+        Buffer.byteLength(JSON.stringify(buildApnsPayload(input))),
+      ).toBe(targetBytes);
+      return input;
+    };
+
+    const accepted = await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-SIZE", teamId: "TEAM456" },
+      [target],
+      inputAtSize(APNS_MAX_PAYLOAD_BYTES),
+      1000,
+      transport,
+    );
+    const rejected = await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-SIZE", teamId: "TEAM456" },
+      [target],
+      inputAtSize(APNS_MAX_PAYLOAD_BYTES + 1),
+      1000,
+      transport,
+    );
+
+    expect(requests).toBe(1);
+    expect(accepted).toEqual([{
+      deviceToken: target.deviceToken,
+      status: 200,
+      reason: undefined,
+      prune: false,
+    }]);
+    expect(rejected).toEqual([{
+      deviceToken: target.deviceToken,
+      status: 413,
+      reason: "PayloadTooLarge",
+      prune: false,
+    }]);
+  });
+
   test("keeps healthy host results when another host cannot connect", async () => {
     const sandboxHost = apnsHostForEnvironment("sandbox");
     const productionHost = apnsHostForEnvironment("production")!;
@@ -1588,7 +1771,7 @@ describe("apns sender transport", () => {
     expect(capturedHeaders[0]["apns-priority"]).toBe("5");
   });
 
-  test("notify push keeps the default immediate priority", async () => {
+  test("notify push explicitly requests immediate priority", async () => {
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
     class FakeRequest extends EventEmitter {
@@ -1629,6 +1812,6 @@ describe("apns sender transport", () => {
     );
 
     expect(capturedHeaders).toHaveLength(1);
-    expect("apns-priority" in capturedHeaders[0]).toBe(false);
+    expect(capturedHeaders[0]["apns-priority"]).toBe("10");
   });
 });
