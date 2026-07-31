@@ -2076,15 +2076,17 @@ class ResourceApiTests(unittest.TestCase):
         disconnected = threading.Event()
 
         def handler(connection, _index):
-            for request in frames(connection):
-                observed.append(request)
-                open_seen.set()
-                ok(
-                    connection,
-                    request,
-                    {"stream_id": request["params"]["stream_id"]},
-                )
-            disconnected.set()
+            try:
+                for request in frames(connection):
+                    observed.append(request)
+                    open_seen.set()
+                    ok(
+                        connection,
+                        request,
+                        {"stream_id": request["params"]["stream_id"]},
+                    )
+            finally:
+                disconnected.set()
 
         expected = CmuxConnectionError(
             "synthetic failure after the complete frame was delivered"
