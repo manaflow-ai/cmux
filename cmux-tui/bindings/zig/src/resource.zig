@@ -2345,10 +2345,9 @@ pub const Client = struct {
         if (encoded.len > self.limits.max_request_bytes) {
             return error.RequestTooLarge;
         }
-        const payload_timeout = deadline.remainingMs() catch |failure| {
-            self.close();
-            return failure;
-        };
+        // No framing byte has reached the transport yet, so a deadline
+        // failure here leaves the connection reusable.
+        const payload_timeout = try deadline.remainingMs();
         self.connection.writeAll(encoded, payload_timeout) catch |failure| {
             self.close();
             return failure;
