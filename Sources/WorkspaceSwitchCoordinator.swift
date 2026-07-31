@@ -12,72 +12,10 @@ extension Notification.Name {
 /// selection mutates the mounted tree.
 @MainActor
 final class WorkspaceSwitchCoordinator {
-    enum ContentKind: String, Equatable {
-        case terminal
-        case browser
-        case passive
-    }
-    struct Readiness: Equatable {
-        let contentKind: ContentKind
-        var requiresInteraction: Bool
-        var portalPresented: Bool
-        var firstFramePresented: Bool
-        var interactionReady: Bool
-        /// Visual presentation readiness is diagnostic only. Mount reconciliation
-        /// owns source retirement, so a missed frame or portal signal cannot
-        /// strand the previous workspace in the live view graph.
-        var presentationIsReady: Bool {
-            switch contentKind {
-            case .terminal:
-                return portalPresented && firstFramePresented
-            case .browser:
-                return portalPresented
-            case .passive:
-                return true
-            }
-        }
-        var interactionIsReady: Bool {
-            !requiresInteraction || interactionReady
-        }
-    }
-    struct PresentationTarget {
-        let workspaceID: UUID
-        let contentKind: ContentKind
-        let terminalSurfaceID: UUID?
-        let terminalView: GhosttyNSView?
-        let terminalRendererPresented: Bool
-        let terminalRenderedFrameSequence: UInt64
-        let browserWebView: WKWebView?
-        let portalPresented: Bool
-        let interactionReady: Bool
-        let requiresInteraction: Bool
-    }
-
-    private struct ActiveTransaction {
-        let requestID: UUID
-        var sourceWorkspaceID: UUID
-        let targetWorkspaceID: UUID
-        var targetSurfaceID: UUID?
-        var targetTerminalViewID: ObjectIdentifier?
-        var targetWebViewID: ObjectIdentifier?
-        var readiness: Readiness?
-        var sourceRetired = false
-        var rendererProtectionActive = false
-        var warmFrameAvailable = false
-        var frameSequenceAtSelection: UInt64 = 0
-        var observedFrameAfterSelection = false
-        var frameObservation: WorkspaceSwitchFrameObservation?
-        var selectionCommitInterval: DynamicTracingSignpostInterval?
-        var portalShowInterval: DynamicTracingSignpostInterval?
-        var portalHideInterval: DynamicTracingSignpostInterval?
-        var rendererRealizationInterval: DynamicTracingSignpostInterval?
-        var firstFrameInterval: DynamicTracingSignpostInterval?
-        var interactiveInterval: DynamicTracingSignpostInterval?
-    }
     private let notificationCenter: NotificationCenter
     private let beginRendererProtection: @MainActor (UUID, UUID, @escaping () -> Bool) -> Void
     private let endRendererProtection: @MainActor (UUID) -> Void
-    private var active: ActiveTransaction?
+    private var active: WorkspaceSwitchActiveTransaction?
     private var reconciledWorkspaceID: UUID?
     init(
         notificationCenter: NotificationCenter = .default,
@@ -122,7 +60,7 @@ final class WorkspaceSwitchCoordinator {
         guard let sourceWorkspaceID, let targetWorkspaceID else { return nil }
 
         let requestID = UUID()
-        var transaction = ActiveTransaction(
+        var transaction = WorkspaceSwitchActiveTransaction(
             requestID: requestID,
             sourceWorkspaceID: sourceWorkspaceID,
             targetWorkspaceID: targetWorkspaceID,
@@ -168,7 +106,7 @@ final class WorkspaceSwitchCoordinator {
     }
 
     func beginPresentation(
-        _ target: PresentationTarget,
+        _ target: WorkspaceSwitchPresentationTarget,
         retiringWorkspaceID: UUID
     ) {
         guard var transaction = active else { return }
@@ -197,7 +135,7 @@ final class WorkspaceSwitchCoordinator {
         } else {
             firstFramePresented = true
         }
-        transaction.readiness = Readiness(
+        transaction.readiness = WorkspaceSwitchReadiness(
             contentKind: target.contentKind,
             requiresInteraction: target.requiresInteraction,
             portalPresented: target.portalPresented,
@@ -352,7 +290,7 @@ final class WorkspaceSwitchCoordinator {
         view: GhosttyNSView?,
         rendererPresented: Bool,
         renderedFrameSequence: UInt64,
-        in transaction: inout ActiveTransaction
+        in transaction: inout WorkspaceSwitchActiveTransaction
     ) {
         let targetViewID = view.map(ObjectIdentifier.init)
         guard transaction.targetSurfaceID != surfaceID ||
@@ -387,7 +325,7 @@ final class WorkspaceSwitchCoordinator {
         view: GhosttyNSView?,
         rendererPresented: Bool,
         renderedFrameSequence: UInt64,
-        in transaction: inout ActiveTransaction
+        in transaction: inout WorkspaceSwitchActiveTransaction
     ) {
         transaction.targetSurfaceID = surfaceID
         transaction.targetTerminalViewID = view.map(ObjectIdentifier.init)
@@ -439,7 +377,7 @@ final class WorkspaceSwitchCoordinator {
         )
     }
 
-    private func finishFrameObservation(_ transaction: inout ActiveTransaction) {
+    private func finishFrameObservation(_ transaction: inout WorkspaceSwitchActiveTransaction) {
         workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
         transaction.rendererRealizationInterval = nil
         workspaceSwitchSignposts.end(transaction.firstFrameInterval)
@@ -447,11 +385,11 @@ final class WorkspaceSwitchCoordinator {
         releaseFrameObservation(&transaction)
     }
 
-    private func releaseFrameObservation(_ transaction: inout ActiveTransaction) {
+    private func releaseFrameObservation(_ transaction: inout WorkspaceSwitchActiveTransaction) {
         transaction.frameObservation = nil
     }
 
-    private func finishIfPossible(_ transaction: inout ActiveTransaction) {
+    private func finishIfPossible(_ transaction: inout WorkspaceSwitchActiveTransaction) {
         guard transaction.sourceRetired,
               transaction.readiness?.presentationIsReady == true,
               transaction.readiness?.interactionIsReady == true else {
@@ -463,13 +401,13 @@ final class WorkspaceSwitchCoordinator {
         active = nil
     }
 
-    private func releaseRendererProtection(_ transaction: inout ActiveTransaction) {
+    private func releaseRendererProtection(_ transaction: inout WorkspaceSwitchActiveTransaction) {
         guard transaction.rendererProtectionActive else { return }
         endRendererProtection(transaction.requestID)
         transaction.rendererProtectionActive = false
     }
 
-    private static func endAllIntervals(in transaction: ActiveTransaction) {
+    private static func endAllIntervals(in transaction: WorkspaceSwitchActiveTransaction) {
         workspaceSwitchSignposts.end(transaction.selectionCommitInterval)
         workspaceSwitchSignposts.end(transaction.portalShowInterval)
         workspaceSwitchSignposts.end(transaction.portalHideInterval)
@@ -482,7 +420,7 @@ final class WorkspaceSwitchCoordinator {
         requestID: UUID,
         sourceWorkspaceID: UUID,
         targetWorkspaceID: UUID,
-        contentKind: ContentKind? = nil
+        contentKind: WorkspaceSwitchContentKind? = nil
     ) -> String {
         var details =
             "switch=\(requestID.uuidString.prefix(8)) " +

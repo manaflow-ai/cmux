@@ -3677,7 +3677,7 @@ struct ContentView: View {
     private func workspaceSwitchPresentationTarget(
         for workspaceID: UUID,
         sourceWorkspaceID: UUID
-    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
+    ) -> WorkspaceSwitchPresentationTarget {
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return passiveWorkspaceSwitchPresentationTarget(workspaceID: workspaceID)
         }
@@ -3701,7 +3701,7 @@ struct ContentView: View {
                         browserPanel.ownedFocusIntent(for: $0, in: window)
                     }
                 } != nil
-            return WorkspaceSwitchCoordinator.PresentationTarget(
+            return WorkspaceSwitchPresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .browser,
                 terminalSurfaceID: nil,
@@ -3723,7 +3723,7 @@ struct ContentView: View {
                 target.panel,
                 in: window
             )
-            return WorkspaceSwitchCoordinator.PresentationTarget(
+            return WorkspaceSwitchPresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .terminal,
                 terminalSurfaceID: target.surfaceID,
@@ -3749,8 +3749,8 @@ struct ContentView: View {
 
     private func passiveWorkspaceSwitchPresentationTarget(
         workspaceID: UUID
-    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
-        WorkspaceSwitchCoordinator.PresentationTarget(
+    ) -> WorkspaceSwitchPresentationTarget {
+        WorkspaceSwitchPresentationTarget(
             workspaceID: workspaceID,
             contentKind: .passive,
             terminalSurfaceID: nil,
