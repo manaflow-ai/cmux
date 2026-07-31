@@ -16,7 +16,7 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case connect = 1
     /// Pairing / attach completed successfully.
     case pairOk = 2
-    /// Pairing / attach failed.
+    /// Pairing / attach failed. `b`, when present, is ``DiagnosticFailureKind``.
     case pairFail = 3
     /// The render-grid stream lagged behind (a bounded render-lag counter tick).
     ///

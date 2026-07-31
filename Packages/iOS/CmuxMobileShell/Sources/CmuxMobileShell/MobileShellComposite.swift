@@ -8231,7 +8231,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
         }
 
-        diagnosticLog?.record(DiagnosticEvent(.pairFail))
+        diagnosticLog?.record(DiagnosticEvent(
+            .pairFail,
+            b: Self.diagnosticFailureKind(for: lastError).rawValue
+        ))
         diagnosticLog?.record(DiagnosticEvent(
             .rpcFailed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }

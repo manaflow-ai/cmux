@@ -45,6 +45,9 @@ public final class DiagnosticLog: Sendable {
     /// The inner actor owning the ring buffer and the wall-clock anchor.
     private let store: Store
 
+    /// The optional live observer, delivered retained events on the drain task.
+    private let tap: TapBox
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -94,12 +97,16 @@ public final class DiagnosticLog: Sendable {
             commandContinuation: commandContinuation
         )
         self.ingress = ingress
+        let tap = TapBox()
+        self.tap = tap
         self.drainTask = Task {
             for await command in commandStream {
                 switch command {
                 case let .events(events):
                     for await event in events {
-                        await store.append(event)
+                        if await store.append(event) {
+                            tap.deliver(event)
+                        }
                     }
                 case let .clear(
                     anchorWallNanos,
@@ -113,7 +120,9 @@ public final class DiagnosticLog: Sendable {
                     )
                     acknowledgement.resume()
                     for await event in nextEvents {
-                        await store.append(event)
+                        if await store.append(event) {
+                            tap.deliver(event)
+                        }
                     }
                 }
             }
@@ -122,6 +131,23 @@ public final class DiagnosticLog: Sendable {
 
     deinit {
         ingress.finish()
+    }
+
+    /// Sets the single live event observer, replacing any previous one.
+    ///
+    /// The observer runs on the internal drain task, after the event is retained
+    /// in the ring, so it adds no work to the hot-path ``record(_:)`` call and
+    /// sees events in ring order. Events consumed but not retained (the repeated
+    /// ``DiagnosticEventCode/selectedPathChanged`` dedup) are not delivered.
+    /// Events recorded before the observer is set are not replayed; a consumer
+    /// that needs history snapshots the ring via ``export()`` or ``snapshot(generatedAt:)``.
+    ///
+    /// The observer must be fast and must not block: it shares the drain task
+    /// with ring appends. Forward into your own queue or task for slow work.
+    ///
+    /// - Parameter observer: The observer, or `nil` to remove the current one.
+    public func setEventTap(_ observer: (@Sendable (DiagnosticEvent) -> Void)?) {
+        tap.set(observer)
     }
 
     /// Record one event. Non-blocking and safe from any thread.
@@ -214,6 +240,25 @@ public final class DiagnosticLog: Sendable {
             nextEvents: AsyncStream<DiagnosticEvent>,
             acknowledgement: CheckedContinuation<Void, Never>
         )
+    }
+
+    /// Holds the settable live observer without retaining the log, so the drain
+    /// task can capture it while ``DiagnosticLog/deinit`` stays reachable.
+    private final class TapBox: Sendable {
+        // lint:allow lock - deliver runs on the drain task and set is rare; the
+        // critical region only reads or writes one closure reference.
+        private let observer = OSAllocatedUnfairLock<(@Sendable (DiagnosticEvent) -> Void)?>(
+            initialState: nil
+        )
+
+        func set(_ newObserver: (@Sendable (DiagnosticEvent) -> Void)?) {
+            observer.withLock { $0 = newObserver }
+        }
+
+        func deliver(_ event: DiagnosticEvent) {
+            let current = observer.withLock { $0 }
+            current?(event)
+        }
     }
 
     /// Serializes event-segment rotation without suspending callers. Event
@@ -356,10 +401,14 @@ public final class DiagnosticLog: Sendable {
             self.slots = Array(repeating: nil, count: clamped)
         }
 
-        func append(_ event: DiagnosticEvent) {
+        /// Appends one event, returning whether it was retained (`false` for the
+        /// repeated selected-path dedup) so the drain task can skip observer
+        /// delivery for events the ring itself discards.
+        @discardableResult
+        func append(_ event: DiagnosticEvent) -> Bool {
             totalProcessed += 1
             if let nextPathKind = event.diagnosticPathKind {
-                guard nextPathKind != selectedPathKind else { return }
+                guard nextPathKind != selectedPathKind else { return false }
                 selectedPathKind = nextPathKind
             }
             slots[head] = event
@@ -367,6 +416,7 @@ public final class DiagnosticLog: Sendable {
             if filled < capacity {
                 filled += 1
             }
+            return true
         }
 
         func count() -> Int {
