@@ -74,10 +74,9 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
             case let .userAuthorizedTailscalePairing(authorization):
-                // Valid only for a fresh pairing dial: the code names no device,
-                // so a request that already expects a peer must use a grant.
-                guard request.expectedPeerDeviceID?.isEmpty != false,
-                      authorization.authorizes(host: host, port: port) else {
+                // Anchored on the exact user-entered destination; any claimed
+                // device identity is self-reported and grants nothing extra.
+                guard authorization.authorizes(host: host, port: port) else {
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
             case .stackBearer, .transportAdmission:

@@ -71,7 +71,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         } else if route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint,
-                  ticket.macDeviceID.isEmpty,
                   let userTailscalePairingAuthorization,
                   userTailscalePairingAuthorization.authorizes(
                       host: host,
@@ -614,7 +613,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case let .userAuthorizedTailscalePairing(authorization):
             guard route.kind == .tailscale,
-                  ticket.macDeviceID.isEmpty,
                   case let .hostPort(host, port) = route.endpoint else {
                 return false
             }

@@ -172,26 +172,17 @@ private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
         }
     }
 
-    @Test func buildsUserAuthorizedPairingTransportWhilePeerIsUnidentified() throws {
-        let request = try userAuthorizedPairingRequest(expectedPeerDeviceID: "")
-
-        let transport = try CmxNetworkByteTransportFactory().makeTransport(for: request)
-
-        #expect(transport is CmxPreparingTailscaleByteTransport)
-
-        let nilPeerRequest = try userAuthorizedPairingRequest(expectedPeerDeviceID: nil)
-        let nilPeerTransport = try CmxNetworkByteTransportFactory()
-            .makeTransport(for: nilPeerRequest)
-        #expect(nilPeerTransport is CmxPreparingTailscaleByteTransport)
-    }
-
-    @Test func rejectsUserAuthorizedPairingOncePeerIsIdentified() throws {
-        // A known Mac must use its persisted device-bound grant; the identity-
-        // free pairing-code authorization is valid only for the first dial.
-        let request = try userAuthorizedPairingRequest(expectedPeerDeviceID: "mac-1")
-
-        #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
-            _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
+    @Test func buildsUserAuthorizedPairingTransportForItsExactDestination() throws {
+        // The pairing window's tokenless v1 compatibility code carries a
+        // self-reported Mac identity, the bare-route v2 grammar carries none.
+        // The authorization anchors on the destination, so both dial.
+        for expectedPeerDeviceID in [nil, "", "mac-1"] {
+            let request = try userAuthorizedPairingRequest(
+                expectedPeerDeviceID: expectedPeerDeviceID
+            )
+            let transport = try CmxNetworkByteTransportFactory()
+                .makeTransport(for: request)
+            #expect(transport is CmxPreparingTailscaleByteTransport)
         }
     }
 

@@ -13,9 +13,9 @@ public enum CmxUserTailscalePairingAuthorizationError: Error, Equatable, Sendabl
 ///
 /// The authorization event is the user reading the code off their Mac's
 /// pairing window (QR scan or pasted text) in this app session. Unlike
-/// ``CmxLegacyTailscaleAuthorizationEvidence`` there is no Mac device binding
-/// yet: a compatibility code carries no device identity, so this value is
-/// valid only while the peer is still unidentified and never persists. Once
+/// ``CmxLegacyTailscaleAuthorizationEvidence`` there is no Mac device binding:
+/// any identity a code claims is self-reported and carries no authority, so
+/// this value anchors on the exact destination alone and never persists. Once
 /// the host authenticates, the shell records a device-bound grant and later
 /// dials use the evidence path.
 public struct CmxUserTailscalePairingAuthorization: Equatable, Sendable {

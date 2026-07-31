@@ -160,10 +160,9 @@ struct CmxTailscaleRouteProofValidator {
                 throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
             }
         case let .userAuthorizedTailscalePairing(authorization):
-            // A user-entered code names no device: it may dial only while the
-            // peer is still unidentified, and only its exact destination.
-            guard request.expectedPeerDeviceID?.isEmpty != false,
-                  authorization.authorizes(host: host, port: port) else {
+            // A user-entered code authorizes only its exact destination; any
+            // device identity it claims is self-reported and grants nothing.
+            guard authorization.authorizes(host: host, port: port) else {
                 throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
             }
         case .stackBearer, .transportAdmission:

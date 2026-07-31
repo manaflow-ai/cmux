@@ -3917,11 +3917,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .needsUserApproval
         }
 
-        // An explicit in-app code entry authorizes the exact Tailscale
-        // destinations it named, only while the ticket has no Mac identity yet
-        // (the v2 compatibility grammar). External URL opens never mint this.
+        // An explicit in-app code entry (the Mac's Tailscale pairing window
+        // shows either the tokenless v1 compatibility ticket or the bare-route
+        // v2 grammar) authorizes the exact Tailscale destinations it named.
+        // External URL opens never mint this.
         let userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization]
-        if userEnteredPairingCode, ticket.macDeviceID.isEmpty {
+        if userEnteredPairingCode {
             userTailscalePairingAuthorizations = ticket.routes.compactMap { route in
                 guard route.kind == .tailscale,
                       case let .hostPort(host, port) = route.endpoint else {
@@ -7899,7 +7900,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let userTailscalePairingAuthorization = legacyTailscaleAuthorizationEvidence == nil
                 ? Self.userTailscalePairingAuthorization(
                     for: route,
-                    ticket: ticket,
                     authorizations: userTailscalePairingAuthorizations
                 )
                 : nil
@@ -8053,14 +8053,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     } else {
                         tagUpdate = .preserve
                     }
-                    // Authorization coverage is computed against the ORIGINAL
-                    // ticket: user pairing-code authorizations are valid only
-                    // while the Mac identity was unknown, which the resolved
-                    // ticket no longer is.
                     let userAuthorizedTailscaleRoutes = ticket.routes.filter { ticketRoute in
                         Self.userTailscalePairingAuthorization(
                             for: ticketRoute,
-                            ticket: ticket,
                             authorizations: userTailscalePairingAuthorizations
                         ) != nil
                     }
@@ -8349,7 +8344,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ) != nil
                     || Self.userTailscalePairingAuthorization(
                         for: route,
-                        ticket: ticket,
                         authorizations: userTailscalePairingAuthorizations
                     ) != nil
             }
@@ -8364,15 +8358,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.
-    /// Valid only while the ticket has no authenticated Mac identity yet: a
-    /// known device must use its persisted device-local grant instead.
+    /// Anchored on the exact destination the code named; a device identity a
+    /// code claims is self-reported and grants nothing.
     static func userTailscalePairingAuthorization(
         for route: CmxAttachRoute,
-        ticket: CmxAttachTicket,
         authorizations: [CmxUserTailscalePairingAuthorization]
     ) -> CmxUserTailscalePairingAuthorization? {
-        guard ticket.macDeviceID.isEmpty,
-              route.kind == .tailscale,
+        guard route.kind == .tailscale,
               case let .hostPort(host, port) = route.endpoint else {
             return nil
         }
