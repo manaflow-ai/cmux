@@ -15,7 +15,10 @@ import {
   type Transport,
   workspaceId,
 } from "../src/node.js";
-import { UnixSocketTransport } from "../src/node-transport.js";
+import {
+  UnixSocketTransport,
+  type UnixSocketTransportOptions,
+} from "../src/node-transport.js";
 import { CmuxClient } from "../src/raw/node-client.js";
 
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
@@ -28,7 +31,9 @@ interface DelayedUnixFixture {
   close(): Promise<void>;
 }
 
-async function delayedUnixFixture(): Promise<DelayedUnixFixture> {
+async function delayedUnixFixture(
+  options: UnixSocketTransportOptions = {},
+): Promise<DelayedUnixFixture> {
   const directory = await mkdtemp(join(tmpdir(), "cmux-typescript-delayed-"));
   const socketPath = join(directory, "session.sock");
   const received: string[] = [];
@@ -51,7 +56,7 @@ async function delayedUnixFixture(): Promise<DelayedUnixFixture> {
     server.once("error", reject);
     server.listen(socketPath, resolve);
   });
-  const transport = new UnixSocketTransport(socketPath);
+  const transport = new UnixSocketTransport(socketPath, options);
   const socket = (transport as unknown as { readonly socket: Socket }).socket;
   const connectListener = socket.listeners("connect").at(-1) as
     | (() => void)
@@ -203,6 +208,22 @@ test("Unix connect failure discards queued cancellable frames", async () => {
   } finally {
     transport.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Unix connected sends ignore pre-connect pending byte limits", async () => {
+  const fixture = await delayedUnixFixture({
+    maxOutboundMessageBytes: 64,
+    maxPendingBytes: 4,
+    maxPendingMessages: 1,
+  });
+  try {
+    await fixture.release();
+    fixture.transport.send("connected-frame");
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(fixture.received, ["connected-frame"]);
+  } finally {
+    await fixture.close();
   }
 });
 

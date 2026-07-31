@@ -133,6 +133,62 @@ class FakeTransport implements Transport {
   }
 }
 
+class DispatchHandleTransport implements Transport {
+  readonly dispatched: string[] = [];
+  retained: string | undefined;
+  releases = 0;
+  private queued: { readonly json: string; readonly dispatch: () => void } | undefined;
+  private closed = false;
+  private readonly closes = new Set<() => void>();
+
+  constructor(private readonly synchronous: boolean) {}
+
+  send(json: string): void {
+    this.dispatched.push(json);
+  }
+
+  sendCancellable(json: string, onDispatched: () => void): Unsubscribe {
+    this.retained = json;
+    const dispatch = () => {
+      onDispatched();
+      this.dispatched.push(json);
+    };
+    if (this.synchronous) dispatch();
+    else this.queued = { json, dispatch };
+    return () => {
+      this.releases += 1;
+      this.retained = undefined;
+      if (this.queued?.json === json) this.queued = undefined;
+    };
+  }
+
+  dispatch(): void {
+    const queued = this.queued;
+    assert.ok(queued);
+    this.queued = undefined;
+    queued.dispatch();
+  }
+
+  onMessage(): Unsubscribe {
+    return () => undefined;
+  }
+
+  onClose(handler: () => void): Unsubscribe {
+    this.closes.add(handler);
+    return () => this.closes.delete(handler);
+  }
+
+  onError(): Unsubscribe {
+    return () => undefined;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const handler of this.closes) handler();
+  }
+}
+
 async function waitForOperation(
   transport: FakeTransport,
   operation: string,
@@ -150,6 +206,27 @@ async function waitForOperation(
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
 }
+
+test("resource protocol releases cancellation handles at dispatch", async () => {
+  for (const synchronous of [true, false]) {
+    const transport = new DispatchHandleTransport(synchronous);
+    const client = new Client({ transport, timeoutMs: 0 });
+    const pending = client.session(SESSION).ping();
+    const rejected = assert.rejects(() => pending, CmuxConnectionError);
+
+    if (!synchronous) {
+      assert.equal(transport.releases, 0);
+      assert.ok(transport.retained?.includes("session.ping"));
+      transport.dispatch();
+    }
+    assert.equal(transport.releases, 1);
+    assert.equal(transport.retained, undefined);
+
+    client.close();
+    await rejected;
+    assert.equal(transport.releases, 1);
+  }
+});
 
 test("resource root, raw boundary, exact commands, and idempotency keys", async () => {
   const randomValues = [HEX_A, HEX_B, HEX_C];
