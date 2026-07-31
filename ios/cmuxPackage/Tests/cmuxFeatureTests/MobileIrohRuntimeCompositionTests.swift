@@ -474,6 +474,45 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func freshRelayCredentialWinsOnlyForTheExactManagedFleet() {
+        let expectedFleet: Set<String> = ["https://relay.example/"]
+        let fresh = CmxIrohRelayTokenResponse(
+            token: "fresh",
+            expiresAt: "2027-08-01T00:00:00Z",
+            refreshAfter: "2027-07-31T23:00:00Z",
+            relayFleet: Array(expectedFleet)
+        )
+        let cached = CmxIrohRelayTokenResponse(
+            token: "cached",
+            expiresAt: "2027-08-01T00:00:00Z",
+            refreshAfter: "2027-07-31T23:00:00Z",
+            relayFleet: Array(expectedFleet)
+        )
+        let incompatibleFresh = CmxIrohRelayTokenResponse(
+            token: "wrong-fleet",
+            expiresAt: "2027-08-01T00:00:00Z",
+            refreshAfter: "2027-07-31T23:00:00Z",
+            relayFleet: ["https://other-relay.example/"]
+        )
+
+        #expect(MobileIrohRuntimeComposition.compatibleRelayCredential(
+            fresh: fresh,
+            cached: cached,
+            managedRelayURLs: expectedFleet
+        ) == fresh)
+        #expect(MobileIrohRuntimeComposition.compatibleRelayCredential(
+            fresh: incompatibleFresh,
+            cached: cached,
+            managedRelayURLs: expectedFleet
+        ) == cached)
+        #expect(MobileIrohRuntimeComposition.compatibleRelayCredential(
+            fresh: incompatibleFresh,
+            cached: nil,
+            managedRelayURLs: expectedFleet
+        ) == nil)
+    }
+
+    @Test
     func terminalLaneFramesUTF8InputAndOwnsBothStreamHalves() async throws {
         let outputEnvelope = try CmxIrohTerminalOutputEnvelope(
             kind: .replay,
