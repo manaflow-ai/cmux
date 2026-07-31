@@ -139,10 +139,24 @@ struct FilePreviewKindResolverTests {
         #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
     }
 
-    /// UTF-8 whose first 4096 bytes end on the lead byte of a two-byte scalar,
+    @Test("Valid UTF-8 carrying a control byte still resolves to text")
+    func validUTF8CarryingAControlByteStillResolvesToText() throws {
+        let url = try temporaryFile(extension: "dat", contents: "ring \u{07} and continue\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(
+            FilePreviewKindResolver.mode(for: url) == .text,
+            "Bundled JavaScript and terminal captures carry C0 bytes; a valid UTF-8 decode still means text."
+        )
+    }
+
+    /// UTF-8 whose sniff prefix ends on the lead byte of a two-byte scalar,
     /// which is what the fixed-size sniff read cuts in half.
     private func multiByteCharacterAtSniffBoundary(prefix: String, suffix: String) -> Data {
-        let padding = String(repeating: "a", count: 4096 - prefix.utf8.count - 1)
+        let padding = String(
+            repeating: "a",
+            count: FilePreviewKindResolver.sniffPrefixByteCount - prefix.utf8.count - 1
+        )
         return Data((prefix + padding + "ä" + suffix).utf8)
     }
 

@@ -896,6 +896,12 @@ enum FilePreviewKindResolver {
     /// Classifies the head of a file that neither its name nor its UTType could
     /// resolve. The prefix is a fixed-size read, so a failed decode is not on
     /// its own evidence of binary content.
+    ///
+    /// A successful UTF-8 decode is accepted as is, control bytes included:
+    /// bundled JavaScript and captured terminal output carry C0 bytes and are
+    /// still source. The control-byte gate applies only to the single-byte
+    /// fallback below, where a successful decode proves nothing because
+    /// ISO Latin-1 maps every byte.
     static func prefixLooksLikeText(_ data: Data) -> Bool {
         guard !data.isEmpty else { return true }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
