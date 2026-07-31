@@ -19,6 +19,19 @@ test("keeps relay catalog validation inside the Vercel project", () => {
   expect(existsSync(resolvedScript)).toBe(true);
 });
 
+test("generates the Pagefind index before Next traces public files", () => {
+  for (const scriptName of ["build", "vercel-build"] as const) {
+    const buildCommand = packageJSON.scripts[scriptName];
+    const pagefindIndex = buildCommand.indexOf(
+      "bun tools/build-docs-search.mjs",
+    );
+    const nextBuildIndex = buildCommand.indexOf("next build");
+
+    expect(pagefindIndex).toBeGreaterThanOrEqual(0);
+    expect(nextBuildIndex).toBeGreaterThan(pagefindIndex);
+  }
+});
+
 test("includes every dynamically read Open Graph asset in traced route output", () => {
   expect(nextConfig.outputFileTracingIncludes?.["**/opengraph-image"]).toEqual([
     "./app/lib/open-graph-fonts/**/*",
