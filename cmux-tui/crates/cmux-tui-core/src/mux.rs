@@ -14225,7 +14225,7 @@ mod tests {
             );
         }
 
-        let deadline = Instant::now() + Duration::from_secs(1);
+        let deadline = Instant::now() + crate::test_timeout(Duration::from_secs(1));
         while mux.terminal_adoption_workers_started.load(Ordering::Acquire)
             < TERMINAL_ADOPTION_WORKERS
             && Instant::now() < deadline
