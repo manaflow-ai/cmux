@@ -5027,6 +5027,83 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn invitation_approval_outlives_the_route_attempt_timeout() {
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_auth = AuthDatabase::load_or_create(
+            directory.path().join("daemon"),
+            "delayed-invitation-approval",
+            true,
+        )
+        .unwrap();
+        let unix_path = directory.path().join("daemon.sock");
+        let route = unix_test_route(&unix_path);
+        let invitation = daemon_auth
+            .create_invitation(Duration::from_secs(60), vec![route.to_string()])
+            .await
+            .unwrap();
+        let daemon_key: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&invitation.daemon_public_key)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let (daemon, _clients) = RemoteDaemon::new(daemon_auth.clone(), SessionLimits::default());
+        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+        let mut providers = cmux_remote::provider::ProviderRegistry::default();
+        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+        let providers = Arc::new(providers);
+        let route = ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap();
+        let ssh = SshProviderConfig::default();
+        let options = ClientRuntimeOptions {
+            routes: vec![route],
+            providers,
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: Some(daemon_key),
+            auth: ClientAuthMode::Invitation {
+                id: invitation.id.clone(),
+                secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
+            },
+            device_name: "delayed-approval-client".into(),
+            session: SessionId([24; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                initial_delay: Duration::from_millis(1),
+                maximum_delay: Duration::from_millis(1),
+                attempt_timeout: Duration::from_millis(20),
+                full_jitter: false,
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
+                maximum_attempts: Some(2),
+            },
+            startup_timeout: Duration::from_secs(1),
+            state_dir: directory.path().join("client"),
+            local_socket: None,
+            ssh,
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: false,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(1),
+            },
+        };
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let connection =
+            tokio::spawn(async move { connect_first_available(&options, shutdown_rx).await });
+
+        let pending = daemon_auth.wait_for_pending(Duration::from_millis(200)).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        daemon_auth.approve(&pending[0].invitation_id).await.unwrap();
+
+        let (connection, _) = tokio::time::timeout(Duration::from_secs(1), connection)
+            .await
+            .expect("delayed invitation approval timed out")
+            .unwrap()
+            .expect("the route timer abandoned a pending invitation approval");
+        connection.close().await.unwrap();
+        server.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn initial_provider_timeout_falls_back_to_next_route() {
         let directory = tempfile::tempdir().unwrap();
         let daemon_auth =
