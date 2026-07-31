@@ -181,6 +181,17 @@ struct MobileConnectionPolicyTests {
         ) == .none)
     }
 
+    @Test func connectedForegroundOrNetworkChangeOnDeadPathRedialsImmediately() {
+        for evidence in [
+            MobileConnectionEvidence.foreground,
+            .networkPathChanged,
+        ] {
+            #expect(MobileConnectionPolicy.action(
+                for: evidence, in: context(health: .noPath)
+            ) == .redial, "\(evidence)")
+        }
+    }
+
     // MARK: Suspect evidence while disconnected is moot
 
     @Test func suspectEvidenceWhileDisconnectedIsIgnored() {

@@ -802,6 +802,30 @@ extension ReconnectRouteSelectionTests {
         )
         #expect(!fixture.store.isRecoveringConnection)
     }
+
+    @Test func foregroundOnDeadIrohPathConsultsHealthAndRedials() async throws {
+        let pathHealth = PathHealthProbe(.noPath)
+        let fixture = try await makeRecoveryOwnerFixture(
+            pathHealth: { _ in await pathHealth.read() }
+        )
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverForegroundConnectionIfNeeded(resyncAfterHealthy: false)
+
+        #expect(try await pollUntil(attempts: 50) {
+            await pathHealth.wasReadValue()
+        })
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
 }
 
 private actor PathHealthProbe {
@@ -826,5 +850,9 @@ private actor PathHealthProbe {
     func waitUntilRead() async {
         if wasRead { return }
         await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func wasReadValue() -> Bool {
+        wasRead
     }
 }
