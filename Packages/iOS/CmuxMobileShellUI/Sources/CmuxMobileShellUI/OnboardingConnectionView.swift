@@ -49,6 +49,12 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Your Mac is connected"
             )
         }
+        if connectionMethod == .tailscale {
+            return L10n.string(
+                "mobile.onboarding.connect.tailscaleTitle",
+                defaultValue: "Connect over Tailscale"
+            )
+        }
         return L10n.string(
             "mobile.onboarding.connect.title",
             defaultValue: "Your Mac connects automatically"

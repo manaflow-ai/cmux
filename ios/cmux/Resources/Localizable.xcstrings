@@ -4540,6 +4540,23 @@
         }
       }
     },
+    "mobile.onboarding.connect.tailscaleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect over Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleで接続"
+          }
+        }
+      }
+    },
     "mobile.onboarding.connect.tailscaleBody": {
       "extractionState": "manual",
       "localizations": {
