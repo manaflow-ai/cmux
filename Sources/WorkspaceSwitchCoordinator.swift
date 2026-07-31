@@ -96,8 +96,10 @@ final class WorkspaceSwitchCoordinator {
         self.beginRendererProtection = beginRendererProtection
         self.endRendererProtection = endRendererProtection
     }
+    /// No transaction means there is no coordinated presentation to wait for.
     var isReadyForSourceRetirement: Bool {
-        active?.readiness?.isReadyForSourceRetirement == true
+        guard let active else { return true }
+        return active.readiness?.isReadyForSourceRetirement == true
     }
 
     func selectionWillCommit(
