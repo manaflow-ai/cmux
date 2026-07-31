@@ -13,6 +13,10 @@ public actor CmxIrohHostRuntime {
         _ discovery: CmxIrohDiscoveryResponse,
         _ attestation: CmxIrohEndpointAttestationResponse?
     ) async -> Void
+    public typealias RouteHandler = @Sendable (
+        _ binding: CmxIrohBrokerBindingMetadata,
+        _ pathHints: [CmxIrohPathHint]
+    ) async -> Void
     /// Clears app-visible network state after the endpoint and accepts are closed.
     ///
     /// Persistent identity and credential deletion belongs to the caller and
@@ -38,6 +42,7 @@ public actor CmxIrohHostRuntime {
         let attestation: CmxIrohEndpointAttestationResponse?
         let relayBootstrap: CmxIrohRelayTokenResponse?
         let lanRendezvous: CmxIrohLANRendezvous
+        let routePathHints: [CmxIrohPathHint]
     }
 
     enum LifecyclePhase: Equatable, Sendable {
@@ -70,6 +75,7 @@ public actor CmxIrohHostRuntime {
     let registrationRetryJitter: @Sendable () -> Double
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
+    let handleRoute: RouteHandler
     let handleDeactivation: DeactivationHandler
     let handleRelayCredential: RelayCredentialHandler
     let handleLANRefresh: LANRefreshHandler
@@ -78,13 +84,13 @@ public actor CmxIrohHostRuntime {
     var lifecycleRevision: UInt64 = 0
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohHostSignOutPreparation, Never>?
-    var supervisor: CmxIrohEndpointSupervisor?
+    var connectivityEngine: CmxConnectivityEngine?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var endpointServer: CmxIrohEndpointServer?
     var admissionController: CmxIrohAdmissionController?
     var onlineAdmissionRegistry: CmxIrohOnlineAdmissionRegistry?
     var offlineSessions: CmxIrohOfflinePairingSessions?
-    var supervisorEventTask: Task<Void, Never>?
+    var connectivityEventTask: Task<Void, Never>?
     var relayActivationTask: Task<Void, Never>?
     var lanPublicationTask: Task<Void, Never>?
     var lanPublicationGeneration: UInt64 = 0
@@ -98,6 +104,7 @@ public actor CmxIrohHostRuntime {
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
     var endpointAttestation: CmxIrohEndpointAttestationResponse?
     var lanRendezvous: CmxIrohLANRendezvous?
+    var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var activePathConnections: [UUID: any CmxIrohConnection] = [:]
     var activePathConnectionOrder: [UUID] = []
     var activePathObservationTasks: [UUID: Task<Void, Never>] = [:]
@@ -123,6 +130,7 @@ public actor CmxIrohHostRuntime {
         },
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
+        handleRoute: @escaping RouteHandler = { _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLANRefresh: @escaping LANRefreshHandler = {},
@@ -140,6 +148,7 @@ public actor CmxIrohHostRuntime {
         self.registrationRetryJitter = registrationRetryJitter
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
+        self.handleRoute = handleRoute
         self.handleDeactivation = handleDeactivation
         self.handleRelayCredential = handleRelayCredential
         self.handleLANRefresh = handleLANRefresh
@@ -177,23 +186,25 @@ public actor CmxIrohHostRuntime {
                 bindPolicy: configuration.bindPolicy,
                 relayProfile: endpointRelayProfile
             )
-            let supervisor = CmxIrohEndpointSupervisor(
+            let connectivityEngine = CmxConnectivityEngine(
                 factory: factory,
-                configuration: endpointConfiguration
+                endpointConfiguration: endpointConfiguration,
+                protocolConfiguration: protocolConfiguration
             )
-            self.supervisor = supervisor
-            await startSupervisorObservation(
-                supervisor: supervisor,
+            self.connectivityEngine = connectivityEngine
+            await startConnectivityObservation(
+                engine: connectivityEngine,
                 revision: revision
             )
-            let endpointSnapshot = try await supervisor.activate()
+            try await connectivityEngine.start()
             try requireCurrent(revision)
-            guard let endpointID = endpointSnapshot.identity else {
+            let endpointSnapshot = await connectivityEngine.snapshot()
+            guard let endpointID = endpointSnapshot.localIdentity else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
 
             let policy = try await resolveInitialPolicy(
-                supervisor: supervisor,
+                engine: connectivityEngine,
                 expectedEndpointID: endpointID,
                 revision: revision
             )
@@ -219,7 +230,7 @@ public actor CmxIrohHostRuntime {
             if endpointRelayProfile.source == .managed,
                !endpointRelayProfile.allowedRelayURLs.isEmpty {
                 relayCoordinator = CmxIrohRelayCredentialCoordinator(
-                    supervisor: supervisor,
+                    supervisor: connectivityEngine,
                     broker: broker,
                     managedRelayURLs: managedRelayURLs,
                     selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,
@@ -239,7 +250,7 @@ public actor CmxIrohHostRuntime {
             endpointAttestation = policy.attestation
             lanRendezvous = policy.lanRendezvous
 
-            let server = CmxIrohEndpointServer(supervisor: supervisor) { [weak self] connection, generation, markAdmitted in
+            let server = await connectivityEngine.makeEndpointServer { [weak self] connection, generation, markAdmitted in
                 guard let self else {
                     await connection.close(errorCode: 1, reason: "runtime_deallocated")
                     return
@@ -274,13 +285,13 @@ public actor CmxIrohHostRuntime {
                     )
                 }
                 try requireCurrent(revision)
-                guard await supervisor.hasConfiguredRelay() else {
+                guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
                 }
-                try await supervisor.waitForUsableHomeRelay()
+                try await connectivityEngine.waitForUsableHomeRelay()
                 try requireCurrent(revision)
                 let readyPolicy = try await resolvePolicy(
-                    supervisor: supervisor,
+                    engine: connectivityEngine,
                     expectedEndpointID: endpointID,
                     revision: revision,
                     allowCachedFallback: false
@@ -305,11 +316,20 @@ public actor CmxIrohHostRuntime {
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
+                try requireCurrent(revision)
+                if let routeRevision = discovery.revision {
+                    await connectivityEngine.didInstallRouteRevision(routeRevision)
+                }
                 scheduleRegistrationRenewal(
                     binding: registration.binding,
                     revision: revision
                 )
             }
+            await handleRoute(
+                publishedPolicy.binding,
+                publishedPolicy.routePathHints
+            )
+            try requireCurrent(revision)
             registrationRefreshEnabled = true
             if registrationRefreshPending {
                 registrationRefreshPending = false
@@ -327,7 +347,7 @@ public actor CmxIrohHostRuntime {
             scheduleLANPublication(
                 binding: publishedPolicy.binding,
                 rendezvous: publishedPolicy.lanRendezvous,
-                supervisor: supervisor,
+                engine: connectivityEngine,
                 revision: revision
             )
         } catch {
@@ -496,15 +516,14 @@ public actor CmxIrohHostRuntime {
     func publishLANPolicy(
         binding: CmxIrohBrokerBindingMetadata,
         rendezvous: CmxIrohLANRendezvous,
-        supervisor: CmxIrohEndpointSupervisor
+        engine: CmxConnectivityEngine
     ) async {
         let context = CmxIrohHostLANAdvertisementContext(
             binding: binding,
             rendezvous: rendezvous
         )
         let directAddresses: LANDirectAddressProvider = {
-            guard let endpoint = try? await supervisor.activeEndpoint() else { return [] }
-            return await endpoint.localDirectAddresses()
+            (try? await engine.localDirectAddresses()) ?? []
         }
         await handleLANPolicy(context, directAddresses)
     }
@@ -557,7 +576,7 @@ public actor CmxIrohHostRuntime {
     func scheduleLANPublication(
         binding: CmxIrohBrokerBindingMetadata,
         rendezvous: CmxIrohLANRendezvous,
-        supervisor: CmxIrohEndpointSupervisor,
+        engine: CmxConnectivityEngine,
         revision: UInt64
     ) {
         lanPublicationGeneration &+= 1
@@ -567,7 +586,7 @@ public actor CmxIrohHostRuntime {
             await self?.publishLANSidecar(
                 binding: binding,
                 rendezvous: rendezvous,
-                supervisor: supervisor,
+                engine: engine,
                 revision: revision,
                 generation: generation
             )
@@ -577,7 +596,7 @@ public actor CmxIrohHostRuntime {
     private func publishLANSidecar(
         binding: CmxIrohBrokerBindingMetadata,
         rendezvous: CmxIrohLANRendezvous,
-        supervisor: CmxIrohEndpointSupervisor,
+        engine: CmxConnectivityEngine,
         revision: UInt64,
         generation: UInt64
     ) async {
@@ -588,7 +607,7 @@ public actor CmxIrohHostRuntime {
         await publishLANPolicy(
             binding: binding,
             rendezvous: rendezvous,
-            supervisor: supervisor
+            engine: engine
         )
     }
 

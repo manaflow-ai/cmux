@@ -761,6 +761,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     let analytics: any AnalyticsEmitting
     let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
+    /// The pre-authentication client owned by the current foreground connect.
+    /// Tracking it separately from `remoteClient` lets a newer connect retire
+    /// the exact candidate that still owns a physical-route lease.
+    private var connectionAttemptClient: MobileCoreRPCClient?
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -7671,6 +7675,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        await releaseConnectionAttemptClientForReplacement()
+        guard isConnectCurrent() else { return nil }
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -7916,6 +7922,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver
             )
+            if let previousAttemptClient =
+                replaceConnectionAttemptClientOwnership(with: client) {
+                await previousAttemptClient.disconnect()
+                guard isConnectCurrent() else {
+                    await client.disconnect()
+                    return nil
+                }
+            }
+            defer {
+                clearConnectionAttemptClient(ifMatching: client)
+            }
             for workspaceListRequest in workspaceListRequests {
                 do {
                     let requestTimeoutNanoseconds: UInt64
@@ -8537,6 +8554,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
+        if let attemptClient =
+            replaceConnectionAttemptClientOwnership(with: nil) {
+            Task { await attemptClient.disconnect() }
+        }
         replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
         // read-only connections (P3) are torn down separately.
@@ -8596,6 +8617,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             removeFocusedConnection(ifMatching: focused)
         }
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
+    }
+
+    /// Retire the current pre-authentication candidate before a newer connect
+    /// competes for the same physical route. The registry lease transfers to
+    /// teardown before the replacement reaches transport admission.
+    private func releaseConnectionAttemptClientForReplacement() async {
+        let previous = replaceConnectionAttemptClientOwnership(with: nil)
+        await previous?.disconnect()
+    }
+
+    private func clearConnectionAttemptClient(
+        ifMatching client: MobileCoreRPCClient
+    ) {
+        guard connectionAttemptClient === client else { return }
+        connectionAttemptClient = nil
+    }
+
+    private func replaceConnectionAttemptClientOwnership(
+        with newValue: MobileCoreRPCClient?
+    ) -> MobileCoreRPCClient? {
+        let previous = connectionAttemptClient
+        if let previous, previous !== newValue {
+            previous.retire()
+        }
+        connectionAttemptClient = newValue
+        return previous !== newValue ? previous : nil
     }
 
     /// Publish one remote-client ownership change synchronously. Callers choose
