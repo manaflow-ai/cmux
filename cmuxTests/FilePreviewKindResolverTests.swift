@@ -107,8 +107,21 @@ struct FilePreviewKindResolverTests {
     }
 
     @MainActor
-    @Test("File commands ignore panels that are not file previews")
-    func fileCommandsIgnorePanelsThatAreNotFilePreviews() {
+    @Test("File commands ignore a panel that previews the file some other way")
+    func fileCommandsIgnoreAPanelThatPreviewsTheFileSomeOtherWay() throws {
+        let url = try temporaryFile(extension: "md", contents: "# title\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: url.path)
+
+        #expect(
+            FilePreviewCommandTarget.fileURL(for: panel) == nil,
+            "A markdown panel points at a real file, so the guard has to be the panel type, not the path."
+        )
+    }
+
+    @MainActor
+    @Test("File commands ignore an unfocused pane")
+    func fileCommandsIgnoreAnUnfocusedPane() {
         #expect(FilePreviewCommandTarget.fileURL(for: nil) == nil)
     }
 
