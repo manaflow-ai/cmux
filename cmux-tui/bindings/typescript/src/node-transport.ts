@@ -121,9 +121,15 @@ export class UnixSocketTransport implements Transport {
         `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
       );
     }
+    const mustBuffer =
+      !this.connected
+      || this.socket.destroyed
+      || this.flushing
+      || this.pending.length > 0;
     if (
-      this.pending.length >= this.maxPendingMessages
-      || bytes > this.maxPendingBytes - this.pendingBytes
+      mustBuffer
+      && (this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes)
     ) {
       throw new CmuxConnectionError("pending socket message buffer is full");
     }

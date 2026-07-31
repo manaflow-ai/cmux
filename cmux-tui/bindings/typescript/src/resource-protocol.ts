@@ -589,12 +589,19 @@ export class ResourceProtocol {
             const cancelUndispatched = this.transport.sendCancellable(
               json,
               () => {
+                if (dispatchStarted) return;
                 dispatchStarted = true;
+                const release = pending.cancelUndispatched;
+                pending.cancelUndispatched = undefined;
+                release?.();
                 onDispatchStarted?.();
                 onDispatched?.();
               },
             );
-            if (this.pending.get(requestId) === pending) {
+            if (
+              !dispatchStarted
+              && this.pending.get(requestId) === pending
+            ) {
               pending.cancelUndispatched = cancelUndispatched;
             } else {
               cancelUndispatched();
