@@ -985,15 +985,6 @@ html { scroll-behavior: smooth; }
     return template.innerHTML;
   }
 
-  // Configure marked: GitHub-flavored, with custom renderers for
-  // code (syntax-highlighted via highlight.js), headings (with
-  // GitHub-style slug ids for anchor links), and local markdown file
-  // detection in inline code spans.
-  // Note: when customizing via `marked.use({renderer})`, marked
-  // calls these methods with the *legacy* positional signature
-  // (text, level, raw / code, lang, escaped / href, title, text)
-  // — NOT a single token object. Inline children are already
-  // rendered to HTML and passed in as `text`.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1006,15 +997,35 @@ html { scroll-behavior: smooth; }
     return count === 0 ? base : base + '-' + count;
   }
 
+  // Configure marked: GitHub-flavored, with custom renderers for fenced
+  // code (syntax-highlighted via highlight.js), headings (GitHub-style
+  // slug ids for anchor links), and links.
+  //
+  // `renderer` here is a partial override, not a complete renderer.
+  // marked starts from its own default renderer and replaces only the
+  // methods named below; every method not named keeps marked's built-in
+  // implementation, and the parser calls one per token type
+  // unconditionally. So there is no fall-through case to handle.
+  //
+  // `codespan` is deliberately absent: marked's renderer already handles
+  // it correctly. The default implementation is
+  // `'<code>' + token.text + '</code>'`, and token.text is already
+  // HTML-escaped by the codespan tokenizer.
+  //
+  // Fenced `code` below is the opposite case: its `code` argument is
+  // the raw source, so it must be escaped exactly once — which is what
+  // hljs (or the escapeHtml fallback) does.
+  //
+  // Note: when customizing via `marked.use({renderer})`, marked calls
+  // these methods with the *legacy* positional signature
+  // (text, level, raw / code, lang, escaped / href, title, text) — NOT
+  // a single token object. Inline children are already rendered to HTML
+  // and passed in as `text`.
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
     renderer: {
-      codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
-      },
       code(code, infostring, escaped) {
         var raw = code || '';
         var langMatch = (infostring || '').match(/^[A-Za-z0-9_+\-.]+/);
