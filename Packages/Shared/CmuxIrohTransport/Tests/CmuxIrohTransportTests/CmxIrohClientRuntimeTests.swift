@@ -1,9 +1,160 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
 @Suite
 struct CmxIrohClientRuntimeTests {
+    @Test
+    func cachedFastPathRejectsAReplacedLiveEndpointIdentity() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let substitutedIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "0", count: 64)
+        )
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: fixture.configuration.accountID,
+            deviceID: fixture.configuration.deviceID,
+            appInstanceID: fixture.configuration.appInstanceID,
+            tag: fixture.configuration.tag,
+            displayName: fixture.configuration.displayName,
+            identity: fixture.configuration.identity,
+            capabilities: fixture.configuration.capabilities,
+            managedRelayURLs: fixture.configuration.managedRelayURLs,
+            cachedBinding: CmxIrohBrokerBindingMetadata(binding: fixture.binding)
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestSubstitutedAddressEndpoint(
+                    identity: fixture.endpointID,
+                    addressIdentity: substitutedIdentity
+                ),
+            ]),
+            broker: TestRevisionedClientBroker(
+                binding: fixture.binding,
+                discoveries: [discovery],
+                relay: fixture.relayResponse()
+            ),
+            configuration: configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohClientRuntimeError.invalidLocalBinding) {
+            try await runtime.start()
+        }
+    }
+
+    @Test
+    func discoveryCannotPrecedeTheRegistrationRevision() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestRevisionedClientBroker(
+                binding: fixture.binding,
+                discoveries: [discovery],
+                relay: fixture.relayResponse(),
+                registrationRevision: 2
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            try await runtime.start()
+        }
+    }
+
+    @Test
+    func authoritativeRejectionCannotFallBackToStaleOfflineAuthority() async throws {
+        let fixture = try RegistryFixture()
+        let accepted = try fixture.discovery(targetHints: [])
+        let acceptedRevision = CmxIrohDiscoveryResponse(
+            routeContractVersion: accepted.routeContractVersion,
+            revision: 1,
+            bindings: accepted.bindings,
+            relayFleet: accepted.relayFleet,
+            lanRendezvous: accepted.lanRendezvous,
+            grantVerificationKeys: accepted.grantVerificationKeys
+        )
+        let rejectedRevision = CmxIrohDiscoveryResponse(
+            routeContractVersion: accepted.routeContractVersion,
+            revision: 2,
+            bindings: Array(accepted.bindings.dropFirst()),
+            relayFleet: accepted.relayFleet,
+            lanRendezvous: accepted.lanRendezvous,
+            grantVerificationKeys: accepted.grantVerificationKeys
+        )
+        let localBinding = try #require(accepted.bindings.first)
+        let targetBinding = try #require(accepted.bindings.dropFirst().first)
+        let cache = CmxIrohClientOfflinePolicyCache(
+            secureStore: TestSecureCredentialStore()
+        )
+        try await cache.save(
+            localBinding: localBinding,
+            targetBinding: targetBinding,
+            discovery: acceptedRevision,
+            pairGrant: fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 3_600
+            ),
+            for: fixture.offlineExpectation(),
+            now: fixture.now
+        )
+        let identity = try CmxIrohIdentityMaterial(
+            secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
+            generation: fixture.initiator.identityGeneration
+        )
+        let configuration = CmxIrohClientRuntimeConfiguration(
+            accountID: "account-a",
+            deviceID: fixture.initiator.deviceID,
+            appInstanceID: localBinding.appInstanceID,
+            tag: fixture.initiator.tag,
+            displayName: nil,
+            identity: identity,
+            capabilities: localBinding.capabilities,
+            managedRelayURLs: [fixture.relayURL],
+            cachedBinding: CmxIrohBrokerBindingMetadata(binding: localBinding)
+        )
+        let relay = CmxIrohRelayTokenResponse(
+            token: "testrelaytoken",
+            expiresAt: "2027-01-15T10:00:00Z",
+            refreshAfter: "2027-01-15T09:00:00Z",
+            relayFleet: [fixture.relayURL]
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.initiator.endpointID),
+            ]),
+            broker: TestRevisionedClientBroker(
+                binding: localBinding,
+                discoveries: [rejectedRevision],
+                relay: relay,
+                registrationError: .connectivity
+            ),
+            configuration: configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: TestSecureCredentialStore()
+            ),
+            offlinePolicyCache: cache,
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            try await runtime.start()
+        }
+    }
+
     @Test
     func startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip() async throws {
         let fixture = try ClientRuntimeTestFixture()
@@ -940,6 +1091,8 @@ private actor TestRevisionedClientBroker:
     private let blockedSyncCount: Int?
     private let blockedRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let registrationRevision: UInt64?
+    private let registrationError: CmxIrohTrustBrokerClientError?
     private(set) var registrationCount = 0
     private(set) var syncCount = 0
     private var blockedSyncReleased = false
@@ -951,7 +1104,9 @@ private actor TestRevisionedClientBroker:
         relay: CmxIrohRelayTokenResponse,
         blockedSyncCount: Int? = nil,
         blockedRegistrationCount: Int? = nil,
-        embedInitialDiscovery: Bool = false
+        embedInitialDiscovery: Bool = false,
+        registrationRevision: UInt64? = nil,
+        registrationError: CmxIrohTrustBrokerClientError? = nil
     ) {
         self.binding = binding
         self.discoveries = discoveries
@@ -961,20 +1116,24 @@ private actor TestRevisionedClientBroker:
         embeddedRegistrationDiscovery = embedInitialDiscovery
             ? discoveries.first
             : nil
+        self.registrationRevision = registrationRevision
+        self.registrationError = registrationError
     }
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
-    ) async -> CmxIrohRegistrationResponse {
+    ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
         if registrationCount == blockedRegistrationCount {
             while !blockedRegistrationReleased {
                 await Task.yield()
             }
         }
+        if let registrationError { throw registrationError }
         return CmxIrohRegistrationResponse(
-            revision: embeddedRegistrationDiscovery?.revision
+            revision: registrationRevision
+                ?? embeddedRegistrationDiscovery?.revision
                 ?? discoveries.first?.revision,
             binding: binding,
             relay: .issued(relay),
@@ -1044,4 +1203,46 @@ private actor TestRevisionedClientBroker:
         blockedRegistrationReleased = true
     }
 
+}
+
+private actor TestSubstitutedAddressEndpoint: CmxIrohEndpoint {
+    private let peerIdentity: CmxIrohPeerIdentity
+    private let addressIdentity: CmxIrohPeerIdentity
+
+    init(
+        identity: CmxIrohPeerIdentity,
+        addressIdentity: CmxIrohPeerIdentity
+    ) {
+        peerIdentity = identity
+        self.addressIdentity = addressIdentity
+    }
+
+    func identity() -> CmxIrohPeerIdentity { peerIdentity }
+
+    func address() -> CmxIrohEndpointAddress {
+        CmxIrohEndpointAddress(identity: addressIdentity, pathHints: [])
+    }
+
+    func localDirectAddresses() -> [String] { [] }
+
+    func connect(
+        to _: CmxIrohEndpointAddress,
+        alpn _: Data
+    ) async throws -> any CmxIrohConnection {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func accept() async throws -> (any CmxIrohConnection)? { nil }
+
+    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
+
+    func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) {}
+
+    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func isHealthy() -> Bool { true }
+
+    func close() {}
 }
