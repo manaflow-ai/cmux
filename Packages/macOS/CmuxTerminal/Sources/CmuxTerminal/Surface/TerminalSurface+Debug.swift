@@ -150,17 +150,10 @@ extension TerminalSurface {
         keyEvents: Int,
         pasteTextItems: Int,
         inputTextItems: Int,
-        processOutputItems: Int,
-        promptSubmissionItems: Int
+        processOutputItems: Int
     ) {
         let counts = pendingSocketInputQueue.reduce(
-            into: (
-                keyEvents: 0,
-                pasteTextItems: 0,
-                inputTextItems: 0,
-                processOutputItems: 0,
-                promptSubmissionItems: 0
-            )
+            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0, processOutputItems: 0)
         ) { counts, item in
             switch item {
             case .key:
@@ -172,7 +165,7 @@ extension TerminalSurface {
             case .processOutput:
                 counts.processOutputItems += 1
             case .promptSubmission:
-                counts.promptSubmissionItems += 1
+                break
             }
         }
         return (
@@ -181,20 +174,8 @@ extension TerminalSurface {
             counts.keyEvents,
             counts.pasteTextItems,
             counts.inputTextItems,
-            counts.processOutputItems,
-            counts.promptSubmissionItems
+            counts.processOutputItems
         )
-    }
-
-    /// Pending compound-prompt bodies in queue order (test hook).
-    @MainActor
-    public func debugPendingPromptSubmissionTextsForTesting() -> [String] {
-        pendingSocketInputQueue.compactMap { item in
-            guard case .promptSubmission(let text, _, _, _) = item else {
-                return nil
-            }
-            return String(decoding: text, as: UTF8.self)
-        }
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.

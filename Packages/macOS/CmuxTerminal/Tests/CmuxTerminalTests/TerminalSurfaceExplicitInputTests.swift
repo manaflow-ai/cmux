@@ -47,7 +47,7 @@ struct TerminalSurfaceExplicitInputTests {
 
         let pending = fixture.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(fixture.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(pending.pasteTextItems == 0)
         #expect(pending.keyEvents == 0)
         #expect(fixture.paneHost.explicitInputCount == 1)
@@ -89,7 +89,7 @@ struct TerminalSurfaceExplicitInputTests {
         )
         let pending = fixture.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(fixture.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
@@ -227,5 +227,16 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func fakeRuntimeSurface() -> ghostty_surface_t {
         UnsafeMutableRawPointer(bitPattern: 0x7540)!
+    }
+}
+
+@MainActor
+private extension TerminalSurface {
+    var pendingPromptSubmissionCountForTests: Int {
+        pendingSocketInputQueue.reduce(into: 0) { count, item in
+            if case .promptSubmission = item {
+                count += 1
+            }
+        }
     }
 }

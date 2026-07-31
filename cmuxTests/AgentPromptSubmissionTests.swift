@@ -86,7 +86,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(pending.pasteTextItems == 0)
         #expect(pending.keyEvents == 0)
         #expect(completion?.didSubmit == true)
@@ -113,7 +113,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(completion?.didSubmit == true)
     }
 
@@ -135,7 +135,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(pending.promptSubmissionItems == 1)
+        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(completion?.didSubmit == true)
     }
 

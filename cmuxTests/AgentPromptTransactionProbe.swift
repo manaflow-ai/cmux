@@ -1,5 +1,5 @@
-import CmuxTerminal
 import Foundation
+@testable import CmuxTerminal
 
 /// Thread-safe test probe that can hold the first synchronous delivery while a
 /// second caller queues on the main actor.
@@ -36,7 +36,12 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
 
     @MainActor
     var pendingPromptMessages: [String] {
-        surface.debugPendingPromptSubmissionTextsForTesting()
+        surface.pendingSocketInputQueue.compactMap { item in
+            guard case .promptSubmission(let text, _, _, _) = item else {
+                return nil
+            }
+            return String(decoding: text, as: UTF8.self)
+        }
     }
 
     func waitUntilFirstStarted() {
@@ -101,6 +106,17 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
             activeDeliveries -= 1
         }
         return result
+    }
+}
+
+@MainActor
+extension TerminalSurface {
+    var pendingPromptSubmissionCountForTests: Int {
+        pendingSocketInputQueue.reduce(into: 0) { count, item in
+            if case .promptSubmission = item {
+                count += 1
+            }
+        }
     }
 }
 
