@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "Full xcodebuild UI selector, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
       device_family:
@@ -393,6 +393,12 @@ jobs:
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
+          require_requested_tests_ran() {
+            local log_path="$1"
+            if [ -n "${TEST_FILTER:-}" ]; then
+              python3 scripts/ci/require_xcode_tests_ran.py "$log_path" "$TEST_FILTER"
+            fi
+          }
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
@@ -400,11 +406,16 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+            set +e
+            xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"
+            status="${PIPESTATUS[0]}"
+            set -e
+            if [ "$status" -eq 0 ]; then
+              require_requested_tests_ran "$LOG_PATH"
               exit 0
             fi
-            status="${PIPESTATUS[0]}"
             if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
+              require_requested_tests_ran "$LOG_PATH"
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0
             fi

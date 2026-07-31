@@ -58,6 +58,20 @@ def test_accepts_a_selected_xctest() -> None:
     assert "Executed tests" in result.stdout
 
 
+def test_accepts_a_selected_swift_test_when_xctest_reports_zero() -> None:
+    result = run_validator(
+        """
+        Test Suite 'Selected tests' passed at 2026-07-31 00:00:00.000.
+             Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds
+        Test run with 4 tests in 1 suite passed after 1.000 seconds.
+        ** TEST SUCCEEDED **
+        """
+    )
+
+    assert result.returncode == 0
+    assert "Executed tests" in result.stdout
+
+
 def test_rejects_missing_test_summaries() -> None:
     result = run_validator("** TEST SUCCEEDED **\n")
 
