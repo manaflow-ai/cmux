@@ -5007,6 +5007,46 @@ mod unix {
         }
 
         #[test]
+        fn liveness_lease_drop_unlocks_an_inherited_file_description() {
+            let (record_path, record, lease) = record_fixture("inherited-liveness");
+            let lease_fd = lease.file.as_raw_fd();
+            let mut command = Command::new("/bin/sleep");
+            command.arg("60");
+            // SAFETY: fcntl is async-signal-safe, and this only clears
+            // close-on-exec on the test-owned descriptor in the child between
+            // fork and exec. The parent descriptor remains close-on-exec.
+            unsafe {
+                command.pre_exec(move || {
+                    let flags = libc::fcntl(lease_fd, libc::F_GETFD);
+                    if flags == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    if libc::fcntl(lease_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let mut inheritor = command.spawn().unwrap();
+
+            drop(lease);
+            let observed = terminal_host_record_liveness(&record_path, &record).unwrap();
+
+            inheritor.kill().unwrap();
+            inheritor.wait().unwrap();
+            assert!(
+                remove_stale_terminal_host_record(&record_path, &record).unwrap(),
+                "test cleanup could not reclaim the released liveness record"
+            );
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+            assert_eq!(
+                observed,
+                TerminalHostLiveness::Dead,
+                "a forked child retained the terminal host's released liveness lock"
+            );
+        }
+
+        #[test]
         fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
             let (record_path, record, lease) = record_fixture("canonical");
             let root = record_path.parent().unwrap();
