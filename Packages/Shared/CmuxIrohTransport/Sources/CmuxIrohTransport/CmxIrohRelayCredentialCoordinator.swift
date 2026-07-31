@@ -234,9 +234,9 @@ public actor CmxIrohRelayCredentialCoordinator {
     ///
     /// iOS suspends task scheduling in the background, so the ordinary sleep
     /// loop may not run before an installed credential expires. Foreground
-    /// connection readiness calls this method before dialing. Concurrent
-    /// callers share one mint-and-install operation, and a failure preserves
-    /// the existing endpoint while resuming the bounded retry loop.
+    /// lifecycle work calls this independently from connection readiness.
+    /// Concurrent callers share one mint-and-install operation, and a failure
+    /// preserves the existing endpoint while resuming the bounded retry loop.
     public func refreshIfNeeded() async throws {
         guard let binding else {
             throw CmxIrohRelayCredentialCoordinatorError.inactive

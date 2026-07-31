@@ -2,6 +2,25 @@ import CMUXMobileCore
 import Foundation
 
 extension CmxIrohHostRuntime {
+    func initialCachedPolicy(
+        expectedEndpointID: CmxIrohPeerIdentity
+    ) throws -> ResolvedPolicy? {
+        guard let cached = configuration.cachedHostPolicy else { return nil }
+        try validateCachedPolicy(cached, endpointID: expectedEndpointID)
+        return ResolvedPolicy(
+            registration: nil,
+            discovery: nil,
+            binding: cached.binding,
+            pairingEnabled: cached.pairingEnabled,
+            grantVerificationKeys: cached.grantVerificationKeys,
+            attestation: cached.endpointAttestation,
+            relayBootstrap: configuration.cachedRelayCredential,
+            lanRendezvous: cached.lanRendezvous,
+            routePathHints: [],
+            registrationRetryAfterSeconds: nil
+        )
+    }
+
     func resolveInitialPolicy(
         engine: CmxConnectivityEngine,
         expectedEndpointID: CmxIrohPeerIdentity,
@@ -434,8 +453,30 @@ extension CmxIrohHostRuntime {
                 revision: revision,
                 allowCachedFallback: false
             )
-            guard policy.binding.bindingID == previousBinding.bindingID else {
+            let bindingChanged =
+                policy.binding.bindingID != previousBinding.bindingID
+            guard !bindingChanged
+                || registrationRefreshAllowsBindingReplacement else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
+            if bindingChanged {
+                relayActivationTask?.cancel()
+                relayActivationTask = nil
+                await relayCoordinator?.deactivate()
+                relayCoordinator = nil
+                if let profile = currentEndpointRelayProfile,
+                   profile.source == .managed,
+                   !profile.allowedRelayURLs.isEmpty {
+                    relayCoordinator = CmxIrohRelayCredentialCoordinator(
+                        supervisor: connectivityEngine,
+                        broker: broker,
+                        managedRelayURLs: managedRelayURLs,
+                        selectedRelayURLs: profile.allowedRelayURLs,
+                        credentialDidInstall: { [handleRelayCredential] response in
+                            await handleRelayCredential(response, policy.binding)
+                        }
+                    )
+                }
             }
             await admissionController.update(
                 keys: policy.grantVerificationKeys,
@@ -444,6 +485,11 @@ extension CmxIrohHostRuntime {
             )
             try requireCurrent(revision)
             localBinding = policy.binding
+            currentSnapshot = CmxIrohHostRuntimeSnapshot(
+                state: .active,
+                endpointID: endpointID,
+                bindingID: policy.binding.bindingID
+            )
             endpointAttestation = policy.attestation ?? endpointAttestation
             lanRendezvous = policy.lanRendezvous
             guard let registration = policy.registration,
@@ -456,6 +502,16 @@ extension CmxIrohHostRuntime {
             try requireCurrent(revision)
             if let routeRevision = discovery.revision {
                 await connectivityEngine.didInstallRouteRevision(routeRevision)
+            }
+            registrationRefreshAllowsBindingReplacement = false
+            if bindingChanged, let relayCoordinator {
+                scheduleRelayActivation(
+                    relayCoordinator,
+                    binding: policy.binding,
+                    endpointID: endpointID,
+                    bootstrap: policy.relayBootstrap,
+                    revision: revision
+                )
             }
             scheduleLANPublication(
                 binding: policy.binding,

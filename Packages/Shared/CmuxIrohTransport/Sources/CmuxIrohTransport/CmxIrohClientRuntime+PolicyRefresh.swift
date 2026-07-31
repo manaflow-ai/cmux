@@ -43,6 +43,70 @@ extension CmxIrohClientRuntime {
         }
     }
 
+    func scheduleRelayActivation(
+        binding: CmxIrohBrokerBinding,
+        revision: UInt64
+    ) {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              let relayCoordinator else { return }
+        relayActivationTask?.cancel()
+        let bootstrap = configuration.cachedRelayCredential
+        relayActivationTask = Task { [weak self] in
+            guard let self else { return }
+            await self.activateRelay(
+                relayCoordinator,
+                binding: binding,
+                bootstrap: bootstrap,
+                revision: revision
+            )
+        }
+    }
+
+    private func activateRelay(
+        _ relayCoordinator: CmxIrohRelayCredentialCoordinator,
+        binding: CmxIrohBrokerBinding,
+        bootstrap: CmxIrohRelayTokenResponse?,
+        revision: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              self.relayCoordinator === relayCoordinator else { return }
+        do {
+            try await relayCoordinator.activate(
+                bindingID: binding.bindingID,
+                endpointIdentity: binding.endpointID,
+                bootstrap: bootstrap
+            )
+        } catch {
+            // Direct paths stay usable while the coordinator owns retry.
+        }
+    }
+
+    func scheduleRelayForegroundRefresh(revision: UInt64) {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              let relayCoordinator else { return }
+        relayForegroundRefreshTask?.cancel()
+        relayForegroundRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshRelayAfterForeground(
+                relayCoordinator,
+                revision: revision
+            )
+        }
+    }
+
+    private func refreshRelayAfterForeground(
+        _ relayCoordinator: CmxIrohRelayCredentialCoordinator,
+        revision: UInt64
+    ) async {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              self.relayCoordinator === relayCoordinator else { return }
+        try? await relayCoordinator.refreshIfNeeded()
+    }
+
     func refreshRegistration(
         revision: UInt64,
         refreshID: UUID
@@ -68,11 +132,22 @@ extension CmxIrohClientRuntime {
         }
         do {
             let endpointID = try await connectivityEngine.localEndpointIdentity()
+            guard !Task.isCancelled,
+                  registrationRefreshTaskID == refreshID else {
+                throw CancellationError()
+            }
             let policy = try await resolvePolicy(
                 expectedEndpointID: endpointID,
                 revision: revision
             )
-            guard policy.binding.bindingID == previousBinding.bindingID else {
+            guard !Task.isCancelled,
+                  registrationRefreshTaskID == refreshID else {
+                throw CancellationError()
+            }
+            let bindingChanged =
+                policy.binding.bindingID != previousBinding.bindingID
+            guard !bindingChanged
+                || registrationRefreshAllowsBindingReplacement else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
             try await install(policy: policy, revision: revision, startRelays: false)
@@ -87,10 +162,17 @@ extension CmxIrohClientRuntime {
                 let published = await handleBinding(registration, discovery)
                 try requireCurrent(revision)
                 guard published else { return .failed(.superseded) }
+                registrationRefreshAllowsBindingReplacement = false
                 if let routeRevision = discovery.revision {
                     await connectivityEngine.didInstallRouteRevision(routeRevision)
                 }
                 liveDiscoveryGeneration &+= 1
+                if bindingChanged {
+                    scheduleRelayActivation(
+                        binding: policy.binding,
+                        revision: revision
+                    )
+                }
                 return .refreshed
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)

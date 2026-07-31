@@ -136,9 +136,9 @@ struct CmxIrohClientRuntimeTests {
         #expect(prepared.challengeRequest.tag == fixture.binding.tag)
         #expect(prepared.challengeRequest.endpointId == fixture.endpointID.endpointID)
         #expect(prepared.challengeRequest.identityGeneration == fixture.identity.generation)
-        #expect(await endpoint.observedRelayUpdates().last?.count == 4)
         #expect(await recorder.observedBindingCount() == 1)
         await recorder.waitForRelayCount(1)
+        #expect(await endpoint.observedRelayUpdates().last?.count == 4)
         #expect(await recorder.observedRelayCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
         await runtime.stop()
@@ -367,7 +367,7 @@ struct CmxIrohClientRuntimeTests {
             try await runtime.start()
         }
 
-        #expect(await store.readCount() == 0)
+        #expect(await store.readCount() == 1)
         #expect(await broker.observedDiscoveryCount() == 1)
         #expect(await endpoint.observedCloseCallCount() == 1)
     }
@@ -471,6 +471,7 @@ struct CmxIrohClientRuntimeTests {
 
         await runtime.didEnterBackground()
         try await runtime.didBecomeActive()
+        await broker.waitForRegistrationCount(2)
 
         #expect(await endpoint.observedCloseCallCount() == 0)
         #expect(await factory.observedConfigurations().count == 1)
@@ -504,6 +505,7 @@ struct CmxIrohClientRuntimeTests {
         await staleEndpoint.setHealthy(false)
 
         try await runtime.didBecomeActive()
+        await broker.waitForRegistrationCount(2)
 
         let configurations = await factory.observedConfigurations()
         #expect(configurations.count == 2)
@@ -545,9 +547,9 @@ struct CmxIrohClientRuntimeTests {
         )
         await broker.setRegistrationError(terminal)
 
-        await #expect(throws: terminal) {
-            try await runtime.didBecomeActive()
-        }
+        try await runtime.didBecomeActive()
+        await broker.waitForRegistrationCount(2)
+        await recorder.waitForPolicyInvalidation()
 
         #expect(await runtime.snapshot().state == .failed)
         #expect(await endpoint.observedCloseCallCount() == 1)

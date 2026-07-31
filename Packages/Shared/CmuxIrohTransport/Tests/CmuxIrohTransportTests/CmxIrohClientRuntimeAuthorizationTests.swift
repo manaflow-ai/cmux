@@ -201,7 +201,7 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func authenticatedStartupFailureNeverConsultsOfflinePolicy() async throws {
+    func authenticatedStartupFailureDoesNotActivateMissingOfflinePolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let store = TestSecureCredentialStore()
         let broker = TestIrohClientBroker(
@@ -230,6 +230,6 @@ extension CmxIrohClientRuntimeTests {
         )) {
             try await runtime.start()
         }
-        #expect(await store.readCount() == 0)
+        #expect(await store.readCount() == 1)
     }
 }

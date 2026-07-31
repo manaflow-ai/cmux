@@ -12,6 +12,7 @@ actor ClientRuntimeTestRecorder {
     private var cachedBindingDeviceIDs: [[String]] = []
     private var policyInvalidationCount = 0
     private var relayWaiters: [RelayWaiter] = []
+    private var policyInvalidationWaiters: [CheckedContinuation<Void, Never>] = []
 
     func recordBinding() {
         bindingCount += 1
@@ -43,6 +44,16 @@ actor ClientRuntimeTestRecorder {
 
     func recordPolicyInvalidation() {
         policyInvalidationCount += 1
+        let waiters = policyInvalidationWaiters
+        policyInvalidationWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForPolicyInvalidation() async {
+        guard policyInvalidationCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            policyInvalidationWaiters.append(continuation)
+        }
     }
 
     func observedBindingCount() -> Int { bindingCount }

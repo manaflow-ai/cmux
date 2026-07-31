@@ -361,7 +361,7 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func connectivityFailureUsesVerifiedCacheOnlyAfterOnlineAttempt() async throws {
+    func connectivityFailurePreservesCacheFirstActivation() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
@@ -385,6 +385,7 @@ extension CmxIrohHostRuntimeTests {
         )
 
         try await runtime.start()
+        await broker.waitForRegistrationCount(1)
 
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
@@ -464,8 +465,9 @@ extension CmxIrohHostRuntimeTests {
         )
 
         try await runtime.start()
+        await broker.waitForRegistrationCount(1)
 
-        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.observedRegistrationCount() >= 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
         #expect(await routes.values() == [
