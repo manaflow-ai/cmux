@@ -33,6 +33,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// and new host, so visibility is the union rather than a single flag.
     private var visibleUIHostIds: Set<UUID> = []
     @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()
+    @ObservationIgnored let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
@@ -472,12 +473,14 @@ final class DockSplitStore: BonsplitDelegate {
         insertFirst: Bool,
         sourcePanelId: UUID?,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         command: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -486,6 +489,7 @@ final class DockSplitStore: BonsplitDelegate {
             kind: kind,
             command: command,
             url: url,
+            initialRequest: initialRequest,
             configTemplate: kind == .terminal
                 ? inheritedTerminalFontSizeConfig(sourcePanelId: source)
                 : nil,
@@ -496,7 +500,8 @@ final class DockSplitStore: BonsplitDelegate {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: preferredProfileID,
+            websiteDataStore: websiteDataStore
         ) else { return nil }
 
         guard let source, let sourcePaneId = paneId(forPanelId: source) else {

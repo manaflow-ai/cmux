@@ -2090,7 +2090,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable idempotency key for task-composer workspace creation.
     var taskCreateOperationID: UUID?
     private var forkAgentConversationInFlightPanelIds: Set<UUID> = []
-    let appLinkHandoffRegistry = BrowserAppLinkHandoffRegistry()
+    let appLinkHandoffCoordinator = BrowserAppLinkHandoffCoordinator()
 
     func beginForkAgentConversationAction(panelId: UUID) -> Bool {
         guard !forkAgentConversationInFlightPanelIds.contains(panelId) else {
@@ -3931,91 +3931,35 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        _ = appLinkHandoffRegistry.start(
+        return appLinkHandoffCoordinator.start(
             sourcePanelID: sourcePanel.id,
-            destinationURL: destinationURL
-        ) { [weak self, weak sourcePanel] in
-            guard let self, let sourcePanel,
-                  let mountedSource = self.panels[sourcePanel.id] as? BrowserPanel,
-                  mountedSource === sourcePanel else {
-                return
-            }
-            await self.performAppLinkHandoff(
-                destinationURL,
-                from: sourcePanel
-            )
-        }
-        return true
-    }
-
-    private func performAppLinkHandoff(
-        _ destinationURL: URL,
-        from sourcePanel: BrowserPanel
-    ) async {
-        guard let auth = AppDelegate.shared?.auth else {
-            recoverAppLinkNavigationIfCurrent(destinationURL, from: sourcePanel)
-            return
-        }
-
-        var replayedAfterSignIn = false
-        while !Task.isCancelled {
-            guard currentBrowserPanel(sourcePanel) else { return }
-            var outcome = await auth.browserAppSession.request(
-                destinationURL: destinationURL
-            )
-            guard !Task.isCancelled, currentBrowserPanel(sourcePanel) else {
-                return
-            }
-            if outcome.shouldRetry {
-                outcome = await auth.browserAppSession.request(
-                    destinationURL: destinationURL
+            destinationURL: destinationURL,
+            isCurrent: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.currentBrowserPanel(sourcePanel)
+            },
+            openNavigation: { [weak self, weak sourcePanel] navigation in
+                guard let self, let sourcePanel else { return false }
+                return self.openAppLinkNavigation(
+                    navigation,
+                    from: sourcePanel
                 )
-                guard !Task.isCancelled, currentBrowserPanel(sourcePanel) else {
-                    return
-                }
-            }
-            if outcome.recoveryAction == .beginSignIn,
-               !replayedAfterSignIn {
-                replayedAfterSignIn = true
-                let signedIn = await auth.browserSignIn.beginSignIn().value
-                guard !Task.isCancelled, currentBrowserPanel(sourcePanel) else {
-                    return
-                }
-                if signedIn { continue }
-            }
-            if outcome.recoveryAction != nil {
-                recoverAppLinkNavigationIfCurrent(
+            },
+            openRecovery: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.recoverAppLinkNavigation(
                     destinationURL,
                     from: sourcePanel
                 )
-                return
             }
-            guard case let .navigation(navigation) = outcome else { return }
-            guard auth.browserAppSession.isCurrent(
-                generation: navigation.generation,
-                authSessionGeneration: navigation.authSessionGeneration
-            ) else {
-                recoverAppLinkNavigationIfCurrent(
-                    destinationURL,
-                    from: sourcePanel
-                )
-                return
-            }
-            openAppLinkNavigation(
-                navigation,
-                destinationURL: destinationURL,
-                from: sourcePanel
-            )
-            return
-        }
+        )
     }
 
     private func openAppLinkNavigation(
         _ navigation: BrowserAppSessionNavigation,
-        destinationURL: URL,
         from sourcePanel: BrowserPanel
-    ) {
-        guard currentBrowserPanel(sourcePanel) else { return }
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel) else { return false }
         if let targetPane = preferredRightSideTargetPane(
             fromPanelId: sourcePanel.id
         ), newBrowserSurface(
@@ -4025,7 +3969,7 @@ final class Workspace: Identifiable, ObservableObject {
             preferredProfileID: sourcePanel.profileID,
             websiteDataStore: navigation.websiteDataStore
         ) != nil {
-            return
+            return true
         }
         if newBrowserSplit(
             from: sourcePanel.id,
@@ -4035,7 +3979,7 @@ final class Workspace: Identifiable, ObservableObject {
             focus: true,
             websiteDataStore: navigation.websiteDataStore
         ) != nil {
-            return
+            return true
         }
         if let sourcePane = paneId(forPanelId: sourcePanel.id),
            newBrowserSurface(
@@ -4046,21 +3990,13 @@ final class Workspace: Identifiable, ObservableObject {
                 preferredProfileID: sourcePanel.profileID,
                 websiteDataStore: navigation.websiteDataStore
            ) != nil {
-            return
+            return true
         }
-        recoverAppLinkNavigationIfCurrent(destinationURL, from: sourcePanel)
+        return false
     }
 
     private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
         (panels[sourcePanel.id] as? BrowserPanel) === sourcePanel
-    }
-
-    private func recoverAppLinkNavigationIfCurrent(
-        _ destinationURL: URL,
-        from sourcePanel: BrowserPanel
-    ) {
-        guard !Task.isCancelled, currentBrowserPanel(sourcePanel) else { return }
-        _ = recoverAppLinkNavigation(destinationURL, from: sourcePanel)
     }
 
     /// Preserves a cancelled app-link click without placing credentials in a

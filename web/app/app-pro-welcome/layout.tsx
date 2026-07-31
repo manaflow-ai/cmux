@@ -1,9 +1,24 @@
 import type { Metadata, Viewport } from "next";
+import { getLocale } from "next-intl/server";
 
-export const metadata: Metadata = {
-  title: "Welcome to cmux Pro",
-  description: "Your next steps after upgrading to cmux Pro.",
+import { loadMessages } from "../../i18n/messages";
+import { routing, type Locale } from "../../i18n/routing";
+
+type AppProWelcomeMetadataMessages = {
+  title: string;
+  body: string;
 };
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = supportedLocale(await getLocale());
+  const catalog = await loadMessages(locale) as {
+    appProWelcome: AppProWelcomeMetadataMessages;
+  };
+  return {
+    title: catalog.appProWelcome.title,
+    description: catalog.appProWelcome.body,
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "transparent",
@@ -30,4 +45,9 @@ export default function AppProWelcomeLayout({
       {children}
     </>
   );
+}
+
+function supportedLocale(locale: string): Locale {
+  return routing.locales.find((candidate) => candidate === locale)
+    ?? routing.defaultLocale;
 }

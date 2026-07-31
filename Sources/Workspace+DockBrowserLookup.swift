@@ -119,6 +119,14 @@ extension DockSplitStore {
             websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
+        configureBrowserPanel(panel)
+        return panel
+    }
+
+    /// Rebinds host-owned actions whenever a live browser enters this Dock.
+    /// A transferred panel may still carry closures owned by its old Workspace
+    /// or Dock, so configuration is intentionally safe to repeat.
+    func configureBrowserPanel(_ panel: BrowserPanel) {
         AppDelegate.shared?.auth?.browserAppSession.register(panel)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }
@@ -131,7 +139,141 @@ extension DockSplitStore {
 #endif
             _ = self.closePanel(panel.id, force: true)
         }
-        return panel
+        panel.openAppLinkInBrowserSplit = { [weak self, weak panel] url in
+            guard let self, let panel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: panel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard isBrowserAvailable(), currentBrowserPanel(sourcePanel) else {
+            return false
+        }
+
+        return appLinkHandoffCoordinator.start(
+            sourcePanelID: sourcePanel.id,
+            destinationURL: destinationURL,
+            isCurrent: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.currentBrowserPanel(sourcePanel)
+            },
+            openNavigation: { [weak self, weak sourcePanel] navigation in
+                guard let self, let sourcePanel else { return false }
+                return self.openAppLinkNavigation(
+                    navigation,
+                    from: sourcePanel
+                )
+            },
+            openRecovery: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+            }
+        )
+    }
+
+    private func openAppLinkNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel),
+              let sourcePane = paneId(forPanelId: sourcePanel.id) else {
+            return false
+        }
+        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        ), newSurface(
+            kind: .browser,
+            inPane: targetPane,
+            initialRequest: navigation.request,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: navigation.websiteDataStore
+        ) != nil {
+            return true
+        }
+        if newSplit(
+            kind: .browser,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: sourcePanel.id,
+            initialRequest: navigation.request,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: navigation.websiteDataStore,
+            focus: true
+        ) != nil {
+            return true
+        }
+        return newSurface(
+            kind: .browser,
+            inPane: sourcePane,
+            initialRequest: navigation.request,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: navigation.websiteDataStore
+        ) != nil
+    }
+
+    private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
+        browserPanel(for: sourcePanel.id) === sourcePanel
+    }
+
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        openAppLinkInIsolatedBrowser(destinationURL, from: sourcePanel)
+            || NSWorkspace.shared.open(destinationURL)
+    }
+
+    private func openAppLinkInIsolatedBrowser(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel),
+              let sourcePane = paneId(forPanelId: sourcePanel.id) else {
+            return false
+        }
+        let isolatedStore = WKWebsiteDataStore.nonPersistent()
+        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
+            from: sourcePane,
+            in: bonsplitController
+        ), newSurface(
+            kind: .browser,
+            inPane: targetPane,
+            url: destinationURL,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: isolatedStore
+        ) != nil {
+            return true
+        }
+        if newSplit(
+            kind: .browser,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: sourcePanel.id,
+            url: destinationURL,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: isolatedStore,
+            focus: true
+        ) != nil {
+            return true
+        }
+        return newSurface(
+            kind: .browser,
+            inPane: sourcePane,
+            url: destinationURL,
+            focus: true,
+            preferredProfileID: sourcePanel.profileID,
+            websiteDataStore: isolatedStore
+        ) != nil
     }
 
     @discardableResult
