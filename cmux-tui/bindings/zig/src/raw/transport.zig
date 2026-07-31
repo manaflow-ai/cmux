@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const VTable = struct {
     read: *const fn (*anyopaque, []u8, ?u32) anyerror!usize,
@@ -123,11 +124,38 @@ const UnixConnection = struct {
     allocator: std.mem.Allocator,
     stream: std.net.Stream,
     mutex: std.Thread.Mutex = .{},
+    condition: std.Thread.Condition = .{},
+    active_calls: usize = 0,
     closed: bool = false,
-    test_wait_hook: ?*UnixWaitTestHook = null,
-    test_close_hook: ?*UnixCloseTestHook = null,
+    fd_released: bool = false,
+    test_wait_hook: if (builtin.is_test) ?*UnixWaitTestHook else void =
+        if (builtin.is_test) null else {},
+    test_close_hook: if (builtin.is_test) ?*UnixCloseTestHook else void =
+        if (builtin.is_test) null else {},
+
+    fn beginIo(self: *UnixConnection) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.closed) return error.ConnectionClosed;
+        self.active_calls += 1;
+    }
+
+    fn endIo(self: *UnixConnection) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        std.debug.assert(self.active_calls > 0);
+        self.active_calls -= 1;
+        if (self.active_calls == 0) self.condition.broadcast();
+    }
+
+    fn isClosed(self: *UnixConnection) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.closed;
+    }
 
     fn wait(self: *UnixConnection, events: i16, timeout_ms: ?u32) !void {
+        if (self.isClosed()) return error.ConnectionClosed;
         var poll_fds = [_]std.posix.pollfd{.{
             .fd = self.stream.handle,
             .events = events,
@@ -137,12 +165,17 @@ const UnixConnection = struct {
             @intCast(@min(milliseconds, @as(u32, std.math.maxInt(i32))))
         else
             -1;
-        if (self.test_wait_hook) |hook| hook.entered_poll.set();
-        const ready = try std.posix.poll(&poll_fds, timeout);
-        if (self.test_wait_hook) |hook| {
-            hook.returned_from_poll.set();
-            hook.continue_wait.wait();
+        if (builtin.is_test) {
+            if (self.test_wait_hook) |hook| hook.entered_poll.set();
         }
+        const ready = try std.posix.poll(&poll_fds, timeout);
+        if (builtin.is_test) {
+            if (self.test_wait_hook) |hook| {
+                hook.returned_from_poll.set();
+                hook.continue_wait.wait();
+            }
+        }
+        if (self.isClosed()) return error.ConnectionClosed;
         if (ready == 0) return error.Timeout;
         if (poll_fds[0].revents & (std.posix.POLL.ERR | std.posix.POLL.NVAL) != 0) {
             return error.ConnectionClosed;
@@ -154,7 +187,14 @@ const UnixConnection = struct {
         buffer: []u8,
         timeout_ms: ?u32,
     ) !usize {
-        return readWithTimeout(self, buffer, timeout_ms);
+        try self.beginIo();
+        defer self.endIo();
+        const count = readWithTimeout(self, buffer, timeout_ms) catch |failure| {
+            if (self.isClosed()) return error.ConnectionClosed;
+            return failure;
+        };
+        if (self.isClosed()) return error.ConnectionClosed;
+        return count;
     }
 
     fn waitReadable(self: *UnixConnection, timeout_ms: ?u32) !void {
@@ -189,7 +229,13 @@ const UnixConnection = struct {
         bytes: []const u8,
         timeout_ms: ?u32,
     ) !void {
-        return writeAllWithTimeout(self, bytes, timeout_ms);
+        try self.beginIo();
+        defer self.endIo();
+        writeAllWithTimeout(self, bytes, timeout_ms) catch |failure| {
+            if (self.isClosed()) return error.ConnectionClosed;
+            return failure;
+        };
+        if (self.isClosed()) return error.ConnectionClosed;
     }
 
     fn close(self: *UnixConnection) void {
@@ -197,17 +243,27 @@ const UnixConnection = struct {
         defer self.mutex.unlock();
         if (self.closed) return;
         self.closed = true;
+        // Wake active I/O without releasing a descriptor it can still observe.
+        // deinit performs the physical close after all I/O leases have drained.
         std.posix.shutdown(self.stream.handle, .both) catch {};
-        if (self.test_close_hook) |hook| {
-            hook.shutdown_complete.set();
-            hook.continue_close.wait();
+        if (builtin.is_test) {
+            if (self.test_close_hook) |hook| {
+                hook.shutdown_complete.set();
+                hook.continue_close.wait();
+            }
         }
-        self.stream.close();
     }
 
     fn deinit(self: *UnixConnection) void {
         const allocator = self.allocator;
         self.close();
+        self.mutex.lock();
+        while (self.active_calls != 0) self.condition.wait(&self.mutex);
+        if (!self.fd_released) {
+            self.fd_released = true;
+            self.stream.close();
+        }
+        self.mutex.unlock();
         allocator.destroy(self);
     }
 };
@@ -597,7 +653,8 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
         path,
         1_000,
     );
-    defer connection.deinit();
+    var connection_live = true;
+    defer if (connection_live) connection.deinit();
     const peer = try server.accept();
     defer peer.stream.close();
 
@@ -652,6 +709,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     close_hook.continue_close.set();
     close_thread.join();
     close_joined = true;
+    connection.close();
 
     var reused_reader: ?std.posix.fd_t = null;
     var reused_writer: ?std.posix.fd_t = null;
@@ -686,4 +744,13 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     const failure = pending.failure orelse return error.ReadUnrelatedDescriptor;
     try std.testing.expectEqual(error.ConnectionClosed, failure);
     try std.testing.expectEqual(@as(usize, 0), pending.count);
+
+    connection.deinit();
+    connection_live = false;
+    const released_probe = try std.posix.pipe();
+    defer std.posix.close(released_probe[0]);
+    defer std.posix.close(released_probe[1]);
+    try std.testing.expect(
+        released_probe[0] == original_fd or released_probe[1] == original_fd,
+    );
 }
