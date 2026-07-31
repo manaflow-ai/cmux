@@ -894,7 +894,7 @@ final class cmuxUITests: XCTestCase {
 
         dragWorkspaceRow(
             source,
-            to: CGPoint(x: targetFrame.midX, y: targetFrame.minY + 6),
+            to: CGPoint(x: targetFrame.midX, y: targetFrame.minY + 2),
             in: app
         )
 

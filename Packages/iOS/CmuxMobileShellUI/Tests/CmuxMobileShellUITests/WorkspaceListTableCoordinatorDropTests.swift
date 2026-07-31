@@ -192,6 +192,7 @@ import UIKit
         #expect(dropCoordinator.dropIntoRowCalls == [IndexPath(row: 0, section: 0)])
         #expect(dropCoordinator.dropIntoRowRects.first?.width == 366)
         #expect(dropCoordinator.dropIntoRowRects.first?.height == 32)
+        #expect(tableView.numberOfRows(inSection: 0) == 1)
     }
 
     @Test func performDropOnExpandedHeaderLandsInTheVisibleGroupChildSlot() {
