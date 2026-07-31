@@ -1803,6 +1803,7 @@ final class SocketClient {
 
     private let path: String
     private(set) var socketFD: Int32 = -1
+    private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1967,6 +1968,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        streamReadBuffer.removeAll(keepingCapacity: true)
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2983,16 +2985,35 @@ final class SocketClient {
         maxBytes: Int = 4 * 1024 * 1024,
         deadline: Date? = nil
     ) throws -> String {
-        var data = Data()
         if deadline == nil {
             try configureReceiveTimeout(45)
         }
-        while data.count < maxBytes {
+        while true {
+            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+                let lineByteCount = streamReadBuffer.distance(
+                    from: streamReadBuffer.startIndex,
+                    to: newlineIndex
+                )
+                guard lineByteCount < maxBytes else {
+                    throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                }
+                let lineData = streamReadBuffer[..<newlineIndex]
+                guard let line = String(data: Data(lineData), encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                streamReadBuffer.removeSubrange(...newlineIndex)
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard streamReadBuffer.count < maxBytes else {
+                throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+            }
             if let deadline {
                 try waitForReadableStream(deadline: deadline)
             }
-            var byte: UInt8 = 0
-            let count = Darwin.read(socketFD, &byte, 1)
+            var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
+            let count = chunk.withUnsafeMutableBytes { bytes in
+                Darwin.read(socketFD, bytes.baseAddress, bytes.count)
+            }
             if count < 0 {
                 if errno == EINTR {
                     continue
@@ -3011,15 +3032,8 @@ final class SocketClient {
             if count == 0 {
                 throw CLIError(message: "Event stream closed")
             }
-            if byte == 0x0A {
-                guard let line = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: "Invalid UTF-8 event stream frame")
-                }
-                return line.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            data.append(byte)
+            streamReadBuffer.append(contentsOf: chunk.prefix(count))
         }
-        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
     }
 
     private func waitForReadableStream(deadline: Date) throws {
