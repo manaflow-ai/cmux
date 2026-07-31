@@ -807,6 +807,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// RPC client currently dialing but not yet adopted as ``remoteClient``.
+    /// A newer connect attempt supersedes this owner and must retire it before
+    /// asking the shared route registry for the same physical route again.
+    private var pendingConnectClient: MobileCoreRPCClient?
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -7678,6 +7682,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
+        await releasePendingConnectClientForReplacement()
+        guard isConnectCurrent() else { return nil }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = supportedRoutes(
             for: ticket,
@@ -7918,6 +7924,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver
             )
+            registerPendingConnectClient(client)
+            defer { clearPendingConnectClient(client) }
             for workspaceListRequest in workspaceListRequests {
                 do {
                     let requestTimeoutNanoseconds: UInt64
@@ -8598,6 +8606,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             removeFocusedConnection(ifMatching: focused)
         }
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
+    }
+
+    func releasePendingConnectClientForReplacement() async {
+        guard let previous = pendingConnectClient else { return }
+        pendingConnectClient = nil
+        await previous.disconnect()
+    }
+
+    func registerPendingConnectClient(_ client: MobileCoreRPCClient) {
+        pendingConnectClient = client
+    }
+
+    func clearPendingConnectClient(_ client: MobileCoreRPCClient) {
+        guard pendingConnectClient === client else { return }
+        pendingConnectClient = nil
     }
 
     /// Publish one remote-client ownership change synchronously. Callers choose
