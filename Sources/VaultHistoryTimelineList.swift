@@ -278,6 +278,103 @@ enum VaultHistoryTableRow {
         let accessibilityIdentifier: String
     }
 
+    struct EventItem: Equatable {
+        let id: String
+        let title: String
+        let titleTooltip: String
+        let subtitle: String
+        let timestamp: Date
+        let icon: Icon
+        let action: VaultHistoryRowAction?
+        let agent: SessionAgent?
+        let accessibilityIdentifier: String
+
+        init(
+            event: VaultHistoryEvent,
+            action: VaultHistoryRowAction?,
+            agent: SessionAgent?
+        ) {
+            id = event.id
+            let normalizedTitle = VaultHistoryDisplayText.singleLine(event.title)
+            if normalizedTitle.isEmpty {
+                switch event.kind {
+                case .windowOpened, .windowClosed:
+                    title = String(localized: "vaultHistory.window", defaultValue: "Window")
+                default:
+                    title = String(localized: "vaultHistory.untitled", defaultValue: "Untitled")
+                }
+            } else {
+                title = normalizedTitle
+            }
+            titleTooltip = VaultHistoryDisplayText.singleLine(
+                event.title,
+                maximumLength: VaultHistoryDisplayText.tooltipMaximumLength
+            )
+            subtitle = Self.subtitle(for: event)
+            timestamp = event.timestamp
+            if event.kind == .sessionActivity, let agent {
+                icon = .agent(agent)
+            } else {
+                icon = .system(name: event.kind.symbolName, style: .secondary)
+            }
+            self.action = action
+            self.agent = agent
+            accessibilityIdentifier = "VaultHistoryEventRow:\(event.id)"
+        }
+
+        private static func subtitle(for event: VaultHistoryEvent) -> String {
+            var parts: [String] = []
+            if event.kind == .sessionActivity {
+                if let displayName = event.subject.agentDisplayName, !displayName.isEmpty {
+                    parts.append(VaultHistoryDisplayText.singleLine(displayName))
+                } else if let raw = event.subject.agent, let agent = SessionAgent(rawValue: raw) {
+                    parts.append(agent.displayName)
+                } else {
+                    parts.append(event.kind.label)
+                }
+            } else {
+                parts.append(event.kind.label)
+            }
+            if event.kind == .workspaceRenamed,
+               let previousTitle = event.previousTitle,
+               !previousTitle.isEmpty {
+                parts.append(String(
+                    format: String(
+                        localized: "vaultHistory.detail.renamedFrom",
+                        defaultValue: "was “%@”"
+                    ),
+                    VaultHistoryDisplayText.singleLine(previousTitle)
+                ))
+            }
+            if let count = event.workspaceCount {
+                parts.append(workspaceCountLabel(count))
+            }
+            if let directory = event.subject.directory, !directory.isEmpty {
+                let component = (directory as NSString).lastPathComponent
+                if !component.isEmpty, component != "." {
+                    parts.append(VaultHistoryDisplayText.singleLine(component))
+                }
+            }
+            return VaultHistoryDisplayText.singleLine(parts.joined(separator: " · "))
+        }
+
+        private static func workspaceCountLabel(_ count: Int) -> String {
+            if count == 1 {
+                return String(
+                    localized: "vaultHistory.workspaceCount.one",
+                    defaultValue: "1 workspace"
+                )
+            }
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "vaultHistory.workspaceCount.other",
+                    defaultValue: "%d workspaces"
+                ),
+                count
+            )
+        }
+    }
+
     case group(
         id: String,
         title: String,
@@ -287,14 +384,22 @@ enum VaultHistoryTableRow {
     )
     case workspace(WorkspaceHeader)
     case topologyItem(TopologyItem)
-    case event(event: VaultHistoryEvent, action: VaultHistoryRowAction?, agent: SessionAgent?)
+    case event(EventItem)
+
+    static func event(
+        event: VaultHistoryEvent,
+        action: VaultHistoryRowAction?,
+        agent: SessionAgent?
+    ) -> Self {
+        .event(EventItem(event: event, action: action, agent: agent))
+    }
 
     var id: VaultHistoryTableRowID {
         switch self {
         case .group(let id, _, _, _, _): return .group(id)
         case .workspace(let header): return .workspace(header.id)
         case .topologyItem(let item): return .topologyItem(item.id)
-        case .event(let event, _, _): return .event(event.id)
+        case .event(let item): return .event(item.id)
         }
     }
 
@@ -316,8 +421,8 @@ enum VaultHistoryTableRow {
                 && lhsCount == rhsCount
                 && lhsAgent == rhsAgent
                 && lhsAction == rhsAction
-        case let (.event(lhsEvent, lhsAction, lhsAgent), .event(rhsEvent, rhsAction, rhsAgent)):
-            return lhsEvent == rhsEvent && lhsAction == rhsAction && lhsAgent == rhsAgent
+        case let (.event(lhs), .event(rhs)):
+            return lhs == rhs
         case let (.workspace(lhs), .workspace(rhs)):
             return lhs == rhs
         case let (.topologyItem(lhs), .topologyItem(rhs)):
@@ -329,10 +434,15 @@ enum VaultHistoryTableRow {
 }
 
 @MainActor
-final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class VaultHistoryTableController: NSObject, NSTableViewDelegate {
+    private enum Section: Hashable {
+        case main
+    }
+
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("history")
     private weak var containerView: VaultHistoryTableContainerView?
-    private var rows: [VaultHistoryTableRow] = []
+    private var dataSource: NSTableViewDiffableDataSource<Section, VaultHistoryTableRowID>?
+    private var rowByID: [VaultHistoryTableRowID: VaultHistoryTableRow] = [:]
     private var actions = VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
     private var globalFontMagnificationPercent = GlobalFontMagnification.defaultPercent
     private var pendingApply: ApplyInput?
@@ -342,7 +452,6 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
         let container = VaultHistoryTableContainerView()
         containerView = container
         let table = container.tableView
-        table.dataSource = self
         table.delegate = self
         table.headerView = nil
         table.style = .plain
@@ -364,6 +473,17 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
         let column = NSTableColumn(identifier: Self.columnIdentifier)
         column.resizingMask = .autoresizingMask
         table.addTableColumn(column)
+
+        let dataSource = NSTableViewDiffableDataSource<Section, VaultHistoryTableRowID>(
+            tableView: table
+        ) { [weak self] tableView, _, _, identifier in
+            guard let self, let row = self.rowByID[identifier] else {
+                return NSTableCellView()
+            }
+            return self.makeCell(tableView: tableView, row: row)
+        }
+        dataSource.defaultRowAnimation = []
+        self.dataSource = dataSource
 
         let scrollView = container.scrollView
         scrollView.documentView = table
@@ -397,48 +517,59 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     private func flushPendingApply() {
-        guard let input = pendingApply, let table = containerView?.tableView else {
+        guard let input = pendingApply, let dataSource else {
             pendingApply = nil
             isFlushScheduled = false
             return
         }
         pendingApply = nil
         isFlushScheduled = false
-        let previousRows = rows
-        let presentationChanged = globalFontMagnificationPercent != input.globalFontMagnificationPercent
-        let structuralChanged = previousRows.map(\.id) != input.rows.map(\.id)
-        rows = input.rows
-        globalFontMagnificationPercent = input.globalFontMagnificationPercent
-
-        if structuralChanged || presentationChanged {
-            table.reloadData()
+        let identifiers = input.rows.map(\.id)
+        guard Set(identifiers).count == identifiers.count else {
+            assertionFailure("History rows must have unique identifiers")
             return
         }
-        let changedRows = IndexSet(input.rows.indices.filter {
-            !previousRows[$0].hasEquivalentContent(to: input.rows[$0])
-        })
-        guard !changedRows.isEmpty else { return }
-        table.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
+
+        let previousRowByID = rowByID
+        let currentIdentifiers = dataSource.snapshot().itemIdentifiers
+        let currentIdentifierSet = Set(currentIdentifiers)
+        let nextRowByID = Dictionary(uniqueKeysWithValues: input.rows.map { ($0.id, $0) })
+        let presentationChanged = globalFontMagnificationPercent != input.globalFontMagnificationPercent
+        let changedIdentifiers = identifiers.filter { identifier in
+            guard currentIdentifierSet.contains(identifier),
+                  let previousRow = previousRowByID[identifier],
+                  let nextRow = nextRowByID[identifier] else {
+                return false
+            }
+            return presentationChanged || !previousRow.hasEquivalentContent(to: nextRow)
+        }
+
+        rowByID = nextRowByID
+        globalFontMagnificationPercent = input.globalFontMagnificationPercent
+        guard currentIdentifiers != identifiers || !changedIdentifiers.isEmpty else { return }
+
+        var snapshot = NSDiffableDataSourceSnapshot<Section, VaultHistoryTableRowID>()
+        snapshot.appendSections([.main])
+        snapshot.appendItems(identifiers, toSection: .main)
+        snapshot.reloadItems(changedIdentifiers)
+        dataSource.apply(snapshot, animatingDifferences: true)
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-
     func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        rows.indices.contains(row) && rows[row].isGroup
+        tableRow(at: row)?.isGroup == true
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard rows.indices.contains(row) else { return 36 }
-        let base: CGFloat = rows[row].isGroup ? 26 : 38
+        guard let row = tableRow(at: row) else { return 36 }
+        let base: CGFloat = row.isGroup ? 26 : 38
         return max(base, GlobalFontMagnification.scaledSize(
             base,
             percent: globalFontMagnificationPercent
         ))
     }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard rows.indices.contains(row) else { return nil }
-        switch rows[row] {
+    private func makeCell(tableView: NSTableView, row: VaultHistoryTableRow) -> NSView {
+        switch row {
         case .group(let id, let title, let count, let agent, let action):
             let cell = (tableView.makeView(
                 withIdentifier: VaultHistoryTableGroupCellView.reuseIdentifier,
@@ -476,15 +607,13 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
                 onPerformAction: { [weak self] action in self?.actions.perform(action) }
             )
             return cell
-        case .event(let event, let action, let agent):
+        case .event(let item):
             let cell = (tableView.makeView(
                 withIdentifier: VaultHistoryTableEventCellView.reuseIdentifier,
                 owner: self
             ) as? VaultHistoryTableEventCellView) ?? VaultHistoryTableEventCellView()
             cell.configure(
-                event: event,
-                action: action,
-                agent: agent,
+                eventItem: item,
                 globalFontMagnificationPercent: globalFontMagnificationPercent,
                 onPerformAction: { [weak self] action in self?.actions.perform(action) }
             )
@@ -493,10 +622,10 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     @objc private func handleDoubleClick(_ sender: NSTableView) {
-        let row = sender.clickedRow
-        guard rows.indices.contains(row) else { return }
-        switch rows[row] {
-        case .event(_, let action?, _):
+        guard let row = tableRow(at: sender.clickedRow) else { return }
+        switch row {
+        case .event(let item):
+            guard let action = item.action else { return }
             actions.perform(action)
         case .topologyItem(let item):
             guard let action = item.action else { return }
@@ -509,6 +638,14 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
         default:
             return
         }
+    }
+
+    private func tableRow(at index: Int) -> VaultHistoryTableRow? {
+        guard index >= 0,
+              let identifier = dataSource?.itemIdentifier(forRow: index) else {
+            return nil
+        }
+        return rowByID[identifier]
     }
 
     private struct ApplyInput {

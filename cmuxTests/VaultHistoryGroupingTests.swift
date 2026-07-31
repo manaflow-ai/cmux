@@ -667,10 +667,11 @@ import Testing
             return
         }
         #expect(groupAgent == .codex)
-        guard case .event(_, nil, let rowAgent) = rows[1] else {
+        guard case .event(let item) = rows[1] else {
             Issue.record("Expected the second virtual row to be an event")
             return
         }
+        let rowAgent = item.agent
         #expect(rowAgent == .codex)
         #expect(rowAgent?.assetName == "AgentIcons/Codex")
     }
@@ -710,10 +711,11 @@ import Testing
             actions: VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
         )
 
-        guard case .event(_, nil, let rowAgent) = rows[1] else {
+        guard case .event(let item) = rows[1] else {
             Issue.record("Expected a virtualized event row")
             return
         }
+        let rowAgent = item.agent
         #expect(rowAgent == registeredAgent)
         #expect(rowAgent?.assetName == "AgentIcons/Pi")
     }
@@ -984,6 +986,45 @@ struct VaultHistoryAppKitViewportTests {
             let frameInCell = cell.convert(label.bounds, from: label)
             #expect(cell.bounds.contains(frameInCell))
         }
+    }
+
+    @MainActor
+    @Test
+    func timelineCellDefersPointerOnlyWorkUntilInteraction() throws {
+        let workspaceId = UUID()
+        let cell = VaultHistoryTableEventCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 38)
+        )
+        cell.configure(
+            event: VaultHistoryEvent(
+                id: "lazy-pointer-work",
+                timestamp: Date(),
+                kind: .workspaceCreated,
+                title: "Active workspace"
+            ),
+            action: .activateWorkspace(workspaceId),
+            agent: nil,
+            globalFontMagnificationPercent: 100,
+            onPerformAction: { _ in }
+        )
+
+        #expect(cell.trackingAreas.isEmpty)
+        #expect(cell.menu == nil)
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let contextMenu = try #require(cell.menu(for: event))
+        #expect(contextMenu.items.count == 1)
+        #expect(contextMenu.items[0].title == VaultHistoryRowAction.activateWorkspace(workspaceId).label)
     }
 
     @MainActor
