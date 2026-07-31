@@ -4176,7 +4176,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 cancel()
                 return
             }
-            self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
+            // Discard the dismiss handle explicitly: Xcode 26.3's Swift rejects a
+            // discarded function-typed result as an error even under
+            // @discardableResult.
+            _ = self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] in self?.shouldBlockInsecureHTTPNavigation(to: $0) ?? false }
         navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
@@ -4330,7 +4333,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 cancel()
                 return
             }
-            self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
+            // See navDelegate.presentAlert above: explicit discard for Xcode 26.3.
+            _ = self.presentBrowserAlert(alert, in: webView, completion: completion, cancel: cancel)
         }
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
