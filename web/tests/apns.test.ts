@@ -10,6 +10,10 @@ import {
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
 import {
+  mergePushDeliveryOutcomes,
+  unresolvedPushTargets,
+} from "../services/apns/deliveryState";
+import {
   sendApnsNotification,
   sendApnsNotificationReliably,
   signApnsJwt,
@@ -203,6 +207,50 @@ describe("apns response", () => {
     expect(JSON.stringify(summary)).not.toContain("ServiceUnavailable");
     expect(JSON.stringify(summary)).not.toContain("InvalidProviderToken");
     expect(JSON.stringify(summary)).not.toContain("apns");
+  });
+});
+
+describe("apns logical-event delivery state", () => {
+  test("a later same-correlation attempt targets only the transient device", () => {
+    const targets = [
+      {
+        deviceToken: "a".repeat(64),
+        bundleId: "com.cmux.app",
+        environment: "production",
+      },
+      {
+        deviceToken: "b".repeat(64),
+        bundleId: "com.cmux.app",
+        environment: "production",
+      },
+    ];
+    const first = mergePushDeliveryOutcomes([], [
+      {
+        deviceToken: "a".repeat(64),
+        status: 200,
+        prune: false,
+      },
+      {
+        deviceToken: "b".repeat(64),
+        status: 503,
+        reason: "ServiceUnavailable",
+        prune: false,
+      },
+    ]);
+
+    expect(unresolvedPushTargets(targets, first).map((target) => target.deviceToken))
+      .toEqual(["b".repeat(64)]);
+
+    const recovered = mergePushDeliveryOutcomes(first, [
+      {
+        deviceToken: "b".repeat(64),
+        status: 200,
+        prune: false,
+      },
+    ]);
+    expect(summarizeApnsSendResults(recovered).sent).toBe(2);
+    expect(recovered.filter((result) => result.deviceToken.startsWith("a")))
+      .toHaveLength(1);
   });
 });
 
