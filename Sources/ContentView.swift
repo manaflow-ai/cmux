@@ -2713,9 +2713,6 @@ struct ContentView: View {
             // already advanced again. Reconcile the current model value once,
             // regardless of which intermediate value triggered this callback.
             let authoritativeSelection = tabManager.selectedTabId
-            guard authoritativeSelection != previousSelectedWorkspaceId else {
-                return
-            }
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000

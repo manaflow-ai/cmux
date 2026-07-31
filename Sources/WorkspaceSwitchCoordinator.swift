@@ -123,22 +123,25 @@ final class WorkspaceSwitchCoordinator {
         guard let sourceWorkspaceID, let targetWorkspaceID else { return nil }
 
         let requestID = UUID()
-        let details = Self.details(
-            requestID: requestID,
-            sourceWorkspaceID: sourceWorkspaceID,
-            targetWorkspaceID: targetWorkspaceID
-        )
         var transaction = ActiveTransaction(
             requestID: requestID,
             sourceWorkspaceID: sourceWorkspaceID,
             targetWorkspaceID: targetWorkspaceID,
             selectionCommitInterval: workspaceSwitchSignposts.begin(
                 "ws.switch.selection-commit",
-                details
+                Self.details(
+                    requestID: requestID,
+                    sourceWorkspaceID: sourceWorkspaceID,
+                    targetWorkspaceID: targetWorkspaceID
+                )
             ),
             interactiveInterval: workspaceSwitchSignposts.begin(
                 "ws.switch.interactive",
-                details
+                Self.details(
+                    requestID: requestID,
+                    sourceWorkspaceID: sourceWorkspaceID,
+                    targetWorkspaceID: targetWorkspaceID
+                )
             )
         )
         if let targetSurfaceID {
@@ -147,13 +150,7 @@ final class WorkspaceSwitchCoordinator {
                 view: targetTerminalView,
                 rendererPresented: targetRendererPresented,
                 renderedFrameSequence: targetRenderedFrameSequence,
-                in: &transaction,
-                details: Self.details(
-                    requestID: requestID,
-                    sourceWorkspaceID: sourceWorkspaceID,
-                    targetWorkspaceID: targetWorkspaceID,
-                    contentKind: .terminal
-                )
+                in: &transaction
             )
         }
         active = transaction
@@ -209,16 +206,15 @@ final class WorkspaceSwitchCoordinator {
             interactionReady: target.interactionReady
         )
 
-        let details = Self.details(
-            requestID: transaction.requestID,
-            sourceWorkspaceID: transaction.sourceWorkspaceID,
-            targetWorkspaceID: transaction.targetWorkspaceID,
-            contentKind: target.contentKind
-        )
         if !target.portalPresented {
             transaction.portalShowInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.portal-show",
-                details
+                Self.details(
+                    requestID: transaction.requestID,
+                    sourceWorkspaceID: transaction.sourceWorkspaceID,
+                    targetWorkspaceID: transaction.targetWorkspaceID,
+                    contentKind: target.contentKind
+                )
             )
         }
         if firstFramePresented {
@@ -383,13 +379,7 @@ final class WorkspaceSwitchCoordinator {
             view: view,
             rendererPresented: rendererPresented,
             renderedFrameSequence: renderedFrameSequence,
-            in: &transaction,
-            details: Self.details(
-                requestID: transaction.requestID,
-                sourceWorkspaceID: transaction.sourceWorkspaceID,
-                targetWorkspaceID: transaction.targetWorkspaceID,
-                contentKind: .terminal
-            )
+            in: &transaction
         )
     }
 
@@ -398,8 +388,7 @@ final class WorkspaceSwitchCoordinator {
         view: GhosttyNSView?,
         rendererPresented: Bool,
         renderedFrameSequence: UInt64,
-        in transaction: inout ActiveTransaction,
-        details: String
+        in transaction: inout ActiveTransaction
     ) {
         transaction.targetSurfaceID = surfaceID
         transaction.targetTerminalViewID = view.map(ObjectIdentifier.init)
@@ -414,13 +403,23 @@ final class WorkspaceSwitchCoordinator {
         if !rendererPresented {
             transaction.rendererRealizationInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.renderer-realization",
-                details
+                Self.details(
+                    requestID: transaction.requestID,
+                    sourceWorkspaceID: transaction.sourceWorkspaceID,
+                    targetWorkspaceID: transaction.targetWorkspaceID,
+                    contentKind: .terminal
+                )
             )
         }
         guard !transaction.warmFrameAvailable else { return }
         transaction.firstFrameInterval = workspaceSwitchSignposts.begin(
             "ws.switch.first-frame",
-            details
+            Self.details(
+                requestID: transaction.requestID,
+                sourceWorkspaceID: transaction.sourceWorkspaceID,
+                targetWorkspaceID: transaction.targetWorkspaceID,
+                contentKind: .terminal
+            )
         )
         guard let targetView = view else { return }
         let requestID = transaction.requestID
