@@ -223,8 +223,7 @@ struct MobileHostServiceSettingsTests {
 @Suite(.serialized)
 struct MobileHostTransportRouteCompositionTests {
     @Test func tcpRouteRefreshDoesNotRemoveTheActiveIrohRoute() throws {
-        defer { MobileHostPublicStatusCache.removeAll() }
-        MobileHostPublicStatusCache.removeAll()
+        let publicStatusStore = MobileHostPublicStatusStore()
         let binding = try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
             from: Data(
@@ -253,12 +252,12 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        MobileHostPublicStatusCache.update(irohBinding: binding)
-        MobileHostPublicStatusCache.update(routes: [tailscale])
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        publicStatusStore.update(irohBinding: binding)
+        publicStatusStore.update(routes: [tailscale])
+        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
 
-        MobileHostPublicStatusCache.update(routes: [])
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh])
+        publicStatusStore.update(routes: [])
+        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh])
     }
 
     @MainActor
@@ -281,8 +280,7 @@ struct MobileHostTransportRouteCompositionTests {
     }
 
     @Test func irohBindingLifecycleDoesNotRemoveTailscaleRoute() throws {
-        defer { MobileHostPublicStatusCache.removeAll() }
-        MobileHostPublicStatusCache.removeAll()
+        let publicStatusStore = MobileHostPublicStatusStore()
         let binding = try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
             from: Data(
@@ -311,12 +309,12 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        MobileHostPublicStatusCache.update(routes: [tailscale])
-        MobileHostPublicStatusCache.update(irohBinding: binding)
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+        publicStatusStore.update(routes: [tailscale])
+        publicStatusStore.update(irohBinding: binding)
+        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
 
-        MobileHostPublicStatusCache.update(irohBinding: nil)
-        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
+        publicStatusStore.update(irohBinding: nil)
+        #expect(publicStatusStore.snapshot().map(\.kind) == [.tailscale])
     }
 }
 

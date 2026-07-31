@@ -1303,6 +1303,134 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    @Test func testEventsParsesNearLimitFrameDeliveredAcrossManyReads() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-events-large-\(UUID().uuidString.prefix(8)).sock"
+        let prefix = #"{"type":"ack","padding":""#
+        let suffix = #""}"#
+        let targetByteCount = 4 * 1_024 * 1_024 - 1
+        let paddingByteCount = targetByteCount
+            - prefix.utf8.count
+            - suffix.utf8.count
+        let frame = prefix + String(repeating: "a", count: paddingByteCount) + suffix
+        #expect(frame.utf8.count == targetByteCount)
+        let responder = try UnixSocketResponder(path: socketPath, response: frame)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "events", "--snapshot", "--no-ack", "--timeout", "8",
+            ],
+            environment: environment,
+            timeout: 10
+        )
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(responder.receivedRequests.count == 1)
+        #expect(
+            elapsed < 3,
+            Comment(rawValue: "near-limit frame parse took \(elapsed) seconds")
+        )
+    }
+
+    @Test func testEventsReconnectWakesWhenUnixSocketInodeIsReplaced() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-events-replace-\(UUID().uuidString.prefix(8)).sock"
+        let firstRequest = DispatchSemaphore(value: 0)
+        let processFinished = DispatchSemaphore(value: 0)
+        let replacement = UnixSocketResponderBox()
+        let first = try UnixSocketResponder(
+            path: socketPath,
+            response: "",
+            onRequest: { _ in firstRequest.signal() }
+        )
+        defer {
+            first.stop()
+            processFinished.signal()
+            replacement.stop()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard firstRequest.wait(timeout: .now() + 3) == .success else {
+                replacement.record(error: "first event-stream request was not received")
+                return
+            }
+            first.stop()
+            do {
+                replacement.install(try UnixSocketResponder(
+                    path: socketPath,
+                    response: #"{"type":"ack"}"#
+                ))
+            } catch {
+                replacement.record(error: String(describing: error))
+                return
+            }
+            _ = processFinished.wait(timeout: .now() + 8)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "events", "--reconnect", "--snapshot", "--no-ack",
+                "--timeout", "3",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(replacement.error == nil, Comment(rawValue: replacement.error ?? ""))
+        #expect(replacement.receivedRequestCount == 1)
+    }
+
+    @Test func testEventsRelayReconnectDoesNotWaitOnFilesystemChanges() throws {
+        let cliPath = try bundledCLIPath()
+        let relay = try RelayEventStreamResponder()
+        defer { relay.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_RELAY_ID"] = RelayEventStreamResponder.relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "00", count: 32)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", "127.0.0.1:\(relay.port)",
+                "events", "--reconnect", "--snapshot", "--no-ack",
+                "--timeout", "0.8",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(relay.receivedRequestCount == 2)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
@@ -1540,20 +1668,27 @@ import Testing
     }
 }
 
-final class UnixSocketResponder {
+final class UnixSocketResponder: @unchecked Sendable {
     let path: String
     private let response: String
     private let responseDelay: TimeInterval
+    private let onRequest: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
+    init(
+        path: String,
+        response: String,
+        responseDelay: TimeInterval = 0,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
         self.path = path
         self.response = response
         self.responseDelay = responseDelay
+        self.onRequest = onRequest
 
         unlink(path)
         listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -1670,13 +1805,229 @@ final class UnixSocketResponder {
             lock.lock()
             requests.append(line)
             lock.unlock()
+            onRequest?(line)
         }
         if responseDelay > 0 {
             Thread.sleep(forTimeInterval: responseDelay)
         }
-        let payload = response + "\n"
-        payload.withCString { pointer in
-            _ = write(clientFD, pointer, strlen(pointer))
+        let payload = Data((response + "\n").utf8)
+        payload.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                let written = write(
+                    clientFD,
+                    baseAddress.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if written == 0 { return }
+                offset += written
+            }
+        }
+    }
+
+    private static func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
+    }
+}
+
+private final class UnixSocketResponderBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responder: UnixSocketResponder?
+    private var recordedError: String?
+
+    var error: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedError
+    }
+
+    var receivedRequestCount: Int {
+        lock.lock()
+        let responder = responder
+        lock.unlock()
+        return responder?.receivedRequests.count ?? 0
+    }
+
+    func install(_ responder: UnixSocketResponder) {
+        lock.lock()
+        self.responder = responder
+        lock.unlock()
+    }
+
+    func record(error: String) {
+        lock.lock()
+        recordedError = error
+        lock.unlock()
+    }
+
+    func stop() {
+        lock.lock()
+        let responder = responder
+        self.responder = nil
+        lock.unlock()
+        responder?.stop()
+    }
+}
+
+private final class RelayEventStreamResponder: @unchecked Sendable {
+    static let relayID = "cmux-events-test-relay"
+
+    let port: UInt16
+    private let queue = DispatchQueue(label: "com.cmux.tests.event-relay")
+    private let lock = NSLock()
+    private var listenerFD: Int32
+    private var stopped = false
+    private var requestCount = 0
+
+    init() throws {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw Self.posixError("socket") }
+        listenerFD = fd
+
+        var reuse: Int32 = 1
+        _ = setsockopt(
+            fd,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            &reuse,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        guard bindResult == 0 else {
+            Darwin.close(fd)
+            throw Self.posixError("bind")
+        }
+        guard listen(fd, 2) == 0 else {
+            Darwin.close(fd)
+            throw Self.posixError("listen")
+        }
+        var boundAddress = sockaddr_in()
+        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.stride)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &boundLength)
+            }
+        }
+        guard nameResult == 0 else {
+            Darwin.close(fd)
+            throw Self.posixError("getsockname")
+        }
+        port = UInt16(bigEndian: boundAddress.sin_port)
+
+        queue.async { [weak self] in
+            self?.serve(listenerFD: fd)
+        }
+    }
+
+    deinit { stop() }
+
+    var receivedRequestCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestCount
+    }
+
+    func stop() {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        stopped = true
+        let fd = listenerFD
+        listenerFD = -1
+        lock.unlock()
+        if fd >= 0 { Darwin.close(fd) }
+    }
+
+    private func serve(listenerFD: Int32) {
+        for connectionIndex in 0 ..< 2 {
+            let clientFD = accept(listenerFD, nil, nil)
+            guard clientFD >= 0 else { return }
+            handle(clientFD: clientFD, sendsAck: connectionIndex == 1)
+        }
+    }
+
+    private func handle(clientFD: Int32, sendsAck: Bool) {
+        defer { Darwin.close(clientFD) }
+        var noSigPipe: Int32 = 1
+        _ = setsockopt(
+            clientFD,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            &noSigPipe,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        guard writeAll(
+            #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"cmux-events-test-relay","nonce":"nonce"}"#
+                + "\n",
+            to: clientFD
+        ), readLine(from: clientFD) != nil,
+           writeAll(#"{"ok":true}"# + "\n", to: clientFD),
+           readLine(from: clientFD) != nil else {
+            return
+        }
+        lock.lock()
+        requestCount += 1
+        lock.unlock()
+        if sendsAck {
+            _ = writeAll(#"{"type":"ack"}"# + "\n", to: clientFD)
+        }
+    }
+
+    private func readLine(from fd: Int32) -> Data? {
+        var line = Data()
+        while line.count < 1_048_576 {
+            var byte: UInt8 = 0
+            let count = Darwin.read(fd, &byte, 1)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            if count == 0 { return nil }
+            if byte == 0x0A { return line }
+            line.append(byte)
+        }
+        return nil
+    }
+
+    private func writeAll(_ string: String, to fd: Int32) -> Bool {
+        let data = Data(string.utf8)
+        return data.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return true }
+            var offset = 0
+            while offset < bytes.count {
+                let written = Darwin.write(
+                    fd,
+                    baseAddress.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    return false
+                }
+                if written == 0 { return false }
+                offset += written
+            }
+            return true
         }
     }
 

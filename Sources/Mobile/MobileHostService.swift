@@ -224,6 +224,9 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
+    /// Lock-protected status projection used by off-main transport handlers.
+    /// Ownership follows this service instead of ambient process-global state.
+    nonisolated let publicStatusStore: MobileHostPublicStatusStore
     /// Process-lifetime owner for the repository-root summary TTL cache.
     let workspaceChangesService = WorkspaceChangesService()
 
@@ -308,16 +311,19 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    nonisolated static func networkStatusResult(
+        for request: MobileHostRPCRequest,
+        publicStatusStore: MobileHostPublicStatusStore
+    ) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
+            return publicStatusStore.result(includeIdentity: false)
         }
         let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
         if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        return MobileHostPublicStatusCache.result(includeIdentity: verified)
+        return publicStatusStore.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -350,7 +356,11 @@ final class MobileHostService {
     private var debugAcceptedStackAuthToken: String?
     #endif
 
-    private init() {}
+    private init(
+        publicStatusStore: MobileHostPublicStatusStore = MobileHostPublicStatusStore()
+    ) {
+        self.publicStatusStore = publicStatusStore
+    }
 
     /// Inject the auth dependency. Call once at the composition root.
     func configure(auth: AuthCoordinator) {
@@ -359,11 +369,11 @@ final class MobileHostService {
     }
 
     func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+        publicStatusStore.update(irohBinding: binding)
     }
 
     func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
-        MobileHostPublicStatusCache.update(irohBinding: binding)
+        publicStatusStore.update(irohBinding: binding)
     }
 
     func closeIrohConnections(bindingID: String) {
@@ -865,7 +875,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusStore.update(routes: routeResolver.routes(port: port).routes)
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -911,7 +921,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusStore.update(routes: routeResolver.routes(port: port).routes)
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -977,7 +987,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         MobileHostEventSubscriptionTracker.reset()
-        MobileHostPublicStatusCache.removeAll()
+        publicStatusStore.removeAll()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }
@@ -999,11 +1009,11 @@ final class MobileHostService {
             Task { await connection.close(reason: reason) }
         }
         activeConnections.removeAll()
-        MobileHostPublicStatusCache.update(routes: [])
+        publicStatusStore.update(routes: [])
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        makeStatus(routes: MobileHostPublicStatusCache.snapshot())
+        makeStatus(routes: publicStatusStore.snapshot())
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -1090,7 +1100,7 @@ final class MobileHostService {
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = (listener != nil && listenerPort != nil)
-            || MobileHostPublicStatusCache.hasIrohRoute()
+            || publicStatusStore.hasIrohRoute()
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1207,6 +1217,7 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        let publicStatusStore = await MobileHostService.shared.publicStatusStore
         let session = MobileHostConnection(
             id: id,
             transport: transport,
@@ -1234,9 +1245,13 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        publicStatusStore: publicStatusStore,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
-                            await MobileHostService.networkStatusResult(for: request)
+                            await MobileHostService.networkStatusResult(
+                                for: request,
+                                publicStatusStore: publicStatusStore
+                            )
                         }
                     )
                 }
@@ -1298,6 +1313,7 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        publicStatusStore: MobileHostPublicStatusStore,
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
@@ -1305,7 +1321,7 @@ final class MobileHostService {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
-            return MobileHostPublicStatusCache.result(
+            return publicStatusStore.result(
                 includeIdentity: true,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
@@ -1327,7 +1343,7 @@ final class MobileHostService {
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
         target: MobileAttachTarget? = nil
     ) async throws -> [String: Any] {
-        let routes = MobileHostPublicStatusCache.snapshot()
+        let routes = publicStatusStore.snapshot()
         let filteredRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
@@ -1628,9 +1644,9 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                publicStatusStore.update(routes: routeResolver.routes(port: listenerPort).routes)
             } else {
-                MobileHostPublicStatusCache.update(routes: [])
+                publicStatusStore.update(routes: [])
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
             drainReadinessWaiters()
@@ -1641,7 +1657,7 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            publicStatusStore.update(routes: [])
             drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
@@ -1652,11 +1668,11 @@ final class MobileHostService {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
-                MobileHostPublicStatusCache.update(routes: [])
+                publicStatusStore.update(routes: [])
             }
         case .setup:
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            publicStatusStore.update(routes: [])
         @unknown default:
             break
         }
@@ -1667,7 +1683,7 @@ final class MobileHostService {
     /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
     private func handleListenerBindFailure(error: NWError, context: String) {
         lastErrorDescription = String(describing: error)
-        MobileHostPublicStatusCache.update(routes: [])
+        publicStatusStore.update(routes: [])
         let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
@@ -1695,7 +1711,7 @@ final class MobileHostService {
         guard generation == listenerGeneration, listenerPort == port else {
             return
         }
-        MobileHostPublicStatusCache.update(
+        publicStatusStore.update(
             routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
         )
     }
@@ -1744,7 +1760,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusStore.update(routes: routeResolver.routes(port: port).routes)
     }
 }
 

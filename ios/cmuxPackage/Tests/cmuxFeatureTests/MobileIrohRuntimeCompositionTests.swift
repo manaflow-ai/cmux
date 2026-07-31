@@ -13,6 +13,36 @@ import Testing
 @testable import cmuxFeature
 
 @MainActor
+@discardableResult
+private func expectRetryAwarePreparationFailure<T>(
+    kind expectedKind: DiagnosticFailureKind? = nil,
+    operation: @MainActor () async throws -> T
+) async -> MobileIrohRuntimePreparationError {
+    do {
+        _ = try await operation()
+        Issue.record("Expected Iroh transport preparation to remain unavailable")
+        return MobileIrohRuntimePreparationError(
+            diagnosticFailureKind: .unknown,
+            retryAfterSeconds: nil
+        )
+    } catch let failure as MobileIrohRuntimePreparationError {
+        #expect(failure.retryAfterSeconds.map { $0 > 0 } == true)
+        if let expectedKind {
+            #expect(failure.diagnosticFailureKind == expectedKind)
+        }
+        return failure
+    } catch {
+        Issue.record(
+            "Expected retry-aware preparation failure, got \(String(describing: error))"
+        )
+        return MobileIrohRuntimePreparationError(
+            diagnosticFailureKind: .unknown,
+            retryAfterSeconds: nil
+        )
+    }
+}
+
+@MainActor
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
@@ -933,7 +963,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.auth.signOut(onSignedOut: { _, _ in })
         await fixture.authClient.setUser(fixture.otherUser)
         try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -955,7 +985,7 @@ struct MobileIrohRuntimeCompositionTests {
 
         // Auth still reports the signing-out account between preparation and
         // its local clear. That state must not look like a later sign-in.
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
         #expect(await fixture.broker.revokedBindingIDs().isEmpty)
@@ -989,7 +1019,7 @@ struct MobileIrohRuntimeCompositionTests {
 
         await fixture.authClient.setUser(fixture.otherUser)
         try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
         #expect(
@@ -1002,7 +1032,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.outboxStore.setWriteMode(.normal)
         await fixture.authClient.setUser(fixture.user)
         try await fixture.auth.signInWithPassword(email: "a@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -1484,7 +1514,9 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure(
+            kind: resolvableDeviceID ? nil : .endpointUnavailable
+        ) {
             _ = try await composition.transport(for: request)
         }
         let initialBindCount = await endpointFactory.bindCount()

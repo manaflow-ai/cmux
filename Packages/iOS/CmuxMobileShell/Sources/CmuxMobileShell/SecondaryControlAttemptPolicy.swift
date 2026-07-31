@@ -3,7 +3,9 @@ import CmuxMobileRPC
 import Foundation
 
 extension MobileShellComposite {
-    func secondaryControlAttemptIsTransient(_ error: any Error) -> Bool {
+    nonisolated func secondaryControlAttemptIsTransient(
+        _ error: any Error
+    ) -> Bool {
         if error is CancellationError || error is DecodingError {
             return false
         }

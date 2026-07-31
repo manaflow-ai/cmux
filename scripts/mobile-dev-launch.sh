@@ -87,7 +87,7 @@ if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 if [[ ! "$ATTACH_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_ATTACH_READY_TIMEOUT_SECONDS must be a positive integer" >&2
+  echo "error: readiness timeout must be a positive integer" >&2
   exit 2
 fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then

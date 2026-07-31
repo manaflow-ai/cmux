@@ -693,6 +693,18 @@ test("physical-device mint reports a redacted route-readiness timeout", async ()
   assert.doesNotMatch(result.stderr, /secret-token-value/);
 });
 
+test("launcher validation does not expose the readiness environment key", () => {
+  const result = run(
+    "bash",
+    [path.join(repoRoot, "scripts/mobile-dev-launch.sh"), "--tag", "ready"],
+    { CMUX_ATTACH_READY_TIMEOUT_SECONDS: "invalid-secret-value" },
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /readiness timeout must be a positive integer/);
+  assert.doesNotMatch(result.stderr, /CMUX_ATTACH_READY_TIMEOUT_SECONDS/);
+  assert.doesNotMatch(result.stderr, /invalid-secret-value/);
+});
+
 test("physical-device mint distinguishes malformed successful output", async () => {
   const result = await mintAttachURL(
     "physical_device",

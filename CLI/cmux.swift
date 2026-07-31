@@ -1804,6 +1804,12 @@ final class SocketClient {
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
+    /// First byte not yet checked for a stream-frame delimiter.
+    ///
+    /// A frame may approach four MiB and arrive in 8 KiB reads. Rescanning the
+    /// retained prefix after every read makes parsing quadratic; a newline is
+    /// one byte, so only the newly appended suffix can contain a new match.
+    private var streamReadSearchOffset = 0
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1969,6 +1975,7 @@ final class SocketClient {
             socketFD = -1
         }
         streamReadBuffer.removeAll(keepingCapacity: true)
+        streamReadSearchOffset = 0
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2986,7 +2993,16 @@ final class SocketClient {
         deadline: Date? = nil
     ) throws -> String {
         while true {
-            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+            let boundedSearchOffset = min(
+                streamReadSearchOffset,
+                streamReadBuffer.count
+            )
+            let searchStart = streamReadBuffer.index(
+                streamReadBuffer.startIndex,
+                offsetBy: boundedSearchOffset
+            )
+            if let newlineIndex = streamReadBuffer[searchStart...]
+                .firstIndex(of: 0x0A) {
                 let lineByteCount = streamReadBuffer.distance(
                     from: streamReadBuffer.startIndex,
                     to: newlineIndex
@@ -3008,6 +3024,7 @@ final class SocketClient {
                     ))
                 }
                 streamReadBuffer.removeSubrange(...newlineIndex)
+                streamReadSearchOffset = 0
                 return line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard streamReadBuffer.count < maxBytes else {
@@ -3019,6 +3036,9 @@ final class SocketClient {
                     Int64(maxBytes)
                 ))
             }
+            // The retained prefix has no newline. Mark it scanned before the
+            // read so EINTR can retry without revisiting old bytes.
+            streamReadSearchOffset = streamReadBuffer.count
             if let deadline {
                 try waitForReadableStream(deadline: deadline)
             } else {
@@ -3057,12 +3077,7 @@ final class SocketClient {
     }
 
     static func socketFilesystemIdentity(at path: String) -> String? {
-        var metadata = stat()
-        guard lstat(path, &metadata) == 0,
-              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return nil
-        }
-        return "\(UInt64(metadata.st_dev)):\(UInt64(metadata.st_ino))"
+        UnixSocketReplacementWaiter().socketIdentity(at: path)
     }
 
     static func waitForSocketReplacement(
@@ -3071,38 +3086,14 @@ final class SocketClient {
         timeout: TimeInterval
     ) {
         guard timeout > 0,
-              let watchDirectory = existingWatchDirectory(forPath: path) else {
+              parseRelayEndpoint(path) == nil else {
             return
         }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else { return }
-
-        let queue = DispatchQueue(
-            label: "com.cmux.cli.event-stream-watch.\(UUID().uuidString)"
+        UnixSocketReplacementWaiter().wait(
+            at: path,
+            replacing: connectedIdentity,
+            timeout: timeout
         )
-        let semaphore = DispatchSemaphore(value: 0)
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-        var replacementObserved = false
-        func signalIfReplaced() {
-            guard !replacementObserved,
-                  let currentIdentity = socketFilesystemIdentity(at: path),
-                  currentIdentity != connectedIdentity else {
-                return
-            }
-            replacementObserved = true
-            semaphore.signal()
-        }
-        source.setEventHandler { signalIfReplaced() }
-        source.setCancelHandler { Darwin.close(watchFD) }
-        source.resume()
-        // Close the race between the identity snapshot and source activation.
-        queue.async { signalIfReplaced() }
-        _ = semaphore.wait(timeout: .now() + timeout)
-        source.cancel()
     }
 
     private func waitForReadableStream(deadline: Date) throws {
