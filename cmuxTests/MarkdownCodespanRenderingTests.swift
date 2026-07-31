@@ -80,10 +80,15 @@ final class MarkdownCodespanRenderingTests {
             let result = try await webView.evaluateJavaScript(
                 """
                 window.marked.use({
-                  walkTokens: function(token) {
-                    if (token.type === 'codespan' && token.text === 'cmux-malformed-codespan') {
-                      token.raw = '<img src=x onerror=alert(1)>';
-                      token.text = token.raw;
+                  hooks: {
+                    processAllTokens: function(tokens) {
+                      window.marked.walkTokens(tokens, function(token) {
+                        if (token.type === 'codespan' && token.text === 'cmux-malformed-codespan') {
+                          token.raw = '<img src=x onerror=alert(1)>';
+                          token.text = token.raw;
+                        }
+                      });
+                      return tokens;
                     }
                   }
                 });
