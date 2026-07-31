@@ -16,11 +16,12 @@ process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "10000";
 process.env.SUBROUTER_HOSTED_URL = "https://sr.test";
 
 let currentUser: ReturnType<typeof stackUser> | null = null;
-const getUser = mock(async () => currentUser);
-const getAuthJson = mock(async () => ({
+let authJson = {
   accessToken: "cookie-access",
   refreshToken: "cookie-refresh",
-}));
+};
+const getUser = mock(async () => currentUser);
+const getAuthJson = mock(async () => authJson);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser, getAuthJson }),
@@ -60,6 +61,10 @@ afterAll(() => {
 
 beforeEach(() => {
   currentUser = stackUser();
+  authJson = {
+    accessToken: "cookie-access",
+    refreshToken: "cookie-refresh",
+  };
   calls = [];
   listedAccounts = [];
   getUser.mockClear();
@@ -79,10 +84,10 @@ describe("hosted Subrouter account routes", () => {
   });
 
   test("returns 401 when cookie auth has no Stack access token", async () => {
-    getAuthJson.mockResolvedValueOnce({
+    authJson = {
       accessToken: "",
       refreshToken: "",
-    });
+    };
 
     const response = await accountsRoute.GET(
       request("/api/subrouter/accounts", { auth: "cookie" }),
