@@ -1355,7 +1355,7 @@ const TimeoutDeadline = struct {
 
 const RequestDispatch = enum {
     not_dispatched,
-    fully_dispatched,
+    payload_complete,
 };
 
 fn isSecretField(key: []const u8) bool {
@@ -2352,6 +2352,10 @@ pub const Client = struct {
             self.close();
             return failure;
         };
+        // Rust's BufRead::lines accepts a final JSON record at EOF without a
+        // newline. Once the complete payload is written, closing can cause the
+        // peer to execute it, so a mutation response is no longer determinate.
+        if (dispatch) |state| state.* = .payload_complete;
         const newline_timeout = deadline.remainingMs() catch |failure| {
             self.close();
             return failure;
@@ -2360,7 +2364,6 @@ pub const Client = struct {
             self.close();
             return failure;
         };
-        if (dispatch) |state| state.* = .fully_dispatched;
         _ = deadline.remainingMs() catch |failure| {
             self.close();
             return failure;
@@ -2557,7 +2560,7 @@ pub const Client = struct {
             deadline,
             &dispatch,
         ) catch |failure| {
-            if (dispatch == .fully_dispatched) {
+            if (dispatch == .payload_complete) {
                 if (mutation) |options| {
                     if (mutationTransportCause(failure)) |cause| {
                         try self.setMutationTransportUncertain(
@@ -15340,7 +15343,7 @@ test "deadline before first write leaves the connection reusable" {
     defer params.deinit();
 
     var deadline = try TimeoutDeadline.start(20);
-    var dispatch: RequestDispatch = .fully_dispatched;
+    var dispatch: RequestDispatch = .payload_complete;
     try client.acquireRequest(&deadline);
     {
         defer client.releaseRequest();
