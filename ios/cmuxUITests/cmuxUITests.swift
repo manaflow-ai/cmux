@@ -2259,7 +2259,7 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["PanesTabsPreviewHost"].waitForExistence(timeout: 8))
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleMenu = workspaceTitleElement(in: app)
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
         let terminalBackFrame = try XCTUnwrap(waitForToolbarFrame(of: backButton, timeout: 4))
