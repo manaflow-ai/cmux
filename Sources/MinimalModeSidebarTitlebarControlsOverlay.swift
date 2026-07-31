@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MinimalModeSidebarTitlebarControlsOverlay: View {
-    let notificationStore: TerminalNotificationStore
+    let unreadModel: SidebarUnreadModel
     let leadingInset: CGFloat
     let topPadding: CGFloat
     let onToggleSidebar: () -> Void
@@ -21,7 +21,7 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
     var body: some View {
         if isMinimalMode {
             HiddenTitlebarSidebarControlsView(
-                notificationStore: notificationStore,
+                unreadModel: unreadModel,
                 onToggleSidebar: onToggleSidebar,
                 onToggleNotifications: onToggleNotifications,
                 onNewTab: onNewTab,

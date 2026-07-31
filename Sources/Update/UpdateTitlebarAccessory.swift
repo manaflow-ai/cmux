@@ -139,6 +139,96 @@ struct TitlebarControlsStyleConfig {
     let hoverBackground: Bool
 }
 
+struct TitlebarControlsLayoutModelSnapshot: Equatable {
+    let style: TitlebarControlsStyle
+    let contentSize: NSSize
+    let revision: UInt64
+}
+
+/// Owns the expensive shortcut/font-derived titlebar size once for every
+/// titlebar surface. Unrelated defaults and notification activity must not
+/// invalidate titlebar geometry.
+@MainActor
+final class TitlebarControlsLayoutModel: ObservableObject {
+    typealias ContentSizeProvider = (TitlebarControlsStyleConfig) -> NSSize
+
+    static let shared = TitlebarControlsLayoutModel()
+
+    @Published private(set) var snapshot: TitlebarControlsLayoutModelSnapshot
+
+    private let defaults: UserDefaults
+    private let notificationCenter: NotificationCenter
+    private let contentSizeProvider: ContentSizeProvider
+    private var observers: [NSObjectProtocol] = []
+
+    init(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default,
+        contentSizeProvider: @escaping ContentSizeProvider = {
+            TitlebarControlsLayoutMetrics.contentSize(config: $0)
+        }
+    ) {
+        self.defaults = defaults
+        self.notificationCenter = notificationCenter
+        self.contentSizeProvider = contentSizeProvider
+        let style = TitlebarControlsStyle.stored(in: defaults)
+        snapshot = TitlebarControlsLayoutModelSnapshot(
+            style: style,
+            contentSize: contentSizeProvider(style.config),
+            revision: 0
+        )
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshStyleIfNeeded()
+                }
+            }
+        )
+        for name in [
+            KeyboardShortcutSettings.didChangeNotification,
+            GlobalFontMagnification.didChangeNotification,
+        ] {
+            observers.append(
+                notificationCenter.addObserver(
+                    forName: name,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.recompute()
+                    }
+                }
+            )
+        }
+    }
+
+    deinit {
+        for observer in observers {
+            notificationCenter.removeObserver(observer)
+        }
+    }
+
+    private func refreshStyleIfNeeded() {
+        let style = TitlebarControlsStyle.stored(in: defaults)
+        guard style != snapshot.style else { return }
+        recompute(style: style)
+    }
+
+    private func recompute(style: TitlebarControlsStyle? = nil) {
+        let style = style ?? snapshot.style
+        snapshot = TitlebarControlsLayoutModelSnapshot(
+            style: style,
+            contentSize: contentSizeProvider(style.config),
+            revision: snapshot.revision &+ 1
+        )
+    }
+}
+
 enum TitlebarControlsVisualMetrics {
     static let verticalLift: CGFloat = 0
 
@@ -869,8 +959,31 @@ private final class TitlebarControlRightClickNSView: NSView {
     }
 }
 
+private struct TitlebarNotificationBadge: View {
+    @ObservedObject var unreadModel: SidebarUnreadModel
+    let config: TitlebarControlsStyleConfig
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+
+    var body: some View {
+        let unreadCount = unreadModel.totalUnreadCount
+        if unreadCount > 0 {
+            Text("\(min(unreadCount, 99))")
+                .cmuxFont(
+                    size: titlebarNotificationBadgeFontSize(for: config)
+                        / max(1, GlobalFontMagnification.scale(for: globalFontPercent)),
+                    weight: .semibold
+                )
+                .foregroundColor(.white)
+                .frame(width: config.badgeSize, height: config.badgeSize)
+                .background(Circle().fill(cmuxAccentColor()))
+                .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
+        }
+    }
+}
+
 struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let unreadModel: SidebarUnreadModel
+    @ObservedObject var layoutModel: TitlebarControlsLayoutModel
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
@@ -879,9 +992,6 @@ struct TitlebarControlsView: View {
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
-    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-    @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
@@ -927,17 +1037,11 @@ struct TitlebarControlsView: View {
     }
 
     var body: some View {
-        // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
-        // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
-        let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
-        let _ = globalFontPercent
-        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
+        let layoutSnapshot = layoutModel.snapshot
+        let style = layoutSnapshot.style
         let config = style.config
-        let contentSize = TitlebarControlsLayoutMetrics.contentSize(
-            config: config,
-            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
-        )
+        let contentSize = layoutSnapshot.contentSize
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.leading, TitlebarControlsLayoutMetrics.hintLeadingPadding)
@@ -965,9 +1069,6 @@ struct TitlebarControlsView: View {
             )
             .onHover { hovering in
                 isHoveringControls = hovering
-            }
-            .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
-                shortcutRefreshTick &+= 1
             }
             .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
@@ -1007,7 +1108,6 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
-        let badgeBaseFontSize = titlebarNotificationBadgeFontSize(for: config) / max(1, GlobalFontMagnification.scale(for: globalFontPercent))
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -1045,15 +1145,7 @@ struct TitlebarControlsView: View {
                         iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
                     )
 
-                    if notificationStore.unreadCount > 0 {
-                        Text("\(min(notificationStore.unreadCount, 99))")
-                            // Fixed-size badge; cap effective glyph size.
-                            .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
-                            .foregroundColor(.white)
-                            .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(Circle().fill(cmuxAccentColor()))
-                            .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
-                    }
+                    TitlebarNotificationBadge(unreadModel: unreadModel, config: config)
                 }
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
@@ -1385,7 +1477,7 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 }
 
 struct HiddenTitlebarSidebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let unreadModel: SidebarUnreadModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
@@ -1396,14 +1488,14 @@ struct HiddenTitlebarSidebarControlsView: View {
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
-    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
+    @ObservedObject private var layoutModel = TitlebarControlsLayoutModel.shared
 
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
 
     var body: some View {
-        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
+        let style = layoutModel.snapshot.style
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
@@ -1436,7 +1528,8 @@ struct HiddenTitlebarSidebarControlsView: View {
             .allowsHitTesting(false)
 
             TitlebarControlsView(
-                notificationStore: notificationStore,
+                unreadModel: unreadModel,
+                layoutModel: layoutModel,
                 viewModel: viewModel,
                 onToggleSidebar: onToggleSidebar,
                 onToggleNotifications: { [viewModel] in
@@ -1790,6 +1883,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let hostingView: NonDraggableHostingView<AnyView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
+    private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
     private var intrinsicSizeNeedsRefresh = true
@@ -1800,13 +1894,17 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
+    private var layoutModelCancellable: AnyCancellable?
+    private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore, settingsRuntime: SettingsRuntime?) {
         let containerView = TitlebarAccessoryContainerView()
+        let layoutModel = TitlebarControlsLayoutModel.shared
         self.containerView = containerView
         self.notificationStore = notificationStore
+        self.layoutModel = layoutModel
         let toggleSidebar = { [weak containerView] in
             _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: containerView?.window)
         }
@@ -1821,7 +1919,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
         }
         let rootView = TitlebarControlsView(
-            notificationStore: notificationStore,
+            unreadModel: notificationStore.sidebarUnread,
+            layoutModel: layoutModel,
             viewModel: viewModel,
             onToggleSidebar: toggleSidebar,
             onToggleNotifications: toggleNotifications,
@@ -1862,12 +1961,25 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.applyWorkspaceTitlebarVisibility()
-            if self?.showsWorkspaceTitlebar == true {
-                self?.restoreSizeAfterMinimalMode()
-                self?.scheduleSizeUpdate()
+            guard let self else { return }
+            let shouldShow = self.showsWorkspaceTitlebar
+            guard shouldShow != self.lastShowsWorkspaceTitlebar else { return }
+            self.applyWorkspaceTitlebarVisibility()
+            if shouldShow {
+                self.restoreSizeAfterMinimalMode()
             }
         }
+        layoutModelCancellable = layoutModel.$snapshot
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduleSizeUpdate(
+                        invalidateIntrinsicSize: true,
+                        invalidateLayout: true
+                    )
+                }
+            }
 
         applyWorkspaceTitlebarVisibility()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
@@ -1951,8 +2063,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
-        let style = TitlebarControlsStyle.stored()
-        let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
+        let contentSize = layoutModel.snapshot.contentSize
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
             intrinsicSizeNeedsRefresh = false
@@ -2009,6 +2120,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     private func applyWorkspaceTitlebarVisibility() {
         let shouldShow = showsWorkspaceTitlebar
+        lastShowsWorkspaceTitlebar = shouldShow
         self.isHidden = !shouldShow
         view.isHidden = !shouldShow
         view.alphaValue = shouldShow ? 1 : 0
