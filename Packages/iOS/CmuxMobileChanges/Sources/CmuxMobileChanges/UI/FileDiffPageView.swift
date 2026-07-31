@@ -40,6 +40,9 @@ public struct FileDiffPageView: View {
             }
             .onDisappear {
                 cancelPageTasks()
+                // Unmount can arrive while a fling is still settling; persist
+                // the row here since no further idle phase will report it.
+                onScrollRowIDChanged(scrollRowID)
             }
     }
     @ViewBuilder
@@ -115,9 +118,10 @@ public struct FileDiffPageView: View {
                 .scrollTargetLayout()
             }
             .scrollPosition(id: $scrollRowID, anchor: .top)
-            .onChange(of: scrollRowID) {
-                onScrollRowIDChanged(scrollRowID)
-            }
+            .modifier(SettledScrollRowReporter(
+                rowID: $scrollRowID,
+                onSettled: onScrollRowIDChanged
+            ))
             .refreshable { await load(forceRefresh: true) }
             .simultaneousGesture(magnifyGesture)
         }
