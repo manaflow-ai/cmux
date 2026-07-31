@@ -490,7 +490,7 @@ import Testing
         func closeWindow(_ id: UUID) {
             let identifier = "cmux.main.\(id.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
-                window.performClose(nil)
+                window.close()
                 RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             }
         }
