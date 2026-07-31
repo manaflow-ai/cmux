@@ -42,6 +42,42 @@ import Testing
         #expect(readiness.repair == .openSystemSettings)
     }
 
+    @Test(arguments: [
+        MobilePushAuthorization.denied,
+        .unsupported,
+    ])
+    func terminalOSStateOverridesLocalOptOut(
+        authorization: MobilePushAuthorization
+    ) {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: authorization,
+            registration: .disabled,
+            mac: nil,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(
+            readiness == .blocked(
+                authorization == .denied
+                    ? .systemPermissionDenied
+                    : .systemNotificationsUnsupported
+            )
+        )
+        #expect(readiness.repair == .openSystemSettings)
+    }
+
+    @Test func undeterminedOSStateWithLocalOptOutStillOffersEnable() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .notDetermined,
+            registration: .disabled,
+            mac: nil,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.phoneOptInDisabled))
+        #expect(readiness.repair == .enableOnPhone)
+    }
+
     @Test func registeredPhoneWithoutAttachedMacReportsMacUnavailable() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,
@@ -106,6 +142,44 @@ import Testing
         )
 
         #expect(readiness == .limited(mode: .always, authorization: authorization))
+        #expect(readiness.repair == .openSystemSettings)
+    }
+
+    @Test(arguments: MobilePushPresentationLimitation.allCases)
+    func eachSystemPresentationPolicyIsReportedIndividually(
+        limitation: MobilePushPresentationLimitation
+    ) {
+        let settings = MobilePushSystemSettings(
+            authorization: .authorized,
+            alertsEnabled: limitation != .alertsDisabled,
+            soundsEnabled: limitation != .soundsDisabled,
+            badgesEnabled: limitation != .badgesDisabled,
+            lockScreenEnabled: limitation != .lockScreenDisabled,
+            notificationCenterEnabled:
+                limitation != .notificationCenterDisabled,
+            timeSensitiveEnabled: limitation != .timeSensitiveDisabled,
+            scheduledDeliveryEnabled:
+                limitation == .scheduledDeliveryEnabled
+        )
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            systemSettings: settings,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(
+            readiness == .presentationLimited(
+                mode: .always,
+                limitations: [limitation]
+            )
+        )
         #expect(readiness.repair == .openSystemSettings)
     }
 

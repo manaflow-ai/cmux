@@ -5,13 +5,24 @@ import Testing
 @testable import CmuxMobileShellUI
 
 private actor LifecyclePushRegistration: PushRegistering {
-    private var value = PushRegistrationSnapshot(
-        isEnabled: true,
-        hasDeviceToken: false,
-        backendState: .awaitingDeviceToken
-    )
+    private var value: PushRegistrationSnapshot
+    private let setEnabledGate: LifecycleSetEnabledGate?
 
-    var isEnabled: Bool { true }
+    init(
+        enabled: Bool = true,
+        setEnabledGate: LifecycleSetEnabledGate? = nil
+    ) {
+        value = enabled
+            ? PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: false,
+                backendState: .awaitingDeviceToken
+            )
+            : .disabled
+        self.setEnabledGate = setEnabledGate
+    }
+
+    var isEnabled: Bool { value.isEnabled }
     var snapshot: PushRegistrationSnapshot { value }
 
     func snapshots() -> AsyncStream<PushRegistrationSnapshot> {
@@ -21,7 +32,18 @@ private actor LifecyclePushRegistration: PushRegistering {
         }
     }
 
-    func setEnabled(_ enabled: Bool) {}
+    func setEnabled(_ enabled: Bool) async {
+        await setEnabledGate?.pause()
+        value = enabled
+            ? PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: value.hasDeviceToken,
+                backendState: value.hasDeviceToken
+                    ? .registrationRequired
+                    : .awaitingDeviceToken
+            )
+            : .disabled
+    }
 
     func register(deviceToken: Data) {
         value = PushRegistrationSnapshot(
@@ -42,6 +64,42 @@ private actor LifecyclePushRegistration: PushRegistering {
     func syncTokenIfPossible() {}
     func unregisterFromServer() {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) {}
+}
+
+private actor LifecycleSetEnabledGate {
+    private var didStart = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func pause() async {
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        released = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
 }
 
 @Suite struct MobilePushCoordinatorLifecycleTests {
@@ -73,5 +131,65 @@ private actor LifecyclePushRegistration: PushRegistering {
 
         await coordinator.handleDeviceToken(Data(repeating: 0xCD, count: 32))
         #expect(coordinator.registrationSnapshot.backendState == .registered)
+    }
+
+    @MainActor
+    @Test func enableRegistersWithOSBeforeBackendSyncCompletes() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: false,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-enable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            requestAuthorization: { true },
+            registerForRemoteNotifications: { registrationRequests += 1 }
+        )
+
+        let enabling = Task { await coordinator.enable() }
+        await gate.waitUntilStarted()
+
+        #expect(registrationRequests == 1)
+        #expect(coordinator.isEnabled)
+        #expect(coordinator.registrationSnapshot.isEnabled)
+
+        await gate.release()
+        #expect(await enabling.value)
+    }
+
+    @MainActor
+    @Test func disableUnregistersWithOSBeforeBackendCleanupCompletes() async {
+        let gate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(
+            enabled: true,
+            setEnabledGate: gate
+        )
+        let suiteName = "push-coordinator-disable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        var unregistrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            unregisterForRemoteNotifications: {
+                unregistrationRequests += 1
+            }
+        )
+
+        let disabling = Task { await coordinator.disable() }
+        await gate.waitUntilStarted()
+
+        #expect(unregistrationRequests == 1)
+        #expect(!coordinator.isEnabled)
+        #expect(coordinator.registrationSnapshot == .disabled)
+
+        await gate.release()
+        await disabling.value
     }
 }
