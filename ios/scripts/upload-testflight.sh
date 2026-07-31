@@ -224,7 +224,9 @@ verify_ipa_framework_minimum_os_versions() {
 # 20260730090940 shipped unsymbolicatable.
 verify_ipa_contains_app_symbols() {
   local ipa="$1"
-  zipinfo -1 "$ipa" 2>/dev/null | grep -q '^Symbols/.*\.symbols$'
+  # No `grep -q` here: under `set -o pipefail`, -q's early exit can kill
+  # zipinfo with SIGPIPE and fail a VALID IPA. Plain grep drains its input.
+  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/.*\.symbols$' >/dev/null
 }
 
 verify_app_store_ipa_has_no_external_purchase_links() {
@@ -909,7 +911,7 @@ fi
 # dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
 # download) would ship a build whose crashes can never be symbolicated by
 # anyone, so fail before the expensive export.
-if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -name '*.dSYM' -print -quit 2>/dev/null | grep -q .; then
+if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 2>/dev/null | grep -q .; then
   echo "error: archive has no dSYM bundles at $ARCHIVE_PATH/dSYMs; crashes for this build could never be symbolicated. Archive Release with DEBUG_INFORMATION_FORMAT=dwarf-with-dsym (or re-fetch the archive if it was downloaded)." >&2
   exit 1
 fi

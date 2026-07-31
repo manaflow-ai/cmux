@@ -612,7 +612,11 @@ jobs:
         # report's build number finds the right bundle. The override path is
         # excluded like the canonical metadata artifact: it archives on a fleet
         # Mac via cloud-testflight.sh, not under CMUX_IOS_UPLOAD_DIR.
-        if: success() && github.event.inputs.marketing_version_override == ''
+        # Gated on the UPLOAD step's outcome, not whole-job success(): once the
+        # IPA reached TestFlight its symbols must be persisted even if a later
+        # step (summary/metadata artifact) failed, or a shipped build becomes
+        # unsymbolicatable again.
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.marketing_version_override == '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-dsyms-${{ needs.decide.outputs.variant }}-${{ steps.upload.outputs.final_build_number }}
