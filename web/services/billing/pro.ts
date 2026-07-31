@@ -10,7 +10,6 @@ import { inArray, eq, and } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
-import { resolveBillingTeam, type BillingTeamUserLike } from "./teamResolution";
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
@@ -177,12 +176,15 @@ export async function hasActiveTeamSubscriptionForTeam(
 }
 
 export async function isTestflightEligible(
-  user: ProReconcileUser & BillingTeamUserLike,
+  user: ProReconcileUser,
+  options: {
+    hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+  } = {},
 ): Promise<boolean> {
-  const status = await resolveProPlanStatus(user);
-  if (status.isPro) return true;
-  const team = await resolveBillingTeam(user);
-  return team?.id ? hasActiveTeamSubscriptionForTeam(team.id) : false;
+  if (!user.id) return false;
+  return (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(
+    user.id,
+  );
 }
 
 export function metadataPlanId(raw: unknown): string | null {

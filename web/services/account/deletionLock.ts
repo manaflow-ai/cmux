@@ -231,3 +231,20 @@ export async function assertAccountDeletionUserMutationAllowed(
   ) return;
   throw new AccountDeletionMutationBlockedError(userId);
 }
+
+/**
+ * Holds the account-deletion advisory lock and verifies the account is mutable
+ * for the entire external operation. TestFlight enrollment and billing lapse
+ * cleanup use this lock namespace so neither can cross the other's eligibility
+ * decision.
+ */
+export async function withAccountDeletionUserMutation<T>(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await assertAccountDeletionUserMutationAllowed(tx, userId);
+    return operation();
+  });
+}

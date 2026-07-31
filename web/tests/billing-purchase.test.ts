@@ -6,6 +6,7 @@ import {
   stripeCustomers,
   stripeSubscriptions,
 } from "../db/schema";
+import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -1101,19 +1102,27 @@ describe("recordCheckoutCompletion", () => {
     );
 
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
-    expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
+    expect(removeTester).toHaveBeenCalledWith("buyer@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
     expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
       "id",
     );
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
   });
 
-  test("does not fail the webhook when TestFlight removal fails", async () => {
-    const captureAscError = mock(() => undefined);
+  test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
+    const removeTester = mock(async () => undefined);
     const user = {
       id: "user_123",
-      primaryEmail: "buyer@example.com",
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      primaryEmail: "current@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          FOUNDER_TESTFLIGHT_GROUP_ID,
+        ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
+      },
       update: mock(async () => undefined),
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
@@ -1125,15 +1134,53 @@ describe("recordCheckoutCompletion", () => {
         stackApp: { getUser: async () => user } as never,
         testflight: {
           isAscConfigured: () => true,
-          removeTester: async () => {
-            throw new Error("ASC down");
-          },
-          captureAscError,
+          removeTester,
         },
       },
     );
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "user_123",
+      isActive: false,
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(1, "current@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(2, "legacy@example.com", {
+      ownedLegacyGroupIDs: [
+        FOUNDER_TESTFLIGHT_GROUP_ID,
+      ],
+    });
+  });
+
+  test("keeps the webhook retryable when TestFlight removal fails", async () => {
+    const captureAscError = mock(() => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    await expect(
+      applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: {
+            isAscConfigured: () => true,
+            removeTester: async () => {
+              throw new Error("ASC down");
+            },
+            captureAscError,
+          },
+        },
+      ),
+    ).rejects.toThrow("ASC down");
+
     expect(captureAscError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "ASC down" }),
       expect.objectContaining({

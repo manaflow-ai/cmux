@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import WebKit
 
 extension Workspace {
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
@@ -47,7 +48,8 @@ extension Workspace {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: panel.profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) != nil
     }
 
@@ -63,7 +65,8 @@ extension Workspace {
                 initialRequest: seed.initialRequest,
                 focus: true,
                 preferredProfileID: panel.profileID,
-                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
@@ -98,7 +101,8 @@ extension DockSplitStore {
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
-        transparentBackground: Bool = false
+        transparentBackground: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
@@ -111,9 +115,11 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
+        AppDelegate.shared?.auth?.browserAppSession.register(panel)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }
             guard self.browserPanel(for: panel.id) === panel else { return }

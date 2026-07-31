@@ -23,6 +23,7 @@ import {
   irohEndpointBindings,
   irohRegistrationChallenges,
   notificationSendEvents,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -38,7 +39,10 @@ import {
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
 import { isAscConfigured } from "../../../services/asc/client";
-import { removeTester } from "../../../services/asc/testflight";
+import {
+  removeProTesterAccess,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { captureAscError } from "../../../services/errors";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
 import {
@@ -186,12 +190,20 @@ export async function DELETE(request: Request): Promise<Response> {
         },
       },
     );
-    await removeTestFlightAccessForAccountDeletion(stackUser, {
-      afterExternalMutation: () => {
-        restoreBillingEntitlementsOnFailure = false;
-        destructiveCleanupStarted = true;
+    // Do not erase the only user identity and ownership record before every
+    // TestFlight revocation is confirmed. ASC timeouts are ambiguous, so the
+    // deletion tombstone stays retryable with billing entitlements cleared
+    // until this idempotent cleanup succeeds.
+    await removeTestFlightAccessForAccountDeletion(
+      stackUser,
+      originalStackMetadata,
+      {
+        beforeExternalMutation: () => {
+          restoreBillingEntitlementsOnFailure = false;
+          destructiveCleanupStarted = true;
+        },
       },
-    });
+    );
     await refreshAccountDeletionTombstoneLease(userId);
     try {
       const revokedIdentityLeases = await revokeAccountDeletionIdentityLeases(userId, {
@@ -928,20 +940,25 @@ function deletedStripeAccountId(userId: string): string {
 
 async function removeTestFlightAccessForAccountDeletion(
   user: DeletableStackUser,
-  options: { readonly afterExternalMutation?: () => void } = {},
+  ownershipMetadata: unknown,
+  options: { readonly beforeExternalMutation?: () => void } = {},
 ): Promise<void> {
   if (!isAscConfigured()) return;
-  const email = user.primaryEmail?.trim();
-  if (!email) return;
+  const email = user.primaryEmail?.trim() ?? null;
   try {
-    await removeTester(email);
-    options.afterExternalMutation?.();
+    await removeProTesterAccess(
+      email,
+      ownershipMetadata,
+      removeTester,
+      { beforeExternalMutation: options.beforeExternalMutation },
+    );
   } catch (error) {
     captureAscError(error, {
       route: "/api/account",
       stackUserId: user.id,
-      email,
+      email: email ?? undefined,
     });
+    throw error;
   }
 }
 
@@ -1063,6 +1080,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(billingEmailClaims.stackUserId, userId),
       eq(billingEmailClaims.claimedByUserId, userId),
     ));
+    await tx
+      .delete(proWelcomeFulfillments)
+      .where(eq(proWelcomeFulfillments.stackUserId, userId));
     await tx.delete(stripeSubscriptions).where(or(
       and(
         eq(stripeSubscriptions.stackUserId, userId),

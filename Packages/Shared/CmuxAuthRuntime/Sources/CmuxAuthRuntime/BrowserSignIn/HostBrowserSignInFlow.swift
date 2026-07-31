@@ -59,6 +59,7 @@ public final class HostBrowserSignInFlow {
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -77,6 +78,7 @@ public final class HostBrowserSignInFlow {
         deadline = HostBrowserDeadline(clock: clock)
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
+            localSignOut: localSignOut,
             signOut: { await coordinator.signOut(onSignedOut: onSignedOut) }
         )
     }

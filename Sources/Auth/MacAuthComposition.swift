@@ -22,6 +22,8 @@ struct MacAuthComposition {
     let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
+    /// Bridges the native Stack session into explicitly opened cmux web panes.
+    let browserAppSession: BrowserAppSessionController
 
     /// Build the auth graph.
     /// - Parameters:
@@ -125,6 +127,7 @@ struct MacAuthComposition {
         )
 
         let anchor = AuthPresentationContextProvider()
+        let browserAppSessionSignInRelay = BrowserAppSessionSignInRelay()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -135,9 +138,22 @@ struct MacAuthComposition {
             ),
             anchor: anchor,
             config: config,
-            launch: launch
+            launch: launch,
+            onSignedIn: {
+                await browserAppSessionSignInRelay.signedIn()
+            }
         )
         self.coordinator = coordinator
+        let browserAppSession = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: AuthEnvironment.appSessionHandoffOrigin,
+            projectID: stackProjectID,
+            defaults: defaults
+        )
+        self.browserAppSession = browserAppSession
+        browserAppSessionSignInRelay.bind { [weak browserAppSession] in
+            browserAppSession?.resumeAfterSignIn()
+        }
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
@@ -151,7 +167,11 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                browserAppSession.beginSignOut()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
+            },
+            localSignOut: {
+                await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
