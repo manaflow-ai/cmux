@@ -68,6 +68,7 @@ const REMOTE_COMMANDS: &[&str] = &[
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_INVITATION_URI_BYTES: usize = "cmux://enroll/".len() + 16 * 1024;
+const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 
@@ -1043,14 +1044,44 @@ fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Re
         .name("cmux-rpc-stdin".into())
         .spawn(move || {
             let stdin = io::stdin();
-            for line in stdin.lock().lines() {
-                if sender.blocking_send(line).is_err() {
-                    break;
+            let mut stdin = stdin.lock();
+            loop {
+                match read_rpc_stdin_line(&mut stdin, MAX_RPC_STDIN_LINE_BYTES) {
+                    Ok(Some(line)) => {
+                        if sender.blocking_send(Ok(line)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = sender.blocking_send(Err(error));
+                        break;
+                    }
                 }
             }
         })
         .context("could not start RPC stdin reader")?;
     Ok(receiver)
+}
+
+fn read_rpc_stdin_line<R: BufRead>(reader: &mut R, maximum: usize) -> io::Result<Option<String>> {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+    }
+    if line.len() > maximum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("RPC stdin line exceeds {maximum} bytes"),
+        ));
+    }
+    Ok(Some(line))
 }
 
 async fn next_rpc_input(
@@ -2846,6 +2877,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rpc_stdin_rejects_an_oversized_line_without_consuming_the_whole_line() {
+        let mut input = io::Cursor::new(vec![b'x'; 4_096]);
+        let error = read_rpc_stdin_line(&mut input, 64)
+            .expect_err("oversized RPC input should be rejected");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            input.position() <= 65,
+            "RPC reader consumed {} bytes before enforcing a 64-byte limit",
+            input.position()
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_unix_route_is_promoted_and_remote_unix_route_is_demoted() {
@@ -3176,6 +3221,93 @@ mod tests {
             .unwrap();
 
         assert!(status.success(), "Japanese remote-stop recovery copy was not localized");
+    }
+
+    #[test]
+    fn remote_client_help_and_parser_errors_use_selected_locale() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "remote_cli::tests::remote_client_locale_fixture", "--nocapture"])
+            .env("CMUX_TEST_REMOTE_CLIENT_LOCALE_FIXTURE", "1")
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .status()
+            .unwrap();
+
+        assert!(status.success(), "remote client help or parser errors were not localized");
+    }
+
+    #[test]
+    fn remote_client_locale_fixture() {
+        if std::env::var_os("CMUX_TEST_REMOTE_CLIENT_LOCALE_FIXTURE").is_none() {
+            return;
+        }
+
+        fn assert_japanese(value: &str) {
+            assert!(
+                value.chars().any(|character| {
+                    matches!(
+                        character,
+                        '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}'
+                    )
+                }),
+                "expected Japanese text, got {value:?}"
+            );
+        }
+
+        for command in ["connect", "ssh", "forward", "rpc", "enroll", "known-daemons"] {
+            assert_japanese(remote_help(Some(command)));
+        }
+
+        for args in [
+            vec!["--lanes", "invalid"],
+            vec!["--reconnect-attempts", "0"],
+            vec!["--reconnect-jitter", "invalid"],
+            vec!["--relay-ticket-command-arg", "value"],
+            vec!["--iroh-path", "invalid"],
+            vec!["--port", "invalid"],
+            vec!["--unknown"],
+            vec!["first", "second"],
+            vec!["--json"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            let error =
+                parse_connect_flags(&args).err().expect("invalid connect arguments were accepted");
+            assert_japanese(&error.to_string());
+        }
+        assert_japanese(&run_ssh(&[]).unwrap_err().to_string());
+        assert_japanese(&ssh_url("invalid destination").unwrap_err().to_string());
+        assert_japanese(&run_forward(&[]).unwrap_err().to_string());
+        assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());
+
+        for args in [
+            vec!["unknown"],
+            vec!["status", "--unknown"],
+            vec!["status", "--json", "--json"],
+            vec!["status", "--state-dir"],
+            vec!["status", "--ttl", "60"],
+            vec!["approve"],
+            vec!["disconnect", "device-only"],
+            vec!["create", "--ttl", "invalid"],
+            vec!["create", "--ttl", "0"],
+            vec!["create", "--relay-ticket", "secret"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            let error = parse_enroll_admin_args(&args)
+                .err()
+                .expect("invalid enrollment arguments were accepted");
+            assert_japanese(&error.to_string());
+        }
+
+        for args in [
+            vec!["forget"],
+            vec!["forget", "fingerprint", "extra"],
+            vec!["list", "extra"],
+            vec!["--json", "--json"],
+            vec!["--state-dir"],
+            vec!["--unknown"],
+        ] {
+            let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
+            assert_japanese(&parse_known_daemons_args(&args).unwrap_err().to_string());
+        }
     }
 
     #[test]

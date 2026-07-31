@@ -1060,6 +1060,20 @@ impl ProcessManager {
         if !metadata.is_dir() {
             return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
         }
+        #[cfg(test)]
+        {
+            let path = cwd
+                .strip_prefix(root.canonical_root())
+                .unwrap_or(&cwd)
+                .to_string_lossy()
+                .into_owned();
+            super::files::pause_at_mutation_test_barrier(
+                &root,
+                &path,
+                super::files::MutationTestPoint::AfterProcessCwdResolve,
+            )
+            .await;
+        }
         let _spawn_guard = self.spawn_serial.lock().await;
         self.validate_requested_process_handle(requested_process, &owner).await?;
         self.reserve_capacity().await?;
@@ -2590,6 +2604,66 @@ mod tests {
                 .await
                 .unwrap();
         (directory, root)
+    }
+
+    #[cfg(unix)]
+    async fn assert_process_cwd_swap_does_not_escape(io: ProcessIo) {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let cwd = root.canonical_root().join("cwd");
+        tokio::fs::create_dir(&cwd).await.unwrap();
+        let barrier = super::super::files::install_mutation_test_barrier(
+            &root,
+            "cwd",
+            super::super::files::MutationTestPoint::AfterProcessCwdResolve,
+        );
+        let manager = Arc::new(ProcessManager::default());
+        let spawning = {
+            let root = Arc::clone(&root);
+            let manager = Arc::clone(&manager);
+            tokio::spawn(async move {
+                let mut options = spawn_options(
+                    vec!["/bin/sh".into(), "-c".into(), "printf escaped > cmux-cwd-marker".into()],
+                    io,
+                    ProcessLifetime::Workspace,
+                );
+                options.cwd = Some("cwd".into());
+                manager.spawn(root, options).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&cwd, root.canonical_root().join("original-cwd")).await.unwrap();
+        symlink(outside.path(), &cwd).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::ProcessStarted { process, .. }) = spawning.await.unwrap() {
+            manager.wait(process).await.unwrap();
+        }
+        assert!(
+            !outside.path().join("cmux-cwd-marker").exists(),
+            "process cwd escaped the workspace after its checked path was swapped"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pipe_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pipes { stdin: false }).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pty_process_cwd_is_pinned_against_parent_symlink_swaps() {
+        assert_process_cwd_swap_does_not_escape(ProcessIo::Pty {
+            cols: 80,
+            rows: 24,
+            term: "xterm-256color".into(),
+            eof: PtyEofPolicy::Reject,
+        })
+        .await;
     }
 
     fn spawn_options(

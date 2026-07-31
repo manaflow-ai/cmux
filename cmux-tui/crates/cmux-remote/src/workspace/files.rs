@@ -252,7 +252,11 @@ fn search_line_bounds(text: &str, start: usize) -> Option<(usize, usize)> {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum MutationTestPoint {
+    AfterDirectoryMetadata,
+    AfterProcessCwdResolve,
     AfterReadResolve,
+    AfterSearchMetadata,
+    AfterStatResolve,
     AfterPrecondition,
     AfterTemporaryCreate,
     BeforeContentHashValidation,
@@ -344,7 +348,7 @@ pub(crate) fn install_mutation_test_barrier(
 }
 
 #[cfg(test)]
-async fn pause_at_mutation_test_barrier(
+pub(crate) async fn pause_at_mutation_test_barrier(
     root: &WorkspaceRoot,
     path: &str,
     point: MutationTestPoint,
@@ -451,6 +455,8 @@ pub(crate) async fn stat(
     } else {
         root.resolve_entry(path).await?
     };
+    #[cfg(test)]
+    pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterStatResolve).await;
     let metadata = if follow_symlinks {
         tokio::fs::metadata(&resolved).await
     } else {
@@ -679,6 +685,8 @@ async fn snapshot_directory(
             format!("not a directory: {}", resolved.display()),
         ));
     }
+    #[cfg(test)]
+    pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterDirectoryMetadata).await;
 
     let mut reader = tokio::fs::read_dir(&resolved)
         .await
@@ -846,6 +854,13 @@ pub(crate) async fn search(
         let metadata = tokio::fs::symlink_metadata(&entry.path)
             .await
             .map_err(|error| io_error("search", &entry.path, error))?;
+        #[cfg(test)]
+        pause_at_mutation_test_barrier(
+            context.root,
+            &entry.protocol_path,
+            MutationTestPoint::AfterSearchMetadata,
+        )
+        .await;
         continuation.remember_visited(entry.path.clone());
         if metadata.file_type().is_symlink() {
             continue;
@@ -3124,6 +3139,112 @@ mod tests {
         barrier.resume();
 
         reader.await.unwrap().unwrap_err();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stat_does_not_follow_a_checked_parent_swapped_to_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let parent = root.canonical_root().join("parent");
+        tokio::fs::create_dir(&parent).await.unwrap();
+        tokio::fs::write(parent.join("value.txt"), b"inside").await.unwrap();
+        tokio::fs::write(outside.path().join("value.txt"), b"outside-secret").await.unwrap();
+        let outside_hash = hash_bytes(b"outside-secret");
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "parent/value.txt",
+            MutationTestPoint::AfterStatResolve,
+        );
+        let inspector = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move { stat(&root, "parent/value.txt", true).await })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&parent, root.canonical_root().join("original-parent")).await.unwrap();
+        symlink(outside.path(), &parent).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::Stat { stat }) = inspector.await.unwrap() {
+            assert_ne!(
+                stat.content_hash.as_deref(),
+                Some(outside_hash.as_str()),
+                "stat inspected a file outside the workspace"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn list_directory_does_not_follow_a_checked_directory_swapped_to_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let parent = root.canonical_root().join("parent");
+        tokio::fs::create_dir(&parent).await.unwrap();
+        tokio::fs::write(parent.join("inside.txt"), b"inside").await.unwrap();
+        tokio::fs::write(outside.path().join("outside.txt"), b"outside").await.unwrap();
+        let barrier = install_mutation_test_barrier(
+            &root,
+            "parent",
+            MutationTestPoint::AfterDirectoryMetadata,
+        );
+        let inspector = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                let (queries, owner) = query_context();
+                let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+                list_directory(&context, "parent", false, MAX_DIRECTORY_LIMIT, None).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&parent, root.canonical_root().join("original-parent")).await.unwrap();
+        symlink(outside.path(), &parent).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::Directory { entries, .. }) = inspector.await.unwrap() {
+            assert!(
+                entries.iter().all(|entry| entry.name != "outside.txt"),
+                "directory listing escaped the workspace: {entries:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn search_does_not_follow_a_checked_directory_swapped_to_an_outside_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_directory, root) = root().await;
+        let outside = tempdir().unwrap();
+        let parent = root.canonical_root().join("parent");
+        tokio::fs::create_dir(&parent).await.unwrap();
+        tokio::fs::write(parent.join("inside.txt"), b"ordinary text").await.unwrap();
+        tokio::fs::write(outside.path().join("outside.txt"), b"outside-needle").await.unwrap();
+        let barrier =
+            install_mutation_test_barrier(&root, "parent", MutationTestPoint::AfterSearchMetadata);
+        let inspector = {
+            let root = Arc::clone(&root);
+            tokio::spawn(async move {
+                let (queries, owner) = query_context();
+                let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+                search(&context, "outside-needle", &["parent".into()], &[], false, 10, None).await
+            })
+        };
+
+        barrier.wait_until_reached().await;
+        tokio::fs::rename(&parent, root.canonical_root().join("original-parent")).await.unwrap();
+        symlink(outside.path(), &parent).unwrap();
+        barrier.resume();
+
+        if let Ok(WorkspaceResponse::Search { matches, .. }) = inspector.await.unwrap() {
+            assert!(matches.is_empty(), "search escaped the workspace: {matches:?}");
+        }
     }
 
     #[cfg(unix)]
