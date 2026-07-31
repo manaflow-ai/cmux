@@ -235,13 +235,6 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
     let descriptor = unsafe { OwnedFd::from_raw_fd(raw_descriptor) };
-    #[cfg(any(
-        target_vendor = "apple",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-    ))]
-    set_no_sigpipe(descriptor.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
     if creation.needs_cloexec_fcntl {
         let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
         if descriptor_flags < 0
@@ -256,6 +249,13 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
             return Err(connect_error(socket_path, std::io::Error::last_os_error()));
         }
     }
+    #[cfg(any(
+        target_vendor = "apple",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ))]
+    set_no_sigpipe(descriptor.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
     let status_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFL) };
     if status_flags < 0
         || unsafe {
