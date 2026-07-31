@@ -15,7 +15,7 @@ export function GET(): Response {
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   if (!projectId || !publishableClientKey) {
     return Response.json(
-      { error: "Stack Auth is not configured" },
+      { error: "cli_auth_unavailable" },
       {
         status: 503,
         headers: { "cache-control": "no-store" },
