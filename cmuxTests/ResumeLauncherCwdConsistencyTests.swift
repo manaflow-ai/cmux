@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -47,7 +48,7 @@ struct ResumeLauncherCwdConsistencyTests {
         ))
         #expect(
             input
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore cwd-agent session-9200\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore cwd-agent session-9200\n"
         )
         #expect(
             try fileManager.contentsOfDirectory(

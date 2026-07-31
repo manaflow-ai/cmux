@@ -865,6 +865,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
         let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
+        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
+        XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
     }
 
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {

@@ -789,7 +789,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         restoringWorkingDirectory: String? = nil
     ) -> String? {
         if useLocalRestoreVerb {
-            let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken
+            let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken()
             guard Self.isSafeRestoreCLIArgument(kind.rawValue),
                   Self.isSafeRestoreCLIArgument(sessionId) else {
                 return " \(executable) restore --surface \"$CMUX_SURFACE_ID\"\n"
@@ -810,7 +810,10 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     }
 
     private static func isSafeRestoreCLIArgument(_ value: String) -> Bool {
-        value.range(of: "^[A-Za-z0-9._:+-]+$", options: .regularExpression) != nil
+        value.range(
+            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
+            options: .regularExpression
+        ) != nil
     }
 
     func forkStartupInput(

@@ -14,10 +14,20 @@ import Foundation
 public struct AgentRestoreLaunch: Sendable {
     /// Shell token for the CLI bundled with the app that owns the surface.
     ///
-    /// Runtime surface creation exports this protected environment value. The
-    /// quotes work in the supported interactive shells and preserve tagged app
-    /// paths containing spaces.
-    public static let bundledCLIStartupExecutableToken = "\"$CMUX_BUNDLED_CLI_PATH\""
+    /// Resolving the absolute app-relative path here avoids PATH/version
+    /// ambiguity and remains available even when a shell profile removes cmux
+    /// environment variables. The quoting form is accepted by the supported
+    /// POSIX, fish, and csh-family interactive shells.
+    public static func bundledCLIStartupExecutableToken(
+        bundledCLIPath: String? = Bundle.main.resourceURL?
+            .appendingPathComponent("bin/cmux", isDirectory: false)
+            .path
+    ) -> String {
+        guard let path = bundledCLIPath, !path.isEmpty else {
+            return "cmux"
+        }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
 
     private enum Provider: String, Sendable {
         case claude

@@ -32,6 +32,20 @@ import Testing
         )
     }
 
+    @Test func bundledCLIStartupTokenQuotesAbsolutePathWithoutEnvironmentLookup() {
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: "/Applications/cmux user's build.app/Contents/Resources/bin/cmux"
+            )
+                == "'/Applications/cmux user'\\''s build.app/Contents/Resources/bin/cmux'"
+        )
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: nil
+            ) == "cmux"
+        )
+    }
+
     @Test func structuredCodexRestorePlansDirectArgvEnvironmentAndCwd() throws {
         let workingDirectory = "/tmp/项目 with 'quotes'"
         let capturedWorkingDirectory = "/tmp/old project"

@@ -312,7 +312,7 @@ extension TerminalController {
             launchCommand: binding.launchCommand.map(controlAgentLaunchCommand),
             preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
             permissionMode: binding.permissionMode,
-            legacyCommand: binding.launchCommand == nil ? binding.inlineStartupInput : nil
+            legacyCommand: binding.inlineStartupInput
         )
     }
 

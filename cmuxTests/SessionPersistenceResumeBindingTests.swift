@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import Testing
@@ -65,7 +66,7 @@ import Testing
         #expect(binding.launchCommand == nil)
         #expect(
             binding.restoreStartupInput()
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
         )
     }
 
@@ -91,7 +92,7 @@ import Testing
 
         #expect(
             startupInput
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionId)\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex \(sessionId)\n"
         )
         #expect(
             try FileManager.default.contentsOfDirectory(
@@ -505,7 +506,7 @@ import Testing
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex session-local-resume\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex session-local-resume\n"
         )
         #expect(!restoredInput.contains(staleExecutablePath))
         #expect(!restoredInput.contains(oversizedArgument))

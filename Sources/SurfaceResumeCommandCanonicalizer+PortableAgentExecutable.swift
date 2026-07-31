@@ -62,7 +62,7 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private var localRestoreCLIInput: String {
-        let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken
+        let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken()
         if let kind = Self.restoreCLIArgument(kind),
            let checkpointId = Self.restoreCLIArgument(checkpointId) {
             return " \(executable) restore \(kind) \(checkpointId)\n"
@@ -75,7 +75,10 @@ extension SurfaceResumeBindingSnapshot {
               !value.isEmpty else {
             return nil
         }
-        if value.range(of: "^[A-Za-z0-9._:+-]+$", options: .regularExpression) != nil {
+        if value.range(
+            of: "^[A-Za-z0-9._:+][A-Za-z0-9._:+-]*$",
+            options: .regularExpression
+        ) != nil {
             return value
         }
         return nil

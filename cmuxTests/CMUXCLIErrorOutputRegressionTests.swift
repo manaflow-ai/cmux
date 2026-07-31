@@ -191,6 +191,52 @@ import Testing
         XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.stdout)
     }
 
+    @Test func testRestoreFallsBackWhenStructuredPlannerCannotBuildInvocation() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux structured fallback \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "fallback-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "relaunchAgent",
+                "kind": "custom-relaunch",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["FALLBACK_VALUE": "structured"],
+                "launch_command": [
+                    "arguments": ["/missing/custom-relaunch"],
+                    "executable_path": "/missing/custom-relaunch",
+                ],
+                "legacy_command": #"printf 'fallback=%s|%s\n' "$PWD" "$FALLBACK_VALUE""#,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-fallback-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["SHELL"] = "/bin/sh"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom-relaunch", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains("fallback=\(root.path)|structured"),
+            result.stdout
+        )
+    }
+
     @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment

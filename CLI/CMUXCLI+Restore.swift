@@ -106,6 +106,20 @@ extension CMUXCLI {
             for: request,
             ambientEnvironment: processEnvironment
         ) else {
+            if let legacyCommand = record.legacyCommand {
+                let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
+                    record.workingDirectory
+                )
+                var legacyEnvironment = environment
+                if let appliedWorkingDirectory {
+                    legacyEnvironment["PWD"] = appliedWorkingDirectory
+                }
+                client.close()
+                try execLegacyRestoreCommand(
+                    legacyCommand,
+                    environment: legacyEnvironment
+                )
+            }
             throw CLIError(message: "restore: persisted structured launch data is incomplete")
         }
 

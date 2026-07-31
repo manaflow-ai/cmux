@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -50,15 +51,15 @@ struct AgentResumeReturnShellStartupTests {
 
         #expect(
             agentBinding.restoreStartupInput()
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionID)\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex \(sessionID)\n"
         )
         #expect(
             manualBinding.restoreStartupInput()
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
         )
         #expect(
             snapshot.resumeStartupInput()
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionID)\n"
+                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex \(sessionID)\n"
         )
         #expect(
             try fileManager.contentsOfDirectory(
@@ -70,15 +71,27 @@ struct AgentResumeReturnShellStartupTests {
 
     @Test("unsafe identifiers use the ASCII-only surface selector")
     func unsafeIdentifiersUseSurfaceSelector() {
-        let snapshot = SessionRestorableAgentSnapshot(
-            kind: .custom("代理 agent"),
-            sessionId: "会話 'one'"
-        )
+        let snapshots = [
+            SessionRestorableAgentSnapshot(
+                kind: .custom("代理 agent"),
+                sessionId: "会話 'one'"
+            ),
+            SessionRestorableAgentSnapshot(
+                kind: .custom("-beta"),
+                sessionId: "checkpoint"
+            ),
+            SessionRestorableAgentSnapshot(
+                kind: .custom("agent"),
+                sessionId: "--checkpoint"
+            ),
+        ]
 
-        #expect(
-            snapshot.resumeStartupInput()
-                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
-        )
+        for snapshot in snapshots {
+            #expect(
+                snapshot.resumeStartupInput()
+                    == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore --surface \"$CMUX_SURFACE_ID\"\n"
+            )
+        }
     }
 
     @Test("non-restore one-shot launchers retain their storage policy")
