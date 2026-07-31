@@ -4,7 +4,10 @@ import CmuxMobileSupport
 import UIKit
 
 extension WorkspaceListTableCoordinator {
-    func contextMenuActions(for workspace: MobileWorkspacePreview) -> [UIAction] {
+    func contextMenuActions(
+        for workspace: MobileWorkspacePreview,
+        renameTitle: String? = nil
+    ) -> [UIAction] {
         let capabilities = workspace.actionCapabilities
         var actions: [UIAction] = []
         if capabilities.supportsWorkspaceActions, let setPinned = configuration.setPinned {
@@ -33,7 +36,8 @@ extension WorkspaceListTableCoordinator {
         }
         if capabilities.supportsWorkspaceActions, let renameRequest = configuration.renameRequest {
             let action = UIAction(
-                title: L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"),
+                title: renameTitle
+                    ?? L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"),
                 image: UIImage(systemName: "pencil")
             ) { _ in
                 renameRequest(workspace.id)
@@ -117,7 +121,13 @@ extension WorkspaceListTableCoordinator {
             sections.append(UIMenu(options: .displayInline, children: groupActions))
         }
 
-        let workspaceActions = contextMenuActions(for: anchorWorkspace)
+        let workspaceActions = contextMenuActions(
+            for: anchorWorkspace,
+            renameTitle: L10n.string(
+                "mobile.workspace.rename.title",
+                defaultValue: "Rename Workspace"
+            )
+        )
         if !workspaceActions.isEmpty {
             sections.append(UIMenu(options: .displayInline, children: workspaceActions))
         }

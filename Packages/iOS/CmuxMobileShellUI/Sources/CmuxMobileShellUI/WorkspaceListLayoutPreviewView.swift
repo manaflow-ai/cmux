@@ -25,11 +25,17 @@ private final class WorkspaceListLayoutPreviewModel {
     }
 
     var workspaces: [MobileWorkspacePreview]
+    var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
 
     /// Creates a preview model with an optional continuous update feed.
-    init(workspaces: [MobileWorkspacePreview], liveUpdateMode: LiveUpdateMode) {
+    init(
+        workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
+        liveUpdateMode: LiveUpdateMode
+    ) {
         self.workspaces = workspaces
+        self.groups = groups
         self.liveUpdateMode = liveUpdateMode
     }
 
@@ -109,12 +115,16 @@ public struct WorkspaceListLayoutPreviewView: View {
         let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let initialWorkspaces: [MobileWorkspacePreview]
+        let initialGroups: [MobileWorkspaceGroupPreview]
         if seedCount > 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
-            (initialWorkspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+            (initialWorkspaces, initialGroups) = Self.seeded(
+                count: seedCount,
+                groupCount: groupCount
+            )
         } else {
             initialWorkspaces = Self.defaultWorkspaces
-            groups = []
+            initialGroups = []
         }
         self.reorderEnabled = reorderEnabled
         let fixtureWorkspaces = reorderEnabled
@@ -142,6 +152,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         _model = State(
             initialValue: WorkspaceListLayoutPreviewModel(
                 workspaces: fixtureWorkspaces,
+                groups: initialGroups,
                 liveUpdateMode: liveUpdateMode
             )
         )
@@ -164,7 +175,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    private let groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
@@ -311,7 +321,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     private func workspaceListFixture(searchText: String) -> some View {
         WorkspaceListView(
             workspaces: model.workspaces,
-            groups: groups,
+            groups: model.groups,
             selectedWorkspaceID: selectedWorkspaceID,
             host: "Visual Mock Mac",
             connectionStatus: .connected,
@@ -368,11 +378,15 @@ public struct WorkspaceListLayoutPreviewView: View {
                         movesGroup: movesGroup
                     ),
                     movedWorkspaceID: id,
-                    groups: groups
+                    groups: model.groups
                 )
                 return true
             } : nil,
-            renameWorkspaceGroup: reorderEnabled ? { _, _ in } : nil,
+            renameWorkspaceGroup: reorderEnabled ? { id, newName in
+                if let index = model.groups.firstIndex(where: { $0.id == id }) {
+                    model.groups[index].name = newName
+                }
+            } : nil,
             setGroupPinned: reorderEnabled ? { _, _ in } : nil,
             ungroupWorkspaceGroup: reorderEnabled ? { _ in } : nil,
             deleteWorkspaceGroup: reorderEnabled ? { _ in } : nil,
