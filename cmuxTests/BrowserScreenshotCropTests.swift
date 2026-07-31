@@ -946,7 +946,8 @@ struct BrowserScreenshotCropTests {
               p { color: white; font: 20px sans-serif; }
             </style>
             <p>MMMM</p>
-            """
+            """,
+            configuration: WKWebViewConfiguration()
         )
         let fontStatus = try await pendingFontWebView.evaluateJavaScript(
             """
