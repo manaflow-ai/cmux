@@ -24,6 +24,22 @@ private actor AgentChatProseExtractionWorker {
 
 @MainActor
 public final class AgentChatProseStreamer {
+    /// Identifies one live prose-streaming generation for a chat session.
+    ///
+    /// Callers receive this from ``turnStarted(sessionID:surfaceID:agentKind:)``
+    /// and must pass the same token back to ``authoritativeProseArrived(_:)``.
+    /// A token from an earlier generation is intentionally ignored after the
+    /// session resumes, rebinds to another surface, or starts a newer turn.
+    public struct TurnToken: Equatable, Sendable {
+        fileprivate let sessionID: String
+        fileprivate let generation: Int
+
+        fileprivate init(sessionID: String, generation: Int) {
+            self.sessionID = sessionID
+            self.generation = generation
+        }
+    }
+
     /// Per-session live-turn bookkeeping.
     private struct ActiveTurn {
         let generation: Int
@@ -79,27 +95,35 @@ public final class AgentChatProseStreamer {
     ///   - sessionID: The chat session.
     ///   - surfaceID: The hosting terminal surface to snapshot.
     ///   - agentKind: Selects the prose extractor's chrome markers.
-    public func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) {
+    /// - Returns: An opaque token for settling this exact turn generation.
+    @discardableResult
+    public func turnStarted(sessionID: String, surfaceID: UUID, agentKind: ChatAgentKind) -> TurnToken {
         let previous = turns[sessionID]
         let generation = (previous?.generation ?? -1) + 1
         turns[sessionID] = ActiveTurn(generation: generation, surfaceID: surfaceID, agentKind: agentKind)
         if previous?.lastEmitted != nil {
             clearPreview(sessionID: sessionID)
         }
-        guard tasks[sessionID] == nil else { return }
-        tasks[sessionID] = Task { [weak self] in
-            await self?.runLoop(sessionID: sessionID)
+        if tasks[sessionID] == nil {
+            tasks[sessionID] = Task { [weak self] in
+                await self?.runLoop(sessionID: sessionID)
+            }
         }
+        return TurnToken(sessionID: sessionID, generation: generation)
     }
 
     /// The authoritative prose for the turn landed; drop the preview and stop
     /// emitting until the next turn (kept distinct from ``turnEnded`` so the
     /// poll loop is reused across a multi-block turn instead of respawned).
-    public func authoritativeProseArrived(sessionID: String) {
-        guard turns[sessionID] != nil else { return }
-        turns[sessionID]?.settled = true
-        turns[sessionID]?.lastEmitted = nil
-        clearPreview(sessionID: sessionID)
+    ///
+    /// - Parameter token: The token returned by ``turnStarted`` for the turn
+    ///   whose authoritative transcript prose just arrived.
+    public func authoritativeProseArrived(_ token: TurnToken) {
+        guard let turn = turns[token.sessionID],
+              turn.generation == token.generation else { return }
+        turns[token.sessionID]?.settled = true
+        turns[token.sessionID]?.lastEmitted = nil
+        clearPreview(sessionID: token.sessionID)
     }
 
     /// Ends streaming for a session: cancels the loop and clears the preview.

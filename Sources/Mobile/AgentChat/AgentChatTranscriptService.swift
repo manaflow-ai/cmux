@@ -20,6 +20,9 @@ final class AgentChatTranscriptService {
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
+    /// Current live prose-stream generation per session, consumed when the
+    /// matching authoritative transcript prose lands.
+    private var proseTurnTokens: [String: AgentChatProseStreamer.TurnToken] = [:]
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
@@ -204,14 +207,14 @@ final class AgentChatTranscriptService {
         case .userPromptSubmit:
             if record.state != .ended,
                let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)) {
-                proseStreamer.turnStarted(
+                proseTurnTokens[record.sessionID] = proseStreamer.turnStarted(
                     sessionID: record.sessionID,
                     surfaceID: surfaceID,
                     agentKind: record.agentKind
                 )
             }
         case .stop, .sessionEnd:
-            proseStreamer.turnEnded(sessionID: record.sessionID)
+            endProseTurn(sessionID: record.sessionID)
         default:
             break
         }
@@ -296,7 +299,7 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
-        proseStreamer.turnEnded(sessionID: sessionID)
+        endProseTurn(sessionID: sessionID)
         registry.noteResumeInitiated(
             sessionID: sessionID,
             source: source,
@@ -449,7 +452,7 @@ final class AgentChatTranscriptService {
             // The authoritative prose for the turn just landed: settle the live
             // preview so the committed message takes over with no duplicate.
             if Self.batchContainsAgentProse(batch.appended) {
-                proseStreamer.authoritativeProseArrived(sessionID: sessionID)
+                settleProseTurn(sessionID: sessionID)
             }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
         }
@@ -508,7 +511,7 @@ final class AgentChatTranscriptService {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
-            proseStreamer.turnEnded(sessionID: record.sessionID)
+            endProseTurn(sessionID: record.sessionID)
             if let tailer = tailers.removeValue(forKey: record.sessionID) {
                 // The transcript can no longer grow; release the file watcher
                 // and cache instead of holding them until app quit. Evicting
@@ -540,7 +543,7 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
-        proseStreamer.turnEnded(sessionID: record.sessionID)
+        endProseTurn(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }
         }
@@ -553,5 +556,15 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
+    }
+
+    private func settleProseTurn(sessionID: String) {
+        guard let token = proseTurnTokens.removeValue(forKey: sessionID) else { return }
+        proseStreamer.authoritativeProseArrived(token)
+    }
+
+    private func endProseTurn(sessionID: String) {
+        proseTurnTokens[sessionID] = nil
+        proseStreamer.turnEnded(sessionID: sessionID)
     }
 }

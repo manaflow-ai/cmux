@@ -195,4 +195,42 @@ final class AgentChatProseStreamerTests: XCTestCase {
         streamer.turnEnded(sessionID: sessionID)
         await sleepGate.resume()
     }
+
+    func testStaleAuthoritativeProseTokenDoesNotClearReboundTurn() async throws {
+        let originalSurfaceID = UUID()
+        let reboundSurfaceID = UUID()
+        let sessionID = "session-rebound-before-authoritative-prose"
+        let sleepGate = SleepGate()
+        var emittedFrames: [ChatSessionEventFrame] = []
+        let streamer = AgentChatProseStreamer(
+            emit: { frame in emittedFrames.append(frame) },
+            snapshot: { _ in nil },
+            hasSubscribers: { true },
+            now: { Date(timeIntervalSince1970: 1_711_111_111) },
+            pollInterval: .seconds(60),
+            sleep: { _ in await sleepGate.wait() }
+        )
+
+        let staleToken = streamer.turnStarted(
+            sessionID: sessionID,
+            surfaceID: originalSurfaceID,
+            agentKind: .codex
+        )
+        let reboundToken = streamer.turnStarted(
+            sessionID: sessionID,
+            surfaceID: reboundSurfaceID,
+            agentKind: .codex
+        )
+
+        streamer.authoritativeProseArrived(staleToken)
+        XCTAssertTrue(emittedFrames.isEmpty)
+
+        streamer.authoritativeProseArrived(reboundToken)
+        XCTAssertEqual(emittedFrames.count, 1)
+        guard case .streamingProse(nil) = emittedFrames.first?.event else {
+            return XCTFail("Expected the matching rebound token to clear the preview")
+        }
+        streamer.turnEnded(sessionID: sessionID)
+        await sleepGate.resume()
+    }
 }
