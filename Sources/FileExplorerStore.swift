@@ -709,11 +709,21 @@ enum FileExplorerSelectionRestoration {
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileExplorerNode] = []
+    {
+        willSet {
+            outlineRevision &+= 1
+            rootStructureRevision &+= 1
+        }
+    }
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
+    private(set) var outlineRevision: UInt64 = 0
+    private(set) var rootStructureRevision: UInt64 = 0
+    private(set) var gitStatusRevision: UInt64 = 0
+    private var disclosureChangeObservers: [UUID: (FileExplorerNode) -> Void] = [:]
 
     var provider: FileExplorerProvider?
 
@@ -770,6 +780,17 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Public API
 
+    @discardableResult
+    func observeDisclosureChanges(_ observer: @escaping (FileExplorerNode) -> Void) -> UUID {
+        let id = UUID()
+        disclosureChangeObservers[id] = observer
+        return id
+    }
+
+    func removeDisclosureChangeObserver(_ id: UUID) {
+        disclosureChangeObservers.removeValue(forKey: id)
+    }
+
     func applyWorkspaceRoot(
         _ request: FileExplorerWorkspaceRoot,
         sshTransport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
@@ -823,7 +844,7 @@ final class FileExplorerStore: ObservableObject {
 
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            applyGitStatusIfChanged([:])
             return
         }
         let path = rootPath
@@ -839,7 +860,7 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         } else {
@@ -847,10 +868,16 @@ final class FileExplorerStore: ObservableObject {
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         }
+    }
+
+    func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
+        guard gitStatusByPath != status else { return }
+        gitStatusRevision &+= 1
+        gitStatusByPath = status
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -932,10 +959,11 @@ final class FileExplorerStore: ObservableObject {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
+        let inserted = expandedPaths.insert(node.path).inserted
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
+            signalOutlineChange()
             objectWillChange.send()
             let nodePath = node.path
             let task = Task { [weak self] in
@@ -943,11 +971,14 @@ final class FileExplorerStore: ObservableObject {
                 await self.loadChildren(for: node, at: nodePath)
             }
             loadTasks[node.path] = task
+        } else if inserted {
+            notifyDisclosureChangeObservers(node)
         }
     }
 
     func collapse(node: FileExplorerNode) {
-        expandedPaths.remove(node.path)
+        let removed = expandedPaths.remove(node.path) != nil
+        if removed { notifyDisclosureChangeObservers(node) }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
@@ -1027,6 +1058,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
+            if parentNode != nil { signalOutlineChange() }
             objectWillChange.send()
         }
 
@@ -1063,11 +1095,13 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
+            if parentNode != nil { signalOutlineChange() }
             objectWillChange.send()
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
+                signalOutlineChange()
                 objectWillChange.send()
                 let childPath = child.path
                 let childTask = Task { [weak self] in
@@ -1087,8 +1121,19 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
+                if parentNode != nil { signalOutlineChange() }
                 objectWillChange.send()
             }
+        }
+    }
+
+    private func signalOutlineChange() {
+        outlineRevision &+= 1
+    }
+
+    private func notifyDisclosureChangeObservers(_ node: FileExplorerNode) {
+        for observer in disclosureChangeObservers.values {
+            observer(node)
         }
     }
 

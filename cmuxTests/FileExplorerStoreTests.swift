@@ -114,6 +114,29 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     }
 }
 
+private final class CountingFileExplorerOutlineView: NSOutlineView {
+    private(set) var reloadCallCount = 0
+    private(set) var fullReloadCallCount = 0
+    private(set) var reloadedRowIndexes = IndexSet()
+
+    override func reloadData() {
+        reloadCallCount += 1
+        fullReloadCallCount += 1
+        super.reloadData()
+    }
+
+    override func reloadItem(_ item: Any?, reloadChildren: Bool) {
+        reloadCallCount += 1
+        super.reloadItem(item, reloadChildren: reloadChildren)
+    }
+
+    override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
+        reloadCallCount += 1
+        reloadedRowIndexes.formUnion(rowIndexes)
+        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+    }
+}
+
 // MARK: - Store Tests
 
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
@@ -614,6 +637,215 @@ struct FileExplorerStoreTests {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
+    }
+
+    @Test
+    func testRedundantCoordinatorUpdatesDoNotReloadOutlineNodes() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+        let reloadsAfterInitialRender = outlineView.reloadCallCount
+        #expect(reloadsAfterInitialRender > 0)
+
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            outlineView.reloadCallCount == reloadsAfterInitialRender,
+            "An update with no intervening file-explorer store change must not reload visible outline nodes."
+        )
+    }
+
+    @Test
+    func testSameCountRootReplacementReloadsOutlineData() {
+        let store = FileExplorerStore()
+        store.rootNodes = [FileExplorerNode(name: "Old.swift", path: "/project/Old.swift", isDirectory: false)]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        let initialFullReloadCount = outlineView.fullReloadCallCount
+
+        store.rootNodes = [FileExplorerNode(name: "New.swift", path: "/project/New.swift", isDirectory: false)]
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.fullReloadCallCount > initialFullReloadCount)
+        #expect((outlineView.item(atRow: 0) as? FileExplorerNode) === store.rootNodes.first)
+    }
+
+    @Test
+    func testGitStatusChangeReloadsVisibleFileRow() {
+        let store = FileExplorerStore()
+        let file = FileExplorerNode(name: "main.swift", path: "/project/main.swift", isDirectory: false)
+        let unchangedFile = FileExplorerNode(
+            name: "README.md",
+            path: "/project/README.md",
+            isDirectory: false
+        )
+        store.rootNodes = [file, unchangedFile]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+
+        store.applyGitStatusIfChanged([file.path: .modified])
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.reloadedRowIndexes.contains(0))
+        #expect(!outlineView.reloadedRowIndexes.contains(1))
+    }
+
+    @Test
+    func testRestoreExpansionReconcilesShiftedSiblingsAndNestedRows() {
+        let store = FileExplorerStore()
+        let nested = FileExplorerNode(name: "Nested", path: "/project/First/Nested", isDirectory: true)
+        nested.children = []
+        let first = FileExplorerNode(name: "First", path: "/project/First", isDirectory: true)
+        first.children = [nested]
+        let second = FileExplorerNode(name: "Second", path: "/project/Second", isDirectory: true)
+        second.children = []
+        store.rootNodes = [first, second]
+        store.expand(node: first)
+        store.expand(node: nested)
+        store.expand(node: second)
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.reloadIfNeeded()
+
+        #expect(outlineView.isItemExpanded(first))
+        #expect(outlineView.isItemExpanded(nested))
+        #expect(outlineView.isItemExpanded(second))
+    }
+
+    @Test
+    func testDisclosureChangesBroadcastToEveryObserver() {
+        let store = FileExplorerStore()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        var firstObserverPaths: [String] = []
+        var secondObserverPaths: [String] = []
+        let firstObserverID = store.observeDisclosureChanges { firstObserverPaths.append($0.path) }
+        let secondObserverID = store.observeDisclosureChanges { secondObserverPaths.append($0.path) }
+        defer {
+            store.removeDisclosureChangeObserver(firstObserverID)
+            store.removeDisclosureChangeObserver(secondObserverID)
+        }
+
+        store.expand(node: directory)
+
+        #expect(firstObserverPaths == [directory.path])
+        #expect(secondObserverPaths == [directory.path])
+    }
+
+    @Test
+    func testCoordinatorRebindsDisclosureObserverWhenStoreChanges() async throws {
+        let originalStore = FileExplorerStore()
+        let replacementStore = FileExplorerStore()
+        let replacementDirectory = FileExplorerNode(
+            name: "Sources",
+            path: "/replacement/Sources",
+            isDirectory: true
+        )
+        replacementDirectory.children = []
+        replacementStore.rootNodes = [replacementDirectory]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: originalStore,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+
+        coordinator.updateStore(replacementStore)
+        coordinator.reloadIfNeeded()
+        replacementStore.expand(node: replacementDirectory)
+
+        try await waitFor("replacement store disclosure reaches the coordinator") {
+            outlineView.isItemExpanded(replacementDirectory)
+        }
+    }
+
+    @Test
+    func testProgrammaticOutlineReloadDoesNotExpandCollapsedDirectory() {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let directory = FileExplorerNode(name: "Sources", path: "/project/Sources", isDirectory: true)
+        directory.children = []
+        store.rootPath = "/project"
+        store.rootNodes = [directory]
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let outlineView = CountingFileExplorerOutlineView()
+        outlineView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("files")))
+        outlineView.outlineTableColumn = outlineView.tableColumns[0]
+        outlineView.dataSource = coordinator
+        outlineView.delegate = coordinator
+        coordinator.outlineView = outlineView
+        coordinator.reloadIfNeeded()
+        #expect(!store.isExpanded(directory))
+
+        let revisionNode = FileExplorerNode(name: "Elsewhere", path: "/project/Elsewhere", isDirectory: true)
+        store.expand(node: revisionNode)
+        coordinator.reloadIfNeeded()
+
+        #expect(
+            !store.isExpanded(directory),
+            "Refreshing a collapsed directory row must not write a synthetic expansion back into the store."
+        )
+        #expect(
+            !outlineView.isItemExpanded(directory),
+            "Refreshing a collapsed directory row must not expand the AppKit outline item."
+        )
     }
 }
 
