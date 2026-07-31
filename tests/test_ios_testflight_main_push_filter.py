@@ -29,9 +29,6 @@ IOS_SCHEDULES = (
     "7,27,47 * * * *",
     "37 5,17 * * *",
 )
-INTERNAL_ARTIFACT = "ios-testflight-build-metadata"
-DEMO_ARTIFACT = "ios-testflight-build-metadata-demo"
-OVERRIDE_ARTIFACT = "ios-testflight-build-metadata-override"
 RESOLVED_DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
 MARKETING_OVERRIDE_GUARD = "github.event.inputs.marketing_version_override != ''"
 
@@ -198,8 +195,6 @@ def run_decision_scenario(
     upload_job_starts_late: bool = False,
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
-    budget_artifacts: tuple[tuple[str, int], ...] = (),
-    budget_api_failure: bool = False,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
@@ -259,14 +254,6 @@ def run_decision_scenario(
         "uploadJobStartsLate": upload_job_starts_late,
         "orderingApiFailure": ordering_api_failure,
         "compareApiFailure": compare_api_failure,
-        "budgetArtifacts": [
-            {
-                "name": name,
-                "minutesAgo": minutes_ago,
-            }
-            for name, minutes_ago in budget_artifacts
-        ],
-        "budgetApiFailure": budget_api_failure,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -275,7 +262,6 @@ const compareCalls = [];
 const warnings = [];
 const waitCalls = [];
 const workflowRunRequests = [];
-const budgetArtifactRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 let workflowRunCalls = 0;
@@ -283,7 +269,6 @@ let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
 let orderingFailurePending = scenario.orderingApiFailure !== null;
-let budgetFailurePending = scenario.budgetApiFailure;
 const allPriorRuns = scenario.priorRunPages.flat();
 const firstPriorRunId = allPriorRuns[0]?.id;
 const priorRuns = (request) => {{
@@ -384,25 +369,6 @@ const github = {{
           }},
         }};
       }},
-      listArtifactsForRepo: async (request) => {{
-        budgetArtifactRequests.push(request);
-        if (budgetFailurePending) {{
-          budgetFailurePending = false;
-          throw new Error('transient artifact failure');
-        }}
-        const artifacts = scenario.budgetArtifacts
-          .filter((artifact) => artifact.name === request.name)
-          .map((artifact, index) => ({{
-            id: `${{request.name}}-${{index}}`,
-            name: artifact.name,
-            created_at: new Date(
-              Date.now() - artifact.minutesAgo * 60_000
-            ).toISOString(),
-          }}));
-        return {{
-          data: {{ artifacts }},
-        }};
-      }},
     }},
     repos: {{
       compareCommits: async (request) => {{
@@ -455,7 +421,6 @@ process.stdout.write(JSON.stringify({{
   waitCalls,
   workflowRunCalls,
   workflowRunRequests,
-  budgetArtifactRequests,
   priorRunStatuses,
   uploadJobStatuses,
   producedArtifactName,
@@ -505,129 +470,6 @@ def test_internal_schedule_polls_every_twenty_minutes() -> None:
             internal_minutes[1:] + (internal_minutes[0] + 60,),
         )
     ) == (20, 20, 20)
-
-
-def test_internal_upload_budget_reserves_four_account_slots() -> None:
-    recent_internal_uploads = tuple(
-        (INTERNAL_ARTIFACT, 60) for _ in range(16)
-    )
-    blocked = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        changed_files=("ios/cmux/App.swift",),
-        budget_artifacts=recent_internal_uploads,
-    )
-    allowed = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        changed_files=("ios/cmux/App.swift",),
-        budget_artifacts=recent_internal_uploads[:-1],
-    )
-
-    assert blocked["outputs"] == {
-        "should_build": "false",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
-    assert blocked["compareCalls"] == []
-    assert allowed["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
-    assert [request["name"] for request in blocked["budgetArtifactRequests"]] == [
-        INTERNAL_ARTIFACT,
-        DEMO_ARTIFACT,
-        OVERRIDE_ARTIFACT,
-    ]
-
-
-def test_manual_uploads_consume_the_same_account_budget() -> None:
-    reserved_account_slots = (
-        tuple((INTERNAL_ARTIFACT, 60) for _ in range(16))
-        + tuple((DEMO_ARTIFACT, 60) for _ in range(2))
-    )
-    nineteenth_upload = reserved_account_slots + ((OVERRIDE_ARTIFACT, 60),)
-    twentieth_upload = nineteenth_upload + ((OVERRIDE_ARTIFACT, 60),)
-
-    allowed = run_decision_scenario(
-        event_name="workflow_dispatch",
-        marketing_version_override="1.2.3",
-        budget_artifacts=nineteenth_upload,
-    )
-    blocked = run_decision_scenario(
-        event_name="workflow_dispatch",
-        marketing_version_override="1.2.3",
-        budget_artifacts=twentieth_upload,
-    )
-
-    assert allowed["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "",
-        "variant": "internal",
-    }
-    assert blocked["outputs"] == {
-        "should_build": "false",
-        "last_uploaded_sha": "",
-        "variant": "internal",
-    }
-
-
-def test_manual_internal_uploads_consume_the_internal_budget() -> None:
-    result = run_decision_scenario(
-        event_name="workflow_dispatch",
-        budget_artifacts=tuple(
-            (INTERNAL_ARTIFACT, 60) for _ in range(16)
-        ),
-    )
-
-    assert result["outputs"] == {
-        "should_build": "false",
-        "last_uploaded_sha": "",
-        "variant": "internal",
-    }
-
-
-def test_upload_budget_ignores_artifacts_older_than_twenty_four_hours() -> None:
-    result = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        changed_files=("ios/cmux/App.swift",),
-        budget_artifacts=(
-            tuple((INTERNAL_ARTIFACT, 60) for _ in range(15))
-            + ((INTERNAL_ARTIFACT, 24 * 60 + 1),)
-        ),
-    )
-
-    assert result["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
-
-
-def test_upload_budget_lookup_failure_fails_closed() -> None:
-    result = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        changed_files=("ios/cmux/App.swift",),
-        budget_api_failure=True,
-    )
-
-    assert result["outputs"] == {
-        "should_build": "false",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
-    assert result["compareCalls"] == []
-    assert result["warnings"] == [
-        "could not resolve rolling TestFlight upload budget: "
-        "transient artifact failure"
-    ]
 
 
 def test_schedule_decision_executes_ios_path_filter() -> None:
@@ -1186,11 +1028,6 @@ if __name__ == "__main__":
     test_literal_block_accepts_whitespace_only_lines()
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_internal_schedule_polls_every_twenty_minutes()
-    test_internal_upload_budget_reserves_four_account_slots()
-    test_manual_uploads_consume_the_same_account_budget()
-    test_manual_internal_uploads_consume_the_internal_budget()
-    test_upload_budget_ignores_artifacts_older_than_twenty_four_hours()
-    test_upload_budget_lookup_failure_fails_closed()
     test_schedule_decision_executes_ios_path_filter()
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
