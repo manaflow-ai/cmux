@@ -7,8 +7,6 @@ import WebKit
 final class BrowserScreenshotDOMProbeCollector {
     private weak var webView: WKWebView?
     private let animationFrameTimeout: TimeInterval
-    private var animationFrameContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
-    private var animationFrameTimers: [UUID: Timer] = [:]
 
     init(webView: WKWebView, animationFrameTimeout: TimeInterval = 1) {
         self.webView = webView
@@ -158,50 +156,10 @@ final class BrowserScreenshotDOMProbeCollector {
     }
 
     private func waitForAnimationFrames(in webView: WKWebView) async {
-        let operationID = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                guard !Task.isCancelled else {
-                    continuation.resume()
-                    return
-                }
-                animationFrameContinuations[operationID] = continuation
-                animationFrameTimers[operationID] = Timer.scheduledTimer(
-                    withTimeInterval: animationFrameTimeout,
-                    repeats: false
-                ) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.finishAnimationFrameWait(operationID)
-                    }
-                }
-                webView.callAsyncJavaScript(
-                    animationFrameFlushScript,
-                    arguments: [:],
-                    in: nil,
-                    in: .defaultClient
-                ) { [weak self] result in
-                    Task { @MainActor [weak self] in
-#if DEBUG
-                        if case .failure(let error) = result {
-                            cmuxDebugLog(
-                                "browser.screenshot.synchronize.failed error=\(error.localizedDescription)"
-                            )
-                        }
-#endif
-                        self?.finishAnimationFrameWait(operationID)
-                    }
-                }
-            }
-        } onCancel: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.finishAnimationFrameWait(operationID)
-            }
-        }
-    }
-
-    private func finishAnimationFrameWait(_ operationID: UUID) {
-        animationFrameTimers.removeValue(forKey: operationID)?.invalidate()
-        animationFrameContinuations.removeValue(forKey: operationID)?.resume()
+        await BrowserScreenshotAnimationFrameWaiter(
+            webView: webView,
+            timeout: animationFrameTimeout
+        ).wait(script: animationFrameFlushScript)
     }
 
     private var animationFrameFlushScript: String {

@@ -567,9 +567,11 @@ enum BrowserScreenshotWebViewSnapshotter {
             completion(result)
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
             finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
         prepareForVisualCapture(webView, expectedURL: expectedURL) { result in
             switch result {
             case .success:
@@ -801,24 +803,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         configuration: WKSnapshotConfiguration,
         renderer: BrowserViewportSnapshotRenderer? = nil
     ) async throws -> NSImage {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.takeSnapshot(with: configuration) { image, error in
-                if let image {
-                    guard let renderer else {
-                        continuation.resume(returning: image)
-                        return
-                    }
-                    guard let normalized = renderer.normalizedImage(image) else {
-                        continuation.resume(throwing: BrowserScreenshotError.invalidImageRepresentation)
-                        return
-                    }
-                    continuation.resume(returning: normalized)
-                    return
-                }
-
-                continuation.resume(throwing: error ?? BrowserScreenshotError.emptySnapshot)
-            }
-        }
+        try await BrowserScreenshotSnapshotRequest(
+            webView: webView,
+            configuration: configuration,
+            renderer: renderer
+        ).capture()
     }
 
     private static func captureVisibleViewport(
@@ -1131,7 +1120,7 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1139,6 +1128,8 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func finishIfReady() {

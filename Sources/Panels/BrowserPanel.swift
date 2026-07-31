@@ -7435,9 +7435,11 @@ extension BrowserPanel {
             return
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
             finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
 
         BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
             captureWebView,

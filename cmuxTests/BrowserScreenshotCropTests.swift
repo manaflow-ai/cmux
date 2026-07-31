@@ -181,11 +181,12 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifiedCaptureRetriesAFrameWithMultipleBlankTextProbes() async throws {
         var captureCount = 0
+        var synchronizationRetries: [Bool] = []
         let probes = textProbeSet()
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: {},
+            synchronize: { synchronizationRetries.append($0) },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -208,6 +209,7 @@ struct BrowserScreenshotCropTests {
         _ = try await service.capture()
 
         #expect(captureCount == 2)
+        #expect(synchronizationRetries == [false, true])
     }
 
     @Test
@@ -218,7 +220,7 @@ struct BrowserScreenshotCropTests {
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: {},
+            synchronize: { _ in },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -255,7 +257,7 @@ struct BrowserScreenshotCropTests {
         let probes = textProbeSet()
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
-            synchronize: {},
+            synchronize: { _ in },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -288,7 +290,7 @@ struct BrowserScreenshotCropTests {
         let image = try makeBlankBitmapImage(width: 100, height: 100)
         let service = BrowserScreenshotCaptureService(
             maximumAttempts: 3,
-            synchronize: {},
+            synchronize: { _ in },
             collectProbes: {
                 BrowserScreenshotFrameVerifier.ProbeSet(
                     viewportSize: NSSize(width: 100, height: 100),

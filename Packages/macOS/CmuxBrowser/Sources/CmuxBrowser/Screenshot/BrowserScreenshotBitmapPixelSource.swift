@@ -7,6 +7,14 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
     private let bitmap: NSBitmapImageRep
     private let bytesPerPixel: Int
     private let bitmapData: UnsafeMutablePointer<UInt8>
+    private let channelOffsets: ChannelOffsets
+
+    private struct ChannelOffsets {
+        let red: Int
+        let green: Int
+        let blue: Int
+        let alpha: Int?
+    }
 
     /// Creates a sampler when the image has a supported RGB(A) representation.
     ///
@@ -36,7 +44,8 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         }
         self.bitmap = selectedBitmap
         let samplesPerPixel = selectedBitmap.samplesPerPixel
-        guard let bitmapData = selectedBitmap.bitmapData else {
+        guard let bitmapData = selectedBitmap.bitmapData,
+              let channelOffsets = Self.channelOffsets(for: selectedBitmap) else {
             return nil
         }
         self.pixelSize = NSSize(
@@ -45,6 +54,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         )
         self.bytesPerPixel = samplesPerPixel
         self.bitmapData = bitmapData
+        self.channelOffsets = channelOffsets
     }
 
     /// Redraws any AppKit/CG image layout into a known packed RGBA bitmap.
@@ -87,7 +97,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = context
-        context.imageInterpolation = .high
+        context.imageInterpolation = .none
         NSColor.clear.setFill()
         NSRect(origin: .zero, size: outputSize).fill()
         image.draw(
@@ -96,7 +106,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             operation: .copy,
             fraction: 1,
             respectFlipped: false,
-            hints: [.interpolation: NSImageInterpolation.high]
+            hints: [.interpolation: NSImageInterpolation.none]
         )
         guard supportsDirectAccess(bitmap) else {
             return nil
@@ -104,15 +114,35 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         return bitmap
     }
 
+    /// Returns the direct byte offsets for a supported packed RGB(A) bitmap.
+    private static func channelOffsets(
+        for bitmap: NSBitmapImageRep
+    ) -> ChannelOffsets? {
+        guard bitmap.samplesPerPixel == 4, bitmap.hasAlpha else {
+            if bitmap.samplesPerPixel == 3, !bitmap.hasAlpha {
+                return ChannelOffsets(red: 0, green: 1, blue: 2, alpha: nil)
+            }
+            return nil
+        }
+
+        let alphaFirst = bitmap.bitmapFormat.contains(.alphaFirst)
+        let littleEndian = bitmap.bitmapFormat.contains(.thirtyTwoBitLittleEndian)
+        if littleEndian {
+            return alphaFirst
+                ? ChannelOffsets(red: 2, green: 1, blue: 0, alpha: 3)
+                : ChannelOffsets(red: 3, green: 2, blue: 1, alpha: 0)
+        }
+        return alphaFirst
+            ? ChannelOffsets(red: 1, green: 2, blue: 3, alpha: 0)
+            : ChannelOffsets(red: 0, green: 1, blue: 2, alpha: 3)
+    }
+
     /// Returns whether a bitmap supports direct packed RGB(A) byte access.
     private static func supportsDirectAccess(_ bitmap: NSBitmapImageRep) -> Bool {
         let unsupportedFormat: NSBitmapImageRep.Format = [
-            .alphaFirst,
             .floatingPointSamples,
             .sixteenBitLittleEndian,
-            .thirtyTwoBitLittleEndian,
             .sixteenBitBigEndian,
-            .thirtyTwoBitBigEndian,
         ]
         let samplesPerPixel = bitmap.samplesPerPixel
         return bitmap.pixelsWide > 0
@@ -120,7 +150,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             && bitmap.bitsPerSample == 8
             && !bitmap.isPlanar
             && bitmap.colorSpace.colorSpaceModel == .rgb
-            && (samplesPerPixel == 3 || (samplesPerPixel == 4 && bitmap.hasAlpha))
+            && channelOffsets(for: bitmap) != nil
             && bitmap.bitsPerPixel == samplesPerPixel * 8
             && bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel
             && bitmap.bitmapFormat.intersection(unsupportedFormat).isEmpty
@@ -141,13 +171,13 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             return nil
         }
         let offset = y * bitmap.bytesPerRow + x * bytesPerPixel
-        let alpha = bytesPerPixel == 4
-            ? CGFloat(bitmapData[offset + 3]) / 255.0
-            : 1.0
+        let alpha = channelOffsets.alpha.map {
+            CGFloat(bitmapData[offset + $0]) / 255.0
+        } ?? 1.0
         return BrowserScreenshotFrameVerifier.RGBA(
-            red: CGFloat(bitmapData[offset]) / 255.0,
-            green: CGFloat(bitmapData[offset + 1]) / 255.0,
-            blue: CGFloat(bitmapData[offset + 2]) / 255.0,
+            red: CGFloat(bitmapData[offset + channelOffsets.red]) / 255.0,
+            green: CGFloat(bitmapData[offset + channelOffsets.green]) / 255.0,
+            blue: CGFloat(bitmapData[offset + channelOffsets.blue]) / 255.0,
             alpha: alpha
         )
     }

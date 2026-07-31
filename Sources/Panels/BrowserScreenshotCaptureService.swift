@@ -33,7 +33,7 @@ struct BrowserScreenshotCaptureService {
         }
     }
 
-    typealias Synchronizer = @MainActor () async -> Void
+    typealias Synchronizer = @MainActor (_ isRetry: Bool) async -> Void
     typealias ProbeCollector = @MainActor () async -> BrowserScreenshotFrameVerifier.ProbeSet?
     typealias SnapshotProvider = @MainActor () async throws -> NSImage
     typealias PixelSourceProvider = @MainActor (
@@ -55,9 +55,9 @@ struct BrowserScreenshotCaptureService {
         let probeCollector = BrowserScreenshotDOMProbeCollector(webView: webView)
         self.init(
             maximumAttempts: maximumAttempts,
-            synchronize: {
+            synchronize: { isRetry in
                 await probeCollector.synchronize(
-                    waitForAnimationFrame: presentation.waitsForAnimationFrame
+                    waitForAnimationFrame: presentation.waitsForAnimationFrame || isRetry
                 )
             },
             collectProbes: {
@@ -96,7 +96,7 @@ struct BrowserScreenshotCaptureService {
 
         for attempt in 1...maximumAttempts {
             try Task.checkCancellation()
-            await synchronize()
+            await synchronize(attempt > 1)
             try Task.checkCancellation()
             let before = await collectProbes()
             let image = try await snapshot()
