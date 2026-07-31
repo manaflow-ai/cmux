@@ -13,6 +13,7 @@ import UIKit
     private final class DropRecorder {
         var dropIntoGroupCalls: [(MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID)] = []
         var moveRowsCalls: [(IndexSet, Int)] = []
+        var dropLifecycleEvents: [String] = []
         var canDropIntoGroup = true
     }
 
@@ -63,7 +64,10 @@ import UIKit
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
             enablesReorder: true,
-            moveRows: { recorder.moveRowsCalls.append(($0, $1)) },
+            moveRows: {
+                recorder.moveRowsCalls.append(($0, $1))
+                recorder.dropLifecycleEvents.append("model")
+            },
             canDropIntoGroup: { workspaceID, groupID in
                 recorder.canDropIntoGroup && workspaceID == moverID && groupID == group.id
             },
@@ -180,7 +184,13 @@ import UIKit
         let dropCoordinator = FakeDropCoordinator(
             session: session,
             proposal: proposal,
-            items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: IndexPath(row: 1, section: 0))],
+            items: [
+                FakeDropItem(
+                    dragItem: dragItem,
+                    sourceIndexPath: IndexPath(row: 1, section: 0),
+                    previewSize: CGSize(width: 366, height: 64)
+                ),
+            ],
             destinationIndexPath: IndexPath(row: 0, section: 0)
         )
         coordinator.tableView(tableView, performDropWith: dropCoordinator)
@@ -189,9 +199,11 @@ import UIKit
         #expect(recorder.dropIntoGroupCalls.first?.0.rawValue == "mover")
         #expect(recorder.dropIntoGroupCalls.first?.1.rawValue == "group-a")
         #expect(recorder.moveRowsCalls.isEmpty)
-        #expect(dropCoordinator.dropIntoRowCalls == [IndexPath(row: 0, section: 0)])
-        #expect(dropCoordinator.dropIntoRowRects.first?.width == 366)
-        #expect(dropCoordinator.dropIntoRowRects.first?.height == 32)
+        #expect(dropCoordinator.dropIntoRowCalls.isEmpty)
+        #expect(dropCoordinator.dropToTargetCalls.count == 1)
+        #expect(dropCoordinator.dropToTargetCalls.first?.center == CGPoint(x: 195, y: 22))
+        #expect(dropCoordinator.dropToTargetCalls.first?.transform.a == 0.5)
+        #expect(dropCoordinator.dropToTargetCalls.first?.transform.d == 0.5)
         #expect(tableView.numberOfRows(inSection: 0) == 1)
     }
 
@@ -295,11 +307,15 @@ import UIKit
             items: [FakeDropItem(dragItem: dragItem, sourceIndexPath: nil)],
             destinationIndexPath: IndexPath(row: 0, section: 0)
         )
+        dropCoordinator.dropToRowObserver = {
+            recorder.dropLifecycleEvents.append("native")
+        }
         coordinator.tableView(tableView, performDropWith: dropCoordinator)
 
         #expect(recorder.moveRowsCalls.count == 1)
         #expect(recorder.moveRowsCalls.first?.0 == IndexSet(integer: 1))
         #expect(recorder.moveRowsCalls.first?.1 == 0)
+        #expect(recorder.dropLifecycleEvents == ["native", "model"])
     }
 
     @Test func performDropOntoHeaderSurvivesNilSourceIndexPath() {
@@ -435,11 +451,16 @@ private final class FakeDragSession: NSObject, UIDragSession {
 private final class FakeDropItem: NSObject, UITableViewDropItem {
     let dragItem: UIDragItem
     let sourceIndexPath: IndexPath?
-    var previewSize: CGSize { .zero }
+    let previewSize: CGSize
 
-    init(dragItem: UIDragItem, sourceIndexPath: IndexPath?) {
+    init(
+        dragItem: UIDragItem,
+        sourceIndexPath: IndexPath?,
+        previewSize: CGSize = .zero
+    ) {
         self.dragItem = dragItem
         self.sourceIndexPath = sourceIndexPath
+        self.previewSize = previewSize
     }
 }
 
@@ -456,6 +477,8 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     private(set) var dropIntoRowCalls: [IndexPath] = []
     private(set) var dropIntoRowRects: [CGRect] = []
     private(set) var dropToRowCalls: [IndexPath] = []
+    private(set) var dropToTargetCalls: [UIDragPreviewTarget] = []
+    var dropToRowObserver: (() -> Void)?
 
     init(
         session: UIDropSession,
@@ -476,6 +499,7 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
     @discardableResult
     func drop(_ dragItem: UIDragItem, toRowAt indexPath: IndexPath) -> UIDragAnimating {
         dropToRowCalls.append(indexPath)
+        dropToRowObserver?()
         return FakeDragAnimating()
     }
 
@@ -488,7 +512,8 @@ private final class FakeDropCoordinator: NSObject, UITableViewDropCoordinator {
 
     @discardableResult
     func drop(_ dragItem: UIDragItem, to target: UIDragPreviewTarget) -> UIDragAnimating {
-        FakeDragAnimating()
+        dropToTargetCalls.append(target)
+        return FakeDragAnimating()
     }
 }
 #endif
