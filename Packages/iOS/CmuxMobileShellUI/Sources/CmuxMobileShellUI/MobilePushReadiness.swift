@@ -124,6 +124,12 @@ public enum MobilePushReadiness: Equatable, Sendable {
         mode: MobileHostPhonePushStatus.Mode,
         limitations: Set<MobilePushPresentationLimitation>
     )
+    /// The live path is eligible, but the Mac cannot currently prove that its
+    /// bounded retry queue will survive a process restart.
+    case reliabilityLimited(
+        mode: MobileHostPhonePushStatus.Mode,
+        queuePersistence: MobileHostPhonePushStatus.QueuePersistence
+    )
     /// Delivery stopped at the named gate.
     case blocked(Blocker)
 
@@ -132,6 +138,8 @@ public enum MobilePushReadiness: Equatable, Sendable {
         public let forwardingEnabled: Bool
         public let mode: MobileHostPhonePushStatus.Mode
         public let admission: MobileHostPhonePushStatus.Admission
+        public let queuePersistence:
+            MobileHostPhonePushStatus.QueuePersistence
         public let apiOrigin: String
         public let accountVerified: Bool
 
@@ -139,12 +147,15 @@ public enum MobilePushReadiness: Equatable, Sendable {
             forwardingEnabled: Bool,
             mode: MobileHostPhonePushStatus.Mode,
             admission: MobileHostPhonePushStatus.Admission = .allowed,
+            queuePersistence:
+                MobileHostPhonePushStatus.QueuePersistence = .healthy,
             apiOrigin: String,
             accountVerified: Bool
         ) {
             self.forwardingEnabled = forwardingEnabled
             self.mode = mode
             self.admission = admission
+            self.queuePersistence = queuePersistence
             self.apiOrigin = apiOrigin
             self.accountVerified = accountVerified
         }
@@ -154,6 +165,7 @@ public enum MobilePushReadiness: Equatable, Sendable {
                 forwardingEnabled: status.forwardingEnabled,
                 mode: status.mode,
                 admission: status.admission,
+                queuePersistence: status.queuePersistence,
                 apiOrigin: status.apiOrigin,
                 accountVerified: status.accountScope == .verifiedSameAccount
             )
@@ -211,6 +223,8 @@ public enum MobilePushReadiness: Equatable, Sendable {
             return nil
         case .limited, .presentationLimited:
             return .openSystemSettings
+        case .reliabilityLimited:
+            return nil
         case let .blocked(blocker):
             return Self.repair(for: blocker)
         }
@@ -346,6 +360,12 @@ public enum MobilePushReadiness: Equatable, Sendable {
             return .presentationLimited(
                 mode: mac.mode,
                 limitations: limitations
+            )
+        }
+        guard mac.queuePersistence == .healthy else {
+            return .reliabilityLimited(
+                mode: mac.mode,
+                queuePersistence: mac.queuePersistence
             )
         }
         return .ready(mode: mac.mode)

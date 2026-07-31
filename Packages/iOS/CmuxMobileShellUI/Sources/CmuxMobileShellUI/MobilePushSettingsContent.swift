@@ -1,0 +1,611 @@
+#if os(iOS)
+import CmuxAuthRuntime
+import CmuxMobileRPC
+import CmuxMobileShell
+import CmuxMobileSupport
+import SwiftUI
+
+enum MobilePushMacMutation: Equatable, Sendable {
+    case forwardingEnabled(Bool)
+    case mode(MobileHostPhonePushStatus.Mode)
+    case hideContent(Bool)
+}
+
+/// The production Push Alerts settings surface.
+///
+/// Its status is computed from the full readiness pipeline, while Mac-owned
+/// privacy controls are optimistic only until the authenticated Mac confirms
+/// the mutation. A failed mutation rolls every control back to the last
+/// authoritative status instead of leaving a misleading local value behind.
+struct MobilePushSettingsContent: View {
+    let readiness: MobilePushReadiness
+    @Binding var phoneEnabled: Bool
+    let macStatus: MobileHostPhonePushStatus?
+    let supportsMacSettings: Bool
+    let supportsMacTest: Bool
+    let onPhoneEnabledChange: @MainActor (Bool) async -> Bool
+    let onRepair: @MainActor (MobilePushReadiness.Repair) async -> Bool
+    let onMacMutation: @MainActor (MobilePushMacMutation) async -> Bool
+    let onSendTest: @MainActor () async -> MobilePhonePushTestStage
+
+    @State private var macForwardingEnabled: Bool
+    @State private var macMode: MobileHostPhonePushStatus.Mode
+    @State private var macHideContent: Bool
+    @State private var isMutatingMac = false
+    @State private var mutationFailed = false
+    @State private var testStage: MobilePhonePushTestStage?
+    @State private var isSendingTest = false
+
+    init(
+        readiness: MobilePushReadiness,
+        phoneEnabled: Binding<Bool>,
+        macStatus: MobileHostPhonePushStatus?,
+        supportsMacSettings: Bool,
+        supportsMacTest: Bool,
+        onPhoneEnabledChange: @escaping @MainActor (Bool) async -> Bool,
+        onRepair: @escaping @MainActor (MobilePushReadiness.Repair) async -> Bool,
+        onMacMutation: @escaping @MainActor (MobilePushMacMutation) async -> Bool,
+        onSendTest: @escaping @MainActor () async -> MobilePhonePushTestStage
+    ) {
+        self.readiness = readiness
+        self._phoneEnabled = phoneEnabled
+        self.macStatus = macStatus
+        self.supportsMacSettings = supportsMacSettings
+        self.supportsMacTest = supportsMacTest
+        self.onPhoneEnabledChange = onPhoneEnabledChange
+        self.onRepair = onRepair
+        self.onMacMutation = onMacMutation
+        self.onSendTest = onSendTest
+        self._macForwardingEnabled = State(
+            initialValue: macStatus?.forwardingEnabled ?? false
+        )
+        self._macMode = State(initialValue: macStatus?.mode ?? .onlyWhenAway)
+        self._macHideContent = State(
+            initialValue: macStatus?.hideContent ?? false
+        )
+    }
+
+    var body: some View {
+        statusRow
+
+        Toggle(
+            L10n.string(
+                "mobile.notifications.phoneEnabled",
+                defaultValue: "Allow Push Alerts on This iPhone"
+            ),
+            isOn: phoneEnabledBinding
+        )
+        .accessibilityIdentifier("MobileSettingsNotifications")
+
+        if let repair = readiness.repair,
+           let repairPresentation = repairPresentation(for: repair) {
+            Button {
+                Task {
+                    let succeeded = await onRepair(repair)
+                    if repair == .enableOnPhone {
+                        phoneEnabled = succeeded
+                    }
+                }
+            } label: {
+                Label(
+                    repairPresentation.title,
+                    systemImage: repairPresentation.systemImage
+                )
+            }
+            .accessibilityIdentifier(repairPresentation.identifier)
+        }
+
+        if let macStatus {
+            Toggle(
+                L10n.string(
+                    "mobile.notifications.macForwarding",
+                    defaultValue: "Forward Alerts from This Mac"
+                ),
+                isOn: macForwardingBinding
+            )
+            .accessibilityIdentifier("MobileSettingsPushMacForwardingToggle")
+            .disabled(!supportsMacSettings || isMutatingMac)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.string(
+                    "mobile.notifications.macMode",
+                    defaultValue: "Forwarding Mode"
+                ))
+                .font(.subheadline)
+
+                HStack(spacing: 8) {
+                    modeButton(
+                        .onlyWhenAway,
+                        title: L10n.string(
+                            "mobile.notifications.mode.onlyWhenAway",
+                            defaultValue: "Only When Away"
+                        ),
+                        identifier: "MobileSettingsPushModeOnlyWhenAway"
+                    )
+                    modeButton(
+                        .always,
+                        title: L10n.string(
+                            "mobile.notifications.mode.always",
+                            defaultValue: "Always"
+                        ),
+                        identifier: "MobileSettingsPushModeAlways"
+                    )
+                }
+            }
+
+            Toggle(
+                L10n.string(
+                    "mobile.notifications.hideContent",
+                    defaultValue: "Hide Notification Content"
+                ),
+                isOn: macHideContentBinding
+            )
+            .accessibilityIdentifier("MobileSettingsPushHideContentToggle")
+            .disabled(!supportsMacSettings || isMutatingMac)
+
+            if !supportsMacSettings {
+                Text(L10n.string(
+                    "mobile.notifications.macUpdateRequired",
+                    defaultValue: "Update cmux on this Mac to change forwarding from iPhone."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+
+            if mutationFailed {
+                Text(L10n.string(
+                    "mobile.notifications.macMutationFailed",
+                    defaultValue: "The Mac did not save that change. Its last confirmed settings were restored."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("MobileSettingsPushMutationError")
+            }
+
+            if macStatus.mode == .onlyWhenAway {
+                Text(L10n.string(
+                    "mobile.notifications.awayExplanation",
+                    defaultValue: "Only When Away sends after the Mac is locked, asleep, or inactive."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+
+            Button {
+                isSendingTest = true
+                testStage = nil
+                Task {
+                    testStage = await onSendTest()
+                    isSendingTest = false
+                }
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.notifications.test.send",
+                        defaultValue: "Send Test Alert"
+                    ),
+                    systemImage: "paperplane"
+                )
+            }
+            .disabled(!supportsMacTest || isSendingTest)
+            .accessibilityIdentifier("MobileSettingsPushSendTest")
+
+            if let testStage {
+                Text(testStageText(testStage))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("MobileSettingsPushTestResult")
+            }
+        }
+    }
+
+    private var statusRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: readinessSymbol)
+                .foregroundStyle(readinessTint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string(
+                    "mobile.notifications.readiness",
+                    defaultValue: "Delivery Status"
+                ))
+                .font(.subheadline.weight(.semibold))
+                Text(readinessText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(readinessText)
+        .accessibilityIdentifier("MobileSettingsPushReadinessStatus")
+        .onChange(of: macStatus) { _, confirmed in
+            guard let confirmed else { return }
+            macForwardingEnabled = confirmed.forwardingEnabled
+            macMode = confirmed.mode
+            macHideContent = confirmed.hideContent
+            mutationFailed = false
+        }
+    }
+
+    private var phoneEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { phoneEnabled },
+            set: { requested in
+                let confirmed = phoneEnabled
+                phoneEnabled = requested
+                Task {
+                    let succeeded = await onPhoneEnabledChange(requested)
+                    if !succeeded {
+                        phoneEnabled = confirmed
+                    }
+                }
+            }
+        )
+    }
+
+    private var macForwardingBinding: Binding<Bool> {
+        Binding(
+            get: { macForwardingEnabled },
+            set: { requested in
+                let prior = macForwardingEnabled
+                macForwardingEnabled = requested
+                performMacMutation(.forwardingEnabled(requested)) {
+                    macForwardingEnabled = prior
+                }
+            }
+        )
+    }
+
+    private var macHideContentBinding: Binding<Bool> {
+        Binding(
+            get: { macHideContent },
+            set: { requested in
+                let prior = macHideContent
+                macHideContent = requested
+                performMacMutation(.hideContent(requested)) {
+                    macHideContent = prior
+                }
+            }
+        )
+    }
+
+    private func modeButton(
+        _ mode: MobileHostPhonePushStatus.Mode,
+        title: String,
+        identifier: String
+    ) -> some View {
+        Button {
+            guard macMode != mode else { return }
+            let prior = macMode
+            macMode = mode
+            performMacMutation(.mode(mode)) {
+                macMode = prior
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: macMode == mode ? "checkmark.circle.fill" : "circle")
+                Text(title)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!supportsMacSettings || isMutatingMac)
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(
+            macMode == mode
+                ? L10n.string(
+                    "mobile.accessibility.selected",
+                    defaultValue: "selected"
+                )
+                : L10n.string(
+                    "mobile.accessibility.notSelected",
+                    defaultValue: "not selected"
+                )
+        )
+    }
+
+    private func performMacMutation(
+        _ mutation: MobilePushMacMutation,
+        rollback: @escaping @MainActor () -> Void
+    ) {
+        mutationFailed = false
+        isMutatingMac = true
+        Task {
+            let succeeded = await onMacMutation(mutation)
+            isMutatingMac = false
+            if !succeeded {
+                rollback()
+                mutationFailed = true
+            }
+        }
+    }
+
+    private var readinessText: String {
+        switch readiness {
+        case let .ready(mode):
+            switch mode {
+            case .onlyWhenAway:
+                return L10n.string(
+                    "mobile.notifications.status.readyAway",
+                    defaultValue: "Ready, Only When Away"
+                )
+            case .always:
+                return L10n.string(
+                    "mobile.notifications.status.readyAlways",
+                    defaultValue: "Ready, Always"
+                )
+            }
+        case .limited:
+            return L10n.string(
+                "mobile.notifications.status.limitedAuthorization",
+                defaultValue: "Limited, Delivered Quietly"
+            )
+        case .presentationLimited:
+            return L10n.string(
+                "mobile.notifications.status.presentationLimited",
+                defaultValue: "Limited, Check iOS Presentation Settings"
+            )
+        case let .reliabilityLimited(_, queuePersistence):
+            switch queuePersistence {
+            case .unknown:
+                return L10n.string(
+                    "mobile.notifications.status.queueUnconfirmed",
+                    defaultValue: "Limited, Mac Retry Storage Unconfirmed"
+                )
+            case .loadFailed, .saveFailed, .clearFailed:
+                return L10n.string(
+                    "mobile.notifications.status.queueFailed",
+                    defaultValue: "Limited, Mac Retry Storage Failed"
+                )
+            case .healthy:
+                return L10n.string(
+                    "mobile.notifications.status.readyAlways",
+                    defaultValue: "Ready, Always"
+                )
+            }
+        case let .blocked(blocker):
+            return blockedText(blocker)
+        }
+    }
+
+    private func blockedText(_ blocker: MobilePushReadiness.Blocker) -> String {
+        switch blocker {
+        case .phoneOptInDisabled:
+            L10n.string(
+                "mobile.notifications.status.phoneOff",
+                defaultValue: "Blocked, Off on This iPhone"
+            )
+        case .systemPermissionNotRequested:
+            L10n.string(
+                "mobile.notifications.status.permissionNotRequested",
+                defaultValue: "Blocked, iOS Permission Not Requested"
+            )
+        case .systemPermissionDenied:
+            L10n.string(
+                "mobile.notifications.status.permissionDenied",
+                defaultValue: "Blocked, iOS Permission Denied"
+            )
+        case .systemNotificationsUnsupported:
+            L10n.string(
+                "mobile.notifications.status.unsupported",
+                defaultValue: "Blocked, Notifications Unsupported"
+            )
+        case .awaitingDeviceToken:
+            L10n.string(
+                "mobile.notifications.status.awaitingToken",
+                defaultValue: "Blocked, Waiting for APNs Token"
+            )
+        case .deviceTokenRegistrationFailed:
+            L10n.string(
+                "mobile.notifications.status.tokenFailed",
+                defaultValue: "Blocked, APNs Registration Failed"
+            )
+        case .registeringDevice:
+            L10n.string(
+                "mobile.notifications.status.registering",
+                defaultValue: "Blocked, Registering This Device"
+            )
+        case .backendRegistrationRequired:
+            L10n.string(
+                "mobile.notifications.status.backendRequired",
+                defaultValue: "Blocked, Backend Registration Required"
+            )
+        case .authenticationRequired:
+            L10n.string(
+                "mobile.notifications.status.authenticationRequired",
+                defaultValue: "Blocked, Sign In Again"
+            )
+        case .accountDeletionInProgress:
+            L10n.string(
+                "mobile.notifications.status.accountDeletion",
+                defaultValue: "Blocked, Account Deletion in Progress"
+            )
+        case .registrationRateLimited:
+            L10n.string(
+                "mobile.notifications.status.rateLimited",
+                defaultValue: "Blocked, Registration Rate Limited"
+            )
+        case let .deviceLimitReached(limit):
+            String(
+                format: L10n.string(
+                    "mobile.notifications.status.deviceLimitFormat",
+                    defaultValue: "Blocked, %d-Device Limit Reached"
+                ),
+                limit
+            )
+        case .networkUnavailable:
+            L10n.string(
+                "mobile.notifications.status.offline",
+                defaultValue: "Blocked, Network Unavailable"
+            )
+        case .pushServiceUnavailable, .invalidServerResponse,
+             .registrationRejected:
+            L10n.string(
+                "mobile.notifications.status.registrationFailed",
+                defaultValue: "Blocked, Registration Failed"
+            )
+        case .invalidConfiguration:
+            L10n.string(
+                "mobile.notifications.status.invalidConfiguration",
+                defaultValue: "Blocked, Invalid Push Configuration"
+            )
+        case .macStatusUnavailable, .macAdmissionUnavailable:
+            L10n.string(
+                "mobile.notifications.status.macUnavailable",
+                defaultValue: "Blocked, Mac Status Unavailable"
+            )
+        case .macAccountMismatch:
+            L10n.string(
+                "mobile.notifications.status.accountMismatch",
+                defaultValue: "Blocked, Mac Account Does Not Match"
+            )
+        case .macForwardingDisabled:
+            L10n.string(
+                "mobile.notifications.status.macForwardingOff",
+                defaultValue: "Blocked, Mac Forwarding Is Off"
+            )
+        case .macCurrentlyActive:
+            L10n.string(
+                "mobile.notifications.status.macActive",
+                defaultValue: "Paused, Mac Is Active"
+            )
+        case .apiOriginMismatch:
+            L10n.string(
+                "mobile.notifications.status.originMismatch",
+                defaultValue: "Blocked, Mac and iPhone Servers Differ"
+            )
+        }
+    }
+
+    private func testStageText(_ stage: MobilePhonePushTestStage) -> String {
+        switch stage {
+        case .queuedOnMac:
+            L10n.string(
+                "mobile.notifications.test.queued",
+                defaultValue: "Queued on Mac. iOS delivery is still pending."
+            )
+        case .forwardingDisabled:
+            L10n.string(
+                "mobile.notifications.test.forwardingOff",
+                defaultValue: "Not queued because Mac forwarding is off."
+            )
+        case .macActive:
+            L10n.string(
+                "mobile.notifications.test.macActive",
+                defaultValue: "Not queued because Only When Away is active and the Mac is in use."
+            )
+        case .authenticationUnavailable:
+            L10n.string(
+                "mobile.notifications.test.authentication",
+                defaultValue: "Not queued because the Mac is not signed in."
+            )
+        case .queueFull:
+            L10n.string(
+                "mobile.notifications.test.queueFull",
+                defaultValue: "Not queued because the Mac retry queue is full."
+            )
+        case .unavailable:
+            L10n.string(
+                "mobile.notifications.test.unavailable",
+                defaultValue: "The Mac could not confirm a queue stage."
+            )
+        }
+    }
+
+    private var readinessSymbol: String {
+        switch readiness {
+        case .ready: "checkmark.circle.fill"
+        case .limited, .presentationLimited, .reliabilityLimited:
+            "exclamationmark.triangle.fill"
+        case .blocked: "xmark.circle.fill"
+        }
+    }
+
+    private var readinessTint: Color {
+        switch readiness {
+        case .ready: .green
+        case .limited, .presentationLimited, .reliabilityLimited: .orange
+        case .blocked: .red
+        }
+    }
+
+    private struct RepairPresentation {
+        let title: String
+        let systemImage: String
+        let identifier: String
+    }
+
+    private func repairPresentation(
+        for repair: MobilePushReadiness.Repair
+    ) -> RepairPresentation? {
+        switch repair {
+        case .enableOnPhone:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.enablePhone",
+                    defaultValue: "Enable on This iPhone"
+                ),
+                systemImage: "bell.badge",
+                identifier: "MobileSettingsPushRepairEnablePhone"
+            )
+        case .openSystemSettings:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.openSettings",
+                    defaultValue: "Open iOS Notification Settings"
+                ),
+                systemImage: "gear",
+                identifier: "MobileSettingsPushRepairOpenSettings"
+            )
+        case .retryDeviceTokenRegistration:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.retryAPNs",
+                    defaultValue: "Retry APNs Registration"
+                ),
+                systemImage: "arrow.clockwise",
+                identifier: "MobileSettingsPushRepairRetryAPNs"
+            )
+        case .retryRegistration:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.retryRegistration",
+                    defaultValue: "Retry Registration"
+                ),
+                systemImage: "arrow.clockwise",
+                identifier: "MobileSettingsPushRepairRetryRegistration"
+            )
+        case .signInAgain, .signIntoMatchingAccount:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.signInAgain",
+                    defaultValue: "Sign In with the Matching Account"
+                ),
+                systemImage: "person.crop.circle.badge.exclamationmark",
+                identifier: "MobileSettingsPushRepairSignIn"
+            )
+        case .connectMac:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.connectMac",
+                    defaultValue: "Connect a Mac"
+                ),
+                systemImage: "desktopcomputer",
+                identifier: "MobileSettingsPushRepairConnectMac"
+            )
+        case .leaveMacOrUseAlwaysMode:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.useAlways",
+                    defaultValue: "Use Always Mode"
+                ),
+                systemImage: "bell.fill",
+                identifier: "MobileSettingsPushRepairUseAlways"
+            )
+        case .waitForDeviceToken, .finishAccountDeletion,
+             .disablePushOnAnotherDevice, .enableOnMac,
+             .rebuildMatchingApps:
+            nil
+        }
+    }
+}
+#endif

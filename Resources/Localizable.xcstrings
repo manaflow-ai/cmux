@@ -259024,6 +259024,40 @@
         }
       }
     },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac reached the cmux push queue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macからcmuxのプッシュキューに到達しました。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Push Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxプッシュテスト"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

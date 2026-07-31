@@ -113,6 +113,16 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowPushReadinessPreview: Bool {
+        #if os(iOS) && DEBUG
+        return ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_PUSH_READINESS_PREVIEW"
+        ] != nil
+        #else
+        return false
+        #endif
+    }
+
     #if os(iOS)
     /// A configured launch attach route (dev/UITest auto-pair) owns startup
     /// connections outright; background onboarding discovery must not race it.
@@ -152,6 +162,18 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var changesPreview: some View {
         #if os(iOS) && DEBUG
         ChangesPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var pushReadinessPreview: some View {
+        #if os(iOS) && DEBUG
+        MobilePushReadinessPreviewView(
+            state: ProcessInfo.processInfo.environment[
+                "CMUX_UITEST_PUSH_READINESS_PREVIEW"
+            ] ?? "healthy"
+        )
         #else
         EmptyView()
         #endif
@@ -286,7 +308,9 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowChangesPreview {
+        if shouldShowPushReadinessPreview {
+            pushReadinessPreview
+        } else if shouldShowChangesPreview {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier

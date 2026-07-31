@@ -14080,6 +14080,8 @@ class TerminalController {
             result = v2MobileSyncFetch(params: request.params)
         case "phone_push.settings.update":
             result = v2MobilePhonePushSettingsUpdate(params: request.params)
+        case "phone_push.test":
+            result = v2MobilePhonePushTest()
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method

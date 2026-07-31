@@ -1,6 +1,15 @@
 import Foundation
 
 extension TerminalController {
+    /// Enqueues a test alert through the same admission and durable delivery
+    /// queue as a terminal notification, preserving the current badge count.
+    func v2MobilePhonePushTest() -> V2CallResult {
+        let admission = PhonePushClient.shared.forwardTest(
+            badgeCount: TerminalNotificationStore.shared.unreadNotificationCount
+        )
+        return .ok(["stage": admission.testStageRawValue])
+    }
+
     /// Atomically updates the Mac-owned phone-forwarding privacy gates.
     ///
     /// The mobile transport applies its same-account authorization before this

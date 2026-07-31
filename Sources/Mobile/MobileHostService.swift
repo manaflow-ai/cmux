@@ -272,6 +272,7 @@ final class MobileHostService {
                 .union([
                     phonePushStatusCapability,
                     phonePushSettingsCapability,
+                    phonePushTestCapability,
                 ])
                 .sorted()
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch

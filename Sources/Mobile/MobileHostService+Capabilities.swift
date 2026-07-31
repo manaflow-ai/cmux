@@ -9,6 +9,8 @@ extension MobileHostService {
     /// gate, presence mode, account proof, and API endpoint identity.
     nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
     nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
+    /// Authenticated request to enqueue a truthful, correlated test alert.
+    nonisolated static let phonePushTestCapability = "phone_push.test.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status

@@ -189,31 +189,70 @@ final class PhonePushClient {
         _ notification: TerminalNotification,
         badgeCount: Int
     ) -> PhonePushForwardAdmission {
-        let mode = PhoneForwardingMode.fromDefaults(defaults)
-        let enabled = defaults.bool(forKey: PhonePushSettings.forwardEnabledKey)
-        let gate: PhonePushForwardAdmission
-        if mode == .always {
-            gate = enabled ? .queued : .disabled
-        } else {
-            gate = Self.admission(
-                enabled: enabled,
-                mode: mode,
-                presence: presenceCache.decision(from: presenceMonitor)
-            )
-        }
+        let gate = forwardingAdmission()
         guard gate == .queued else { return gate }
+        let payload = PhonePushPayload(
+            notification: notification,
+            macDeviceId: MobileHostIdentity.deviceID(),
+            badgeCount: badgeCount,
+            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
+        )
+        return enqueue(payload)
+    }
+
+    /// Enqueues a user-requested diagnostic alert through the production path.
+    /// The response confirms queue admission only; backend and APNs outcomes
+    /// remain asynchronous and are correlated by the envelope UUID.
+    func forwardTest(badgeCount: Int) -> PhonePushForwardAdmission {
+        let gate = forwardingAdmission()
+        guard gate == .queued else { return gate }
+        let payload = PhonePushPayload(
+            kind: .notify,
+            title: String(
+                localized: "push.test.title",
+                defaultValue: "cmux Push Test"
+            ),
+            subtitle: "",
+            body: String(
+                localized: "push.test.body",
+                defaultValue: "Your Mac reached the cmux push queue."
+            ),
+            workspaceId: nil,
+            surfaceId: nil,
+            retargetsToLiveSurfaceOwner: false,
+            macDeviceId: MobileHostIdentity.deviceID(),
+            notificationId: nil,
+            notificationIds: [],
+            badgeCount: badgeCount,
+            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
+        )
+        return enqueue(payload)
+    }
+
+    private func forwardingAdmission() -> PhonePushForwardAdmission {
+        let mode = PhoneForwardingMode.fromDefaults(defaults)
+        let enabled = defaults.bool(
+            forKey: PhonePushSettings.forwardEnabledKey
+        )
+        if mode == .always {
+            return enabled ? .queued : .disabled
+        }
+        return Self.admission(
+            enabled: enabled,
+            mode: mode,
+            presence: presenceCache.decision(from: presenceMonitor)
+        )
+    }
+
+    private func enqueue(
+        _ payload: PhonePushPayload
+    ) -> PhonePushForwardAdmission {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
-        )
-        let payload = PhonePushPayload(
-            notification: notification,
-            macDeviceId: MobileHostIdentity.deviceID(),
-            badgeCount: badgeCount,
-            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
         )
         guard let envelope = try? PhonePushRequestEnvelope(
             payload: payload,

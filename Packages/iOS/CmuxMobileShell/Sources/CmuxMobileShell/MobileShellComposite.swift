@@ -130,6 +130,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
+    static let phonePushSettingsCapability = "phone_push.settings.v1"
+    static let phonePushTestCapability = "phone_push.test.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
@@ -447,6 +449,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
     public internal(set) var phonePushMacStatus: MobileHostPhonePushStatus?
+
+    /// Whether the authenticated Mac supports changing its independent phone
+    /// forwarding privacy gates from iOS.
+    public var supportsPhonePushSettings: Bool {
+        supportedHostCapabilities.contains(Self.phonePushSettingsCapability)
+    }
+
+    /// Whether the authenticated Mac can enqueue a correlated test alert.
+    public var supportsPhonePushTest: Bool {
+        supportedHostCapabilities.contains(Self.phonePushTestCapability)
+    }
     /// Published workspace-list chip snapshots keyed by Mac-local workspace id.
     ///
     /// Like ``workspaces``, this is a materialized immutable-value surface on the
@@ -10306,6 +10319,114 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isCurrentRemoteConnection(client: client, generation: generation)
         else { return }
         phonePushMacStatus = status.phonePush
+    }
+
+    /// Applies one or more Mac-owned phone-forwarding settings over the current
+    /// authenticated attach channel, then reads the authoritative status back.
+    ///
+    /// The mutation fails closed when the Mac is unavailable, predates the
+    /// capability, rejects the caller, or the connection changes mid-flight.
+    /// Local UI never writes a speculative Mac value into this store.
+    @discardableResult
+    public func updatePhonePushSettings(
+        forwardingEnabled: Bool? = nil,
+        mode: MobileHostPhonePushStatus.Mode? = nil,
+        hideContent: Bool? = nil
+    ) async -> Bool {
+        guard supportsPhonePushSettings,
+              let client = remoteClient,
+              forwardingEnabled != nil || mode != nil || hideContent != nil
+        else { return false }
+
+        var params: [String: Any] = [:]
+        if let forwardingEnabled {
+            params["forwarding_enabled"] = forwardingEnabled
+        }
+        if let mode {
+            params["mode"] = mode.rawValue
+        }
+        if let hideContent {
+            params["hide_content"] = hideContent
+        }
+
+        let generation = connectionGeneration
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "phone_push.settings.update",
+                    params: params
+                )
+            )
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ) else { return false }
+
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [:]
+                ),
+                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
+            )
+            let status = try MobileHostStatusResponse.decode(data)
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ), let phonePush = status.phonePush else { return false }
+            phonePushMacStatus = phonePush
+            return true
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+                return false
+            }
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
+            return false
+        }
+    }
+
+    /// Requests a test alert through the Mac's real durable queue and returns
+    /// only the furthest stage the synchronous RPC can prove.
+    public func sendPhonePushTest() async -> MobilePhonePushTestStage {
+        guard supportsPhonePushTest, let client = remoteClient else {
+            return .unavailable
+        }
+        let generation = connectionGeneration
+        do {
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "phone_push.test",
+                    params: [:]
+                )
+            )
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ), let object = try JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+            let rawStage = object["stage"] as? String,
+            let stage = MobilePhonePushTestStage(rawValue: rawStage)
+            else { return .unavailable }
+            return stage
+        } catch {
+            guard generation == connectionGeneration else {
+                return .unavailable
+            }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+                return .unavailable
+            }
+            handleMacAvailabilityFailureIfCurrent(
+                after: error,
+                expectedClient: client,
+                expectedGeneration: generation
+            )
+            return .unavailable
+        }
     }
 
     /// Run the `mobile.events.subscribe` (reason `start`) handshake for one
