@@ -39,6 +39,7 @@ use serde_json::Value;
 use url::Url;
 use zeroize::Zeroizing;
 
+use crate::localization::catalog;
 #[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
@@ -268,9 +269,7 @@ OPTIONS:
         Some("remote-link") => {
             "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
         }
-        Some("remote-stop") => {
-            "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n"
-        }
+        Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => "USAGE: cmux-tui install-self --destination PATH\n",
         _ => {
             r#"USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>
@@ -1797,15 +1796,13 @@ fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
                 acknowledge_legacy_finalization = true;
             }
             option if option.starts_with("--") => {
-                return Err(anyhow!("unknown option {option:?} for remote-stop"));
+                return Err(anyhow!(catalog().remote.remote_stop_unknown_option(option)));
             }
-            _ => return Err(anyhow!("remote-stop accepts no positional arguments")),
+            _ => return Err(anyhow!(catalog().remote.remote_stop_no_positional)),
         }
     }
     if acknowledge_failed_finalization && acknowledge_legacy_finalization {
-        return Err(anyhow!(
-            "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive"
-        ));
+        return Err(anyhow!(catalog().remote.remote_stop_acknowledgements_mutually_exclusive));
     }
     Ok(RemoteStopArgs {
         session,
@@ -1845,32 +1842,28 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
             match fs::symlink_metadata(&runtime_path) {
                 Ok(_) => {
                     return Err(anyhow!(
-                        "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization ({})",
-                        runtime_path.display()
+                        catalog()
+                            .remote
+                            .invalid_runtime_metadata(&runtime_path.display().to_string())
                     ));
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => {
                     return Err(error).with_context(|| {
-                        format!(
-                            "could not inspect remote daemon runtime metadata ({})",
-                            runtime_path.display()
-                        )
+                        catalog()
+                            .remote
+                            .inspect_runtime_metadata(&runtime_path.display().to_string())
                     });
                 }
             }
             verify_inactive_shutdown_outcome(&state_dir)?;
             if inactive_daemon_needs_legacy_acknowledgement(&state_dir)? {
-                return Err(anyhow!(
-                    "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization"
-                ));
+                return Err(anyhow!(catalog().remote.inactive_legacy_needs_migration));
             }
             return Ok(());
         }
         Err(error) => {
-            return Err(
-                error.context("refusing to stop a live daemon without valid lifecycle metadata")
-            );
+            return Err(error.context(catalog().remote.refuse_live_invalid_lifecycle));
         }
     };
     if parsed.acknowledge_failed_finalization {
@@ -1890,9 +1883,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         ));
     }
     if !runtime.replaceable_sidecar {
-        return Err(anyhow!(
-            "refusing to upgrade an embedded daemon because stopping it would terminate its workspaces; stop and restart it explicitly"
-        ));
+        return Err(anyhow!(catalog().remote.embedded_daemon_stop_refused));
     }
     let runtime_file = runtime.state_dir.join("runtime.json");
     let state_dir = runtime.state_dir;
@@ -1903,12 +1894,14 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     let (response, mut peer_exit) =
         tokio_runtime()?.block_on(call_admin_with_peer_exit(&admin, &shutdown_request))?;
     if !response.ok {
-        return Err(anyhow!(response.error.unwrap_or_else(|| "daemon shutdown failed".into())));
+        return Err(anyhow!(
+            response.error.unwrap_or_else(|| catalog().remote.daemon_shutdown_failed.to_owned())
+        ));
     }
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
         let process_exited =
-            peer_exit.has_exited().context("could not observe remote daemon process exit")?;
+            peer_exit.has_exited().context(catalog().remote.observe_daemon_exit)?;
         if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
             match lifecycle_id.as_deref() {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
@@ -1920,7 +1913,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
         }
         thread::sleep(Duration::from_millis(50));
     }
-    Err(anyhow!("remote daemon did not stop within 20 seconds"))
+    Err(anyhow!(catalog().remote.daemon_stop_timeout))
 }
 
 fn shutdown_request_for_lifecycle(lifecycle_id: Option<&str>) -> AdminRequest {
@@ -1939,36 +1932,28 @@ fn verify_inactive_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
             return Err(error).with_context(|| {
-                format!(
-                    "could not verify previous remote daemon authorization finalization ({})",
-                    path.display()
-                )
+                catalog().remote.verify_previous_finalization_path(&path.display().to_string())
             });
         }
     }
-    let outcome = load_shutdown_outcome(state_dir)
-        .context("could not verify previous remote daemon authorization finalization")?;
+    let outcome =
+        load_shutdown_outcome(state_dir).context(catalog().remote.verify_previous_finalization)?;
     match outcome.status {
         DaemonShutdownStatus::Succeeded => Ok(()),
-        DaemonShutdownStatus::Failed => Err(anyhow!(
-            "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun remote-stop with --acknowledge-failed-finalization"
-        )),
+        DaemonShutdownStatus::Failed => {
+            Err(anyhow!(catalog().remote.previous_finalization_failed_ack))
+        }
     }
 }
 
 fn verify_shutdown_outcome(state_dir: &Path, lifecycle_id: &str) -> anyhow::Result<()> {
-    let outcome = load_shutdown_outcome(state_dir)
-        .context("could not verify remote daemon authorization finalization")?;
+    let outcome = load_shutdown_outcome(state_dir).context(catalog().remote.verify_finalization)?;
     if outcome.lifecycle_id != lifecycle_id {
-        return Err(anyhow!(
-            "could not verify remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
-        ));
+        return Err(anyhow!(catalog().remote.finalization_wrong_lifecycle));
     }
     match outcome.status {
         DaemonShutdownStatus::Succeeded => Ok(()),
-        DaemonShutdownStatus::Failed => {
-            Err(anyhow!("remote daemon authorization finalization failed"))
-        }
+        DaemonShutdownStatus::Failed => Err(anyhow!(catalog().remote.finalization_failed)),
     }
 }
 

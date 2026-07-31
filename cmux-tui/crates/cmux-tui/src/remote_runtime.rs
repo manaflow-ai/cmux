@@ -48,6 +48,8 @@ use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use url::Url;
 
+use crate::localization::catalog;
+
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
@@ -1764,31 +1766,28 @@ async fn run_daemon(
         let mut startup_shutdown = shutdown.clone();
         let auth_state_dir = state_dir.join("auth");
         let mut lifecycle_fenced = read_daemon_lifecycle_fence(&state_dir)
-            .context("could not verify remote daemon lifecycle fence")?;
+            .context(catalog().remote.verify_lifecycle_fence)?;
         if lifecycle_fenced {
             persist_daemon_lifecycle_fence(&state_dir)
-                .context("could not confirm remote daemon lifecycle fence durability")?;
+                .context(catalog().remote.confirm_lifecycle_fence_durability)?;
         }
-        let auth_state_preexisting = auth_state_dir
-            .try_exists()
-            .context("could not inspect remote daemon authorization state")?;
+        let auth_state_preexisting =
+            auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)?;
         let auth_state_schema = auth_state_preexisting
             .then(|| persisted_auth_state_schema(&auth_state_dir))
             .transpose()
-            .context("could not inspect remote daemon authorization schema")?;
+            .context(catalog().remote.inspect_authorization_schema)?;
         if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
             || (!lifecycle_fenced
                 && matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing)))
         {
-            return Err(anyhow!(
-                "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization"
-            ));
+            return Err(anyhow!(catalog().remote.legacy_authorization_requires_migration));
         }
         // Publish the fresh-state marker before AuthDatabase can create any
         // path that a retry would otherwise mistake for legacy state.
         if !auth_state_preexisting && !lifecycle_fenced {
             ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
-                .context("could not prepare remote daemon lifecycle state")?;
+                .context(catalog().remote.prepare_lifecycle_state)?;
             persist_daemon_lifecycle_fence(&state_dir)?;
             lifecycle_fenced = true;
         }
@@ -1829,152 +1828,148 @@ async fn run_daemon(
             },
         )?;
         let transport_setup: anyhow::Result<_> = async {
-        #[cfg(test)]
-        pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
-        let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
-        let websocket = match options.direct_websocket {
-            Some(address) => Some(
-                serve_direct_websocket(
-                    daemon.clone(),
-                    address,
-                    MAX_CARRIER_FRAME_BYTES,
-                    options.allow_insecure_non_loopback,
-                )
-                .await?,
-            ),
-            None => None,
-        };
-
-        let mut relay_tasks = tokio::task::JoinSet::new();
-        for relay in options.relays.iter().cloned() {
-            let daemon = daemon.clone();
-            relay_tasks.spawn(async move {
-                register_relay_daemon_with_credentials(
-                    daemon,
-                    RelayDaemonConfig {
-                        endpoint: relay.endpoint,
-                        slot: relay.slot,
-                        ticket: String::new(),
-                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                        control_timeout: Duration::from_secs(15),
-                    },
-                    relay.credentials,
-                )
-                .await
-            });
-        }
-        let mut relays = Vec::with_capacity(options.relays.len());
-        while !relay_tasks.is_empty() {
-            let result = tokio::select! {
-                result = relay_tasks.join_next() => result,
-                _ = wait_for_shutdown(&mut startup_shutdown) => {
-                    return Err(anyhow!("remote daemon startup was cancelled"));
-                }
+            #[cfg(test)]
+            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
+            let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
+            let websocket = match options.direct_websocket {
+                Some(address) => Some(
+                    serve_direct_websocket(
+                        daemon.clone(),
+                        address,
+                        MAX_CARRIER_FRAME_BYTES,
+                        options.allow_insecure_non_loopback,
+                    )
+                    .await?,
+                ),
+                None => None,
             };
-            let result = result.expect("a non-empty relay task set has a result");
-            relays.push(result.context("relay registration task failed")??);
-        }
 
-        let iroh = match options.iroh {
-            true => {
-                let config = IrohProviderConfig {
-                    secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
-                    ..IrohProviderConfig::default()
-                };
-                Some(tokio::select! {
-                    result = IrohListener::bind(daemon.clone(), config) => result?,
+            let mut relay_tasks = tokio::task::JoinSet::new();
+            for relay in options.relays.iter().cloned() {
+                let daemon = daemon.clone();
+                relay_tasks.spawn(async move {
+                    register_relay_daemon_with_credentials(
+                        daemon,
+                        RelayDaemonConfig {
+                            endpoint: relay.endpoint,
+                            slot: relay.slot,
+                            ticket: String::new(),
+                            maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                            control_timeout: Duration::from_secs(15),
+                        },
+                        relay.credentials,
+                    )
+                    .await
+                });
+            }
+            let mut relays = Vec::with_capacity(options.relays.len());
+            while !relay_tasks.is_empty() {
+                let result = tokio::select! {
+                    result = relay_tasks.join_next() => result,
                     _ = wait_for_shutdown(&mut startup_shutdown) => {
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
-                })
+                };
+                let result = result.expect("a non-empty relay task set has a result");
+                relays.push(result.context("relay registration task failed")??);
             }
-            false => None,
-        };
 
-        let mut routes = Vec::new();
-        for route in &options.advertised_routes {
-            push_unique_route(&mut routes, route.clone());
-        }
-        for relay in &options.relays {
-            push_unique_route(&mut routes, relay.endpoint.to_string());
-        }
-        let mut unix_route = Url::parse("unix:///")?;
-        unix_route.set_path(
-            link_socket
-                .to_str()
-                .ok_or_else(|| anyhow!("remote link socket path is not valid UTF-8"))?,
-        );
-        let unix_route = unix_route.to_string();
-        let websocket_route = if let Some(server) = &websocket {
-            let address = server.local_addr();
-            if !address.ip().is_unspecified() {
-                Some(format!("ws://{address}/v1/link"))
+            let iroh = match options.iroh {
+                true => {
+                    let config = IrohProviderConfig {
+                        secret_key: Some(load_or_create_iroh_secret(&state_dir.join("iroh.key"))?),
+                        ..IrohProviderConfig::default()
+                    };
+                    Some(tokio::select! {
+                        result = IrohListener::bind(daemon.clone(), config) => result?,
+                        _ = wait_for_shutdown(&mut startup_shutdown) => {
+                            return Err(anyhow!("remote daemon startup was cancelled"));
+                        }
+                    })
+                }
+                false => None,
+            };
+
+            let mut routes = Vec::new();
+            for route in &options.advertised_routes {
+                push_unique_route(&mut routes, route.clone());
+            }
+            for relay in &options.relays {
+                push_unique_route(&mut routes, relay.endpoint.to_string());
+            }
+            let mut unix_route = Url::parse("unix:///")?;
+            unix_route.set_path(
+                link_socket
+                    .to_str()
+                    .ok_or_else(|| anyhow!("remote link socket path is not valid UTF-8"))?,
+            );
+            let unix_route = unix_route.to_string();
+            let websocket_route = if let Some(server) = &websocket {
+                let address = server.local_addr();
+                if !address.ip().is_unspecified() {
+                    Some(format!("ws://{address}/v1/link"))
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
-        let iroh_node_id = if let Some(listener) = &iroh {
-            let route = listener.route().await?;
-            let hints = route.routing_hints();
-            let mut route_url = Url::parse(&format!("iroh://{}", route.node_id()))?;
-            {
-                let mut query = route_url.query_pairs_mut();
-                if let Some(relay) = hints.get(cmux_remote::provider::ROUTING_RELAY_URL) {
-                    query.append_pair("relay_url", relay);
+            };
+            let iroh_node_id = if let Some(listener) = &iroh {
+                let route = listener.route().await?;
+                let hints = route.routing_hints();
+                let mut route_url = Url::parse(&format!("iroh://{}", route.node_id()))?;
+                {
+                    let mut query = route_url.query_pairs_mut();
+                    if let Some(relay) = hints.get(cmux_remote::provider::ROUTING_RELAY_URL) {
+                        query.append_pair("relay_url", relay);
+                    }
+                    if let Some(addresses) = hints.get(cmux_remote::provider::ROUTING_DIRECT_ADDRS)
+                    {
+                        query.append_pair("direct_addrs", addresses);
+                    }
                 }
-                if let Some(addresses) = hints.get(cmux_remote::provider::ROUTING_DIRECT_ADDRS) {
-                    query.append_pair("direct_addrs", addresses);
-                }
+                push_unique_route(&mut routes, route_url.to_string());
+                Some(route.node_id().to_string())
+            } else {
+                None
+            };
+            if let Some(route) = websocket_route {
+                push_unique_route(&mut routes, route);
             }
-            push_unique_route(&mut routes, route_url.to_string());
-            Some(route.node_id().to_string())
-        } else {
-            None
-        };
-        if let Some(route) = websocket_route {
-            push_unique_route(&mut routes, route);
-        }
-        // Unix is fastest on the same host, and clients promote it when its
-        // socket exists locally. Keeping it last avoids exporting a remote
-        // host's filesystem path as the default route for mobile clients.
-        push_unique_route(&mut routes, unix_route);
+            // Unix is fastest on the same host, and clients promote it when its
+            // socket exists locally. Keeping it last avoids exporting a remote
+            // host's filesystem path as the default route for mobile clients.
+            push_unique_route(&mut routes, unix_route);
 
-        let admin = serve_admin_with_shutdown(
-            daemon,
-            &admin_socket,
-            routes.clone(),
-            Some(lifecycle_id.clone()),
-            Some(owner_shutdown),
-        )
-        .await?;
-        let info = DaemonRuntimeInfo {
-            session: options.session,
-            state_dir: state_dir.clone(),
-            link_socket: link_socket.clone(),
-            admin_socket: admin_socket.clone(),
-            daemon_fingerprint: auth.identity().fingerprint(),
-            routes,
-            direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
-            iroh_node_id,
-            lifecycle_id: Some(lifecycle_id.clone()),
-            replaceable_sidecar: options.replaceable_sidecar,
-        };
-        persist_runtime_info(&state_dir, &info)?;
-        Ok((unix, websocket, relays, iroh, admin, info))
+            let admin = serve_admin_with_shutdown(
+                daemon,
+                &admin_socket,
+                routes.clone(),
+                Some(lifecycle_id.clone()),
+                Some(owner_shutdown),
+            )
+            .await?;
+            let info = DaemonRuntimeInfo {
+                session: options.session,
+                state_dir: state_dir.clone(),
+                link_socket: link_socket.clone(),
+                admin_socket: admin_socket.clone(),
+                daemon_fingerprint: auth.identity().fingerprint(),
+                routes,
+                direct_websocket: websocket.as_ref().map(|server| server.local_addr()),
+                iroh_node_id,
+                lifecycle_id: Some(lifecycle_id.clone()),
+                replaceable_sidecar: options.replaceable_sidecar,
+            };
+            persist_runtime_info(&state_dir, &info)?;
+            Ok((unix, websocket, relays, iroh, admin, info))
         }
         .await;
         let (unix, websocket, relays, iroh, admin, info) = match transport_setup {
             Ok(transports) => transports,
             Err(error) => {
-                return finalize_daemon_authorization(
-                    auth,
-                    state_dir,
-                    lifecycle_id,
-                    vec![error],
-                )
-                .await;
+                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
+                    .await;
             }
         };
         #[cfg(test)]
@@ -2004,13 +1999,7 @@ async fn run_daemon(
                 .push(anyhow::Error::new(error).context("WebSocket server shutdown failed"));
         }
         unix.shutdown().await;
-        finalize_daemon_authorization(
-            auth,
-            state_dir,
-            lifecycle_id,
-            shutdown_failures,
-        )
-        .await
+        finalize_daemon_authorization(auth, state_dir, lifecycle_id, shutdown_failures).await
     }
     .await;
 
@@ -2059,33 +2048,25 @@ fn verify_previous_shutdown_outcome(
     lifecycle_fenced: bool,
 ) -> anyhow::Result<()> {
     let previous_runtime = read_runtime_info(state_dir)
-        .context("could not verify previous remote daemon lifecycle metadata")?;
-    let outcome = read_shutdown_outcome(state_dir)
-        .context("could not verify previous remote daemon authorization finalization")?;
+        .context(catalog().remote.verify_previous_lifecycle_metadata)?;
+    let outcome =
+        read_shutdown_outcome(state_dir).context(catalog().remote.verify_previous_finalization)?;
 
     if let Some(previous_runtime) = &previous_runtime {
         match previous_runtime.lifecycle_id.as_deref() {
             Some(expected_lifecycle_id) if !expected_lifecycle_id.is_empty() => {
-                let outcome = outcome.as_ref().ok_or_else(|| {
-                    anyhow!(
-                        "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome"
-                    )
-                })?;
+                let outcome = outcome
+                    .as_ref()
+                    .ok_or_else(|| anyhow!(catalog().remote.modern_predecessor_missing_outcome))?;
                 if outcome.lifecycle_id != expected_lifecycle_id {
-                    return Err(anyhow!(
-                        "could not verify previous remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle"
-                    ));
+                    return Err(anyhow!(catalog().remote.finalization_wrong_lifecycle));
                 }
             }
             Some(_) => {
-                return Err(anyhow!(
-                    "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id"
-                ));
+                return Err(anyhow!(catalog().remote.runtime_empty_lifecycle));
             }
             None => {
-                return Err(anyhow!(
-                    "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with remote-stop before reconnecting"
-                ));
+                return Err(anyhow!(catalog().remote.state_predates_lifecycle_fence));
             }
         }
     }
@@ -2094,16 +2075,14 @@ fn verify_previous_shutdown_outcome(
         // A stale successful outcome is insufficient: an older daemon can run
         // after that lifecycle and remove its own runtime metadata before its
         // final authorization write completes.
-        return Err(anyhow!(
-            "previous remote daemon state has no lifecycle fence; stop the legacy daemon with remote-stop before reconnecting"
-        ));
+        return Err(anyhow!(catalog().remote.state_missing_lifecycle_fence));
     }
 
     match outcome.map(|outcome| outcome.status) {
         None | Some(DaemonShutdownStatus::Succeeded) => Ok(()),
-        Some(DaemonShutdownStatus::Failed) => Err(anyhow!(
-            "previous remote daemon authorization finalization failed; inspect the authorization state, then acknowledge it with remote-stop --acknowledge-failed-finalization"
-        )),
+        Some(DaemonShutdownStatus::Failed) => {
+            Err(anyhow!(catalog().remote.previous_finalization_failed_ack))
+        }
     }
 }
 
@@ -2123,8 +2102,9 @@ async fn finish_daemon_shutdown(
     authorization_finalization: impl Future<Output = Result<(), IdentityError>>,
 ) -> anyhow::Result<()> {
     if let Err(error) = authorization_finalization.await {
-        transport_failures
-            .push(anyhow::Error::new(error).context("authorization finalization failed"));
+        transport_failures.push(
+            anyhow::Error::new(error).context(catalog().remote.authorization_finalization_failed),
+        );
     }
     combine_shutdown_failures(transport_failures)
 }
@@ -2368,10 +2348,9 @@ fn read_daemon_lifecycle_fence(state_dir: &Path) -> Result<bool, IdentityError> 
     let fence: DaemonLifecycleFence =
         serde_json::from_slice(&encoded).map_err(IdentityError::Json)?;
     if fence.version != DAEMON_LIFECYCLE_FENCE_VERSION {
-        return Err(IdentityError::Invalid(format!(
-            "remote daemon lifecycle fence version {} is unsupported",
-            fence.version
-        )));
+        return Err(IdentityError::Invalid(
+            catalog().remote.lifecycle_fence_version_unsupported(fence.version),
+        ));
     }
     Ok(true)
 }
@@ -2380,20 +2359,16 @@ pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
     state_dir: &Path,
 ) -> anyhow::Result<bool> {
     let auth_state_dir = state_dir.join("auth");
-    if !auth_state_dir
-        .try_exists()
-        .context("could not inspect remote daemon authorization state")?
-    {
+    if !auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)? {
         return Ok(false);
     }
     if persisted_auth_state_schema(&auth_state_dir)
-        .context("could not inspect remote daemon authorization schema")?
+        .context(catalog().remote.inspect_authorization_schema)?
         == PersistedAuthStateSchema::Legacy
     {
         return Ok(true);
     }
-    Ok(!read_daemon_lifecycle_fence(state_dir)
-        .context("could not verify remote daemon lifecycle fence")?)
+    Ok(!read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?)
 }
 
 fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
@@ -2423,7 +2398,7 @@ pub(crate) async fn complete_verified_daemon_stop(
         .context("could not inspect stopped daemon authorization state")?
     {
         return persist_daemon_lifecycle_fence(state_dir)
-            .context("could not persist stopped daemon lifecycle fence");
+            .context(catalog().remote.persist_stopped_lifecycle_fence);
     }
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
@@ -2449,35 +2424,33 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
     let initial_runtime = read_optional_file(&runtime_path)
-        .context("could not snapshot remote daemon runtime metadata for recovery")?;
+        .context(catalog().remote.snapshot_runtime_for_recovery)?;
     let initial_outcome = read_optional_file(&outcome_path)
-        .context("could not snapshot remote daemon authorization finalization for recovery")?;
+        .context(catalog().remote.snapshot_finalization_for_recovery)?;
     let runtime = validate_failed_shutdown_recovery_evidence(&initial_runtime, &initial_outcome)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
         link_socket,
         admin_socket,
-        "failed authorization finalization",
+        catalog().remote.failed_finalization_label,
     )?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(state_dir.join("auth"), daemon_name, true)
-        .context("could not acquire the remote daemon authorization lease for recovery")?;
+        .context(catalog().remote.acquire_recovery_authorization_lease)?;
 
     let runtime_snapshot = read_optional_file(&runtime_path)
-        .context("could not resnapshot remote daemon runtime metadata for recovery")?;
+        .context(catalog().remote.resnapshot_runtime_for_recovery)?;
     let outcome_snapshot = read_optional_file(&outcome_path)
-        .context("could not resnapshot remote daemon authorization finalization for recovery")?;
+        .context(catalog().remote.resnapshot_finalization_for_recovery)?;
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
-        return Err(anyhow!(
-            "remote daemon lifecycle evidence changed before authorization recovery"
-        ));
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_recovery));
     }
     let runtime = validate_failed_shutdown_recovery_evidence(&runtime_snapshot, &outcome_snapshot)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
         link_socket,
         admin_socket,
-        "failed authorization finalization",
+        catalog().remote.failed_finalization_label,
     )?;
 
     let cleanup_state_dir = state_dir.to_path_buf();
@@ -2488,7 +2461,7 @@ pub(crate) async fn acknowledge_failed_shutdown_outcome(
         remove_shutdown_recovery_evidence(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
     })
     .await
-    .context("could not complete remote daemon authorization recovery")
+    .context(catalog().remote.complete_authorization_recovery)
 }
 
 fn validate_failed_shutdown_recovery_evidence(
@@ -2499,28 +2472,24 @@ fn validate_failed_shutdown_recovery_evidence(
         .as_deref()
         .map(serde_json::from_slice::<DaemonRuntimeInfo>)
         .transpose()
-        .context("could not verify remote daemon runtime metadata for recovery")?;
+        .context(catalog().remote.verify_runtime_for_recovery)?;
 
     if let Some(runtime) = &runtime {
         match runtime.lifecycle_id.as_deref() {
             Some(lifecycle_id) if !lifecycle_id.is_empty() => {}
             _ => {
-                return Err(anyhow!(
-                    "refusing to acknowledge failed authorization finalization with legacy runtime metadata"
-                ));
+                return Err(anyhow!(catalog().remote.refuse_failed_ack_with_legacy_runtime));
             }
         }
     } else {
-        let encoded = outcome_snapshot.as_deref().ok_or_else(|| {
-            anyhow!("no failed remote daemon authorization finalization is recorded")
-        })?;
+        let encoded = outcome_snapshot
+            .as_deref()
+            .ok_or_else(|| anyhow!(catalog().remote.no_failed_finalization_recorded))?;
         if matches!(
             decode_shutdown_outcome(encoded),
             Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. })
         ) {
-            return Err(anyhow!(
-                "remote daemon authorization finalization succeeded and does not need acknowledgement"
-            ));
+            return Err(anyhow!(catalog().remote.finalization_succeeded_no_ack));
         }
     }
     Ok(runtime)
@@ -2534,44 +2503,41 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    if !auth_state_dir
-        .try_exists()
-        .context("could not inspect legacy daemon authorization state")?
-    {
-        return Err(anyhow!("no legacy remote daemon authorization state is recorded"));
+    if !auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)? {
+        return Err(anyhow!(catalog().remote.no_legacy_authorization_state));
     }
-    let _lifecycle_fenced = read_daemon_lifecycle_fence(state_dir)
-        .context("could not verify remote daemon lifecycle fence")?;
+    let _lifecycle_fenced =
+        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
 
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
-    let initial_runtime = read_optional_file(&runtime_path)
-        .context("could not snapshot legacy remote daemon runtime metadata")?;
-    let initial_outcome = read_optional_file(&outcome_path)
-        .context("could not snapshot legacy remote daemon shutdown metadata")?;
+    let initial_runtime =
+        read_optional_file(&runtime_path).context(catalog().remote.snapshot_legacy_runtime)?;
+    let initial_outcome =
+        read_optional_file(&outcome_path).context(catalog().remote.snapshot_legacy_shutdown)?;
     let runtime = validate_legacy_shutdown_evidence(&initial_runtime, &initial_outcome)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
         link_socket,
         admin_socket,
-        "legacy authorization finalization",
+        catalog().remote.legacy_finalization_label,
     )?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
-        .context("could not acquire the remote daemon authorization lease for legacy recovery")?;
-    let runtime_snapshot = read_optional_file(&runtime_path)
-        .context("could not resnapshot legacy remote daemon runtime metadata")?;
-    let outcome_snapshot = read_optional_file(&outcome_path)
-        .context("could not resnapshot legacy remote daemon shutdown metadata")?;
+        .context(catalog().remote.acquire_legacy_recovery_authorization_lease)?;
+    let runtime_snapshot =
+        read_optional_file(&runtime_path).context(catalog().remote.resnapshot_legacy_runtime)?;
+    let outcome_snapshot =
+        read_optional_file(&outcome_path).context(catalog().remote.resnapshot_legacy_shutdown)?;
     if runtime_snapshot != initial_runtime || outcome_snapshot != initial_outcome {
-        return Err(anyhow!("remote daemon lifecycle evidence changed before legacy recovery"));
+        return Err(anyhow!(catalog().remote.lifecycle_evidence_changed_before_legacy_recovery));
     }
     let runtime = validate_legacy_shutdown_evidence(&runtime_snapshot, &outcome_snapshot)?;
     verify_recovery_sockets_inactive(
         runtime.as_ref(),
         link_socket,
         admin_socket,
-        "legacy authorization finalization",
+        catalog().remote.legacy_finalization_label,
     )?;
 
     let cleanup_state_dir = state_dir.to_path_buf();
@@ -2582,7 +2548,7 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
         finish_legacy_shutdown_recovery(&cleanup_state_dir, runtime_snapshot, outcome_snapshot)
     })
     .await
-    .context("could not complete legacy remote daemon authorization recovery")
+    .context(catalog().remote.complete_legacy_authorization_recovery)
 }
 
 #[cfg(unix)]
@@ -2608,8 +2574,9 @@ fn verify_recovery_sockets_inactive(
         match UnixStream::connect(socket) {
             Ok(_) => {
                 return Err(anyhow!(
-                    "refusing to acknowledge {finalization} while daemon socket {} is active",
-                    socket.display()
+                    catalog()
+                        .remote
+                        .refuse_active_socket(finalization, &socket.display().to_string())
                 ));
             }
             Err(error)
@@ -2619,7 +2586,7 @@ fn verify_recovery_sockets_inactive(
                 ) => {}
             Err(error) => {
                 return Err(error).with_context(|| {
-                    format!("could not verify daemon socket {} is inactive", socket.display())
+                    catalog().remote.verify_socket_inactive(&socket.display().to_string())
                 });
             }
         }
@@ -2640,17 +2607,13 @@ fn validate_legacy_shutdown_evidence(
         .and_then(|encoded| serde_json::from_slice::<DaemonRuntimeInfo>(encoded).ok());
     let runtime_is_malformed = runtime_snapshot.is_some() && runtime.is_none();
     if runtime.as_ref().is_some_and(|runtime| runtime.lifecycle_id.is_some()) {
-        return Err(anyhow!(
-            "remote daemon runtime metadata is lifecycle-aware; use --acknowledge-failed-finalization when its shutdown failed"
-        ));
+        return Err(anyhow!(catalog().remote.lifecycle_runtime_requires_failed_ack));
     }
     if !runtime_is_malformed && let Some(encoded) = outcome_snapshot {
         match decode_shutdown_outcome(encoded) {
             Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Succeeded, .. }) => {}
             Ok(DaemonShutdownOutcome { status: DaemonShutdownStatus::Failed, .. }) | Err(_) => {
-                return Err(anyhow!(
-                    "remote daemon shutdown evidence requires --acknowledge-failed-finalization"
-                ));
+                return Err(anyhow!(catalog().remote.shutdown_evidence_requires_failed_ack));
             }
         }
     }
@@ -2668,7 +2631,7 @@ fn finish_legacy_shutdown_recovery(
         || read_optional_file(&outcome_path)? != expected_outcome
     {
         return Err(IdentityError::Invalid(
-            "remote daemon lifecycle evidence changed during legacy recovery".into(),
+            catalog().remote.lifecycle_evidence_changed_during_legacy_recovery.into(),
         ));
     }
     persist_daemon_lifecycle_fence(state_dir)?;
@@ -2690,7 +2653,7 @@ fn remove_shutdown_recovery_evidence(
         || read_optional_file(&outcome_path)? != expected_outcome
     {
         return Err(IdentityError::Invalid(
-            "remote daemon lifecycle evidence changed during recovery".into(),
+            catalog().remote.lifecycle_evidence_changed_during_recovery.into(),
         ));
     }
 

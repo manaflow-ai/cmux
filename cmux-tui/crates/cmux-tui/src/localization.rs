@@ -230,6 +230,100 @@ impl RuntimeMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RemoteMessages {
+    pub remote_stop_help: &'static str,
+    remote_stop_unknown_option: &'static str,
+    pub remote_stop_no_positional: &'static str,
+    pub remote_stop_acknowledgements_mutually_exclusive: &'static str,
+    invalid_runtime_metadata: &'static str,
+    inspect_runtime_metadata: &'static str,
+    pub inactive_legacy_needs_migration: &'static str,
+    pub refuse_live_invalid_lifecycle: &'static str,
+    pub embedded_daemon_stop_refused: &'static str,
+    pub daemon_shutdown_failed: &'static str,
+    pub observe_daemon_exit: &'static str,
+    pub daemon_stop_timeout: &'static str,
+    verify_previous_finalization_path: &'static str,
+    pub verify_previous_finalization: &'static str,
+    pub previous_finalization_failed_ack: &'static str,
+    pub verify_finalization: &'static str,
+    pub finalization_wrong_lifecycle: &'static str,
+    pub finalization_failed: &'static str,
+    pub verify_lifecycle_fence: &'static str,
+    pub confirm_lifecycle_fence_durability: &'static str,
+    pub inspect_authorization_state: &'static str,
+    pub inspect_authorization_schema: &'static str,
+    pub legacy_authorization_requires_migration: &'static str,
+    pub prepare_lifecycle_state: &'static str,
+    pub verify_previous_lifecycle_metadata: &'static str,
+    pub modern_predecessor_missing_outcome: &'static str,
+    pub runtime_empty_lifecycle: &'static str,
+    pub state_predates_lifecycle_fence: &'static str,
+    pub state_missing_lifecycle_fence: &'static str,
+    pub authorization_finalization_failed: &'static str,
+    lifecycle_fence_version_unsupported: &'static str,
+    pub persist_stopped_lifecycle_fence: &'static str,
+    pub snapshot_runtime_for_recovery: &'static str,
+    pub snapshot_finalization_for_recovery: &'static str,
+    pub acquire_recovery_authorization_lease: &'static str,
+    pub resnapshot_runtime_for_recovery: &'static str,
+    pub resnapshot_finalization_for_recovery: &'static str,
+    pub lifecycle_evidence_changed_before_recovery: &'static str,
+    pub complete_authorization_recovery: &'static str,
+    pub verify_runtime_for_recovery: &'static str,
+    pub refuse_failed_ack_with_legacy_runtime: &'static str,
+    pub no_failed_finalization_recorded: &'static str,
+    pub finalization_succeeded_no_ack: &'static str,
+    pub inspect_legacy_authorization_state: &'static str,
+    pub no_legacy_authorization_state: &'static str,
+    pub snapshot_legacy_runtime: &'static str,
+    pub snapshot_legacy_shutdown: &'static str,
+    pub acquire_legacy_recovery_authorization_lease: &'static str,
+    pub resnapshot_legacy_runtime: &'static str,
+    pub resnapshot_legacy_shutdown: &'static str,
+    pub lifecycle_evidence_changed_before_legacy_recovery: &'static str,
+    pub complete_legacy_authorization_recovery: &'static str,
+    pub failed_finalization_label: &'static str,
+    pub legacy_finalization_label: &'static str,
+    refuse_active_socket: &'static str,
+    verify_socket_inactive: &'static str,
+    pub lifecycle_runtime_requires_failed_ack: &'static str,
+    pub shutdown_evidence_requires_failed_ack: &'static str,
+    pub lifecycle_evidence_changed_during_legacy_recovery: &'static str,
+    pub lifecycle_evidence_changed_during_recovery: &'static str,
+}
+
+impl RemoteMessages {
+    pub(crate) fn remote_stop_unknown_option(&self, option: &str) -> String {
+        self.remote_stop_unknown_option.replace("{option}", &format!("{option:?}"))
+    }
+
+    pub(crate) fn invalid_runtime_metadata(&self, path: &str) -> String {
+        self.invalid_runtime_metadata.replace("{path}", path)
+    }
+
+    pub(crate) fn inspect_runtime_metadata(&self, path: &str) -> String {
+        self.inspect_runtime_metadata.replace("{path}", path)
+    }
+
+    pub(crate) fn verify_previous_finalization_path(&self, path: &str) -> String {
+        self.verify_previous_finalization_path.replace("{path}", path)
+    }
+
+    pub(crate) fn lifecycle_fence_version_unsupported(&self, version: u32) -> String {
+        self.lifecycle_fence_version_unsupported.replace("{version}", &version.to_string())
+    }
+
+    pub(crate) fn refuse_active_socket(&self, finalization: &str, path: &str) -> String {
+        self.refuse_active_socket.replace("{finalization}", finalization).replace("{path}", path)
+    }
+
+    pub(crate) fn verify_socket_inactive(&self, path: &str) -> String {
+        self.verify_socket_inactive.replace("{path}", path)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ConfigMessages {
     invalid_macos_option_as_alt: &'static str,
 }
@@ -434,6 +528,7 @@ pub(crate) struct Catalog {
     pub shortcuts: ShortcutMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
+    pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
@@ -580,6 +675,68 @@ edits shell files. Authenticate with the configured host before retrying.
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
+    },
+    remote: RemoteMessages {
+        remote_stop_help: "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+        remote_stop_unknown_option: "unknown option {option} for remote-stop",
+        remote_stop_no_positional: "remote-stop accepts no positional arguments",
+        remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
+        invalid_runtime_metadata: "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization ({path})",
+        inspect_runtime_metadata: "could not inspect remote daemon runtime metadata ({path})",
+        inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization",
+        refuse_live_invalid_lifecycle: "refusing to stop a live daemon without valid lifecycle metadata",
+        embedded_daemon_stop_refused: "refusing to upgrade an embedded daemon because stopping it would terminate its workspaces; stop and restart it explicitly",
+        daemon_shutdown_failed: "daemon shutdown failed",
+        observe_daemon_exit: "could not observe remote daemon process exit",
+        daemon_stop_timeout: "remote daemon did not stop within 20 seconds",
+        verify_previous_finalization_path: "could not verify previous remote daemon authorization finalization ({path})",
+        verify_previous_finalization: "could not verify previous remote daemon authorization finalization",
+        previous_finalization_failed_ack: "previous remote daemon authorization finalization failed; inspect the authorization state, then rerun remote-stop with --acknowledge-failed-finalization",
+        verify_finalization: "could not verify remote daemon authorization finalization",
+        finalization_wrong_lifecycle: "could not verify remote daemon authorization finalization: shutdown outcome belongs to a different daemon lifecycle",
+        finalization_failed: "remote daemon authorization finalization failed",
+        verify_lifecycle_fence: "could not verify remote daemon lifecycle fence",
+        confirm_lifecycle_fence_durability: "could not confirm remote daemon lifecycle fence durability",
+        inspect_authorization_state: "could not inspect remote daemon authorization state",
+        inspect_authorization_schema: "could not inspect remote daemon authorization schema",
+        legacy_authorization_requires_migration: "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains, then run remote-stop --acknowledge-legacy-finalization",
+        prepare_lifecycle_state: "could not prepare remote daemon lifecycle state",
+        verify_previous_lifecycle_metadata: "could not verify previous remote daemon lifecycle metadata",
+        modern_predecessor_missing_outcome: "could not verify previous remote daemon authorization finalization: the modern predecessor did not publish an outcome",
+        runtime_empty_lifecycle: "could not verify previous remote daemon authorization finalization: runtime metadata has an empty lifecycle id",
+        state_predates_lifecycle_fence: "previous remote daemon state predates lifecycle fencing; stop the legacy daemon with remote-stop before reconnecting",
+        state_missing_lifecycle_fence: "previous remote daemon state has no lifecycle fence; stop the legacy daemon with remote-stop before reconnecting",
+        authorization_finalization_failed: "authorization finalization failed",
+        lifecycle_fence_version_unsupported: "remote daemon lifecycle fence version {version} is unsupported",
+        persist_stopped_lifecycle_fence: "could not persist stopped daemon lifecycle fence",
+        snapshot_runtime_for_recovery: "could not snapshot remote daemon runtime metadata for recovery",
+        snapshot_finalization_for_recovery: "could not snapshot remote daemon authorization finalization for recovery",
+        acquire_recovery_authorization_lease: "could not acquire the remote daemon authorization lease for recovery",
+        resnapshot_runtime_for_recovery: "could not resnapshot remote daemon runtime metadata for recovery",
+        resnapshot_finalization_for_recovery: "could not resnapshot remote daemon authorization finalization for recovery",
+        lifecycle_evidence_changed_before_recovery: "remote daemon lifecycle evidence changed before authorization recovery",
+        complete_authorization_recovery: "could not complete remote daemon authorization recovery",
+        verify_runtime_for_recovery: "could not verify remote daemon runtime metadata for recovery",
+        refuse_failed_ack_with_legacy_runtime: "refusing to acknowledge failed authorization finalization with legacy runtime metadata",
+        no_failed_finalization_recorded: "no failed remote daemon authorization finalization is recorded",
+        finalization_succeeded_no_ack: "remote daemon authorization finalization succeeded and does not need acknowledgement",
+        inspect_legacy_authorization_state: "could not inspect legacy daemon authorization state",
+        no_legacy_authorization_state: "no legacy remote daemon authorization state is recorded",
+        snapshot_legacy_runtime: "could not snapshot legacy remote daemon runtime metadata",
+        snapshot_legacy_shutdown: "could not snapshot legacy remote daemon shutdown metadata",
+        acquire_legacy_recovery_authorization_lease: "could not acquire the remote daemon authorization lease for legacy recovery",
+        resnapshot_legacy_runtime: "could not resnapshot legacy remote daemon runtime metadata",
+        resnapshot_legacy_shutdown: "could not resnapshot legacy remote daemon shutdown metadata",
+        lifecycle_evidence_changed_before_legacy_recovery: "remote daemon lifecycle evidence changed before legacy recovery",
+        complete_legacy_authorization_recovery: "could not complete legacy remote daemon authorization recovery",
+        failed_finalization_label: "failed authorization finalization",
+        legacy_finalization_label: "legacy authorization finalization",
+        refuse_active_socket: "refusing to acknowledge {finalization} while daemon socket {path} is active",
+        verify_socket_inactive: "could not verify daemon socket {path} is inactive",
+        lifecycle_runtime_requires_failed_ack: "remote daemon runtime metadata is lifecycle-aware; use --acknowledge-failed-finalization when its shutdown failed",
+        shutdown_evidence_requires_failed_ack: "remote daemon shutdown evidence requires --acknowledge-failed-finalization",
+        lifecycle_evidence_changed_during_legacy_recovery: "remote daemon lifecycle evidence changed during legacy recovery",
+        lifecycle_evidence_changed_during_recovery: "remote daemon lifecycle evidence changed during recovery",
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = {value}",
@@ -812,6 +969,68 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
+    },
+    remote: RemoteMessages {
+        remote_stop_help: "使用方法: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+        remote_stop_unknown_option: "remote-stop の不明なオプションです: {option}",
+        remote_stop_no_positional: "remote-stop に位置引数は指定できません",
+        remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",
+        invalid_runtime_metadata: "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（{path}）",
+        inspect_runtime_metadata: "リモートデーモンのランタイムメタデータを確認できませんでした（{path}）",
+        inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください",
+        refuse_live_invalid_lifecycle: "有効なライフサイクルメタデータがない実行中デーモンの停止を拒否しました",
+        embedded_daemon_stop_refused: "停止するとワークスペースが終了するため、組み込みデーモンのアップグレードを拒否しました。明示的に停止して再起動してください",
+        daemon_shutdown_failed: "デーモンの停止に失敗しました",
+        observe_daemon_exit: "リモートデーモンプロセスの終了を確認できませんでした",
+        daemon_stop_timeout: "リモートデーモンが 20 秒以内に停止しませんでした",
+        verify_previous_finalization_path: "前回のリモートデーモン認可終了処理を確認できませんでした（{path}）",
+        verify_previous_finalization: "前回のリモートデーモン認可終了処理を確認できませんでした",
+        previous_finalization_failed_ack: "前回のリモートデーモン認可終了処理に失敗しました。認可状態を確認してから、remote-stop を --acknowledge-failed-finalization 付きで再実行してください",
+        verify_finalization: "リモートデーモンの認可終了処理を確認できませんでした",
+        finalization_wrong_lifecycle: "リモートデーモンの認可終了処理を確認できませんでした。停止結果が別のデーモンライフサイクルに属しています",
+        finalization_failed: "リモートデーモンの認可終了処理に失敗しました",
+        verify_lifecycle_fence: "リモートデーモンのライフサイクルフェンスを確認できませんでした",
+        confirm_lifecycle_fence_durability: "リモートデーモンのライフサイクルフェンスが永続化されたことを確認できませんでした",
+        inspect_authorization_state: "リモートデーモンの認可状態を確認できませんでした",
+        inspect_authorization_schema: "リモートデーモンの認可スキーマを確認できませんでした",
+        legacy_authorization_requires_migration: "前回のリモートデーモン認可状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、remote-stop --acknowledge-legacy-finalization を実行してください",
+        prepare_lifecycle_state: "リモートデーモンのライフサイクル状態を準備できませんでした",
+        verify_previous_lifecycle_metadata: "前回のリモートデーモンライフサイクルメタデータを確認できませんでした",
+        modern_predecessor_missing_outcome: "前回のリモートデーモン認可終了処理を確認できませんでした。新形式の先行デーモンが結果を保存していません",
+        runtime_empty_lifecycle: "前回のリモートデーモン認可終了処理を確認できませんでした。ランタイムメタデータのライフサイクル ID が空です",
+        state_predates_lifecycle_fence: "前回のリモートデーモン状態はライフサイクルフェンス導入前のものです。再接続する前に remote-stop で旧デーモンを停止してください",
+        state_missing_lifecycle_fence: "前回のリモートデーモン状態にライフサイクルフェンスがありません。再接続する前に remote-stop で旧デーモンを停止してください",
+        authorization_finalization_failed: "認可終了処理に失敗しました",
+        lifecycle_fence_version_unsupported: "リモートデーモンのライフサイクルフェンスバージョン {version} はサポートされていません",
+        persist_stopped_lifecycle_fence: "停止済みデーモンのライフサイクルフェンスを保存できませんでした",
+        snapshot_runtime_for_recovery: "復旧用のリモートデーモンランタイムメタデータを取得できませんでした",
+        snapshot_finalization_for_recovery: "復旧用のリモートデーモン認可終了処理を取得できませんでした",
+        acquire_recovery_authorization_lease: "復旧用のリモートデーモン認可リースを取得できませんでした",
+        resnapshot_runtime_for_recovery: "復旧用のリモートデーモンランタイムメタデータを再取得できませんでした",
+        resnapshot_finalization_for_recovery: "復旧用のリモートデーモン認可終了処理を再取得できませんでした",
+        lifecycle_evidence_changed_before_recovery: "認可の復旧前にリモートデーモンのライフサイクル情報が変更されました",
+        complete_authorization_recovery: "リモートデーモンの認可を復旧できませんでした",
+        verify_runtime_for_recovery: "復旧用のリモートデーモンランタイムメタデータを確認できませんでした",
+        refuse_failed_ack_with_legacy_runtime: "旧形式のランタイムメタデータでは、失敗した認可終了処理を確認済みとして扱えません",
+        no_failed_finalization_recorded: "失敗したリモートデーモン認可終了処理は記録されていません",
+        finalization_succeeded_no_ack: "リモートデーモンの認可終了処理は成功しているため、確認済みとして扱う必要はありません",
+        inspect_legacy_authorization_state: "旧形式デーモンの認可状態を確認できませんでした",
+        no_legacy_authorization_state: "旧形式のリモートデーモン認可状態は記録されていません",
+        snapshot_legacy_runtime: "旧形式リモートデーモンのランタイムメタデータを取得できませんでした",
+        snapshot_legacy_shutdown: "旧形式リモートデーモンの停止メタデータを取得できませんでした",
+        acquire_legacy_recovery_authorization_lease: "旧形式復旧用のリモートデーモン認可リースを取得できませんでした",
+        resnapshot_legacy_runtime: "旧形式リモートデーモンのランタイムメタデータを再取得できませんでした",
+        resnapshot_legacy_shutdown: "旧形式リモートデーモンの停止メタデータを再取得できませんでした",
+        lifecycle_evidence_changed_before_legacy_recovery: "旧形式復旧前にリモートデーモンのライフサイクル情報が変更されました",
+        complete_legacy_authorization_recovery: "旧形式リモートデーモンの認可を復旧できませんでした",
+        failed_finalization_label: "失敗した認可終了処理",
+        legacy_finalization_label: "旧形式の認可終了処理",
+        refuse_active_socket: "デーモンソケット {path} が有効なため、{finalization}を確認済みとして扱えません",
+        verify_socket_inactive: "デーモンソケット {path} が無効であることを確認できませんでした",
+        lifecycle_runtime_requires_failed_ack: "リモートデーモンのランタイムメタデータはライフサイクル対応です。停止に失敗した場合は --acknowledge-failed-finalization を使用してください",
+        shutdown_evidence_requires_failed_ack: "リモートデーモンの停止情報には --acknowledge-failed-finalization が必要です",
+        lifecycle_evidence_changed_during_legacy_recovery: "旧形式復旧中にリモートデーモンのライフサイクル情報が変更されました",
+        lifecycle_evidence_changed_during_recovery: "復旧中にリモートデーモンのライフサイクル情報が変更されました",
     },
     config: ConfigMessages {
         invalid_macos_option_as_alt: "cmux-tui: 真偽値ではない keys.macos_option_as_alt = {value} を無視します",
@@ -1172,6 +1391,47 @@ mod tests {
                 .runtime
                 .terminal_restore_also_failed("イベントループ失敗", "復元失敗"),
             "イベントループ失敗; ホストターミナルの復元にも失敗しました: 復元失敗"
+        );
+    }
+
+    #[test]
+    fn remote_recovery_messages_are_localized() {
+        let english = &catalog_for_locale("en_US.UTF-8").remote;
+        let japanese = &catalog_for_locale("ja_JP.UTF-8").remote;
+
+        assert!(english.remote_stop_help.contains("USAGE"));
+        assert!(japanese.remote_stop_help.contains("使用方法"));
+        assert_eq!(
+            english.remote_stop_unknown_option("--unknown"),
+            "unknown option \"--unknown\" for remote-stop"
+        );
+        assert_eq!(
+            japanese.remote_stop_unknown_option("--unknown"),
+            "remote-stop の不明なオプションです: \"--unknown\""
+        );
+        assert_eq!(
+            english.invalid_runtime_metadata("/tmp/runtime.json"),
+            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun remote-stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
+        );
+        assert_eq!(
+            japanese.invalid_runtime_metadata("/tmp/runtime.json"),
+            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、remote-stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
+        );
+        assert_eq!(
+            english.lifecycle_fence_version_unsupported(7),
+            "remote daemon lifecycle fence version 7 is unsupported"
+        );
+        assert_eq!(
+            japanese.lifecycle_fence_version_unsupported(7),
+            "リモートデーモンのライフサイクルフェンスバージョン 7 はサポートされていません"
+        );
+        assert_eq!(
+            english.refuse_active_socket("failed finalization", "/tmp/admin.sock"),
+            "refusing to acknowledge failed finalization while daemon socket /tmp/admin.sock is active"
+        );
+        assert_eq!(
+            japanese.refuse_active_socket("失敗した終了処理", "/tmp/admin.sock"),
+            "デーモンソケット /tmp/admin.sock が有効なため、失敗した終了処理を確認済みとして扱えません"
         );
     }
 
