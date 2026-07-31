@@ -3744,12 +3744,10 @@ struct ContentView: View {
             let surface = target.panel.surface
             let hostedView = target.panel.hostedView
             let portalPresented = Self.terminalPortalIsPresented(hostedView)
-            let interactionReady =
-                window.flatMap { window in
-                    window.firstResponder.flatMap {
-                        target.panel.ownedFocusIntent(for: $0, in: window)
-                    }
-                } != nil
+            let interactionReady = terminalInteractionIsReady(
+                target.panel,
+                in: window
+            )
             return WorkspaceSwitchCoordinator.PresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .terminal,
@@ -3812,17 +3810,15 @@ struct ContentView: View {
         }
     }
 
-    private static func firstResponder(in window: NSWindow?, belongsTo view: NSView) -> Bool {
-        guard let responderView = window?.firstResponder as? NSView else { return false }
-        if responderView === view || responderView.isDescendant(of: view) {
-            return true
-        }
-        guard let fieldEditor = responderView as? NSTextView,
-              fieldEditor.isFieldEditor,
-              let delegateView = fieldEditor.delegate as? NSView else {
+    private func terminalInteractionIsReady(
+        _ panel: TerminalPanel,
+        in window: NSWindow?
+    ) -> Bool {
+        guard let window,
+              let responder = window.firstResponder else {
             return false
         }
-        return delegateView === view || delegateView.isDescendant(of: view)
+        return panel.ownedFocusIntent(for: responder, in: window) != nil
     }
 
     private func selectedWorkspaceInputIsReady(workspaceID: UUID) -> Bool {
@@ -3831,12 +3827,10 @@ struct ContentView: View {
               let target = workspace.focusedTerminalInputTarget() else {
             return false
         }
-        let window = observedWindow ?? tabManager.window
-        if Self.firstResponder(in: window, belongsTo: target.panel.hostedView) {
-            return true
-        }
-        guard let textBoxInputView = target.panel.textBoxInputView else { return false }
-        return Self.firstResponder(in: window, belongsTo: textBoxInputView)
+        return terminalInteractionIsReady(
+            target.panel,
+            in: observedWindow ?? tabManager.window
+        )
     }
 
     private func noteSelectedTerminalPortalPresentedIfReady() {
