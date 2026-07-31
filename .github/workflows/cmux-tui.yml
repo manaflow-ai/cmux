@@ -232,7 +232,13 @@ jobs:
 
       - name: cargo test
         working-directory: cmux-tui
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          args=()
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            args+=(-- --test-threads=1)
+          fi
+          cargo test --workspace --locked "${args[@]}"
 
       - name: crossterm parser tests
         working-directory: cmux-tui
