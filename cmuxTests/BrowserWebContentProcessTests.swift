@@ -232,6 +232,73 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func appLinkPlacementUsesOnePreferredPaneThenSplitThenSourcePolicy() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let navigation = BrowserAppSessionNavigation(
+            request: URLRequest(url: URL(string: "https://cmux.test/dashboard")!),
+            websiteDataStore: websiteDataStore,
+            generation: 1,
+            authSessionGeneration: 1
+        )
+        var placements: [String] = []
+
+        let opened = BrowserAppLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { _, store in
+                placements.append("preferred")
+                #expect(store === websiteDataStore)
+                return false
+            },
+            openHorizontalSplit: { _, store in
+                placements.append("split")
+                #expect(store === websiteDataStore)
+                return true
+            },
+            openInSourcePane: { _, _ in
+                placements.append("source")
+                return true
+            }
+        )
+
+        #expect(opened)
+        #expect(placements == ["preferred", "split"])
+    }
+
+    @Test
+    func appLinkRecoveryUsesOneNonPersistentPlacementPolicyBeforeSystemBrowser() {
+        let destinationURL = URL(string: "https://cmux.test/dashboard/testflight")!
+        var placements: [String] = []
+        var openedSystemBrowser = false
+
+        let opened = BrowserAppLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { _, store in
+                placements.append("preferred")
+                #expect(!store.isPersistent)
+                return false
+            },
+            openHorizontalSplit: { _, store in
+                placements.append("split")
+                #expect(!store.isPersistent)
+                return false
+            },
+            openInSourcePane: { _, store in
+                placements.append("source")
+                #expect(!store.isPersistent)
+                return true
+            },
+            openInSystemBrowser: { _ in
+                openedSystemBrowser = true
+                return true
+            }
+        )
+
+        #expect(opened)
+        #expect(placements == ["preferred", "split", "source"])
+        #expect(!openedSystemBrowser)
+    }
+
+    @Test
     func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
         let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
         let transientFailure = BrowserAppSessionRequestOutcome.transientFailure

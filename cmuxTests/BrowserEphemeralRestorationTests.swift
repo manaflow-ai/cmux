@@ -67,7 +67,10 @@ struct BrowserEphemeralRestorationTests {
             focus: false
         ))
 
-        _ = panel.openAppLinkInBrowserSplit?(
+        let handoffAction = try #require(
+            panel.openAppLinkInBrowserSplit
+        )
+        _ = handoffAction(
             URL(string: "https://cmux.test/dashboard/testflight")!
         )
 
