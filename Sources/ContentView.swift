@@ -2952,15 +2952,11 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
-            for: .ghosttyDidRenderFrame
-        )) { notification in
-            guard let surfaceView = notification.object as? GhosttyNSView,
-                  let surface = surfaceView.terminalSurface else {
-                return
-            }
-            noteTerminalPortalPresentedIfReady(surface.hostedView)
-            tabManager.workspaceSwitchCoordinator.noteFirstFrame(surfaceID: surface.id)
-            completeWorkspaceHandoffIfReady(reason: "first_frame")
+            for: .workspaceSwitchPresentationDidBecomeReady,
+            object: tabManager.workspaceSwitchCoordinator
+        )) { _ in
+            noteSelectedTerminalPortalPresentedIfReady()
+            completeWorkspaceHandoffIfReady(reason: "presentation_ready")
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -2983,6 +2979,13 @@ struct ContentView: View {
         )) { _ in
             attemptCommandPaletteFocusRestoreIfNeeded()
             attemptCommandPaletteTextSelectionIfNeeded()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: NSWindow.didResignKeyNotification,
+            object: observedWindow
+        )) { _ in
+            tabManager.workspaceSwitchCoordinator.noteInteractionNoLongerRequired()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { notification in
@@ -3619,7 +3622,7 @@ struct ContentView: View {
         }
 
         let window = observedWindow ?? tabManager.window
-        let requiresInteraction = window?.isKeyWindow == true
+        let requiresInteraction = workspaceSwitchRequiresInteraction(in: window)
         if let focusedPanelID = workspace.focusedPanelId,
            let browserPanel = workspace.browserPanel(for: focusedPanelID) {
             let webView = browserPanel.webView
@@ -3628,17 +3631,22 @@ struct ContentView: View {
                 snapshot?.visibleInUI == true &&
                 snapshot?.containerHidden == false &&
                 webView.window != nil
+            let interactionReady =
+                window.flatMap { window in
+                    window.firstResponder.flatMap {
+                        browserPanel.ownedFocusIntent(for: $0, in: window)
+                    }
+                } != nil
             return WorkspaceSwitchCoordinator.PresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .browser,
                 terminalSurfaceID: nil,
                 terminalView: nil,
+                terminalRendererPresented: false,
+                terminalRenderedFrameSequence: 0,
                 browserWebView: webView,
-                nativeSurfaceLoaded: true,
-                rendererPresented: true,
                 portalPresented: portalPresented,
-                firstFramePresented: portalPresented,
-                interactionReady: Self.firstResponder(in: window, belongsTo: webView),
+                interactionReady: interactionReady,
                 requiresInteraction: requiresInteraction
             )
         }
@@ -3648,22 +3656,29 @@ struct ContentView: View {
             let hostedView = target.panel.hostedView
             let portalPresented = Self.terminalPortalIsPresented(hostedView)
             let interactionReady =
-                Self.firstResponder(in: window, belongsTo: hostedView) ||
-                target.panel.textBoxInputView.map {
-                    Self.firstResponder(in: window, belongsTo: $0)
-                } == true
+                window.flatMap { window in
+                    window.firstResponder.flatMap {
+                        target.panel.ownedFocusIntent(for: $0, in: window)
+                    }
+                } != nil
             return WorkspaceSwitchCoordinator.PresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .terminal,
                 terminalSurfaceID: target.surfaceID,
                 terminalView: hostedView.surfaceView,
+                terminalRendererPresented: surface.isRendererPresented,
+                terminalRenderedFrameSequence:
+                    hostedView.surfaceView.renderedFrameSequence,
                 browserWebView: nil,
-                nativeSurfaceLoaded: surface.surface != nil,
-                rendererPresented: surface.isRendererPresented,
                 portalPresented: portalPresented,
-                firstFramePresented: portalPresented && Self.terminalHasRenderedFrame(hostedView),
                 interactionReady: interactionReady,
-                requiresInteraction: requiresInteraction
+                requiresInteraction:
+                    requiresInteraction &&
+                    AppDelegate.shared?.allowsTerminalKeyboardFocus(
+                        workspaceId: workspaceID,
+                        panelId: target.surfaceID,
+                        in: window
+                    ) != false
             )
         }
 
@@ -3678,14 +3693,34 @@ struct ContentView: View {
             contentKind: .passive,
             terminalSurfaceID: nil,
             terminalView: nil,
+            terminalRendererPresented: false,
+            terminalRenderedFrameSequence: 0,
             browserWebView: nil,
-            nativeSurfaceLoaded: true,
-            rendererPresented: true,
             portalPresented: true,
-            firstFramePresented: true,
             interactionReady: true,
             requiresInteraction: false
         )
+    }
+
+    private func workspaceSwitchRequiresInteraction(in window: NSWindow?) -> Bool {
+        guard let window, window.isKeyWindow else { return false }
+        guard !isCommandPalettePresented,
+              !fileExplorerState.rightSidebarOwnsInputFocus else {
+            return false
+        }
+        guard let responder = window.firstResponder else { return true }
+        if responder === window {
+            return true
+        }
+        guard let retiringWorkspaceId,
+              let retiringWorkspace = tabManager.tabs.first(where: {
+                  $0.id == retiringWorkspaceId
+              }) else {
+            return false
+        }
+        return retiringWorkspace.panels.values.contains { panel in
+            panel.ownedFocusIntent(for: responder, in: window) != nil
+        }
     }
 
     private static func firstResponder(in window: NSWindow?, belongsTo view: NSView) -> Bool {
@@ -3729,7 +3764,8 @@ struct ContentView: View {
             return
         }
         tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            renderedFrameSequence: hostedView.surfaceView.renderedFrameSequence
         )
         completeWorkspaceHandoffIfReady(reason: "portal_presented")
     }
@@ -3741,13 +3777,6 @@ struct ContentView: View {
             hostedView.superview != nil &&
             hostedView.bounds.width > 1 &&
             hostedView.bounds.height > 1
-    }
-
-    private static func terminalHasRenderedFrame(_ hostedView: GhosttySurfaceScrollView) -> Bool {
-        guard let metalLayer = hostedView.surfaceView.layer as? GhosttyMetalLayer else {
-            return false
-        }
-        return metalLayer.debugStats().count > 0
     }
 
     private var commandPaletteOverlay: some View {
