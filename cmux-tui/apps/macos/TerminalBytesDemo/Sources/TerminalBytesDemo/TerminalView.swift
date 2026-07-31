@@ -61,7 +61,8 @@ final class TerminalTextView: NSTextView {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.type == .keyDown,
            modifiers == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "v" {
+           event.charactersIgnoringModifiers?.lowercased() == "v",
+           isTerminalFirstResponder {
             return submitPaste()
         }
         return super.performKeyEquivalent(with: event)
@@ -82,6 +83,10 @@ final class TerminalTextView: NSTextView {
 
     private var hasPasteboardText: Bool {
         pasteboardText().map { !$0.isEmpty } ?? false
+    }
+
+    private var isTerminalFirstResponder: Bool {
+        window?.firstResponder === self
     }
 
     @discardableResult

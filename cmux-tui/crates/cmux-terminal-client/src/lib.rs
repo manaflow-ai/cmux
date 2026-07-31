@@ -432,6 +432,15 @@ fn enqueue_command(client: &CmuxTerminalClient, frame: Frame) -> bool {
     client.command_sender.try_send(Bytes::from(encoded)).is_ok()
 }
 
+/// Connects a terminal client and returns an owning handle, or null on failure.
+///
+/// # Safety
+///
+/// `invitation_uri` must point to a readable NUL-terminated byte string for the
+/// duration of this call. `error_buffer` may be null; otherwise, when
+/// `error_capacity` is nonzero, it must point to `error_capacity` writable
+/// bytes. A non-null returned handle must eventually be passed exactly once to
+/// [`cmux_terminal_client_disconnect`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_connect(
     invitation_uri: *const c_char,
@@ -513,6 +522,14 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
     }
 }
 
+/// Disconnects and consumes an owning terminal client handle.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`] that has not already been disconnected. The
+/// caller must prevent concurrent calls that use the handle and must not use it
+/// again after this function begins.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTerminalClient) {
     if client.is_null() {
@@ -541,6 +558,15 @@ unsafe fn bytes_from_ffi<'a>(bytes: *const u8, length: usize) -> Option<&'a [u8]
     Some(unsafe { std::slice::from_raw_parts(bytes, length) })
 }
 
+/// Queues raw terminal input bytes for the connected surface.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. When `length` is nonzero, `bytes` must point to `length` readable
+/// bytes for the duration of this call; when `length` is zero, `bytes` may be
+/// null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_send(
     client: *mut CmuxTerminalClient,
@@ -556,6 +582,15 @@ pub unsafe extern "C" fn cmux_terminal_client_send(
     enqueue_command(client, Frame::new(MessageKind::Input, bytes.to_vec()))
 }
 
+/// Queues opaque paste bytes for the connected surface.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. When `length` is nonzero, `bytes` must point to `length` readable
+/// bytes for the duration of this call; when `length` is zero, `bytes` may be
+/// null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_paste(
     client: *mut CmuxTerminalClient,
@@ -571,6 +606,13 @@ pub unsafe extern "C" fn cmux_terminal_client_paste(
     enqueue_command(client, Frame::new(MessageKind::Paste, bytes.to_vec()))
 }
 
+/// Queues a terminal viewport resize.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_resize(
     client: *mut CmuxTerminalClient,
@@ -586,6 +628,15 @@ pub unsafe extern "C" fn cmux_terminal_client_resize(
     enqueue_command(client, frame)
 }
 
+/// Copies the latest rendered frame as a NUL-terminated UTF-8 string.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. `buffer` may be null; otherwise, when `capacity` is nonzero, it
+/// must point to `capacity` writable bytes that do not overlap memory owned by
+/// `client`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     client: *const CmuxTerminalClient,
@@ -600,6 +651,15 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     copy_utf8(&state.frame_text, buffer, capacity)
 }
 
+/// Copies current client diagnostics as a NUL-terminated UTF-8 string.
+///
+/// # Safety
+///
+/// `client` may be null. A non-null value must be a live handle returned by
+/// [`cmux_terminal_client_connect`], and it must not be disconnected during
+/// this call. `buffer` may be null; otherwise, when `capacity` is nonzero, it
+/// must point to `capacity` writable bytes that do not overlap memory owned by
+/// `client`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     client: *const CmuxTerminalClient,
