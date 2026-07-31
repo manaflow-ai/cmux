@@ -145,6 +145,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            connectionMethodStore: Self.root.connectionMethodStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             personalIrohRouteCatalog: Self.root.iroh.routeCatalog,

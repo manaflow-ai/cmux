@@ -22,6 +22,14 @@ private final class WildcardRecordingForget: MobileIrohMacForgetting {
 /// A store double whose cross-team enumeration fails, modeling a read error
 /// during wildcard cleanup. Everything else forwards to the wrapped store.
 private struct EnumerationFailingStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     struct EnumerationError: Error {}
     let inner: any MobilePairedMacStoring
 
@@ -975,6 +983,14 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
 /// (tag, team) pair), so a batched wildcard cleanup partially succeeds.
 /// Everything else forwards.
 private struct ExactScopeFailingStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     struct ExactScopeError: Error {}
     let inner: any MobilePairedMacStoring
     let failingInstanceTag: String?
