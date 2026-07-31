@@ -290,9 +290,13 @@ extension ReconnectRouteSelectionTests {
         fixture.store.connectionRecoveryFailed = true
 
         let client = try #require(fixture.store.remoteClient)
+        let listenerID = try #require(
+            fixture.store.terminalEventListenerID
+        )
         #expect(fixture.store.recordUsableTerminalSubscription(
             client: client,
-            connectionGeneration: fixture.store.connectionGeneration
+            connectionGeneration: fixture.store.connectionGeneration,
+            listenerID: listenerID
         ))
 
         #expect(fixture.store.connectionState == .connected)
