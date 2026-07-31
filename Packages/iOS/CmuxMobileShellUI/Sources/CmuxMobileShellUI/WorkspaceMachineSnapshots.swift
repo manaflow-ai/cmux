@@ -4,12 +4,20 @@ import CmuxMobileSupport
 struct WorkspaceMachineSnapshots: Equatable {
     var filterMachines: [WorkspaceFilterMachine]
     var macPickerMachines: [WorkspaceFilterMachine]
+    /// Workspaces the All Computers picker row would show; `nil` renders no
+    /// count signifier.
+    var allWorkspaceCount: Int? = nil
 
     static let empty = WorkspaceMachineSnapshots(filterMachines: [], macPickerMachines: [])
 
-    init(filterMachines: [WorkspaceFilterMachine], macPickerMachines: [WorkspaceFilterMachine]) {
+    init(
+        filterMachines: [WorkspaceFilterMachine],
+        macPickerMachines: [WorkspaceFilterMachine],
+        allWorkspaceCount: Int? = nil
+    ) {
         self.filterMachines = filterMachines
         self.macPickerMachines = macPickerMachines
+        self.allWorkspaceCount = allWorkspaceCount
     }
 
     init(
@@ -18,7 +26,8 @@ struct WorkspaceMachineSnapshots: Equatable {
         macPickerMachineIDs: Set<String>,
         namesByID: [String: String],
         buildLabelsByID: [String: String] = [:],
-        fallbackName: String
+        fallbackName: String,
+        pickerCounts: WorkspaceMacPickerCounts? = nil
     ) {
         let filterMachineIDs = Set(
             MobileWorkspaceListFilter.machineIDs(in: workspaces).map(filterMachineIDFor)
@@ -36,15 +45,17 @@ struct WorkspaceMachineSnapshots: Equatable {
                 .sortedForMenuDisplay()
             : []
         self.macPickerMachines = macPickerMachineIDs
-            .map {
+            .map { id in
                 WorkspaceFilterMachine(
-                    id: $0,
+                    id: id,
                     namesByID: namesByID,
-                    buildLabel: buildLabelsByID[$0],
-                    fallbackName: fallbackName
+                    buildLabel: buildLabelsByID[id],
+                    fallbackName: fallbackName,
+                    workspaceCount: pickerCounts?.count(for: id)
                 )
             }
             .sortedForMenuDisplay()
+        self.allWorkspaceCount = pickerCounts?.all
     }
 
     /// Collapsed title for a machine selection. Sibling builds of one physical
