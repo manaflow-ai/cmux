@@ -132,7 +132,7 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
-        let readiness = MobileIrohConnectionReadinessSignal()
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         readiness.begin(revision: 2)
 
@@ -141,7 +141,64 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        await readiness.wait()
+        #expect(await readiness.wait(now: { Date(timeIntervalSince1970: 100) }) == .ready)
+    }
+
+    @Test
+    func connectionReadinessAbandonmentSettlesEveryWaiter() async {
+        let readiness = MobileIrohConnectionReadinessOwner()
+        readiness.begin(revision: 1)
+        let first = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        readiness.begin(revision: 2)
+        let second = Task {
+            await readiness.wait(now: { Date(timeIntervalSince1970: 100) })
+        }
+        await Task.yield()
+
+        #expect(readiness.complete(revision: 1) == false)
+        #expect(readiness.abandon(revision: 2))
+        #expect(await first.value == .inactive)
+        #expect(await second.value == .inactive)
+        #expect(readiness.isPending == false)
+    }
+
+    @Test
+    func connectionReadinessReadsClockAfterActivationSettles() async throws {
+        let start = Date(timeIntervalSince1970: 100)
+        var observedNow = start
+        let readiness = MobileIrohConnectionReadinessOwner(
+            retrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 30,
+                maximumDelay: 3_600,
+                jitterFraction: 0
+            ),
+            jitterUnitInterval: { 0 }
+        )
+        readiness.begin(revision: 1)
+        let waiter = Task {
+            await readiness.wait(now: { observedNow })
+        }
+        await Task.yield()
+
+        observedNow = start.addingTimeInterval(45)
+        _ = try #require(readiness.completeFailure(
+            revision: 1,
+            accountID: "account-a",
+            error: CmxIrohTrustBrokerClientError.connectivity,
+            retryAfterSeconds: nil,
+            now: start
+        ))
+
+        let outcome = await waiter.value
+        guard case let .failed(failure) = outcome else {
+            Issue.record("Expected failed readiness outcome")
+            return
+        }
+        #expect(failure.retryAfterSeconds == 1)
     }
 
     @Test
@@ -447,6 +504,40 @@ struct MobileIrohRuntimeCompositionTests {
             policyExpiresAt: nil,
             now: expiresAt
         ))
+    }
+
+    @Test
+    func relayPolicyRetryScheduleShortensAuthorizationFailures() {
+        // An authorization failure already survived the broker client's single
+        // force-refresh retry; it resolves on token-store timescales. The
+        // default 30s-plus-jitter first delay turned every wake-time rotation
+        // race into a visible half-minute connectivity gap.
+        let authSchedule = MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
+            for: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        )
+        #expect(authSchedule.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 2)
+        #expect(authSchedule.delay(
+            failureCount: 20,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 120)
+
+        let connectivitySchedule =
+            MobileIrohRuntimeComposition.relayPolicyRetrySchedule(
+                for: CmxIrohTrustBrokerClientError.connectivity
+            )
+        #expect(connectivitySchedule.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 30)
     }
 
     @Test
@@ -1045,7 +1136,7 @@ struct MobileIrohRuntimeCompositionTests {
         // The first broker the composition builds is the activation-time one.
         let source = try #require(sources.first)
         // While the activation's session is live, the pinned pair resolves.
-        #expect(await source.credentialPair() != nil)
+        #expect(try await source.credentialPair() != nil)
 
         // Auth switches to a DIFFERENT user whose tokens are equally valid: a
         // live-session source would happily vend them.
@@ -1057,7 +1148,35 @@ struct MobileIrohRuntimeCompositionTests {
         )
 
         // The activation-pinned source fails closed instead.
-        #expect(await source.credentialPair() == nil)
+        #expect(try await source.credentialPair() == nil)
+    }
+
+    /// Regression: a TRANSIENT token miss (the refresh token survives but no
+    /// access token can be resolved right now — a re-mint in flight or
+    /// offline, or the store owned by a foreground revalidation) must
+    /// propagate as a THROW, which the broker classifies as connectivity so
+    /// activation retries and falls back to the cached verified policy.
+    /// Collapsing it to nil reported "signed out" (missingAuthentication →
+    /// authorizationFailed) and failed every app-launch activation closed
+    /// until the transient window passed.
+    @Test
+    func activationBrokerCredentialsRethrowTransientTokenMiss() async throws {
+        let sources = MobileIrohTokenSourceCapture()
+        let fixture = try await MobileIrohSignOutFixture.make(brokerFactory: { tokenSource in
+            sources.append(tokenSource)
+            return MobileIrohRevocationBroker()
+        })
+        let source = try #require(sources.first)
+        #expect(try await source.credentialPair() != nil)
+
+        // The access token becomes unreadable while the refresh token
+        // survives: the same signed-in session serves a pair again once the
+        // re-mint lands, so this window is transient, not a sign-out.
+        await fixture.authClient.setAccessTokenUnavailable()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await source.credentialPair()
+        }
     }
 }
 
@@ -1640,7 +1759,7 @@ private actor MobileIrohCredentialFetchingBroker: CmxIrohClientBrokerServing {
     }
 
     private func fetchCredentialPair() async throws {
-        guard await tokenSource.credentialPair() != nil else {
+        guard try await tokenSource.credentialPair() != nil else {
             throw MobileIrohSignOutTestError.unavailable
         }
     }
@@ -1759,6 +1878,9 @@ private actor MobileIrohTestAuthClient: AuthClient {
     init(user: CMUXAuthUser) { self.user = user }
 
     func setUser(_ user: CMUXAuthUser) { self.user = user }
+    /// Simulates the transient half-state where the refresh token survives but
+    /// no access token can be resolved (re-mint in flight or offline).
+    func setAccessTokenUnavailable() { access = nil }
     func accessToken() -> String? { access }
     func refreshToken() -> String? { refresh }
     func forceRefreshAccessToken() -> String? { access }

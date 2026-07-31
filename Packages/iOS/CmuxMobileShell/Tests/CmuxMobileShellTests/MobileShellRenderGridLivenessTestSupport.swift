@@ -41,7 +41,9 @@ actor LivenessHostRouter {
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var workspaceListErrorCodesByRequestNumber: [Int: String] = [:]
     private var subscribeRequestCount = 0
+    private var probeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var heldProbeRequestNumbers: Set<Int> = []
     private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
@@ -329,6 +331,11 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth read-only subscription probe (1-based) forever.
+    func holdProbeRequest(number: Int) {
+        heldProbeRequestNumbers.insert(number)
+    }
+
     /// Delay a subscribe acknowledgement until released, then return the
     /// ordinary successful payload.
     func delaySubscribeRequest(number: Int) {
@@ -516,6 +523,17 @@ actor LivenessHostRouter {
                 ) ? "" : (streamID ?? ""),
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
+            ])
+        case "mobile.events.probe":
+            probeRequestCount += 1
+            if heldProbeRequestNumbers.contains(probeRequestCount) {
+                await park()
+                return nil
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": streamID ?? "",
+                "subscribed": hasActiveSubscription,
+                "event_transport": "control_v1",
             ])
         case "mobile.terminal.replay":
             replayRequestCount += 1

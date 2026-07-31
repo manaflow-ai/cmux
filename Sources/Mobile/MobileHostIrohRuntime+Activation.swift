@@ -116,7 +116,40 @@ extension MobileHostIrohRuntime {
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
                 credentialPair: { [weak auth] in
-                    guard let auth,
+                    guard let auth else { return nil }
+                    let session: AuthenticatedSessionSnapshot
+                    do {
+                        session = try await auth.authenticatedSessionSnapshot()
+                    } catch AuthError.unauthorized {
+                        // Definitively signed out: fail closed.
+                        return nil
+                    }
+                    // Transient failures (a revalidation owns the token
+                    // store, a re-mint is in flight or offline) rethrow so
+                    // the broker classifies them connectivity instead of
+                    // tearing the host runtime down as unauthorized.
+                    guard session.accountID == accountID else { return nil }
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
+                },
+                recoveredCredentialPair: { [weak auth] rejected in
+                    guard let auth else { return nil }
+                    // Re-capture first: when another lane already rotated the
+                    // session, the fresh snapshot differs from the rejected
+                    // pair and no extra mint is needed. Only an unchanged
+                    // access token forces a mint; the SDK store dedups
+                    // concurrent refreshes.
+                    if let session = try? await auth.authenticatedSessionSnapshot(),
+                       session.accountID == accountID,
+                       session.accessToken != rejected.accessToken {
+                        return CmxIrohBrokerCredentials(
+                            accessToken: session.accessToken,
+                            refreshToken: session.refreshToken
+                        )
+                    }
+                    guard (try? await auth.forceRefreshAccessToken()) != nil,
                           let session = try? await auth.authenticatedSessionSnapshot(),
                           session.accountID == accountID else { return nil }
                     return CmxIrohBrokerCredentials(
@@ -245,6 +278,11 @@ extension MobileHostIrohRuntime {
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
                 ))
+                CmuxEventBus.shared.publish(
+                    name: "mobile.iroh.admission.succeeded",
+                    category: "mobile",
+                    source: "mobile.iroh.host"
+                )
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,
                     a: DiagnosticSessionLifecycleKind.established.rawValue,
@@ -365,6 +403,14 @@ extension MobileHostIrohRuntime {
                             try? await hostPolicyCache.delete(for: policyExpectation)
                         }
                     }
+                )
+            },
+            handleResolvedBinding: { [weak self] binding in
+                await self?.recordResolvedBinding(
+                    binding,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
                 )
             },
             handleDeactivation: { [weak self] _ in
@@ -490,6 +536,19 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
+        MobileHostService.shared.updateIrohBinding(binding)
+    }
+
+    private func recordResolvedBinding(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
         MobileHostService.shared.updateIrohBinding(binding)
     }
 

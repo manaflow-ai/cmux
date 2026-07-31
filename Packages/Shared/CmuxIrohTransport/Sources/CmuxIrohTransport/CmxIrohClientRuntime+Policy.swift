@@ -75,7 +75,7 @@ extension CmxIrohClientRuntime {
                 // authenticated discovery can still confirm an existing tuple.
                 registration = nil
             } else {
-                guard Self.isConnectivity(error),
+                guard Self.recoversWithCachedPolicy(error),
                       let cached = try await offlineBootstrap(
                           expectation: offlineExpectation,
                           confirmedLocalBinding: nil
@@ -100,7 +100,7 @@ extension CmxIrohClientRuntime {
             discovery = try await broker.discover()
         } catch {
             guard let registration,
-                  Self.isConnectivity(error),
+                  Self.recoversWithCachedPolicy(error),
                   let cached = try await offlineBootstrap(
                       expectation: offlineExpectation,
                       confirmedLocalBinding: registration.binding

@@ -165,6 +165,51 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
+# Opens the tagged Mac's event stream. The stream itself is the readiness
+# contract, so launch tooling does not infer connection state from diagnostics.
+cmux_attach_events() {
+  local tag="$1" repo_root="$2" slug
+  shift 2
+  slug="$(cmux_attach__slug "$tag")"
+  CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" events "$@"
+}
+
+# Captures the event sequence before launch. A subsequent wait can replay usable
+# session readiness that raced between launch and event-stream subscription.
+cmux_attach_readiness_cursor() {
+  local tag="$1" repo_root="$2" snapshot cursor
+  snapshot="$(cmux_attach_events "$tag" "$repo_root" --snapshot --no-heartbeat)" || return 1
+  cursor="$(printf '%s\n' "$snapshot" \
+    | sed -nE 's/.*"latest_seq"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
+    | head -1)"
+  [[ -n "$cursor" ]] || {
+    echo "error: tagged Mac did not return an event-stream cursor" >&2
+    return 1
+  }
+  printf '%s' "$cursor"
+}
+
+# Waits on the host's explicit usable-RPC event after the launch baseline.
+# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>.
+cmux_attach_wait_for_usable_session() {
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
+  if cmux_attach_events \
+    "$tag" \
+    "$repo_root" \
+    --after "$baseline" \
+    --name mobile.rpc.ready \
+    --limit 1 \
+    --timeout "$timeout" \
+    --no-ack \
+    --no-heartbeat \
+    >/dev/null; then
+    return 0
+  fi
+  echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
+  echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
+  return 1
+}
+
 # Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.

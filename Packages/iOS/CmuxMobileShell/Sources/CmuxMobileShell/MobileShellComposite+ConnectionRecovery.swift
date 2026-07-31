@@ -40,6 +40,11 @@ extension MobileShellComposite {
                     .reachabilityChanged,
                     a: isOnline ? 1 : 0
                 ))
+                // Route strikes and hard gates accumulated on the old path
+                // predict nothing about the new one; drop them before this
+                // recovery pass so it is not refused by stale poisoning.
+                await self.connectAttemptRegistry.resetRouteHealthForNetworkChange()
+                guard !Task.isCancelled else { return }
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -52,6 +57,10 @@ extension MobileShellComposite {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = .foreground
+            return
+        }
         beginConnectionRecovery(
             trigger: .foreground,
             expectedClient: client,
@@ -68,6 +77,10 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = trigger
+            return
+        }
         if let accountID = identityProvider?.currentUserID {
             switch trigger {
             case .manual, .networkChange, .foreground:
@@ -102,6 +115,10 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient
     ) {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = trigger
+            return
+        }
 
         if connectionRecoveryOwner.isRedialingOrValidating {
             let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
@@ -126,6 +143,13 @@ extension MobileShellComposite {
             resyncAfterHealthy: false,
             preclaimedAttempt: superseding
         )
+    }
+
+    func recoverPendingInactiveRecoveryIfNeeded() {
+        guard foregroundRefreshIsActive,
+              let trigger = pendingInactiveRecoveryTrigger else { return }
+        pendingInactiveRecoveryTrigger = nil
+        recoverMobileConnection(trigger: trigger)
     }
 
     private func beginConnectionRecovery(
@@ -296,7 +320,8 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         connectionGeneration: UUID
     ) -> Bool {
-        if lastSuccessfulTerminalSubscriptionGeneration == connectionGeneration {
+        if lastSuccessfulTerminalSubscription?.connectionGeneration
+            == connectionGeneration {
             return completeConnectionRecovery(attempt)
         }
         return connectionRecoveryOwner.transitionToValidation(
@@ -360,8 +385,15 @@ extension MobileShellComposite {
         ))
     }
 
-    func recordSuccessfulTerminalSubscription() {
-        lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+    func recordSuccessfulTerminalSubscription(
+        connectionGeneration: UUID,
+        listenerID: UUID? = nil
+    ) {
+        lastSuccessfulTerminalSubscription =
+            MobileTerminalSubscriptionValidation(
+                connectionGeneration: connectionGeneration,
+                listenerID: listenerID
+            )
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()
@@ -377,8 +409,7 @@ extension MobileShellComposite {
             // A probe is a background health check on a connection still
             // believed healthy: the terminal stays interactive and the visible
             // status untouched. Only an actual redial may surface reconnecting
-            // UI (TerminalDisconnectedOverlay covers the whole terminal on
-            // `.reconnecting`).
+            // UI (the picker status line and terminal status pill).
             isRecoveringConnection = false
             connectionRecoveryFailed = false
         case .redialing, .validatingReplacement:

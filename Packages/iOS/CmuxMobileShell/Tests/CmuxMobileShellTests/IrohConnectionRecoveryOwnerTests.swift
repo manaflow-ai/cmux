@@ -275,6 +275,37 @@ extension ReconnectRouteSelectionTests {
         #expect(await fixture.router.count(of: "mobile.events.subscribe") == 1)
     }
 
+    @Test func usableSubscriptionRepairsForegroundWorkspaceConnectionChrome() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let foregroundKey = fixture.store.foregroundMacKey
+        var staleState = try #require(fixture.store.workspacesByMac[foregroundKey])
+        staleState.status = .unavailable
+        fixture.store.workspacesByMac[foregroundKey] = staleState
+        fixture.store.macConnectionStatus = .unavailable
+        fixture.store.isRecoveringConnection = true
+        fixture.store.connectionRecoveryFailed = true
+
+        let client = try #require(fixture.store.remoteClient)
+        #expect(fixture.store.recordUsableTerminalSubscription(
+            client: client,
+            connectionGeneration: fixture.store.connectionGeneration
+        ))
+
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.macConnectionStatus == .connected)
+        #expect(fixture.store.isRecoveringConnection == false)
+        #expect(fixture.store.connectionRecoveryFailed == false)
+        #expect(
+            fixture.store.workspaces
+                .filter { $0.macDeviceID == fixture.store.foregroundMacDeviceID }
+                .allSatisfy { $0.macConnectionStatus == .connected }
+        )
+    }
+
     @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
@@ -415,13 +446,17 @@ extension ReconnectRouteSelectionTests {
             sourceConnectionGeneration: generation,
             probing: false
         ))
-        store.lastSuccessfulTerminalSubscriptionGeneration = generation
+        store.lastSuccessfulTerminalSubscription =
+            MobileTerminalSubscriptionValidation(
+                connectionGeneration: generation,
+                listenerID: nil
+            )
 
         store.settleSuccessfulConnectionRecovery(
             attempt,
             connectionGeneration: generation
         )
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {
@@ -448,8 +483,8 @@ extension ReconnectRouteSelectionTests {
             attempt,
             connectionGeneration: generation
         )
-        store.recordSuccessfulTerminalSubscription()
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {
@@ -473,7 +508,7 @@ extension ReconnectRouteSelectionTests {
         ))
 
         #expect(store.completeConnectionRecovery(attempt))
-        store.recordSuccessfulTerminalSubscription()
+        store.recordSuccessfulTerminalSubscription(connectionGeneration: generation)
         log.record(DiagnosticEvent(.rpcReady))
 
         #expect(try await pollUntil {
