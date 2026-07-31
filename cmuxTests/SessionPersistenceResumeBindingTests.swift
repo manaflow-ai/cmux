@@ -65,7 +65,7 @@ import Testing
         #expect(binding.launchCommand == nil)
         #expect(
             binding.restoreStartupInput()
-                == "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
         )
     }
 
@@ -89,7 +89,10 @@ import Testing
 
         let startupInput = try #require(binding.restoreStartupInput())
 
-        #expect(startupInput == "cmux restore codex \(sessionId)\n")
+        #expect(
+            startupInput
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionId)\n"
+        )
         #expect(
             try FileManager.default.contentsOfDirectory(
                 at: temporaryDirectory,
@@ -500,7 +503,10 @@ import Testing
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
         let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
-        #expect(restoredInput == "cmux restore codex session-local-resume\n")
+        #expect(
+            restoredInput
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex session-local-resume\n"
+        )
         #expect(!restoredInput.contains(staleExecutablePath))
         #expect(!restoredInput.contains(oversizedArgument))
     }

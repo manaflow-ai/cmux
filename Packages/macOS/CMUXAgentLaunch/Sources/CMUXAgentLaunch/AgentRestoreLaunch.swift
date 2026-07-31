@@ -12,6 +12,13 @@ import Foundation
 /// let startupInput = launch?.authorizing(leadingShell: "", routedCommand: resumeCommand)
 /// ```
 public struct AgentRestoreLaunch: Sendable {
+    /// Shell token for the CLI bundled with the app that owns the surface.
+    ///
+    /// Runtime surface creation exports this protected environment value. The
+    /// quotes work in the supported interactive shells and preserve tagged app
+    /// paths containing spaces.
+    public static let bundledCLIStartupExecutableToken = "\"$CMUX_BUNDLED_CLI_PATH\""
+
     private enum Provider: String, Sendable {
         case claude
         case codex

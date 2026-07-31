@@ -45,7 +45,10 @@ struct ResumeLauncherCwdConsistencyTests {
         let input = try #require(snapshot.resumeStartupInput(
             restoringWorkingDirectory: restoredDirectory.path
         ))
-        #expect(input == "cmux restore cwd-agent session-9200\n")
+        #expect(
+            input
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore cwd-agent session-9200\n"
+        )
         #expect(
             try fileManager.contentsOfDirectory(
                 at: root,

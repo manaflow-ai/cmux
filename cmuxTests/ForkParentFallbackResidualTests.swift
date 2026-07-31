@@ -158,7 +158,10 @@ struct ForkParentFallbackResidualTests {
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
         let resumeInput = try #require(snapshot.resumeStartupInput())
-        #expect(resumeInput == "cmux restore codex \(sessionId)\n")
+        #expect(
+            resumeInput
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionId)\n"
+        )
         #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
 

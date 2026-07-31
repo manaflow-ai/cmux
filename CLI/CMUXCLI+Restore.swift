@@ -46,8 +46,14 @@ extension CMUXCLI {
                 throw CLIError(message: "restore: surface '\(surface)' was not found")
             }
             params["surface_id"] = surfaceID
-        } else if let surfaceID = processEnvironment["CMUX_SURFACE_ID"] {
+        } else if let surfaceID = processEnvironment["CMUX_SURFACE_ID"],
+                  !surfaceID.isEmpty {
             params["surface_id"] = surfaceID
+        } else {
+            throw CLIError(
+                message: "restore: positional form requires a cmux surface context; "
+                    + "use --surface <id|ref>"
+            )
         }
 
         let payload = try client.sendV2(method: "surface.resume.get", params: params)

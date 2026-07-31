@@ -62,14 +62,12 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private var localRestoreCLIInput: String {
-        // Runtime surface creation prepends the app's Resources/bin directory
-        // to the protected terminal PATH, so this readable token resolves to
-        // the same tagged/bundled CLI that owns the surface and socket.
+        let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken
         if let kind = Self.restoreCLIArgument(kind),
            let checkpointId = Self.restoreCLIArgument(checkpointId) {
-            return "cmux restore \(kind) \(checkpointId)\n"
+            return " \(executable) restore \(kind) \(checkpointId)\n"
         }
-        return "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+        return " \(executable) restore --surface \"$CMUX_SURFACE_ID\"\n"
     }
 
     private static func restoreCLIArgument(_ value: String?) -> String? {

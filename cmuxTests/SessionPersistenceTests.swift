@@ -2402,7 +2402,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             startupInput.utf8.allSatisfy { $0 < 0x80 },
             "The short restore verb must stay ASCII-only; structured cwd never crosses the shell parser."
         )
-        XCTAssertEqual(startupInput, "cmux restore claude claude-session-123\n")
+        XCTAssertEqual(
+            startupInput,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore claude claude-session-123\n"
+        )
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(
                 at: root,
@@ -2567,7 +2570,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         let startupInput = try XCTUnwrap(snapshot.resumeStartupInput())
-        XCTAssertEqual(startupInput, "cmux restore claude \(sessionId)\n")
+        XCTAssertEqual(
+            startupInput,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore claude \(sessionId)\n"
+        )
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(
                 at: tempDir,
@@ -2613,9 +2619,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let invalidSessionInput = try XCTUnwrap(invalidSession.resumeStartupInput())
         XCTAssertEqual(
             unsupportedInput,
-            "cmux restore gemini 5839bed1-0a60-4c05-b6d1-2410d7a3741e\n"
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore gemini 5839bed1-0a60-4c05-b6d1-2410d7a3741e\n"
         )
-        XCTAssertEqual(invalidSessionInput, "cmux restore claude not-a-session-id\n")
+        XCTAssertEqual(
+            invalidSessionInput,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore claude not-a-session-id\n"
+        )
     }
 
     func testRestorableAgentStartupInputDoesNotChangeAtFormerTerminalInputBudget() throws {
@@ -2650,7 +2659,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let input = try XCTUnwrap(snapshot.resumeStartupInput())
         XCTAssertEqual(
             input,
-            "cmux restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
         )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertEqual(
@@ -2695,7 +2704,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeStartupInput(),
-            "cmux restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore codex 019dad34-d218-7943-b81a-eddac5c87951\n"
         )
     }
 
@@ -4505,7 +4514,10 @@ extension SessionPersistenceTests {
         XCTAssertGreaterThan(inlineInput.utf8.count, 900)
 
         let input = try XCTUnwrap(binding.restoreStartupInput())
-        XCTAssertEqual(input, "cmux restore --surface \"$CMUX_SURFACE_ID\"\n")
+        XCTAssertEqual(
+            input,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
+        )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(
@@ -6491,7 +6503,10 @@ extension SessionPersistenceTests {
             let startupInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
-            XCTAssertEqual(startupInput, "cmux restore codex session-duplicate-turn\n")
+            XCTAssertEqual(
+                startupInput,
+                " \"$CMUX_BUNDLED_CLI_PATH\" restore codex session-duplicate-turn\n"
+            )
             XCTAssertFalse(startupInput.contains(missingCwd.path))
         }
     }
@@ -6738,7 +6753,10 @@ extension SessionPersistenceTests {
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
-        XCTAssertEqual(input, "cmux restore codex session\n")
+        XCTAssertEqual(
+            input,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore codex session\n"
+        )
         XCTAssertFalse(input.contains("CODEX_HOME"))
         XCTAssertNil(launcherScriptPath(from: input))
     }
@@ -6775,7 +6793,10 @@ extension SessionPersistenceTests {
 
         XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
         let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
-        XCTAssertEqual(input, "cmux restore codex session\n")
+        XCTAssertEqual(
+            input,
+            " \"$CMUX_BUNDLED_CLI_PATH\" restore codex session\n"
+        )
         XCTAssertFalse(input.contains(longPath))
         XCTAssertNil(launcherScriptPath(from: input))
     }

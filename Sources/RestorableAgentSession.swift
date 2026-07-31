@@ -789,11 +789,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         restoringWorkingDirectory: String? = nil
     ) -> String? {
         if useLocalRestoreVerb {
+            let executable = AgentRestoreLaunch.bundledCLIStartupExecutableToken
             guard Self.isSafeRestoreCLIArgument(kind.rawValue),
                   Self.isSafeRestoreCLIArgument(sessionId) else {
-                return "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+                return " \(executable) restore --surface \"$CMUX_SURFACE_ID\"\n"
             }
-            return "cmux restore \(kind.rawValue) \(sessionId)\n"
+            return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
         let effectiveWorkingDirectory = resumeWorkingDirectory(
             preferred: restoringWorkingDirectory

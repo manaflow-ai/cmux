@@ -49,13 +49,16 @@ struct AgentResumeReturnShellStartupTests {
         )
 
         #expect(
-            agentBinding.restoreStartupInput() == "cmux restore codex \(sessionID)\n"
+            agentBinding.restoreStartupInput()
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionID)\n"
         )
         #expect(
-            manualBinding.restoreStartupInput() == "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+            manualBinding.restoreStartupInput()
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
         )
         #expect(
-            snapshot.resumeStartupInput() == "cmux restore codex \(sessionID)\n"
+            snapshot.resumeStartupInput()
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore codex \(sessionID)\n"
         )
         #expect(
             try fileManager.contentsOfDirectory(
@@ -74,7 +77,7 @@ struct AgentResumeReturnShellStartupTests {
 
         #expect(
             snapshot.resumeStartupInput()
-                == "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+                == " \"$CMUX_BUNDLED_CLI_PATH\" restore --surface \"$CMUX_SURFACE_ID\"\n"
         )
     }
 

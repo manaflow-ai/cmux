@@ -191,6 +191,32 @@ import Testing
         XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.stdout)
     }
 
+    @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "codex", UUID().uuidString.lowercased()],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "restore: positional form requires a cmux surface context; "
+                    + "use --surface <id|ref>"
+            ),
+            result.stdout
+        )
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
