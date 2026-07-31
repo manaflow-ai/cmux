@@ -177,6 +177,171 @@ struct BrowserScreenshotCropTests {
         }
     }
 
+    @Test
+    func verifiedCaptureRetriesAFrameWithMultipleBlankTextProbes() async throws {
+        var captureCount = 0
+        let probes = textProbeSet()
+        let image = try makeBlankBitmapImage(width: 100, height: 100)
+        let service = BrowserScreenshotCaptureService(
+            maximumAttempts: 3,
+            synchronize: {},
+            collectProbes: { probes },
+            snapshot: {
+                captureCount += 1
+                return image
+            },
+            makePixelSource: { _ in
+                if captureCount == 1 {
+                    return SolidPixelSource(
+                        pixelSize: probes.viewportSize,
+                        color: .black
+                    )
+                }
+                return TextPaintPixelSource(
+                    pixelSize: probes.viewportSize,
+                    textRects: probes.probes.map(\.rect)
+                )
+            }
+        )
+
+        _ = try await service.capture()
+
+        #expect(captureCount == 2)
+    }
+
+    @Test
+    func verifiedCaptureFailsLoudlyAfterBoundedRetries() async throws {
+        var captureCount = 0
+        let probes = textProbeSet()
+        let image = try makeBlankBitmapImage(width: 100, height: 100)
+        let service = BrowserScreenshotCaptureService(
+            maximumAttempts: 3,
+            synchronize: {},
+            collectProbes: { probes },
+            snapshot: {
+                captureCount += 1
+                return image
+            },
+            makePixelSource: { _ in
+                SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
+            }
+        )
+
+        do {
+            _ = try await service.capture()
+            Issue.record("Expected a rendered-content mismatch")
+        } catch let BrowserScreenshotError.renderedContentMismatch(
+            text,
+            rect,
+            attempts,
+            mismatchCount
+        ) {
+            #expect(text == "Balance")
+            #expect(rect == probes.probes[0].rect)
+            #expect(attempts == 3)
+            #expect(mismatchCount == 2)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(captureCount == 3)
+    }
+
+    @Test
+    func verifiedCaptureAcceptsPagesWithoutTextProbes() async throws {
+        var captureCount = 0
+        let image = try makeBlankBitmapImage(width: 100, height: 100)
+        let service = BrowserScreenshotCaptureService(
+            maximumAttempts: 3,
+            synchronize: {},
+            collectProbes: {
+                BrowserScreenshotFrameVerifier.ProbeSet(
+                    viewportSize: NSSize(width: 100, height: 100),
+                    probes: []
+                )
+            },
+            snapshot: {
+                captureCount += 1
+                return image
+            },
+            makePixelSource: { _ in
+                SolidPixelSource(
+                    pixelSize: NSSize(width: 100, height: 100),
+                    color: .black
+                )
+            }
+        )
+
+        _ = try await service.capture()
+
+        #expect(captureCount == 1)
+    }
+
+    @Test
+    func verifierTreatsOneDisagreeingProbeAsInconclusive() {
+        let probes = textProbeSet()
+        let oneProbe = BrowserScreenshotFrameVerifier.ProbeSet(
+            viewportSize: probes.viewportSize,
+            probes: [probes.probes[0]]
+        )
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: oneProbe,
+            after: oneProbe,
+            pixels: SolidPixelSource(
+                pixelSize: probes.viewportSize,
+                color: .black
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    private func textProbeSet() -> BrowserScreenshotFrameVerifier.ProbeSet {
+        BrowserScreenshotFrameVerifier.ProbeSet(
+            viewportSize: NSSize(width: 100, height: 100),
+            probes: [
+                .init(
+                    identifier: "balance",
+                    text: "Balance",
+                    rect: NSRect(x: 10, y: 10, width: 10, height: 12),
+                    foreground: .white,
+                    background: .black
+                ),
+                .init(
+                    identifier: "primary-action",
+                    text: "Add funds",
+                    rect: NSRect(x: 60, y: 60, width: 10, height: 12),
+                    foreground: .white,
+                    background: .black
+                ),
+            ]
+        )
+    }
+
+    private struct SolidPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+        let pixelSize: NSSize
+        let color: BrowserScreenshotFrameVerifier.RGBA
+
+        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+            guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
+                return nil
+            }
+            return color
+        }
+    }
+
+    private struct TextPaintPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+        let pixelSize: NSSize
+        let textRects: [NSRect]
+
+        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+            guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
+                return nil
+            }
+            return textRects.contains(where: { $0.contains(point) }) ? .white : .black
+        }
+    }
+
     /// Makes the legacy `NSImage.lockFocus()` path deterministically rasterize
     /// at Retina scale while forwarding unrelated threads to AppKit unchanged.
     private func withImageFocusBackingScale<T>(
