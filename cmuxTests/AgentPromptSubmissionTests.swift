@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -137,6 +138,35 @@ struct AgentPromptSubmissionTests {
         #expect(pending.items == 1)
         #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
         #expect(completion?.didSubmit == true)
+    }
+
+    @MainActor
+    @Test func unrelatedSupportedPIDDoesNotResetComposerOwnership() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer { panel.surface.releaseSurfaceForTesting() }
+
+        workspace.recordAgentPID(
+            key: "codex.primary",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        let originalScope = panel.surface.currentPromptInputAgentScope
+
+        workspace.recordAgentPID(
+            key: "ollama.unrelated",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(panel.surface.currentPromptInputAgentScope == originalScope)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {

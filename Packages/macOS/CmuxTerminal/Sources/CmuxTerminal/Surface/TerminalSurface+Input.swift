@@ -9,6 +9,18 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
+    /// The single agent-process identity that owns prompt-input tracking.
+    @MainActor
+    public var currentPromptInputAgentScope: String? {
+        promptInputLedger.currentAgentScope
+    }
+
+    /// Whether keystrokes need agent-composer ownership tracking.
+    @MainActor
+    public var hasPromptInputAgentScope: Bool {
+        promptInputLedger.hasAgentScope
+    }
+
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     public func didReceiveExplicitInput() {

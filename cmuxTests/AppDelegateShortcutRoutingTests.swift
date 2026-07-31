@@ -51,6 +51,31 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     }
 
     @discardableResult
+    func sendPromptSubmission(
+        _ text: String,
+        submitKey: String,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecordingSource: String?,
+        hookConfirmsHumanInput: Bool
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        guard sendText(text) else { return .surfaceUnavailable }
+        switch sendNamedKey(submitKey) {
+        case .sent:
+            return .sent
+        case .queued:
+            return .queued
+        case .unknownKey:
+            return .unknownKey
+        case .inputQueueFull:
+            return .inputQueueFull
+        case .surfaceUnavailable:
+            return .surfaceUnavailable
+        case .processExited:
+            return .processExited
+        }
+    }
+
+    @discardableResult
     func performBindingAction(_ action: String) -> Bool {
         sentKeys.append(action)
         return performBindingActionResult

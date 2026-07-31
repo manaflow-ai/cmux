@@ -29,25 +29,6 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
 }
 
 extension TextBoxSubmitSurfaceControlling {
-    /// Routes the compound operation through the backing terminal when a
-    /// lightweight controller does not implement its own delivery behavior.
-    @discardableResult
-    func sendPromptSubmission(
-        _ text: String,
-        submitKey: String,
-        rejectIfHumanComposerBusy: Bool,
-        hookRecordingSource: String?,
-        hookConfirmsHumanInput: Bool
-    ) -> TerminalSurface.PromptSubmissionSendResult {
-        textBoxSubmitTerminalSurface?.sendPromptSubmission(
-            text,
-            submitKey: submitKey,
-            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
-            hookRecordingSource: hookRecordingSource,
-            hookConfirmsHumanInput: hookConfirmsHumanInput
-        ) ?? .surfaceUnavailable
-    }
-
     /// Default for non-terminal/test controllers that own no pending restore state.
     /// `TerminalSurface` supplies its concrete cancellation-aware implementation.
     @discardableResult

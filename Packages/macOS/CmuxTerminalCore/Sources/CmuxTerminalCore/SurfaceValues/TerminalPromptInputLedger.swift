@@ -32,6 +32,16 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration != confirmedHumanInputGeneration
     }
 
+    /// The single agent-process identity that owns the current composer epoch.
+    public var currentAgentScope: String? {
+        agentScope
+    }
+
+    /// Whether physical terminal input belongs to an active agent composer.
+    public var hasAgentScope: Bool {
+        agentScope != nil
+    }
+
     /// Records one human terminal input event.
     ///
     /// A submission boundary records only a possible recovery boundary; it

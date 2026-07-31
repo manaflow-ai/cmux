@@ -5800,12 +5800,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
-        // Any key forwarded to the terminal can mutate an agent composer:
-        // history navigation, control bindings, and user-defined Ghostty
-        // bindings are not limited to printable text. Track them fail-closed.
-        terminalSurface?.recordHumanPromptInput(
-            humanPromptInputMutation(for: event, surface: surface)
-        )
+        // Shells do not own an agent composer, so keep their typing path free
+        // of the binding lookup and character classification below. Any key
+        // forwarded to an active agent can mutate its composer: history
+        // navigation, control bindings, and user-defined Ghostty bindings are
+        // not limited to printable text, so track those fail-closed.
+        if let terminalSurface,
+           terminalSurface.hasPromptInputAgentScope {
+            terminalSurface.recordHumanPromptInput(
+                humanPromptInputMutation(for: event, surface: surface)
+            )
+        }
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif

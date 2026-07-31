@@ -130,10 +130,12 @@ extension Workspace {
     ///
     /// Process identity is part of the scope so replacing an agent under the
     /// same session key cannot inherit the prior process's draft boundaries.
+    /// The current owner remains stable while unrelated process metadata comes
+    /// and goes; structured hook ownership takes precedence when it appears.
     func agentPromptInputScope(forPanelId panelId: UUID) -> String? {
-        let components = (agentPIDKeysByPanelId[panelId] ?? [])
+        let candidates = (agentPIDKeysByPanelId[panelId] ?? [])
             .sorted()
-            .compactMap { key -> String? in
+            .compactMap { key -> (key: String, scope: String)? in
                 let context = "agentPIDKey:\(key)"
                 guard TextBoxAgentDetection.supportsActiveAgentPrefixes(
                     context: context
@@ -141,15 +143,30 @@ extension Workspace {
                     return nil
                 }
                 guard let identity = agentPIDProcessIdentitiesByKey[key] else {
-                    return context
+                    return (key, context)
                 }
-                return [
+                return (key, [
                     context,
                     "pid:\(identity.pid)",
                     "start:\(identity.startSeconds).\(identity.startMicroseconds)",
-                ].joined(separator: "|")
+                ].joined(separator: "|"))
             }
-        return components.isEmpty ? nil : components.joined(separator: "\n")
+        guard !candidates.isEmpty else { return nil }
+
+        let currentScope = terminalPanel(for: panelId)?.surface
+            .currentPromptInputAgentScope
+        let currentCandidate = candidates.first {
+            $0.scope == currentScope
+        }
+        let structuredCandidate = candidates.first {
+            isStructuredAgentHookPIDKey($0.key)
+        }
+        if let currentCandidate,
+           isStructuredAgentHookPIDKey(currentCandidate.key)
+                || structuredCandidate == nil {
+            return currentCandidate.scope
+        }
+        return structuredCandidate?.scope ?? candidates[0].scope
     }
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
