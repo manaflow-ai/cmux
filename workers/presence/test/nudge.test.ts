@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { MIN_NUDGE_SERVER_SECRET_LENGTH, nudgeServerSecretMatches } from "../src/auth";
 import {
   checkDeviceOwner,
   checkSubscriberAdmission,
@@ -8,7 +9,13 @@ import {
   shouldDeliverNudge,
   type NudgeSocketView,
 } from "../src/core";
-import { MAX_TAG_LENGTH, parseDeviceScope, parseNudge } from "../src/validate";
+import {
+  MAX_NUDGE_PRINCIPAL_LENGTH,
+  MAX_TAG_LENGTH,
+  parseDeviceScope,
+  parseNudge,
+  parseServerNudge,
+} from "../src/validate";
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_DEVICE_ID = "99999999-8888-4777-8666-555555555555";
@@ -59,6 +66,97 @@ describe("parseNudge", () => {
       kind: "iroh-binding-changed",
     });
     expect(parsed).toEqual({ ok: false, error: "invalid_tag" });
+  });
+});
+
+// The server-authenticated nudge path: the web trust broker asserts the owner
+// and target team itself after shared-secret auth. Parsing must bound those
+// server-asserted principals and reuse the exact user-path nudge validation.
+describe("parseServerNudge", () => {
+  it("accepts a server nudge and defaults the team to the user id", () => {
+    const parsed = parseServerNudge({
+      deviceId: DEVICE_ID,
+      tag: "rekey",
+      kind: "iroh-binding-changed",
+      userId: " user-owner ",
+    });
+    expect(parsed).toEqual({
+      ok: true,
+      server: {
+        nudge: { deviceId: DEVICE_ID, tag: "rekey", kind: "iroh-binding-changed" },
+        userId: "user-owner",
+        teamId: "user-owner",
+      },
+    });
+  });
+
+  it("keeps an explicit team id", () => {
+    const parsed = parseServerNudge({
+      deviceId: DEVICE_ID,
+      kind: "iroh-binding-changed",
+      userId: "user-owner",
+      teamId: "team-1",
+    });
+    expect(parsed).toEqual({
+      ok: true,
+      server: {
+        nudge: { deviceId: DEVICE_ID, tag: undefined, kind: "iroh-binding-changed" },
+        userId: "user-owner",
+        teamId: "team-1",
+      },
+    });
+  });
+
+  it("rejects a missing, overlong, or control-character principal", () => {
+    expect(parseServerNudge({ deviceId: DEVICE_ID, kind: "iroh-binding-changed" })).toEqual({
+      ok: false,
+      error: "invalid_user_id",
+    });
+    expect(parseServerNudge({
+      deviceId: DEVICE_ID,
+      kind: "iroh-binding-changed",
+      userId: "u".repeat(MAX_NUDGE_PRINCIPAL_LENGTH + 1),
+    })).toEqual({ ok: false, error: "invalid_user_id" });
+    expect(parseServerNudge({
+      deviceId: DEVICE_ID,
+      kind: "iroh-binding-changed",
+      userId: "user-owner",
+      teamId: "team evil",
+    })).toEqual({ ok: false, error: "invalid_team_id" });
+  });
+
+  it("propagates the base nudge validation", () => {
+    expect(parseServerNudge({
+      deviceId: "not-a-uuid",
+      kind: "iroh-binding-changed",
+      userId: "user-owner",
+    })).toEqual({ ok: false, error: "invalid_device_id" });
+    expect(parseServerNudge({
+      deviceId: DEVICE_ID,
+      kind: "drop-all-tables",
+      userId: "user-owner",
+    })).toEqual({ ok: false, error: "invalid_kind" });
+  });
+});
+
+describe("nudgeServerSecretMatches", () => {
+  const secret = "0123456789abcdef-nudge";
+
+  it("accepts the exact configured secret", async () => {
+    expect(await nudgeServerSecretMatches(secret, secret)).toBe(true);
+    expect(await nudgeServerSecretMatches(`  ${secret}  `, secret)).toBe(true);
+  });
+
+  it("rejects a mismatch, including same-length ones", async () => {
+    expect(await nudgeServerSecretMatches("0123456789abcdef-nudgf", secret)).toBe(false);
+    expect(await nudgeServerSecretMatches("wrong", secret)).toBe(false);
+  });
+
+  it("fails closed when the secret is unset, empty, or too short to be real", async () => {
+    expect(await nudgeServerSecretMatches(secret, undefined)).toBe(false);
+    expect(await nudgeServerSecretMatches("", secret)).toBe(false);
+    const short = "s".repeat(MIN_NUDGE_SERVER_SECRET_LENGTH - 1);
+    expect(await nudgeServerSecretMatches(short, short)).toBe(false);
   });
 });
 

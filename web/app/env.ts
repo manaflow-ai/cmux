@@ -252,6 +252,17 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: irohBindingLimit.optional(),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: irohBindingLimit.optional(),
+    // Stale-binding reaper TTLs (whole hours) for the hourly retention cron.
+    // Unset uses the defaults (72h for dev-style tagged builds, 1080h = 45
+    // days for release-channel bindings); see services/iroh/retention.ts.
+    CMUX_IROH_STALE_DEV_BINDING_TTL_HOURS: z.string().regex(/^[1-9][0-9]{0,4}$/).optional(),
+    CMUX_IROH_STALE_RELEASE_BINDING_TTL_HOURS: z.string().regex(/^[1-9][0-9]{0,4}$/).optional(),
+    // Broker -> presence-worker nudge fan-out (services/iroh/presenceNudge.ts).
+    // Both must be set for nudges to fire; leaving either unset disables the
+    // hook entirely (fail-open, never blocks broker operations). The secret is
+    // mirrored on the worker as the NUDGE_SERVER_SECRET Worker secret.
+    CMUX_PRESENCE_NUDGE_URL: z.string().url().max(512).optional(),
+    CMUX_PRESENCE_NUDGE_SECRET: z.string().min(16).max(512).optional(),
     // Self-hosted relay fleet. Preview and local builds remain credential-free,
     // while every deployed non-preview runtime must be able to mint endpoint-
     // bound credentials, sign the fleet policy, and enforce its account limit.
@@ -334,6 +345,10 @@ export const env = createEnv({
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT),
     CMUX_IROH_DEV_BINDING_DEVICE_LIMIT: trimEnv(process.env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT),
+    CMUX_IROH_STALE_DEV_BINDING_TTL_HOURS: trimEnv(process.env.CMUX_IROH_STALE_DEV_BINDING_TTL_HOURS),
+    CMUX_IROH_STALE_RELEASE_BINDING_TTL_HOURS: trimEnv(process.env.CMUX_IROH_STALE_RELEASE_BINDING_TTL_HOURS),
+    CMUX_PRESENCE_NUDGE_URL: trimEnv(process.env.CMUX_PRESENCE_NUDGE_URL),
+    CMUX_PRESENCE_NUDGE_SECRET: trimEnv(process.env.CMUX_PRESENCE_NUDGE_SECRET),
     CMUX_RELAY_JWT_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_JWT_PRIVATE_KEY_PEM),
     CMUX_RELAY_POLICY_KEY_ID: trimEnv(process.env.CMUX_RELAY_POLICY_KEY_ID),
     CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: trimEnv(process.env.CMUX_RELAY_POLICY_PRIVATE_KEY_PEM),

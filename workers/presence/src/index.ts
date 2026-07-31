@@ -21,6 +21,7 @@
 import {
   bearerToken,
   cacheDeadline,
+  nudgeServerSecretMatches,
   requestedTeamIdFromRequest,
   resolveTeamId,
   tokenExpiryMs,
@@ -29,13 +30,18 @@ import {
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
-import { parseHeartbeat, parseNudge, readBoundedJson } from "./validate";
+import { parseHeartbeat, parseNudge, parseServerNudge, readBoundedJson } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  /** Shared secret for the server-authenticated nudge path (the web trust
+   * broker fires binding-changed nudges with `x-cmux-nudge-secret`). Worker
+   * secret, provisioned once via `wrangler secret put NUDGE_SERVER_SECRET`;
+   * unset disables that path (requests carrying the header are rejected). */
+  NUDGE_SERVER_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -94,6 +100,30 @@ export default {
       // caller must be the device's pinned owner, enforced in the DO exactly
       // like heartbeat ownership.
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+
+      // Server-to-server path: the web trust broker (revoke, slot
+      // reincarnation, stale-binding reap) holds no Stack user token, so it
+      // authenticates with a shared Worker secret and asserts the device
+      // owner's user id and target team itself. The DO's owner-pin check
+      // still runs against that asserted user id, so even the trusted server
+      // cannot deliver a nudge to a device pinned by a different user. A
+      // request CARRYING the header never falls back to bearer auth: with the
+      // secret unset or wrong it is rejected outright.
+      const serverSecret = request.headers.get("x-cmux-nudge-secret");
+      if (serverSecret !== null) {
+        if (!(await nudgeServerSecretMatches(serverSecret, env.NUDGE_SERVER_SECRET))) {
+          return unauthorized();
+        }
+        const body = await readBoundedJson(request);
+        if (!body.ok) return json({ error: "invalid_request" }, body.status);
+        const parsed = parseServerNudge(body.value);
+        if (!parsed.ok) return json({ error: parsed.error }, 400);
+        const stub = env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(parsed.server.teamId));
+        const result = await stub.nudge(parsed.server.teamId, parsed.server.userId, parsed.server.nudge);
+        if (!result.ok) return json({ error: result.error }, result.status);
+        return json(result);
+      }
+
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
       const body = await readBoundedJson(request);

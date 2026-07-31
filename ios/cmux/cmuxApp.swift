@@ -84,6 +84,9 @@ struct cmuxApp: App {
                     resourceID: resourceID,
                     offset: offset
                 )
+            },
+            transportPathHealthProvider: {
+                await iroh.selectedPathHealth()
             }
         )
 

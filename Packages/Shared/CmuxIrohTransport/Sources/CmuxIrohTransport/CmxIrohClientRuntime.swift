@@ -292,6 +292,16 @@ public actor CmxIrohClientRuntime {
         await sessionPool.selectedPathChanges()
     }
 
+    /// Whether the pool's selected session currently reports a usable path
+    /// (direct, private network, or relay), regardless of relay-policy
+    /// attribution. Unlike ``selectedTransportPath(relayPolicy:)``, a relay
+    /// outside the current verified policy still counts as usable: this is
+    /// a health signal (docs/transport-plane.md D3), not a settings label.
+    /// `false` also covers "no pooled session".
+    public func hasUsableSelectedPath() async -> Bool {
+        await sessionPool.selectedObservedPath() != .unavailable
+    }
+
     /// Binds the endpoint, registers it, and installs exact discovery and relay policy.
     ///
     /// - Throws: A bind, broker, signature, fleet, or local-binding validation error.
@@ -468,6 +478,22 @@ public actor CmxIrohClientRuntime {
     /// - Parameter request: The exact peer intent whose pooled connection failed.
     public func invalidateSession(for request: CmxByteTransportRequest) async {
         await sessionPool.invalidate(for: request)
+    }
+
+    /// Invalidates reusable broker discovery state for one Mac device.
+    ///
+    /// Called when a presence route push proves the Mac's endpoint
+    /// re-registered: any snapshot captured before the push is corpse data,
+    /// so the next dial to that Mac fetches a fresh discovery snapshot
+    /// (single-flight, bounded by the broker backpressure gate) instead of
+    /// reusing it.
+    ///
+    /// - Parameter deviceID: The Mac's registry device id, or `nil` to
+    ///   invalidate discovery reuse for every peer.
+    public func invalidateDiscoverySnapshot(forMacDeviceID deviceID: String?) async {
+        await registryContextProvider?.invalidateVerifiedDiscovery(
+            forDeviceID: deviceID
+        )
     }
 
     /// Stops network ownership while preserving account-scoped persistence.

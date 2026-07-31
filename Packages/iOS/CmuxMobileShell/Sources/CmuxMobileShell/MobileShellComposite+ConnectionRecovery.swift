@@ -81,23 +81,137 @@ extension MobileShellComposite {
                 break
             }
         }
+        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+            scheduleSecondaryAggregation()
+        }
+        if let provider = transportPathHealthGate() {
+            applyPolicyGatedRecovery(
+                trigger: trigger,
+                expectedClient: nil,
+                provider: provider
+            )
+            return
+        }
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,
             probeCurrentConnection: connectionState == .connected && remoteClient != nil,
             resyncAfterHealthy: true
         )
-        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-            scheduleSecondaryAggregation()
+    }
+
+    /// The D3 transport-health gate is armed only when the composition wired
+    /// a provider AND the live route is iroh; every other configuration
+    /// (legacy TCP, loopback, scripted tests) keeps pre-gate behavior.
+    private func transportPathHealthGate() -> MobileTransportPathHealthProvider? {
+        guard activeRoute?.kind == .iroh else { return nil }
+        return runtime?.transportPathHealthProvider
+    }
+
+    /// Consults ``MobileConnectionPolicy`` with observed transport health
+    /// before any escalation (docs/transport-plane.md D2/D3). The health
+    /// read is async but answers from already-observed state; the dispatch
+    /// re-validates connection identity after the hop.
+    private func applyPolicyGatedRecovery(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?,
+        provider: @escaping MobileTransportPathHealthProvider
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let health = await provider()
+            if let expectedClient {
+                guard self.remoteClient === expectedClient,
+                      self.connectionState == .connected else { return }
+            }
+            let blocked = self.identityProvider?.currentUserID.map {
+                self.automaticIrohReconnectIsBlocked(accountID: $0)
+            } ?? false
+            let context = MobileConnectionPolicyContext(
+                isConnected: self.connectionState == .connected && self.remoteClient != nil,
+                pathHealth: health,
+                automaticReconnectBlocked: blocked,
+                consecutiveRepairAttempts: self.connectionRepairAttemptCount
+            )
+            let action = MobileConnectionPolicy.action(
+                for: trigger.connectionEvidence,
+                in: context
+            )
+            MobileDebugLog.anchormux(
+                "connection.policy trigger=\(trigger.description) health=\(health) repairs=\(context.consecutiveRepairAttempts) action=\(action)"
+            )
+            self.dispatchPolicyAction(action, trigger: trigger, expectedClient: expectedClient)
         }
     }
 
-    /// A definitive event-stream failure bypasses same-client resubscription.
-    /// Once the exact session is proven dead, rebuilding its listener only hides
-    /// the failure behind the transport's reconnect behavior and leaves the
-    /// shell owner stale. Instead, transition the one lifecycle owner to a fresh
-    /// authenticated stored-Mac dial.
+    private func dispatchPolicyAction(
+        _ action: MobileConnectionPolicyAction,
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient?
+    ) {
+        switch action {
+        case .none:
+            return
+        case .resubscribe:
+            connectionRepairAttemptCount += 1
+            resyncTerminalOutput(
+                reason: "policy.resubscribe.\(trigger.description)",
+                restartEventStream: true
+            )
+        case .probeThenEscalate:
+            beginConnectionRecovery(
+                trigger: trigger,
+                expectedClient: remoteClient,
+                probeCurrentConnection: connectionState == .connected && remoteClient != nil,
+                resyncAfterHealthy: true
+            )
+        case .redial:
+            if let expectedClient, connectionState == .connected {
+                legacyRecoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+            } else {
+                beginConnectionRecovery(
+                    trigger: trigger,
+                    expectedClient: remoteClient,
+                    probeCurrentConnection: false,
+                    resyncAfterHealthy: true
+                )
+            }
+        case .stopUntilAuthorizationRepaired:
+            // Trigger-mapped evidence never produces this action; the
+            // authorization teardown path owns it directly.
+            return
+        }
+    }
+
+    /// Entry for evidence that historically proved the exact session dead
+    /// (ended event stream, failed subscribe, timed-out write). With a
+    /// path-health provider wired (D3), the policy decides whether the
+    /// evidence really warrants teardown: a healthy transport path means the
+    /// failure is a stream/control problem repaired in place, and only a
+    /// probe-proven-dead or path-dead session escalates to a redial.
     func recoverDeadConnection(
+        trigger: RecoveryTrigger,
+        expectedClient: MobileCoreRPCClient
+    ) {
+        guard remoteClient === expectedClient, connectionState == .connected else { return }
+        if let provider = transportPathHealthGate() {
+            applyPolicyGatedRecovery(
+                trigger: trigger,
+                expectedClient: expectedClient,
+                provider: provider
+            )
+            return
+        }
+        legacyRecoverDeadConnection(trigger: trigger, expectedClient: expectedClient)
+    }
+
+    /// Pre-gate behavior: a definitive event-stream failure bypasses
+    /// same-client resubscription. Once the exact session is proven dead,
+    /// rebuilding its listener only hides the failure behind the transport's
+    /// reconnect behavior and leaves the shell owner stale. Instead,
+    /// transition the one lifecycle owner to a fresh authenticated
+    /// stored-Mac dial.
+    private func legacyRecoverDeadConnection(
         trigger: RecoveryTrigger,
         expectedClient: MobileCoreRPCClient
     ) {
@@ -362,6 +476,7 @@ extension MobileShellComposite {
 
     func recordSuccessfulTerminalSubscription() {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+        connectionRepairAttemptCount = 0
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()

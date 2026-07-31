@@ -153,6 +153,18 @@ actor CmxIrohClientSessionPool {
                         return session
                     } catch {
                         await session.close()
+                        // Level-triggered discovery refresh: report the failed
+                        // dial (with the exact plan it used) so the provider
+                        // can invalidate stale discovery reuse before the next
+                        // attempt. Cancellation is caller intent, not route
+                        // evidence.
+                        if !(Task.isCancelled || error is CancellationError) {
+                            await contextProvider.noteDialFailure(
+                                for: request,
+                                dialPlan: context.dialPlan,
+                                failure: DiagnosticFailureKind.classify(error)
+                            )
+                        }
                         throw error
                     }
                 }

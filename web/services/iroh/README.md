@@ -32,6 +32,49 @@ display name. The hourly `/api/internal/iroh/retention` cron applies the same
 policy across inactive accounts; responses also filter expired hints
 defensively.
 
+Binding lifecycle changes additionally fire a best-effort `iroh-binding-changed`
+nudge at the presence worker (`POST /v1/presence/nudge`, shared-secret header
+`x-cmux-nudge-secret`), targeted at the AFFECTED binding's device id and tag, so
+a subscribed device re-checks broker state within seconds instead of on its next
+poll. Exactly three paths nudge: user revocation, slot reincarnation (a signed
+registration that re-keys an existing (user, device, tag) slot to a new binding
+id), and the stale-binding reaper below. Plain signed refresh heartbeats and
+genuinely new slots never nudge, so refresh cadence cannot become nudge churn.
+The hook is env-gated by `CMUX_PRESENCE_NUDGE_URL` plus
+`CMUX_PRESENCE_NUDGE_SECRET` (either absent disables it entirely) and strictly
+fail-open: delivery has a ~2s budget, errors are swallowed and logged as counts,
+and a presence-worker outage can never fail or block a broker mutation. Because
+the presence worker shards Durable Objects by team, the nudge fans out to the
+device's registry teams (`devices.team_id`, capped at three) plus the user id as
+the solo-account fallback; a wrong-team candidate 404s harmlessly. The worker
+verifies the shared secret, then still enforces the device's presence owner pin
+against the asserted user id.
+
+The retention cron also REAPS stale active bindings. Each dev build occupies its
+own (user, device, tag) slot, and the shared dev account once accumulated 250+
+of them, hit the 256 active-binding sanity cap (pinned to the iOS discovery wire
+limit, never to be raised), and 409'd every new registration. The reaper
+soft-revokes (sets `revoked_at`, through the exact same helper as user
+revocation: hints and direct ports cleared, live pair grants revoked, LAN
+rendezvous generation rotated) any active binding whose `registered_at`
+high-water mark AND `last_seen_at` are BOTH older than its shape's TTL.
+Shape rule: a binding whose tag exactly matches a release-channel tag
+(`default`, `stable`, `rc`, `nightly`, `staging` — stable builds register
+`default` on both platforms) gets the long TTL,
+`CMUX_IROH_STALE_RELEASE_BINDING_TTL_HOURS` (default 1080h = 45 days); every
+other tag is a dev-style tagged build and gets the short TTL,
+`CMUX_IROH_STALE_DEV_BINDING_TTL_HOURS` (default 72h). Slugged channel builds
+(a slugged rc/nightly/staging registers its bare slug) intentionally land in
+the dev bucket: they are transient dogfood installs, indistinguishable from dev
+tags on the wire, and the conservative failure mode is reaping a dogfood build
+early, never a stable one. Reaping is safe even if it misfires: newest-wins
+slot re-key semantics let a reaped device re-register IN PLACE on its next
+launch or signed refresh, and a still-running instance receives the reaper's
+nudge and re-registers within seconds. Reap batches are bounded (500 rows per
+run by default), re-check staleness under `FOR UPDATE SKIP LOCKED` inside the
+per-user binding advisory lock and account-deletion fence, and record
+`revoked_reason` as `stale_development_binding` or `stale_binding_retention`.
+
 The LAN rendezvous key is HMAC-derived from an independent random server secret,
 the exact Stack user id, and an account generation. Discovery reads active
 bindings and that generation in one transaction under the same account lock as

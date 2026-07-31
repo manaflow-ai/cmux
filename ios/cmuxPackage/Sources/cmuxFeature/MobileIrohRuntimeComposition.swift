@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
-import CmuxMobileRPC
+public import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileTransport
 import CryptoKit
@@ -573,6 +573,13 @@ public final class MobileIrohRuntimeComposition:
         return candidates
     }
 
+    /// Drops reusable broker discovery state for one Mac after a presence
+    /// route push, so the next dial rebuilds its plan from a fresh snapshot
+    /// instead of redialing the Mac's pre-relaunch route state.
+    public func invalidateDiscovery(forMacDeviceID deviceID: String) async {
+        await runtime?.invalidateDiscoverySnapshot(forMacDeviceID: deviceID)
+    }
+
     private func recordDiscoveryOutcome(candidateCount: Int) {
         if candidateCount > 0 {
             diagnosticLog?.record(DiagnosticEvent(
@@ -679,6 +686,16 @@ public final class MobileIrohRuntimeComposition:
         await prepareForConnection()
         let runtime = try await runtimeForDial()
         return try await runtime.serverEventByteStream(for: request)
+    }
+
+    /// Credential-free path health for the live iroh session
+    /// (docs/transport-plane.md D3). Never dials or activates: an inactive
+    /// or absent runtime answers `.unknown` so the shell keeps legacy
+    /// escalation behavior instead of misreading "not activated yet" as a
+    /// dead path.
+    public func selectedPathHealth() async -> MobileTransportPathHealth {
+        guard let runtime else { return .unknown }
+        return await runtime.hasUsableSelectedPath() ? .healthy : .noPath
     }
 
     private func runtimeForDial() async throws -> CmxIrohClientRuntime {

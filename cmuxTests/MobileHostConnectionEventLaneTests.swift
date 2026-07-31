@@ -198,17 +198,18 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
-        // A non-droppable topic (state-sync deltas cannot be re-derived by the
-        // client) keeps the close-on-overflow contract; recoverable topics like
-        // terminal.render_grid are shed instead — see
-        // testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue.
+        // A non-droppable topic (chat transcripts cannot be re-derived by the
+        // client) keeps the close-on-overflow contract; recoverable topics
+        // like terminal.render_grid and mobile.sync.delta are shed instead —
+        // see testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue
+        // and testSyncDeltaFloodDuringWriteStallShedsInsteadOfClosing.
         _ = await session.debugHandleSubscriptionRPCForTesting(
             MobileHostRPCRequest(
                 id: "subscribe",
                 method: "mobile.events.subscribe",
                 params: [
                     "stream_id": "events",
-                    "topics": ["mobile.sync.delta"],
+                    "topics": ["chat.message"],
                     "event_transport": "iroh_server_events_v1",
                 ],
                 auth: nil
@@ -217,7 +218,7 @@ extension MobileHostAuthorizationTests {
 
         #expect(
             await session.sendEvent(
-                topic: "mobile.sync.delta",
+                topic: "chat.message",
                 payload: ["seq": 0]
             )
         )
@@ -226,14 +227,14 @@ extension MobileHostAuthorizationTests {
         for sequence in 1...256 {
             #expect(
                 await session.sendEvent(
-                    topic: "mobile.sync.delta",
+                    topic: "chat.message",
                     payload: ["seq": sequence]
                 )
             )
         }
         #expect(
             !(await session.sendEvent(
-                topic: "mobile.sync.delta",
+                topic: "chat.message",
                 payload: ["seq": 257]
             ))
         )
@@ -333,7 +334,7 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
     }
 
-    /// Events that cannot be re-derived by the client (state-sync deltas and
+    /// Events that cannot be re-derived by the client (chat transcripts and
     /// other non-refresh topics) must keep the close-on-overflow contract: the
     /// host may never silently drop them, so a subscriber that stops draining
     /// is torn down at the bounded capacity instead of growing without bound.
@@ -347,13 +348,13 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
-        await session.subscribe(streamID: "events", topics: ["mobile.sync.delta"])
+        await session.subscribe(streamID: "events", topics: ["chat.message"])
 
         var admitted = 0
         for sequence in 0..<300 {
             if await session.sendEvent(
-                topic: "mobile.sync.delta",
-                payload: ["revision": sequence]
+                topic: "chat.message",
+                payload: ["seq": sequence]
             ) {
                 admitted += 1
             }
@@ -362,6 +363,55 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
         #expect(admitted <= 258)
         #expect(await session.debugQueuedEventCountForTesting() == 0)
+    }
+
+    /// Regression for the field "2s metronome" (reconnect loop): a QUIC write
+    /// stall of a few seconds used to fill the bounded queue and close the
+    /// whole connection with `sendQueueOverflow`, forcing a full phone redial
+    /// while the path flapped. State-sync deltas are client-repairable via
+    /// cursor fetch, so backpressure must shed them and keep the connection —
+    /// only the event-send stall deadline (a truly wedged transport) may
+    /// close it.
+    @Test func testSyncDeltaFloodDuringWriteStallShedsInsteadOfClosing() async throws {
+        let transport = StalledSendMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await session.subscribe(
+            streamID: "events",
+            topics: ["mobile.sync.delta", "workspace.updated", "notification.feed.changed"]
+        )
+
+        for revision in 0..<600 {
+            _ = await session.sendEvent(
+                topic: "mobile.sync.delta",
+                payload: [
+                    "epoch": "epoch-metronome",
+                    "collection": "workspaces",
+                    "from_rev": revision,
+                    "to_rev": revision + 1,
+                    "records": [],
+                    "removed_ids": [],
+                ]
+            )
+        }
+        _ = await session.sendEvent(topic: "workspace.updated", payload: [:])
+        _ = await session.sendEvent(
+            topic: "notification.feed.changed",
+            payload: ["revision": 7]
+        )
+
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() <= 256)
+        #expect(await session.isSubscribed(to: "mobile.sync.delta"))
+
+        await session.close(reason: "test cleanup")
+        #expect(await transport.observedCloseCount() == 1)
     }
 
     /// End-to-end fan-out proof for issue #8842: sustained emission through the
@@ -495,18 +545,154 @@ extension MobileHostAuthorizationTests {
             maximumEventCount: 1,
             maximumByteCount: 1_000_000
         )
-        queue.updateSubscribedTopics(["mobile.sync.delta"])
+        queue.updateSubscribedTopics(["chat.message"])
         let frame = Data(repeating: 0x61, count: 16)
         #expect(queue.enqueue(
-            topic: "mobile.sync.delta", coalesceKey: nil,
+            topic: "chat.message", coalesceKey: nil,
             isFullRenderGridFrame: false, frame: frame
         ).admitted)
         let overflow = queue.enqueue(
-            topic: "mobile.sync.delta", coalesceKey: nil,
+            topic: "chat.message", coalesceKey: nil,
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(!overflow.admitted)
         #expect(overflow.shouldClose)
+    }
+
+    /// A sync-delta overflow sheds the oldest delta instead of closing, and
+    /// the repair signal is withheld until the drain pulls the queue to the
+    /// low-water mark so the repair cannot be shed in turn.
+    @Test func testEventQueueShedsSyncDeltaAndReleasesRepairAtLowWaterMark() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 2,
+            maximumByteCount: 1_000_000,
+            shedRepairLowWaterMark: 1
+        )
+        queue.updateSubscribedTopics(["mobile.sync.delta"])
+        let frame = Data(repeating: 0x61, count: 16)
+        for _ in 0..<2 {
+            #expect(queue.enqueue(
+                topic: "mobile.sync.delta", coalesceKey: nil,
+                isFullRenderGridFrame: false, frame: frame
+            ).admitted)
+        }
+        let overflow = queue.enqueue(
+            topic: "mobile.sync.delta", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(overflow.admitted)
+        #expect(!overflow.shouldClose)
+        // Still at capacity: the repair stays pending.
+        #expect(queue.takeShedRepairs() == nil)
+        _ = queue.dequeue()
+        let repairs = queue.takeShedRepairs()
+        #expect(repairs?.topics == ["mobile.sync.delta"])
+        #expect(repairs?.shedEventCount == 1)
+        // Taking resets the cycle: nothing further is pending.
+        #expect(queue.takeShedRepairs() == nil)
+    }
+
+    /// An incoming droppable event refused admission (queue full of
+    /// non-droppable frames) is itself a shed and must join the repair cycle
+    /// without requesting a close.
+    @Test func testEventQueueRefusedIncomingDroppableEventMarksRepair() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000,
+            shedRepairLowWaterMark: 1
+        )
+        queue.updateSubscribedTopics(["chat.message", "notification.feed.changed"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "chat.message", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        let refused = queue.enqueue(
+            topic: "notification.feed.changed", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(!refused.admitted)
+        #expect(!refused.shouldClose)
+        _ = queue.dequeue()
+        let repairs = queue.takeShedRepairs()
+        #expect(repairs?.topics == ["notification.feed.changed"])
+        #expect(repairs?.shedEventCount == 1)
+    }
+
+    /// A level-triggered ping shed to make room for ANOTHER topic's event has
+    /// no newer occurrence superseding it, so the drain repair must re-emit
+    /// it; sheds also coalesce per topic across the cycle.
+    @Test func testEventQueueCrossTopicShedCoalescesLevelTriggeredPingRepair() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000,
+            shedRepairLowWaterMark: 1
+        )
+        queue.updateSubscribedTopics(["workspace.updated", "terminal.render_grid"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        // A render-grid full frame sheds the queued ping to make room.
+        let grid = queue.enqueue(
+            topic: MobileHostEventTopicPolicy.renderGridTopic, coalesceKey: "s1",
+            isFullRenderGridFrame: true, frame: frame
+        )
+        #expect(grid.admitted)
+        // A second ping is admitted (room after dequeue) and shed again by the
+        // next full frame: the repair still surfaces the topic exactly once.
+        _ = queue.dequeue()
+        #expect(queue.enqueue(
+            topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: MobileHostEventTopicPolicy.renderGridTopic, coalesceKey: "s1",
+            isFullRenderGridFrame: true, frame: frame
+        ).admitted)
+        _ = queue.dequeue()
+        let repairs = queue.takeShedRepairs()
+        #expect(repairs?.topics == ["workspace.updated"])
+        #expect(repairs?.shedEventCount == 2)
+    }
+
+    /// Render-grid sheds repair through poison-plus-full-resync, not the
+    /// drain repair signal, but still count toward the diagnostic shed total;
+    /// close() drops any pending repair state with the queue.
+    @Test func testEventQueueRenderGridShedCountsWithoutRepairTopicAndCloseClears() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 2,
+            maximumByteCount: 1_000_000,
+            shedRepairLowWaterMark: 2
+        )
+        queue.updateSubscribedTopics(["terminal.render_grid", "workspace.updated"])
+        let frame = Data(repeating: 0x61, count: 16)
+        for _ in 0..<2 {
+            #expect(queue.enqueue(
+                topic: MobileHostEventTopicPolicy.renderGridTopic, coalesceKey: "s1",
+                isFullRenderGridFrame: false, frame: frame
+            ).admitted)
+        }
+        // Overflow sheds s1's queued deltas; the arriving delta is refused
+        // too (post-gap delta). No drain-repair topic is marked, but the
+        // diagnostic count reflects every dropped event.
+        let overflow = queue.enqueue(
+            topic: MobileHostEventTopicPolicy.renderGridTopic, coalesceKey: "s1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+        #expect(!overflow.admitted)
+        #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
+        let repairs = queue.takeShedRepairs()
+        #expect(repairs?.topics.isEmpty == true)
+        #expect(repairs?.shedEventCount == 2)
+        // Pending state dies with the queue.
+        #expect(queue.enqueue(
+            topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: Data(repeating: 0x61, count: 2_000_000)
+        ).admitted == false)
+        queue.close()
+        #expect(queue.takeShedRepairs() == nil)
     }
 
     @Test func testEventQueueEnforcesByteBudgetBySheddingOldestDroppable() {

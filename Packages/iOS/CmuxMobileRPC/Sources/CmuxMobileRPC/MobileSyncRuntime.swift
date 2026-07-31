@@ -44,6 +44,9 @@ public protocol MobileSyncRuntime: Sendable {
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
     /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
     var artifactLaneProvider: MobileArtifactLaneProvider? { get }
+    /// Optional credential-free path-health source for the live connection.
+    /// A nil provider keeps legacy escalation behavior (health `unknown`).
+    var transportPathHealthProvider: MobileTransportPathHealthProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so

@@ -945,6 +945,65 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await endpoint.observedDialedAddresses().count == 1)
         await foreground.close()
     }
+
+    @Test
+    func failedDialReportsPlanAndClassifiedFailureToContextProvider() async throws {
+        let fixture = try PoolFixture()
+        let provider = TestIrohClientContextProvider(context: fixture.context)
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.failure(.noEndpoint)]
+        )
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            contextProvider: provider
+        )
+
+        await #expect(throws: TestIrohTransportError.noEndpoint) {
+            _ = try await pool.session(for: fixture.request)
+        }
+
+        let failures = await provider.observedDialFailures()
+        #expect(failures.count == 1)
+        #expect(failures.first?.request == fixture.request)
+        #expect(failures.first?.dialPlan == fixture.context.dialPlan)
+        #expect(failures.first?.failure == .unknown)
+        await pool.deactivate()
+    }
+
+    @Test
+    func cancelledDialDoesNotReportAFailureOutcome() async throws {
+        let fixture = try PoolFixture()
+        let provider = TestIrohClientContextProvider(context: fixture.context)
+        let endpoint = TestCancellableDialEndpoint(
+            localIdentity: fixture.localIdentity
+        )
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            contextProvider: provider
+        )
+        let connect = Task { try await pool.session(for: fixture.request) }
+        var reachedDial = false
+        for _ in 0 ..< 2_000 {
+            if await endpoint.observedDialCount() >= 1 {
+                reachedDial = true
+                break
+            }
+            await Task.yield()
+        }
+        #expect(reachedDial)
+
+        // Retiring the pending connection cancels the dial task; the parked
+        // endpoint dial settles with a CancellationError.
+        await pool.invalidate(for: fixture.request)
+        _ = try? await connect.value
+
+        #expect(await provider.observedDialFailures().isEmpty)
+        await pool.deactivate()
+        await endpoint.close()
+    }
 }
 
 private func waitForControlWaiter(

@@ -1954,6 +1954,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
+
+    /// Consecutive in-place stream repairs (policy ``MobileConnectionPolicyAction/resubscribe``)
+    /// on the current connection without the data plane proving healthy
+    /// again. Bounds the D2 repair ladder so repeated suspect evidence
+    /// escalates to a probe instead of looping; reset by
+    /// ``markMacConnectionHealthy()`` and
+    /// ``recordSuccessfulTerminalSubscription()``.
+    var connectionRepairAttemptCount = 0
     var lastReconnectStackUserID: String?
 
     enum RecoveryTrigger: CustomStringConvertible {
@@ -1997,6 +2005,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
+            }
+        }
+
+        /// The trigger's place in the transport-plane evidence taxonomy
+        /// (docs/transport-plane.md D2), consumed by
+        /// ``MobileConnectionPolicy`` when a path-health provider is wired.
+        var connectionEvidence: MobileConnectionEvidence {
+            switch self {
+            case .networkChange: return .networkPathChanged
+            case .manual: return .manualRetry
+            case .presencePush: return .presenceRoutePush
+            case .foreground: return .foreground
+            case .liveness: return .livenessSilence
+            case .eventStreamEnded: return .eventStreamEnded
+            case .subscriptionStartFailed: return .subscriptionStartFailed
+            case .transportWriteTimedOut: return .rpcWriteTimedOut
+            case .automaticBackoffExpired: return .backoffExpired
             }
         }
     }
@@ -8223,6 +8248,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
                     }
+                    // An unreachable-class iroh route failure is staleness
+                    // evidence: drop any reusable discovery snapshot for this
+                    // Mac so the NEXT attempt rebuilds its dial plan from a
+                    // fresh broker fetch instead of redialing a corpse route.
+                    // The transport pool reports most dial failures itself,
+                    // but this request deadline cancels an in-flight dial (the
+                    // pool then sees only a cancellation), so the owner that
+                    // classified the outcome reports it too.
+                    if route.kind == .iroh,
+                       !ticket.macDeviceID.isEmpty,
+                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                        await personalIrohDiscovery?.invalidateDiscovery(
+                            forMacDeviceID: ticket.macDeviceID
+                        )
+                    }
                 }
             }
             // This route exhausted every workspace-list request without being
@@ -9101,6 +9141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        connectionRepairAttemptCount = 0
     }
 
     func markMacConnectionReconnecting() {
