@@ -3,6 +3,99 @@ import CmuxAgentChat
 import CmuxTerminal
 import Foundation
 
+/// Retains terminal render/tick notifications only while live prose streaming
+/// can consume them. Frame notifications cover visible surfaces; tick
+/// notifications cover hidden/background surfaces that receive PTY output
+/// without drawing a Metal frame.
+@MainActor
+private final class AgentChatProseStreamWakeDriver {
+    private let streamer: AgentChatProseStreamer
+    private let hasSubscribers: @MainActor () -> Bool
+    private var observers: [NSObjectProtocol] = []
+    private var releaseFrameDemand: (() -> Void)?
+    private var releaseTickDemand: (() -> Void)?
+
+    init(
+        streamer: AgentChatProseStreamer,
+        hasSubscribers: @escaping @MainActor () -> Bool
+    ) {
+        self.streamer = streamer
+        self.hasSubscribers = hasSubscribers
+    }
+
+    func start() {
+        guard observers.isEmpty else { return }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshDemand(kickIfRetained: true)
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidRenderFrame,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let view = notification.object as? GhosttyNSView,
+                      let surfaceID = view.terminalSurface?.id else {
+                    return
+                }
+                self?.streamer.surfaceDidChange(surfaceID)
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidTick,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.streamer.terminalDidTick()
+            }
+        })
+        refreshDemand(kickIfRetained: true)
+    }
+
+    func stop() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+        releaseDemand()
+    }
+
+    func refreshDemand(kickIfRetained: Bool = false) {
+        let shouldRetainDemand = hasSubscribers() && streamer.hasActiveUnsettledTurns
+        if shouldRetainDemand {
+            if releaseFrameDemand == nil {
+                releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
+            }
+            if releaseTickDemand == nil {
+                releaseTickDemand = GhosttyApp.retainTickNotifications()
+            }
+            if kickIfRetained {
+                streamer.terminalDidTick()
+            }
+        } else {
+            releaseDemand()
+        }
+    }
+
+    private func releaseDemand() {
+        releaseFrameDemand?()
+        releaseFrameDemand = nil
+        releaseTickDemand?()
+        releaseTickDemand = nil
+    }
+
+    deinit {
+        stop()
+    }
+}
+
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
 /// events, tails their transcripts, serves history pages, and pushes
 /// `chat.message` events to subscribed mobile clients.
@@ -20,6 +113,8 @@ final class AgentChatTranscriptService {
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
+    /// Bridges terminal output/render wakeups into the prose streamer.
+    private var proseWakeDriver: AgentChatProseStreamWakeDriver!
     /// Current live prose-stream generation per session, consumed when the
     /// matching authoritative transcript prose lands.
     private var proseTurnTokens: [String: AgentChatProseStreamer.TurnToken] = [:]
@@ -71,11 +166,17 @@ final class AgentChatTranscriptService {
         registry.onRecordRemoved = { [weak self] record in
             self?.handleRecordRemoval(record)
         }
-        self.proseStreamer = AgentChatProseStreamer(
+        let proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
             snapshot: { surfaceID in await Self.screenRows(surfaceID: surfaceID) },
             hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
         )
+        self.proseStreamer = proseStreamer
+        self.proseWakeDriver = AgentChatProseStreamWakeDriver(
+            streamer: proseStreamer,
+            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
+        )
+        self.proseWakeDriver.start()
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
@@ -212,6 +313,7 @@ final class AgentChatTranscriptService {
                     surfaceID: surfaceID,
                     agentKind: record.agentKind
                 )
+                proseWakeDriver.refreshDemand(kickIfRetained: true)
             }
         case .stop, .sessionEnd:
             endProseTurn(sessionID: record.sessionID)
@@ -561,10 +663,17 @@ final class AgentChatTranscriptService {
     private func settleProseTurn(sessionID: String) {
         guard let token = proseTurnTokens.removeValue(forKey: sessionID) else { return }
         proseStreamer.authoritativeProseArrived(token)
+        proseWakeDriver.refreshDemand()
     }
 
     private func endProseTurn(sessionID: String) {
         proseTurnTokens[sessionID] = nil
         proseStreamer.turnEnded(sessionID: sessionID)
+        proseWakeDriver.refreshDemand()
+    }
+
+    deinit {
+        proseWakeDriver?.stop()
+        proseStreamer?.stopAll()
     }
 }
