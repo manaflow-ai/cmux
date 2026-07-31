@@ -126,17 +126,17 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
-    func authRejectionsRecoverWithCachedPolicy() {
+    func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.connectivity
         ))
-        #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
+        #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 401,
                 code: "unauthorized"
             )
         ))
-        #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
+        #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))
         #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(

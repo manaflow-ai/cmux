@@ -162,6 +162,23 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func cancelledTokenReadPropagatesBeforeAnyNetworkRequest() async throws {
+        let transport = RecordingBrokerTransport(responses: [])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: try #require(URL(string: "https://cmux.example")),
+            tokenSource: CmxIrohBrokerTokenSource(
+                credentialPair: { throw CancellationError() }
+            ),
+            transport: transport
+        )
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().isEmpty)
+    }
+
+    @Test
     func cleartextRemoteOriginIsRejected() throws {
         #expect(throws: CmxIrohTrustBrokerClientError.invalidBaseURL) {
             _ = try CmxIrohTrustBrokerClient(
