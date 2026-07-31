@@ -25,6 +25,9 @@ struct MobileStateSyncFrameCodingTests {
             id: "ws-1",
             windowID: "win-1",
             title: "build",
+            customDescription: "Release validation",
+            customDescriptionIsTruncated: true,
+            customColorHex: "#1565C0",
             currentDirectory: "/repo",
             isSelected: true,
             isPinned: false,
@@ -51,6 +54,9 @@ struct MobileStateSyncFrameCodingTests {
         let object = try MobileSyncFrameCoder().jsonObject(from: workspace)
         #expect(object["id"] as? String == "ws-1")
         #expect(object["window_id"] as? String == "win-1")
+        #expect(object["description"] as? String == "Release validation")
+        #expect(object["description_truncated"] as? Bool == true)
+        #expect(object["custom_color"] as? String == "#1565C0")
         #expect(object["current_directory"] as? String == "/repo")
         #expect(object["is_selected"] as? Bool == true)
         #expect(object["is_pinned"] as? Bool == false)
@@ -68,6 +74,33 @@ struct MobileStateSyncFrameCodingTests {
         let root = try #require(encodedLayout["root"] as? [String: Any])
         #expect(root["kind"] as? String == "pane")
         #expect(root["selected_surface_id"] as? String == "t-1")
+    }
+
+    @Test func workspaceRecordDefaultsMissingDescriptionTruncatedFlagToFalse() throws {
+        let decoded = try MobileSyncFrameCoder().decode(
+            WorkspaceSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "ws-older",
+              "window_id": "win-1",
+              "title": "older",
+              "description": "Legacy state sync",
+              "current_directory": null,
+              "is_selected": false,
+              "is_pinned": false,
+              "group_id": null,
+              "preview": null,
+              "preview_at": null,
+              "last_activity_at": 1,
+              "has_unread": false,
+              "sort_index": 0,
+              "terminals": []
+            }
+            """
+        )
+
+        #expect(decoded.customDescription == "Legacy state sync")
+        #expect(!decoded.customDescriptionIsTruncated)
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {

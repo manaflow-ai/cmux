@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-A small third-party-style frontend that proves the protocol-v9 WebSocket API
+A small third-party-style frontend that proves the protocol-v10 WebSocket API
 and the browser entry of the TypeScript SDK are enough to build a natural cmux
 client. It renders the authoritative workspace tree, attaches xterm.js to the
 active PTY surface, forwards keyboard input, resizes from terminal cells, and

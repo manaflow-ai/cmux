@@ -75,7 +75,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -126,6 +126,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
         "workspace.remote.pty_resize",
+        // Persistent readiness authenticates against broker-owned lifecycle
+        // state. The broker serializes that state on its own queue, so this
+        // command must never make the main actor wait behind tunnel work.
+        // Parsing and authentication run here; the final workspace/Dock
+        // mutation takes one synchronous controlResolveOnMain hop.
+        "workspace.remote.terminal_session_launching",
+        "workspace.remote.terminal_session_connected",
         "remote.tmux.sessions",
         "remote.tmux.attach",
         "remote.tmux.detach",
@@ -265,7 +272,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
@@ -424,6 +431,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "send_workspace",
     ]
 
+    /// Configuration commands that block their socket worker until the main
+    /// actor commits the requested runtime update.
+    static let configurationMutationV1Commands: Set<String> = [
+        "reload_config",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
     /// sidebar telemetry, notification, terminal-read, resolution-read, and
@@ -436,6 +449,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)
             .union(terminalSendV1Commands)
+            .union(configurationMutationV1Commands)
             .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main

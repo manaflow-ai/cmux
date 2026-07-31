@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
@@ -31,6 +32,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
         ]
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserStreamStore = BrowserStreamStore()
     @State private var delayedTerminalTask: Task<Void, Never>?
 
     var body: some View {
@@ -40,6 +42,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserStreamStore)
         .task {
             store.selectedWorkspaceID = Self.initialWorkspaceID
             store.selectedTerminalID = Self.initialTerminalID

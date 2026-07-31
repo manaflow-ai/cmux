@@ -4,30 +4,30 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct NotificationFeedRow: View, Equatable {
-    let item: MobileNotificationFeedItem
+    let model: NotificationFeedRowModel
     let actions: NotificationFeedActions
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.item == rhs.item
+        lhs.model == rhs.model
     }
 
-    var body: some View {
-        let presentation = NotificationFeedRowPresentation(item: item)
+    private var item: MobileNotificationFeedItem { model.item }
 
+    var body: some View {
         Button {
-            actions.open(item)
+            open()
         } label: {
             NotificationFeedRowLabel(
                 title: item.title,
                 createdAt: item.createdAt,
                 isRead: item.isRead,
-                presentation: presentation
+                presentation: model.presentation
             )
         }
         .buttonStyle(.plain)
         .contextMenu(menuItems: {
             Button {
-                actions.open(item)
+                open()
             } label: {
                 Label(
                     L10n.string("mobile.notificationFeed.open", defaultValue: "Open"),
@@ -58,7 +58,7 @@ struct NotificationFeedRow: View, Equatable {
                 .accessibilityIdentifier("MobileNotificationFeedMarkUnreadMenu-\(accessibilitySuffix)")
             }
         })
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if !item.isRead {
                 Button {
                     actions.markRead(item)
@@ -70,19 +70,30 @@ struct NotificationFeedRow: View, Equatable {
                 }
                 .tint(.blue)
                 .accessibilityIdentifier("MobileNotificationFeedMarkReadSwipe-\(accessibilitySuffix)")
+            } else {
+                Button {
+                    actions.markUnread(item)
+                } label: {
+                    Label(
+                        L10n.string("mobile.notificationFeed.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: "envelope.badge"
+                    )
+                }
+                .tint(.blue)
+                .accessibilityIdentifier("MobileNotificationFeedMarkUnreadSwipe-\(accessibilitySuffix)")
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(item.title)
-        .accessibilityValue(accessibilityValue(presentation: presentation))
+        .accessibilityValue(accessibilityValue)
         .accessibilityHint(L10n.string(
             "mobile.notificationFeed.openHint",
             defaultValue: "Opens this notification's workspace."
         ))
         .accessibilityActions {
             Button(L10n.string("mobile.notificationFeed.open", defaultValue: "Open")) {
-                actions.open(item)
+                open()
             }
             if !item.isRead {
                 Button(L10n.string("mobile.notificationFeed.markRead", defaultValue: "Mark as Read")) {
@@ -97,40 +108,20 @@ struct NotificationFeedRow: View, Equatable {
         .accessibilityIdentifier("MobileNotificationFeedRow-\(accessibilitySuffix)")
     }
 
+    private func open() {
+        actions.open(item)
+    }
+
     private var accessibilitySuffix: String {
         "\(item.macDeviceID)-\(item.notificationID)"
     }
 
-    private func accessibilityValue(presentation: NotificationFeedRowPresentation) -> String {
-        var details = [
-            item.isRead
-                ? L10n.string("mobile.notificationFeed.read", defaultValue: "Read")
-                : L10n.string("mobile.notificationFeed.unread", defaultValue: "Unread"),
-        ]
-        details.append(accessibilityField(
-            label: L10n.string("mobile.notificationFeed.row.workspace", defaultValue: "Workspace"),
-            value: presentation.workspaceName
-        ))
-        if let contentPreview = presentation.contentPreview {
-            details.append(contentPreview)
-        }
-        details.append(accessibilityField(
-            label: L10n.string("mobile.notificationFeed.row.computer", defaultValue: "Computer"),
-            value: presentation.computerStatusText
-        ))
-        details.append(item.createdAt.formatted(.relative(presentation: .named)))
-        return details.formatted()
-    }
-
-    private func accessibilityField(label: String, value: String) -> String {
-        String(
-            format: L10n.string(
-                "mobile.notificationFeed.row.fieldFormat",
-                defaultValue: "%1$@: %2$@"
-            ),
-            label,
-            value
-        )
+    /// Joins the precomputed details with a render-time relative date, so the
+    /// spoken timestamp stays current even when cached models republish.
+    private var accessibilityValue: String {
+        (model.presentation.accessibilityDetails
+            + [item.createdAt.formatted(.relative(presentation: .named))])
+            .formatted()
     }
 }
 
@@ -174,19 +165,22 @@ private struct NotificationFeedUnreadIndicator: View {
     let isRead: Bool
 
     var body: some View {
+        // No overlay: the previous read-state overlay stroked Color.clear
+        // (invisible) while still costing a layout node in every cell's
+        // self-sizing pass.
         Circle()
             .fill(isRead ? Color.clear : Color.accentColor)
             .frame(width: 6, height: 6)
-            .overlay {
-                if isRead {
-                    Circle().stroke(Color.clear, lineWidth: 1)
-                }
-            }
             .padding(.top, 5)
             .accessibilityHidden(true)
     }
 }
 
+// Icon-and-label lines are single interpolated `Text`s rather than
+// HStack{Image, Text} pairs: cell self-sizing dominated the scroll profile,
+// and every stack and image node here is measured again for each trial layout
+// a materializing cell runs. The row ignores child accessibility, so the
+// interpolated symbols never reach VoiceOver.
 private struct NotificationFeedHeadline: View {
     let title: String
     let createdAt: Date
@@ -195,20 +189,9 @@ private struct NotificationFeedHeadline: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                if representsWorkspace {
-                    Image(systemName: "rectangle.stack")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(isRead ? .medium : .semibold)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-            }
-            .layoutPriority(1)
+            titleText
+                .lineLimit(2)
+                .layoutPriority(1)
 
             Spacer(minLength: 6)
 
@@ -219,89 +202,18 @@ private struct NotificationFeedHeadline: View {
                 .fixedSize(horizontal: true, vertical: false)
         }
     }
-}
 
-/// A compact, immutable projection of the four facts a user scans before opening.
-private struct NotificationFeedRowPresentation: Equatable {
-    let workspaceName: String
-    let workspaceMatchesTitle: Bool
-    let contentPreview: String?
-    let computerName: String
-    let connectionStatus: MobileMacConnectionStatus
-
-    init(item: MobileNotificationFeedItem) {
-        let normalizedTitle = Self.normalized(item.title) ?? item.title
-        let normalizedWorkspace = Self.normalized(item.workspaceTitle) ?? L10n.string(
-            "mobile.notificationFeed.row.unknownWorkspace",
-            defaultValue: "Unknown workspace"
-        )
-        let normalizedComputer = Self.normalized(item.macDisplayName) ?? item.macDeviceID
-
-        workspaceName = normalizedWorkspace
-        workspaceMatchesTitle = Self.matches(normalizedWorkspace, normalizedTitle)
-        computerName = normalizedComputer
-        connectionStatus = item.connectionStatus
-
-        let redundantContent = [normalizedTitle, normalizedWorkspace, normalizedComputer]
-        if let body = Self.normalized(item.body),
-           !Self.matchesAny(body, redundantContent) {
-            contentPreview = body
-        } else if let subtitle = Self.normalized(item.subtitle),
-                  !Self.matchesAny(subtitle, redundantContent) {
-            // The desktop feed treats title + body as the primary content. The
-            // optional subtitle becomes useful only when the body adds nothing.
-            contentPreview = subtitle
-        } else {
-            contentPreview = nil
-        }
-    }
-
-    var computerStatusText: String {
-        applyingConnectionStatus(to: computerName)
-    }
-
-    private func applyingConnectionStatus(to value: String) -> String {
-        switch connectionStatus {
-        case .connected:
-            return value
-        case .reconnecting:
-            return String(
-                format: L10n.string(
-                    "mobile.notificationFeed.macReconnectingFormat",
-                    defaultValue: "%@ · Reconnecting"
-                ),
-                value
-            )
-        case .unavailable:
-            return String(
-                format: L10n.string(
-                    "mobile.notificationFeed.macUnavailableFormat",
-                    defaultValue: "%@ · Unavailable"
-                ),
-                value
-            )
-        }
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else { return nil }
-        return value
-    }
-
-    private static func matchesAny(_ candidate: String, _ values: [String]) -> Bool {
-        values.contains { matches(candidate, $0) }
-    }
-
-    private static func matches(_ lhs: String, _ rhs: String) -> Bool {
-        canonical(lhs) == canonical(rhs)
-    }
-
-    private static func canonical(_ value: String) -> String {
-        value
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    private var titleText: Text {
+        let base = Text(title)
+            .font(.subheadline)
+            .fontWeight(isRead ? .medium : .semibold)
+            .foregroundStyle(.primary)
+        guard representsWorkspace else { return base }
+        return Text(Image(systemName: "rectangle.stack"))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            + Text(" ")
+            + base
     }
 }
 
@@ -351,14 +263,10 @@ private struct NotificationFeedWorkspace: View {
     let allowsWrapping: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: "rectangle.stack")
-                .accessibilityHidden(true)
-            Text(name)
-        }
-        .font(.footnote.weight(.semibold))
-        .foregroundStyle(.secondary)
-        .lineLimit(allowsWrapping ? 2 : 1)
+        (Text(Image(systemName: "rectangle.stack")) + Text(" ") + Text(name))
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(allowsWrapping ? 2 : 1)
     }
 }
 
@@ -368,14 +276,10 @@ private struct NotificationFeedComputer: View {
     let allowsWrapping: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: "desktopcomputer")
-                .accessibilityHidden(true)
-            Text(name)
-        }
-        .font(.caption)
-        .foregroundStyle(isReachable ? Color.secondary.opacity(0.7) : Color.orange)
-        .lineLimit(allowsWrapping ? 2 : 1)
+        (Text(Image(systemName: "desktopcomputer")) + Text(" ") + Text(name))
+            .font(.caption)
+            .foregroundStyle(isReachable ? Color.secondary.opacity(0.7) : Color.orange)
+            .lineLimit(allowsWrapping ? 2 : 1)
     }
 }
 

@@ -17,6 +17,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let windowID: String?
         /// User-facing workspace title.
         public let title: String
+        /// Custom workspace description, when reported by the Mac.
+        public let customDescription: String?
+        /// Whether `customDescription` is a bounded projection of a longer Mac value.
+        public let customDescriptionIsTruncated: Bool?
+        /// Custom workspace accent color as `#RRGGBB`, when reported by the Mac.
+        public let customColorHex: String?
         /// The workspace's current working directory, if reported.
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
@@ -52,6 +58,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case id
             case windowID = "window_id"
             case title
+            case customDescription = "description"
+            case customDescriptionIsTruncated = "description_truncated"
+            case customColorHex = "custom_color"
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
@@ -72,6 +81,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             id = try container.decode(String.self, forKey: .id)
             windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
             title = try container.decode(String.self, forKey: .title)
+            customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+            customDescriptionIsTruncated = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .customDescriptionIsTruncated
+            )
+            customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
             currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
             isSelected = try container.decode(Bool.self, forKey: .isSelected)
             isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
@@ -90,6 +105,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         ///   - id: The stable workspace identifier.
         ///   - windowID: The owning Mac window identifier, when reported.
         ///   - title: The workspace's display title.
+        ///   - customDescription: The custom workspace description, when reported.
+        ///   - customDescriptionIsTruncated: Whether the custom description was truncated.
+        ///   - customColorHex: The custom workspace color as `#RRGGBB`, when reported.
         ///   - currentDirectory: The presented working directory, when reported.
         ///   - isSelected: Whether the Mac currently has this workspace selected.
         ///   - isPinned: Whether the workspace is pinned, when reported.
@@ -104,6 +122,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             id: String,
             windowID: String?,
             title: String,
+            customDescription: String? = nil,
+            customDescriptionIsTruncated: Bool? = nil,
+            customColorHex: String? = nil,
             currentDirectory: String?,
             isSelected: Bool,
             isPinned: Bool?,
@@ -118,6 +139,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.id = id
             self.windowID = windowID
             self.title = title
+            self.customDescription = customDescription
+            self.customDescriptionIsTruncated = customDescriptionIsTruncated
+            self.customColorHex = customColorHex
             self.currentDirectory = currentDirectory
             self.isSelected = isSelected
             self.isPinned = isPinned
@@ -270,5 +294,3 @@ extension MobileSyncWorkspaceListResponse {
         self.createdTerminalID = createdTerminalID
     }
 }
-
-

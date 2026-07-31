@@ -38,6 +38,7 @@ extension MobileHostIrohRuntime {
             ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
+            pathPreference: CmxIrohPathPreference.stored(in: .standard),
             managedRelays: managedPolicy?.relays.map { relay in
                 CmxIrohSettingsSnapshot.ManagedRelay(
                     id: relay.id,
