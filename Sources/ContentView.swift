@@ -598,10 +598,9 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     return controller
 }
 
-// Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
-// (ContentView decomposition). These typealiases keep call sites short.
+// Lifted to `CmuxFoundation.WorkspaceMountPlan` (ContentView decomposition).
+// This typealias keeps call sites short.
 typealias WorkspaceMountPlan = CmuxFoundation.WorkspaceMountPlan
-typealias MountedWorkspacePresentation = CmuxFoundation.MountedWorkspacePresentation
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 private func findFileDropOverlayView(in root: NSView?) -> FileDropOverlayView? {
@@ -886,7 +885,6 @@ struct ContentView: View {
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
-    @State private var retiringWorkspaceId: UUID?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
@@ -1790,30 +1788,18 @@ struct ContentView: View {
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
-        let retiringWorkspaceId = self.retiringWorkspaceId
 
         return ZStack {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
-                    let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let presentation = MountedWorkspacePresentation.resolve(
-                        isSelectedWorkspace: isSelectedWorkspace,
-                        isRetiringWorkspace: isRetiringWorkspace
-                    )
-                    // Keep the retiring workspace visible during handoff, but never input-active.
-                    // Allowing both selected+retiring workspaces to be input-active lets the
-                    // old workspace steal first responder (notably with WKWebView), which can
-                    // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace
-                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: presentation.isPanelVisible,
-                        isWorkspaceInputActive: isInputActive,
+                        isWorkspaceVisible: isSelectedWorkspace,
+                        isWorkspaceInputActive: isSelectedWorkspace,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
-                        workspacePortalPriority: portalPriority,
+                        workspacePortalPriority: isSelectedWorkspace ? 2 : 0,
                         windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -1825,10 +1811,10 @@ struct ContentView: View {
                             )
                         }
                     )
-                    .opacity(presentation.renderOpacity)
+                    .opacity(isSelectedWorkspace ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!presentation.isRenderedVisible)
-                    .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
+                    .accessibilityHidden(!isSelectedWorkspace)
+                    .zIndex(isSelectedWorkspace ? 2 : 0)
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
@@ -2736,11 +2722,18 @@ struct ContentView: View {
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
-            startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
+            let retiringWorkspaceID = startWorkspaceHandoffIfNeeded(
+                newSelectedId: newValue
+            )
             reconcileMountedWorkspaceIds(selectedId: newValue)
             // Mount state is authoritative. Presentation milestones continue
             // as diagnostics, but never retain the source workspace.
-            completeWorkspaceHandoff(reason: "mount_reconciled")
+            if let retiringWorkspaceID {
+                completeWorkspaceHandoff(
+                    retiringWorkspaceID: retiringWorkspaceID,
+                    reason: "mount_reconciled"
+                )
+            }
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -3010,10 +3003,6 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
-            if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
-                self.retiringWorkspaceId = nil
-                tabManager.workspaceSwitchCoordinator.cancel()
-            }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
             }
@@ -3481,17 +3470,14 @@ struct ContentView: View {
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
-        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds
-            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
+        let pinnedIds = tabManager.mountedBackgroundWorkspaceLoadIds
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
-        let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
-        let baseMaxMounted = shouldKeepHandoffPair
-            ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
-            : WorkspaceMountPlan.maxMountedWorkspaces
         let selectedCount = effectiveSelectedId == nil ? 0 : 1
-        let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
+        let maxMounted = max(
+            WorkspaceMountPlan.maxMountedWorkspaces,
+            selectedCount + pinnedIds.count
+        )
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPlan(
             current: mountedWorkspaceIds,
@@ -3543,20 +3529,23 @@ struct ContentView: View {
         windowChrome.backdropController.updateGlassTint(to: window, color: tintColor)
     }
 
-    private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
+    private func startWorkspaceHandoffIfNeeded(
+        newSelectedId: UUID?
+    ) -> UUID? {
         let oldSelectedId = previousSelectedWorkspaceId
         previousSelectedWorkspaceId = newSelectedId
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             tabManager.workspaceSwitchCoordinator.cancel()
-            retiringWorkspaceId = nil
-            return
+            return nil
         }
 
-        retiringWorkspaceId = oldSelectedId
         tabManager.workspaceSwitchCoordinator.beginPresentation(
-            workspaceSwitchPresentationTarget(for: newSelectedId),
+            workspaceSwitchPresentationTarget(
+                for: newSelectedId,
+                sourceWorkspaceID: oldSelectedId
+            ),
             retiringWorkspaceID: oldSelectedId
         )
 
@@ -3573,48 +3562,55 @@ struct ContentView: View {
             )
         }
 #endif
+        return oldSelectedId
     }
 
-    private func completeWorkspaceHandoff(reason: String) {
-        guard let retiring = retiringWorkspaceId else { return }
+    private func completeWorkspaceHandoff(
+        retiringWorkspaceID: UUID,
+        reason: String
+    ) {
         tabManager.workspaceSwitchCoordinator.sourceWillRetire(
-            workspaceID: retiring
+            workspaceID: retiringWorkspaceID
         )
 
-        // Disable before clearing retiringWorkspaceId: unmount teardown does not
-        // hide portals during transient rebuilds or cancel stale layout follow-ups.
-        if let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
+        // Unmount teardown does not hide portals during transient rebuilds or
+        // cancel stale layout follow-ups, so make the old portal state explicit.
+        if let workspace = tabManager.tabs.first(where: {
+            $0.id == retiringWorkspaceID
+        }) {
             workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
             lastReconciledPortalRenderingStatesByWorkspaceId[workspace.id] = false
         }
 
-        retiringWorkspaceId = nil
-        reconcileMountedWorkspaceIds()
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
         tabManager.workspaceSwitchCoordinator.sourceDidRetire(
-            workspaceID: retiring
+            workspaceID: retiringWorkspaceID
         )
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
             cmuxDebugLog(
-                "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+                "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiringWorkspaceID))"
             )
         } else {
-            cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+            cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiringWorkspaceID))")
         }
 #endif
     }
 
     private func workspaceSwitchPresentationTarget(
-        for workspaceID: UUID
+        for workspaceID: UUID,
+        sourceWorkspaceID: UUID
     ) -> WorkspaceSwitchCoordinator.PresentationTarget {
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return passiveWorkspaceSwitchPresentationTarget(workspaceID: workspaceID)
         }
 
         let window = observedWindow ?? tabManager.window
-        let requiresInteraction = workspaceSwitchRequiresInteraction(in: window)
+        let requiresInteraction = workspaceSwitchRequiresInteraction(
+            in: window,
+            sourceWorkspaceID: sourceWorkspaceID
+        )
         if let focusedPanelID = workspace.focusedPanelId,
            let browserPanel = workspace.browserPanel(for: focusedPanelID) {
             let webView = browserPanel.webView
@@ -3692,7 +3688,10 @@ struct ContentView: View {
         )
     }
 
-    private func workspaceSwitchRequiresInteraction(in window: NSWindow?) -> Bool {
+    private func workspaceSwitchRequiresInteraction(
+        in window: NSWindow?,
+        sourceWorkspaceID: UUID
+    ) -> Bool {
         guard let window, window.isKeyWindow else { return false }
         guard !isCommandPalettePresented,
               !fileExplorerState.rightSidebarOwnsInputFocus else {
@@ -3702,13 +3701,12 @@ struct ContentView: View {
         if responder === window {
             return true
         }
-        guard let retiringWorkspaceId,
-              let retiringWorkspace = tabManager.tabs.first(where: {
-                  $0.id == retiringWorkspaceId
-              }) else {
+        guard let sourceWorkspace = tabManager.tabs.first(where: {
+            $0.id == sourceWorkspaceID
+        }) else {
             return false
         }
-        return retiringWorkspace.panels.values.contains { panel in
+        return sourceWorkspace.panels.values.contains { panel in
             panel.ownedFocusIntent(for: responder, in: window) != nil
         }
     }
