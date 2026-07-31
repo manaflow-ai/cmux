@@ -242,6 +242,16 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil {
+            guard let listenerID = fixture.store.terminalEventListenerID else {
+                return false
+            }
+            return fixture.store.lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: fixture.store.connectionGeneration,
+                    listenerID: listenerID
+                )
+        })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
