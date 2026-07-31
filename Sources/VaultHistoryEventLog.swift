@@ -53,7 +53,12 @@ final class VaultHistoryEventLog {
         pendingRecordTask = Task(priority: .utility) { [weak self] in
             await previous?.value
             await store.append(event)
-            self?.revision &+= 1
+            guard let self else { return }
+            self.revision &+= 1
+            NotificationCenter.default.post(
+                name: .vaultHistoryEventLogDidChange,
+                object: self
+            )
         }
     }
 
@@ -85,4 +90,10 @@ final class VaultHistoryEventLog {
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("vault-history-\(safeBundleId).jsonl", isDirectory: false)
     }
+}
+
+extension Notification.Name {
+    static let vaultHistoryEventLogDidChange = Notification.Name(
+        "cmux.vaultHistoryEventLogDidChange"
+    )
 }

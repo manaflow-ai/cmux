@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 
 /// The three user-facing ways to browse History. Each mode owns its
 /// primitive and filters out events that cannot belong to that primitive,
@@ -59,8 +58,14 @@ enum VaultHistoryMode: String, CaseIterable, Identifiable, Sendable {
 /// with session events derived from the agent-session index, and exposes grouped
 /// sections computed by the pure ``VaultHistoryGrouper``.
 @MainActor
-@Observable
 final class VaultHistoryTimelineModel {
+    enum Update {
+        case loading
+        case content
+    }
+
+    var onUpdate: ((Update) -> Void)?
+
     var mode: VaultHistoryMode {
         didSet {
             guard mode != oldValue else { return }
@@ -116,6 +121,7 @@ final class VaultHistoryTimelineModel {
     private var mergedEvents: [VaultHistoryEvent] = []
     private var topology = VaultHistoryWorkspaceTopology(workspaces: [])
     private var refreshTask: Task<Void, Never>?
+    private var isBatchingQueryChanges = false
 
     var hasActiveFilters: Bool {
         timeRange != .allTime
@@ -151,6 +157,7 @@ final class VaultHistoryTimelineModel {
     ) {
         refreshTask?.cancel()
         isLoading = true
+        onUpdate?(.loading)
         let log = log
         let agentBindingStore = agentBindingStore
         refreshTask = Task { [weak self] in
@@ -187,11 +194,21 @@ final class VaultHistoryTimelineModel {
     }
 
     func clearFilters() {
+        guard hasActiveFilters else { return }
+        isBatchingQueryChanges = true
         searchText = ""
         timeRange = .allTime
+        isBatchingQueryChanges = false
+        regroup()
+    }
+
+    func cancelRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
     private func regroup() {
+        guard !isBatchingQueryChanges else { return }
         let currentTime = now()
         let query = VaultHistoryQuery(
             timeRange: timeRange,
@@ -215,5 +232,6 @@ final class VaultHistoryTimelineModel {
                 now: currentTime
             )
         }
+        onUpdate?(.content)
     }
 }

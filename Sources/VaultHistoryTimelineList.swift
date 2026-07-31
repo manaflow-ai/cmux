@@ -1,45 +1,9 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
-import SwiftUI
 
-/// SwiftUI bridge for the AppKit-virtualized History timeline.
-struct VaultHistoryTimelineList: NSViewRepresentable {
-    let groups: [VaultHistoryGroup]
-    let workspaceSections: [VaultHistoryWorkspaceTimelineProjection.Section]
-    let resumeEntriesByEventId: [String: SessionEntry]
-    let availableClosedItemIds: Set<UUID>
-    let actions: VaultHistoryRowActions
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
-
-    func makeCoordinator() -> VaultHistoryTableController {
-        VaultHistoryTableController()
-    }
-
-    func makeNSView(context: Context) -> VaultHistoryTableContainerView {
-        context.coordinator.makeContainerView()
-    }
-
-    func updateNSView(_ nsView: VaultHistoryTableContainerView, context: Context) {
-        context.coordinator.apply(
-            rows: workspaceSections.isEmpty
-                ? Self.makeRows(
-                    groups: groups,
-                    resumeEntriesByEventId: resumeEntriesByEventId,
-                    availableClosedItemIds: availableClosedItemIds,
-                    actions: actions
-                )
-                : Self.makeWorkspaceRows(
-                    sections: workspaceSections,
-                    resumeEntriesByEventId: resumeEntriesByEventId,
-                    availableClosedItemIds: availableClosedItemIds,
-                    actions: actions
-                ),
-            actions: actions,
-            globalFontMagnificationPercent: globalFontMagnificationPercent
-        )
-    }
-
+/// Pure row projection used directly by the AppKit History controller.
+enum VaultHistoryTimelineList {
     static func makeRows(
         groups: [VaultHistoryGroup],
         resumeEntriesByEventId: [String: SessionEntry],

@@ -976,6 +976,127 @@ struct VaultHistoryAppKitViewportTests {
         }
     }
 
+    @MainActor
+    @Test
+    func historyControlsAreNativeAppKitAndRouteChangesWithoutRebuilding() {
+        let controls = VaultHistoryControlsView()
+        var selectedMode: VaultHistoryMode?
+        var selectedRange: VaultHistoryQuery.TimeRange?
+        var selectedOrder: VaultHistoryQuery.SortOrder?
+        var searchText: String?
+        var reloadCount = 0
+        controls.onModeChange = { selectedMode = $0 }
+        controls.onTimeRangeChange = { selectedRange = $0 }
+        controls.onSortOrderChange = { selectedOrder = $0 }
+        controls.onSearchChange = { searchText = $0 }
+        controls.onReload = { reloadCount += 1 }
+
+        controls.update(
+            mode: .folder,
+            timeRange: .last7Days,
+            sortOrder: .titleAscending,
+            searchText: "codex restore",
+            isReloadDisabled: false
+        )
+
+        #expect(controls.modeControl.selectedSegment == 1)
+        #expect(controls.timeRangePopUpButton.selectedItem?.representedObject as? String
+            == VaultHistoryQuery.TimeRange.last7Days.rawValue)
+        #expect(controls.sortOrderPopUpButton.selectedItem?.representedObject as? String
+            == VaultHistoryQuery.SortOrder.titleAscending.rawValue)
+        #expect(controls.searchField.stringValue == "codex restore")
+        #expect(controls.reloadButton.isEnabled)
+        #expect(controls.modeControl.image(forSegment: 0) != nil)
+
+        controls.modeControl.selectedSegment = 2
+        if let action = controls.modeControl.action {
+            _ = controls.modeControl.sendAction(action, to: controls.modeControl.target)
+        }
+        controls.timeRangePopUpButton.selectItem(at: 1)
+        if let action = controls.timeRangePopUpButton.action {
+            _ = controls.timeRangePopUpButton.sendAction(
+                action,
+                to: controls.timeRangePopUpButton.target
+            )
+        }
+        controls.sortOrderPopUpButton.selectItem(at: 1)
+        if let action = controls.sortOrderPopUpButton.action {
+            _ = controls.sortOrderPopUpButton.sendAction(
+                action,
+                to: controls.sortOrderPopUpButton.target
+            )
+        }
+        controls.searchField.stringValue = "claude"
+        controls.controlTextDidChange(Notification(
+            name: Notification.Name("VaultHistoryControlsViewTest"),
+            object: controls.searchField
+        ))
+        if let action = controls.reloadButton.action {
+            _ = controls.reloadButton.sendAction(action, to: controls.reloadButton.target)
+        }
+
+        #expect(selectedMode == .agent)
+        #expect(selectedRange == .last24Hours)
+        #expect(selectedOrder == .oldestFirst)
+        #expect(searchText == "claude")
+        #expect(reloadCount == 1)
+    }
+
+    @MainActor
+    @Test
+    func equivalentAppKitRowsKeepTheirRealizedCell() async throws {
+        let controller = VaultHistoryTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        container.frame = window.contentView?.bounds ?? .zero
+        let row = VaultHistoryTableRow.event(
+            event: VaultHistoryEvent(
+                id: "stable-row",
+                timestamp: Date(timeIntervalSince1970: 1_000),
+                kind: .sessionActivity,
+                title: "Stable session",
+                subject: VaultHistorySubject(
+                    sessionId: "stable-row",
+                    agent: "codex",
+                    agentDisplayName: "Codex"
+                )
+            ),
+            action: nil,
+            agent: .codex
+        )
+        let actions = VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
+
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            globalFontMagnificationPercent: 100
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        window.contentView?.layoutSubtreeIfNeeded()
+        let firstCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            globalFontMagnificationPercent: 100
+        )
+        await flushStagedTableMutations()
+        let secondCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+        )
+
+        #expect(firstCell === secondCell)
+    }
+
     @Test
     func workspaceLifecycleUsesMinimalAddRemoveSymbols() {
         #expect(VaultHistoryEventKind.workspaceCreated.symbolName == "plus")
