@@ -292,6 +292,9 @@ final class RendererRealizationController {
             return .empty
         }
 
+        let presentationProtectedSurfaceIDs = Set(
+            workspaceSwitchPresentationSurfaceByRequestID.values
+        )
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
             guard surface.hasLiveSurface else { return nil }
             return RendererRealizationPlannerInput(
@@ -299,8 +302,7 @@ final class RendererRealizationController {
                 isVisible: surface.isRendererPortalVisible,
                 isRealized: surface.isRendererRealized,
                 lastVisibleAt: surface.rendererLastVisibleAt,
-                isProtectedForPresentation: workspaceSwitchPresentationSurfaceByRequestID.values
-                    .contains(surface.id)
+                isProtectedForPresentation: presentationProtectedSurfaceIDs.contains(surface.id)
             )
         }
 
