@@ -544,9 +544,13 @@ function billingBanner(value: string | undefined) {
 
 function priceCopy(subscription: StripeSubscriptionRow): string | null {
   const lookupKey = priceLookupKey(subscription) ?? subscription.priceId;
-  if (lookupKey === PRO_PRICING_USD.month.lookupKey) return "$30/month";
+  if (lookupKey === PRO_PRICING_USD.month.lookupKey) {
+    return `$${PRO_PRICING_USD.month.billedAmount}/month`;
+  }
   if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) return "$240/year";
-  if (lookupKey === PRO_PRICING_USD.year.lookupKey) return "$288/year";
+  if (lookupKey === PRO_PRICING_USD.year.lookupKey) {
+    return `$${PRO_PRICING_USD.year.billedAmount}/year`;
+  }
   return null;
 }
 

@@ -385,20 +385,38 @@ struct AuthEnvironmentTests {
 
     @Test("external browser intent applies to checkout and Contact sales links")
     func externalBrowserIntentAppliesToCheckoutAndContactSalesLinks() throws {
+        let trustedOrigin = try #require(URL(string: "https://cmux.com"))
         #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1"))
+            try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
         ))
         #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
         ))
         #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0"))
+            try #require(URL(string: "https://cmux.com/enterprise?cmux_external_browser=0")),
+            trustedOrigin: trustedOrigin
         ))
         #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1"))
+            try #require(URL(string: "cmux://enterprise?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
         ))
         #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
-            try #require(URL(string: "https://attacker.example/?cmux_external_browser=1"))
+            try #require(URL(string: "https://attacker.example/?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "http://cmux.com/?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(!BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "https://cmux.com:8443/?cmux_external_browser=1")),
+            trustedOrigin: trustedOrigin
+        ))
+        #expect(BrowserExternalNavigationIntent.shouldOpenInSystemBrowser(
+            try #require(URL(string: "http://localhost:4100/enterprise?cmux_external_browser=1")),
+            trustedOrigin: try #require(URL(string: "http://localhost:4100"))
         ))
     }
 
