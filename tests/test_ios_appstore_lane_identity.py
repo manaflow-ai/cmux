@@ -172,6 +172,10 @@ if command.startswith("Print "):
     value = get(plist, command.removeprefix("Print ").strip())
     if isinstance(value, (dict, list)):
         sys.stdout.buffer.write(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+    elif isinstance(value, bool):
+        # Match /usr/libexec/PlistBuddy exactly. Python's default `True` /
+        # `False` spelling would make the signing gate fail only in tests.
+        print("true" if value else "false")
     else:
         print(value)
     raise SystemExit(0)

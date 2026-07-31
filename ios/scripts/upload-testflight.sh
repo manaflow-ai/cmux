@@ -1205,7 +1205,7 @@ PY
   SIGNED_APS="$("$PLISTBUDDY" -c 'Print :aps-environment' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   SIGNED_TIME_SENSITIVE="$("$PLISTBUDDY" -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   if [[ "$SIGNED_APS" != "production" || "$SIGNED_TIME_SENSITIVE" != "true" ]]; then
-    echo "error: re-signed app push entitlements are invalid (aps-environment='${SIGNED_APS:-<absent>}', time-sensitive='${SIGNED_TIME_SENSITIVE:-<absent>}'); refusing upload" >&2
+    echo "error: re-signed app push entitlements are invalid (aps-environment='${SIGNED_APS:-<absent>}', com.apple.developer.usernotifications.time-sensitive='${SIGNED_TIME_SENSITIVE:-<absent>}'); refusing upload" >&2
     plutil -p "$SIGNED_ENTITLEMENTS" >&2 || true
     exit 1
   fi
