@@ -161,6 +161,103 @@ await Promise.all([first, second]);
     return 0
 
 
+def check_ui_lifecycle_handlers_return_immediately(
+    bun: str,
+    root: Path,
+    extension_path: Path,
+) -> int:
+    lifecycle_log = root / "ui-lifecycle-latency.log"
+    lifecycle_cmux = root / "ui-lifecycle-latency-cmux"
+    make_executable(
+        lifecycle_cmux,
+        """#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+printf 'start %s|%s\n' "$*" "$payload" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+sleep 0.15
+printf 'end %s\n' "$*" >> "$CMUX_TEST_PI_UI_LATENCY_LOG"
+printf '{"workspace_id":"00000000-0000-0000-0000-000000008673","surface_id":"00000000-0000-0000-0000-000000008672","resume_binding":{"kind":"pi","checkpoint_id":"pi-ui-latency-session"}}\n'
+""",
+    )
+    lifecycle_source = """
+const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+const ctx = {
+  cwd: "/tmp/pi-ui-latency-project",
+  isIdle() { return true; },
+  sessionManager: { getSessionId() { return "pi-ui-latency-session"; } }
+};
+async function measure(label, action) {
+  const startedAt = performance.now();
+  await Promise.resolve(action());
+  const elapsed = performance.now() - startedAt;
+  console.log(`${label}_ms=${elapsed}`);
+  if (elapsed >= 75) throw new Error(`${label} blocked Pi for ${elapsed}ms`);
+}
+await measure("session_start", () => handlers.get("session_start")({}, ctx));
+await measure("prompt_submit", () => handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
+await measure("completion", () => handlers.get("agent_end")({
+  messages: [{ role: "assistant", content: "done" }],
+  stopReason: "completed"
+}, ctx));
+
+const logPath = process.env.CMUX_TEST_PI_UI_LATENCY_LOG;
+const deadline = performance.now() + 5000;
+while (performance.now() < deadline) {
+  const text = await Bun.file(logPath).text();
+  const completed = text.split("\\n").filter((line) => line.startsWith("end ")).length;
+  if (completed >= 6) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+"""
+    result = run_extension(
+        bun=bun,
+        root=root,
+        extension_path=extension_path,
+        fake_cmux=lifecycle_cmux,
+        source=lifecycle_source,
+        extra_env={"CMUX_TEST_PI_UI_LATENCY_LOG": str(lifecycle_log)},
+    )
+    if result.returncode != 0:
+        print("FAIL: Pi UI lifecycle handler awaited cmux subprocess work")
+        print(f"exit={result.returncode}")
+        print(f"stdout={result.stdout.strip()}")
+        print(f"stderr={result.stderr.strip()}")
+        return 1
+
+    timings = {}
+    for line in result.stdout.splitlines():
+        if "_ms=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        timings[key] = float(value)
+    if set(timings) != {"session_start_ms", "prompt_submit_ms", "completion_ms"}:
+        print(f"FAIL: Pi UI lifecycle timing output was incomplete: {result.stdout!r}")
+        return 1
+    if any(value >= 75 for value in timings.values()):
+        print(f"FAIL: Pi UI lifecycle handlers were observably blocking: {timings!r}")
+        return 1
+
+    calls = lifecycle_log.read_text(encoding="utf-8").splitlines()
+    completed = [line for line in calls if line.startswith("end ")]
+    expected = (
+        "hooks pi session-start",
+        "--json surface resume set",
+        "--json surface resume get",
+        "hooks pi prompt-submit",
+        "hooks pi notification",
+        "hooks pi stop",
+    )
+    if len(completed) != len(expected) or any(
+        command not in line for command, line in zip(expected, completed)
+    ):
+        print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
+        return 1
+    return 0
+
+
 def check_panel_only_target_fails_closed(bun: str, root: Path, extension_path: Path) -> int:
     marker = root / "panel-only-cmux-called"
     fake_cmux = root / "panel-only-cmux"
@@ -2103,6 +2200,7 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     checks = (
         check_responsiveness,
+        check_ui_lifecycle_handlers_return_immediately,
         check_panel_only_target_fails_closed,
         check_feed_backlog,
         check_terminal_feed_compaction,
