@@ -62,8 +62,7 @@ public struct CmxIrohLANDiscoveryResolver: Sendable {
                     == cmxCanonicalDeviceID(expectedMacDeviceID)
                 && (expectedEndpointID == nil || binding.endpointID == expectedEndpointID)
         }
-        guard !candidates.isEmpty,
-              candidates.count <= CmxIrohDiscoveryResponse.maximumBindingCount else {
+        guard !candidates.isEmpty else {
             throw CmxIrohLANDiscoveryError.ambiguousBinding
         }
         let aliasGenerator = try CmxIrohLANRendezvousAliasGenerator(rendezvous: rendezvous)
