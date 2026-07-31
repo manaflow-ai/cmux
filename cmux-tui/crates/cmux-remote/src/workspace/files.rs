@@ -3883,6 +3883,57 @@ mod tests {
         assert_eq!(data.decode().unwrap(), b"inside");
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn queries_keep_the_opened_root_after_its_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempdir().unwrap();
+        let registered = parent.path().join("workspace");
+        let pinned = parent.path().join("pinned-workspace");
+        tokio::fs::create_dir_all(registered.join("requested-dir")).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-dir")).await.unwrap();
+        tokio::fs::write(registered.join("requested.txt"), b"requested").await.unwrap();
+        tokio::fs::write(registered.join("other.txt"), b"other").await.unwrap();
+        tokio::fs::write(registered.join("requested-dir/requested.txt"), b"needle requested")
+            .await
+            .unwrap();
+        tokio::fs::write(registered.join("other-dir/other.txt"), b"needle other").await.unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("replaced-query-root".into()),
+            registered.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        tokio::fs::rename(&registered, &pinned).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-dir")).await.unwrap();
+        tokio::fs::write(registered.join("other.txt"), b"replacement").await.unwrap();
+        symlink("other.txt", registered.join("requested.txt")).unwrap();
+        symlink("other-dir", registered.join("requested-dir")).unwrap();
+
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        let response = read_file(&context, "requested.txt", 0, MAX_READ_BYTES).await.unwrap();
+        let WorkspaceResponse::File { data, .. } = response else { panic!() };
+        assert_eq!(data.decode().unwrap(), b"requested");
+
+        let response = list_directory(&context, "requested-dir", false, 10, None).await.unwrap();
+        let WorkspaceResponse::Directory { entries, .. } = response else { panic!() };
+        assert_eq!(
+            entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            ["requested.txt"]
+        );
+
+        let response = search(&context, "needle", &["requested-dir".into()], &[], false, 10, None)
+            .await
+            .unwrap();
+        let WorkspaceResponse::Search { matches, .. } = response else { panic!() };
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].path, "requested-dir/requested.txt");
+        assert_eq!(matches[0].text, "needle requested");
+    }
+
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     #[tokio::test]
     async fn content_hash_write_rejects_a_target_rewrite_before_commit() {

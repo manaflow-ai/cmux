@@ -2714,6 +2714,42 @@ mod tests {
         .await;
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_cwd_keeps_the_opened_root_after_its_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempdir().unwrap();
+        let registered = parent.path().join("workspace");
+        let pinned = parent.path().join("pinned-workspace");
+        tokio::fs::create_dir_all(registered.join("requested-cwd")).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        let root = WorkspaceRoot::open(
+            WorkspaceId("replaced-process-root".into()),
+            registered.to_str().unwrap(),
+        )
+        .await
+        .unwrap();
+
+        tokio::fs::rename(&registered, &pinned).await.unwrap();
+        tokio::fs::create_dir_all(registered.join("other-cwd")).await.unwrap();
+        symlink("other-cwd", registered.join("requested-cwd")).unwrap();
+
+        let manager = ProcessManager::default();
+        let mut options = spawn_options(
+            vec!["/bin/sh".into(), "-c".into(), "printf pinned > marker".into()],
+            ProcessIo::Pipes { stdin: false },
+            ProcessLifetime::Workspace,
+        );
+        options.cwd = Some("requested-cwd".into());
+        let response = manager.spawn(root, options).await.unwrap();
+        let WorkspaceResponse::ProcessStarted { process, .. } = response else { panic!() };
+        manager.wait(process).await.unwrap();
+
+        assert_eq!(tokio::fs::read(pinned.join("requested-cwd/marker")).await.unwrap(), b"pinned");
+        assert!(!pinned.join("other-cwd/marker").exists());
+    }
+
     fn spawn_options(
         argv: Vec<String>,
         io: ProcessIo,

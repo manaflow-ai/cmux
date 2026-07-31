@@ -3852,6 +3852,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pending_claim_keeps_its_approval_window_after_invitation_expiry() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+        let invitation =
+            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let request = AuthRequest {
+            mode: AuthKind::Invitation,
+            invitation_id: Some(invitation.id.clone()),
+            device_public_key: client.public_key(),
+            device_name: "phone".into(),
+            session: SessionId([31; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+        };
+        let authorization = tokio::spawn({
+            let database = database.clone();
+            async move { database.authorize(request).await }
+        });
+        database.wait_for_pending(Duration::from_secs(2)).await.unwrap();
+        {
+            let mut state = database.state.lock().await;
+            state.invitations.get_mut(&invitation.id).unwrap().expires_at_unix =
+                unix_time().unwrap();
+        }
+
+        let record = database.approve(&invitation.id).await.unwrap();
+
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, record.id);
+    }
+
+    #[tokio::test]
     async fn revocation_increments_generation_and_rejects_device() {
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
