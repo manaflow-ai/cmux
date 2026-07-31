@@ -38,7 +38,7 @@ struct WorkspaceDetailView: View {
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(ToastCenter.self) private var toasts
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
