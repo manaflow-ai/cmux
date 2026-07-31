@@ -81,6 +81,54 @@ const ResourceConstructor =
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
 const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
+const WEBSOCKET_SURFACES = ["raw", "resource"] as const;
+
+type WebSocketSurface = (typeof WEBSOCKET_SURFACES)[number];
+
+interface SurfaceTransport {
+  send(json: string): void;
+  close(): void;
+  onError(handler: (error: Error) => void): () => void;
+  onClose(handler: () => void): () => void;
+}
+
+interface SurfaceOptions {
+  readonly authToken?: string;
+  readonly onPairingChallenge?: (challenge: {
+    readonly id?: bigint;
+    readonly code: string;
+    readonly peer: string;
+    readonly expiresIn: number;
+  }) => void;
+  readonly onPairingCredential?: (credential: string) => void;
+  readonly onAuthenticationRejected?: () => void;
+}
+
+function createSurfaceTransport(
+  surface: WebSocketSurface,
+  options: SurfaceOptions = {},
+): { readonly transport: SurfaceTransport; readonly socket: FakeWebSocket } {
+  if (surface === "raw") {
+    const transport = new WebSocketTransport("ws://localhost/cmux", {
+      WebSocket: Constructor,
+      authToken: options.authToken,
+      onPairingChallenge: ({ id, code, peer, expiresIn }) =>
+        options.onPairingChallenge?.({ id, code, peer, expiresIn }),
+      onPairingCredential: options.onPairingCredential,
+      onAuthenticationRejected: options.onAuthenticationRejected,
+    });
+    return { transport, socket: FakeWebSocket.instances.at(-1)! };
+  }
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    authToken: options.authToken,
+    onPairingChallenge: ({ code, peer, expiresIn }) =>
+      options.onPairingChallenge?.({ code, peer, expiresIn }),
+    onPairingCredential: options.onPairingCredential,
+    onAuthenticationRejected: options.onAuthenticationRejected,
+  });
+  return { transport, socket: FakeWebSocket.instances.at(-1)! };
+}
 
 function resourceOperationCount(socket: FakeWebSocket, operation: string): number {
   return socket.sent.filter((json) => {
@@ -90,6 +138,204 @@ function resourceOperationCount(socket: FakeWebSocket, operation: string): numbe
       return false;
     }
   }).length;
+}
+
+for (const surface of WEBSOCKET_SURFACES) {
+  test(`${surface} WebSocket pairing challenge validation preserves its public shape`, () => {
+    const received: Parameters<NonNullable<SurfaceOptions["onPairingChallenge"]>>[0][] = [];
+    const errors: Error[] = [];
+    const { transport, socket } = createSurfaceTransport(surface, {
+      onPairingChallenge: (challenge) => received.push(challenge),
+    });
+    transport.onError((error) => errors.push(error));
+
+    socket.open();
+    socket.message(
+      '{"pairing":{"id":7,"code":"123 456","peer":"127.0.0.1","expires_in":60}}',
+    );
+    socket.message(
+      '{"pairing":{"id":"7","code":"bad","peer":"127.0.0.1","expires_in":60}}',
+    );
+
+    assert.deepEqual(received, [
+      surface === "raw"
+        ? { id: 7n, code: "123 456", peer: "127.0.0.1", expiresIn: 60 }
+        : { code: "123 456", peer: "127.0.0.1", expiresIn: 60 },
+    ]);
+    assert.match(errors[0]?.message ?? "", /invalid pairing data/);
+    transport.close();
+  });
+
+  test(`${surface} WebSocket token mode sends auth before queued frames`, () => {
+    const { transport, socket } = createSurfaceTransport(surface, {
+      authToken: "shared-token",
+    });
+    transport.send("queued");
+
+    socket.open();
+
+    assert.deepEqual(socket.sent, [
+      '{"auth":{"token":"shared-token"}}',
+      "queued",
+    ]);
+    transport.close();
+  });
+
+  for (const preamble of [
+    { name: "pairing", authToken: undefined, frame: '"pair"' },
+    { name: "authentication", authToken: "shared-token", frame: '"auth"' },
+  ] as const) {
+    test(`${surface} WebSocket ${preamble.name} preamble failure is terminal`, () => {
+      const errors: Error[] = [];
+      let closes = 0;
+      const { transport, socket } = createSurfaceTransport(surface, {
+        authToken: preamble.authToken,
+      });
+      transport.onError((error) => errors.push(error));
+      transport.onClose(() => closes += 1);
+      transport.send("queued");
+      socket.sendFailure = (data) => data.includes(preamble.frame)
+        ? new Error(`${preamble.name} preamble exploded`)
+        : undefined;
+
+      assert.doesNotThrow(() => socket.open());
+      assert.deepEqual(socket.sent, []);
+      assert.match(
+        errors[0]?.message ?? "",
+        new RegExp(`${preamble.name} preamble failed.*preamble exploded`),
+      );
+      assert.equal(closes, 1);
+      assert.equal(socket.closeCalls, 1);
+      assert.throws(() => transport.send("late"), /closed/);
+    });
+  }
+
+  test(`${surface} WebSocket paired flush failure closes before credential publication`, () => {
+    const credentials: string[] = [];
+    const errors: Error[] = [];
+    let closes = 0;
+    const { transport, socket } = createSurfaceTransport(surface, {
+      onPairingCredential: (credential) => credentials.push(credential),
+    });
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    transport.send("queued");
+    socket.open();
+    socket.sendFailure = (data) => data === "queued"
+      ? new Error("queued dispatch exploded")
+      : undefined;
+
+    assert.doesNotThrow(() => {
+      socket.message('{"paired":{"credential":"issued-secret"}}');
+    });
+    assert.deepEqual(credentials, ["issued-secret"]);
+    assert.match(errors[0]?.message ?? "", /dispatch failed.*queued dispatch exploded/);
+    assert.equal(closes, 1);
+    assert.equal(socket.closeCalls, 1);
+    assert.throws(() => transport.send("late"), /closed/);
+  });
+
+  test(`${surface} WebSocket credential callback cannot overtake queued frames`, () => {
+    let transport!: SurfaceTransport;
+    let socket!: FakeWebSocket;
+    ({ transport, socket } = createSurfaceTransport(surface, {
+      onPairingCredential: () => transport.send("callback"),
+    }));
+    transport.send("first");
+    transport.send("second");
+
+    socket.open();
+    socket.message('{"paired":{"credential":"issued-secret"}}');
+
+    assert.deepEqual(socket.sent, [
+      '{"pair":{"request":true}}',
+      "first",
+      "second",
+      "callback",
+    ]);
+    transport.close();
+  });
+
+  test(`${surface} WebSocket closing state rejects late frames and duplicate close`, () => {
+    const credentials: string[] = [];
+    let closes = 0;
+    const { transport, socket } = createSurfaceTransport(surface, {
+      onPairingCredential: (credential) => credentials.push(credential),
+    });
+    socket.delayCloseEvent = true;
+    transport.onClose(() => closes += 1);
+    transport.send("queued");
+
+    transport.close();
+    transport.close();
+    socket.message('{"paired":{"credential":"late-secret"}}');
+    let sendRejected = false;
+    try {
+      transport.send("late");
+    } catch {
+      sendRejected = true;
+    }
+    socket.open();
+    socket.finishClose();
+    socket.finishClose();
+
+    assert.deepEqual({
+      credentials,
+      sent: socket.sent,
+      sendRejected,
+      closeCalls: socket.closeCalls,
+      closes,
+    }, {
+      credentials: [],
+      sent: [],
+      sendRejected: true,
+      closeCalls: 1,
+      closes: 1,
+    });
+  });
+
+  test(`${surface} WebSocket rejection callback throw still fans out close`, () => {
+    const calls: string[] = [];
+    const { transport, socket } = createSurfaceTransport(surface, {
+      authToken: "expired",
+      onAuthenticationRejected: () => {
+        calls.push("rejected");
+        throw new Error("rejection callback failed");
+      },
+    });
+    transport.onClose(() => calls.push("close-one"));
+    transport.onClose(() => calls.push("close-two"));
+    socket.open();
+
+    assert.throws(
+      () => socket.rejectAuthentication(),
+      /rejection callback failed/,
+    );
+    assert.deepEqual(calls, ["rejected", "close-one", "close-two"]);
+  });
+
+  test(`${surface} WebSocket non-text failure fans out and closes`, () => {
+    const calls: string[] = [];
+    const { transport, socket } = createSurfaceTransport(surface, {
+      authToken: "shared-token",
+    });
+    transport.onError(() => {
+      calls.push("error-one");
+      throw new Error("first error observer failed");
+    });
+    transport.onError(() => calls.push("error-two"));
+    transport.onClose(() => calls.push("close-one"));
+    transport.onClose(() => calls.push("close-two"));
+    socket.open();
+
+    assert.throws(
+      () => socket.message(Uint8Array.from([1, 2, 3])),
+      /first error observer failed/,
+    );
+    assert.deepEqual(calls, ["error-one", "error-two", "close-one", "close-two"]);
+    assert.equal(socket.closeCalls, 1);
+    assert.equal(socket.readyState, 3);
+  });
 }
 
 test("WebSocketTransport pairs before flushing queued protocol frames", () => {
