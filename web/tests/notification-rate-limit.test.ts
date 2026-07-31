@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
-import { recordPushSendOrThrow, PushRateLimitExceededError } from "../services/apns/rateLimit";
+import {
+  PUSH_SEND_LEASE_MS,
+  recordPushSendOrThrow,
+  PushRateLimitExceededError,
+} from "../services/apns/rateLimit";
+import { APNS_DEFAULT_MAX_DELIVERY_DURATION_MS } from "../services/apns/sender";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -68,5 +73,59 @@ describe("notification rate limit", () => {
       where user_id = 'push-user-1'
     `;
     expect(stored?.total).toBe(1);
+  });
+
+  dbTest("does not take over a live claim during the slowest default APNs send", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const startedAt = new Date("2026-06-02T12:00:00Z");
+    const correlationId = "slow-active-send";
+
+    expect(PUSH_SEND_LEASE_MS).toBeGreaterThan(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS);
+    await expect(
+      recordPushSendOrThrow(db, "push-user-1", 1, correlationId, startedAt),
+    ).resolves.toMatchObject({ kind: "claimed" });
+    await expect(
+      recordPushSendOrThrow(
+        db,
+        "push-user-1",
+        1,
+        correlationId,
+        new Date(startedAt.getTime() + APNS_DEFAULT_MAX_DELIVERY_DURATION_MS),
+      ),
+    ).resolves.toMatchObject({ kind: "busy" });
+  });
+
+  dbTest("keeps dismiss reconciliation available after the visible-alert budget", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate notification_send_events restart identity cascade`;
+
+    const { cloudDb } = await import("../db/client");
+    const db = cloudDb();
+    const now = new Date("2026-06-02T12:00:00Z");
+    for (let index = 0; index < 200; index += 1) {
+      await recordPushSendOrThrow(
+        db,
+        "push-user-1",
+        1,
+        `notify-${index}`,
+        now,
+        new Date(now.getTime() + 120_000),
+        "notify",
+      );
+    }
+
+    await expect(recordPushSendOrThrow(
+      db,
+      "push-user-1",
+      1,
+      "dismiss-after-clear-all",
+      now,
+      new Date(now.getTime() + 120_000),
+      "dismiss",
+    )).resolves.toMatchObject({ kind: "claimed" });
   });
 });

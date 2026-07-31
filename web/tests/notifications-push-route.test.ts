@@ -354,4 +354,90 @@ describe("notifications push route", () => {
     expect(retryTargets.map((target) => target.deviceToken))
       .toEqual(["b".repeat(64)]);
   });
+
+  dbTest("freezes recipients and terminally resolves a device removed before retry", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"a".repeat(64)}, 'ios', 'com.cmux.app', 'production'),
+        ('user-1', ${"b".repeat(64)}, 'ios', 'com.cmux.app', 'production')
+    `;
+    scriptedSendOutcomes = [[
+      { deviceToken: "a".repeat(64), status: 200, prune: false },
+      {
+        deviceToken: "b".repeat(64),
+        status: 503,
+        reason: "ServiceUnavailable",
+        prune: false,
+      },
+    ]];
+    const correlationId = "8c797e1a-797a-47cc-a995-30cffdfbe423";
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds: Math.floor(Date.now() / 1000) + 120,
+        }),
+      },
+    );
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await sql`delete from device_tokens where device_token = ${"b".repeat(64)}`;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values
+        ('user-1', ${"c".repeat(64)}, 'ios', 'com.cmux.app', 'production')
+    `;
+
+    const reconciled = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(await reconciled.json()).toMatchObject({
+      sent: 1,
+      devices: 2,
+      transientFailures: 0,
+      permanentFailures: 1,
+      correlationId,
+    });
+    expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
+
+    const [stored] = await sql<{
+      outcomes: Array<{ deviceToken: string; reason?: string }>;
+    }[]>`
+      select result_outcomes as outcomes
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    expect(stored?.outcomes).toContainEqual({
+      deviceToken: "b".repeat(64),
+      status: 404,
+      reason: "target_no_longer_registered",
+      prune: false,
+    });
+    expect(stored?.outcomes.some((result) => result.deviceToken === "c".repeat(64)))
+      .toBe(false);
+  });
 });

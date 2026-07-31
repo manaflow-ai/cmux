@@ -14,6 +14,7 @@ import {
   unresolvedPushTargets,
 } from "../services/apns/deliveryState";
 import {
+  APNS_DEFAULT_MAX_DELIVERY_DURATION_MS,
   sendApnsNotification,
   sendApnsNotificationReliably,
   signApnsJwt,
@@ -79,7 +80,10 @@ describe("apns payload", () => {
       hideContent: true,
     }) as { aps: { alert: Record<string, string>; category: string }; cmux: Record<string, string> };
 
-    expect(payload.aps.alert.title).toBe("cmux");
+    expect(payload.aps.alert).toEqual({
+      "title-loc-key": "push.generic.title",
+      "loc-key": "push.generic.body",
+    });
     expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
     expect(payload.cmux).toEqual({ notificationId: "n-9" });
   });
@@ -93,8 +97,8 @@ describe("apns payload", () => {
       hideContent: true,
     }) as { aps: { alert: Record<string, string> }; cmux: Record<string, string> };
 
-    expect(payload.aps.alert.title).toBe("cmux");
-    expect(payload.aps.alert.body).toBe("An agent needs your attention");
+    expect(payload.aps.alert["title-loc-key"]).toBe("push.generic.title");
+    expect(payload.aps.alert["loc-key"]).toBe("push.generic.body");
     expect(payload.aps.alert.subtitle).toBeUndefined();
     expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
   });
@@ -116,8 +120,8 @@ describe("apns payload", () => {
     };
     expect(providerPayload.cmux.correlationId).toBe(correlationId);
     expect(providerPayload.aps.alert).toEqual({
-      title: "cmux",
-      body: "An agent needs your attention",
+      "title-loc-key": "push.generic.title",
+      "loc-key": "push.generic.body",
     });
     expect(JSON.stringify(providerPayload)).not.toContain("secret");
   });
@@ -163,7 +167,7 @@ describe("apns host + pruning", () => {
   test("host selection", () => {
     expect(apnsHostForEnvironment("sandbox")).toBe("api.sandbox.push.apple.com");
     expect(apnsHostForEnvironment("production")).toBe("api.push.apple.com");
-    expect(apnsHostForEnvironment("unknown")).toBe("api.push.apple.com");
+    expect(apnsHostForEnvironment("unknown")).toBeNull();
   });
 
   test("prunes only terminal failures", () => {
@@ -200,8 +204,8 @@ describe("apns response", () => {
       sent: 1,
       devices: 4,
       pruned: 1,
-      transientFailures: 1,
-      permanentFailures: 2,
+      transientFailures: 2,
+      permanentFailures: 1,
     });
     expect(JSON.stringify(summary)).not.toContain("BadDeviceToken");
     expect(JSON.stringify(summary)).not.toContain("ServiceUnavailable");
@@ -240,6 +244,27 @@ describe("apns logical-event delivery state", () => {
 
     expect(unresolvedPushTargets(targets, first).map((target) => target.deviceToken))
       .toEqual(["b".repeat(64)]);
+    const newlyRegistered = {
+      deviceToken: "c".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+    expect(
+      unresolvedPushTargets(
+        [targets[1], newlyRegistered],
+        first,
+      ).map((target) => target.deviceToken),
+    ).toEqual(["b".repeat(64), "c".repeat(64)]);
+    // The route freezes/intersects the original target set before calling this
+    // helper, so a newly registered C is excluded and an unregistered B stays
+    // removed.
+    const originalTargetTokens = new Set(targets.map((target) => target.deviceToken));
+    const intersected = [targets[1], newlyRegistered].filter((target) =>
+      originalTargetTokens.has(target.deviceToken)
+    );
+    expect(unresolvedPushTargets(intersected, first).map((target) => target.deviceToken))
+      .toEqual(["b".repeat(64)]);
+    expect(unresolvedPushTargets([], first)).toEqual([]);
 
     const recovered = mergePushDeliveryOutcomes(first, [
       {
@@ -510,6 +535,73 @@ describe("apns jwt", () => {
 });
 
 describe("apns sender transport", () => {
+  test("the default send bound leaves room for a database lease", () => {
+    expect(APNS_DEFAULT_MAX_DELIVERY_DURATION_MS).toBe(28_000);
+  });
+
+  test("provider JWT cache identity includes the team and signing key", async () => {
+    const authorizations: string[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        authorizations.push(String(headers.authorization));
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const firstKeys = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const secondKeys = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const firstP8 = firstKeys.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+    const secondP8 = secondKeys.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+    const target = {
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+
+    await sendApnsNotification(
+      { keyP8: firstP8, keyId: "SHARED-KID", teamId: "TEAM-A" },
+      [target],
+      { title: "agent", body: "done" },
+      1_000,
+      transport,
+    );
+    await sendApnsNotification(
+      { keyP8: secondP8, keyId: "SHARED-KID", teamId: "TEAM-B" },
+      [target],
+      { title: "agent", body: "done" },
+      1_000,
+      transport,
+    );
+
+    const claims = authorizations.map((authorization) => {
+      const jwt = authorization.replace(/^bearer /, "");
+      const payload = jwt.split(".")[1]!;
+      return JSON.parse(
+        Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"),
+      ) as { iss: string };
+    });
+    expect(claims.map((claim) => claim.iss)).toEqual(["TEAM-A", "TEAM-B"]);
+  });
+
   test("retries only unresolved devices after a partial APNs result", async () => {
     const attemptsByToken = new Map<string, number>();
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
@@ -631,7 +723,8 @@ describe("apns sender transport", () => {
     );
 
     expect(summarizeApnsSendResults(results).sent).toBe(0);
-    expect(requests).toBe(1);
+    // Expired before the first attempt: never enqueue a stale alert at APNs.
+    expect(requests).toBe(0);
   });
 
   test("starts sandbox and production host groups concurrently", async () => {
