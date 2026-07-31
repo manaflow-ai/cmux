@@ -1,10 +1,10 @@
 //! Durable public resources whose canonical state is already present in the
 //! mutation journals.
 //!
-//! These projections deliberately do not add a second persistence path.
 //! Reopening a session reconstructs notifications from successful effect
-//! receipts, agents and terminal defaults from their latest mutation results,
-//! and frontend projections from the table that already owns those values.
+//! receipts, agents from their bounded current-state projection, terminal
+//! defaults from the latest retained mutation result, and frontend projections
+//! from the table that already owns those values.
 
 use std::collections::{HashMap, HashSet};
 
@@ -259,27 +259,29 @@ impl WorkspaceRegistry {
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut statement = self.connection.prepare(
-            "SELECT result_json, idempotency_key
-             FROM (
-               SELECT result_json, idempotency_key, committed_revision,
-                      ROW_NUMBER() OVER (
-                        PARTITION BY json_extract(result_json, '$.terminal_id')
-                        ORDER BY committed_revision DESC, idempotency_key DESC
-                      ) AS terminal_rank
-               FROM resource_mutations
-               WHERE operation = 'agent.report'
-             )
-             WHERE terminal_rank = 1
-             ORDER BY committed_revision ASC, idempotency_key ASC",
+            "SELECT terminal_id, result_json, committed_revision
+             FROM resource_agent_projections
+             ORDER BY committed_revision ASC, terminal_id ASC",
         )?;
         let rows = statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut agents = Vec::with_capacity(rows.len());
-        for (result_json, idempotency_key) in rows {
+        for (projected_terminal_id, result_json, committed_revision) in rows {
             let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
-                format!("invalid committed agent result for idempotency key {idempotency_key:?}")
+                format!(
+                    "invalid agent projection for terminal {projected_terminal_id:?} at revision {committed_revision}"
+                )
             })?;
+            anyhow::ensure!(
+                stored.terminal_id.as_str() == projected_terminal_id,
+                "agent {} projection key {} does not match terminal {}",
+                stored.id,
+                projected_terminal_id,
+                stored.terminal_id
+            );
             anyhow::ensure!(
                 stored.session_id == self.session_id,
                 "agent {} belongs to session {}, expected {}",
@@ -608,6 +610,26 @@ mod tests {
                 params![key, operation, canonical_json(result).unwrap(), revision],
             )
             .unwrap();
+        if operation == "agent.report" {
+            let terminal_id = result["terminal_id"].as_str().unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO resource_agent_projections(
+                       terminal_id, result_json, committed_revision
+                     )
+                     SELECT ?1, ?2, ?3
+                     WHERE EXISTS (
+                       SELECT 1 FROM resource_terminals
+                       WHERE public_id = ?1 AND deleted_revision IS NULL
+                     )
+                     ON CONFLICT(terminal_id) DO UPDATE SET
+                       result_json = excluded.result_json,
+                       committed_revision = excluded.committed_revision",
+                    params![terminal_id, canonical_json(result).unwrap(), revision,],
+                )
+                .unwrap();
+        }
     }
 
     fn insert_notification(registry: &WorkspaceRegistry, key: &str, result: &Value, revision: i64) {
@@ -817,6 +839,7 @@ mod tests {
 
         let live = registry.public_projections().unwrap();
         assert_eq!(live.agents.len(), 1);
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
         assert_eq!(live.agents[0].terminal_id, terminal);
         assert_eq!(live.notifications[0].terminal_id, Some(terminal.clone()));
         assert!(live.notifications[0].unread);
@@ -854,6 +877,7 @@ mod tests {
             .unwrap();
 
         let tombstoned = registry.public_projections().unwrap();
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
         assert!(tombstoned.agents.is_empty());
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);

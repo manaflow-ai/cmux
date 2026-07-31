@@ -495,6 +495,11 @@ pub struct AgentRecord {
     pub updated_at_ms: u64,
 }
 
+enum AgentReportTarget<'a> {
+    Surface(SurfaceId),
+    Resource { selectors: &'a crate::ResourceSelectors, terminal_id: &'a TerminalPublicId },
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SurfaceNotification {
     pub notification: u64,
@@ -3786,6 +3791,11 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_mutation_count_for_test()
     }
 
+    #[cfg(test)]
+    pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().resource_agent_projection_count_for_test()
+    }
+
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
@@ -5878,17 +5888,28 @@ impl Mux {
         state: AgentState,
         source: AgentSource,
         session: Option<String>,
-    ) -> AgentRecord {
-        let mut records = self.agent_records.lock().unwrap();
-        if let Some(existing) = records.get(&surface)
-            && existing.source == AgentSource::Hook
-            && source == AgentSource::Socket
-        {
-            return existing.clone();
-        }
-        let record = AgentRecord { surface, state, source, session, updated_at_ms: now_ms() };
-        records.insert(surface, record.clone());
-        record
+    ) -> anyhow::Result<AgentRecord> {
+        let mutation = WorkspaceMutation::new(
+            format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
+            "raw-control",
+        )?;
+        let fingerprint = serde_json::json!({
+            "operation":"agent.report",
+            "surface":surface,
+            "state":state.as_str(),
+            "source":source.as_str(),
+            "source_session":session,
+        });
+        let (_, record) = self.commit_agent_report(
+            AgentReportTarget::Surface(surface),
+            state,
+            source,
+            session,
+            None,
+            &mutation,
+            &fingerprint,
+        )?;
+        record.context("fresh raw agent report unexpectedly replayed")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -5910,43 +5931,82 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
+        self.commit_agent_report(
+            AgentReportTarget::Resource { selectors: &selectors, terminal_id },
+            agent_state,
+            source,
+            source_session,
+            expected_revision,
+            mutation,
+            &fingerprint,
+        )
+        .map(|(commit, _)| commit)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_agent_report(
+        &self,
+        target: AgentReportTarget<'_>,
+        agent_state: AgentState,
+        source: AgentSource,
+        source_session: Option<String>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
-            registry.replay_resource_patch(mutation, "agent.report", &fingerprint)?
+            registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
         {
-            return Ok(replay);
+            return Ok((replay, None));
         }
         let mut state = self.state.lock().unwrap();
-        self.resolve_resource_path_in_state(
-            &state,
-            &registry,
-            crate::ResourceTarget::Session,
-            &selectors,
-        )
-        .map_err(anyhow::Error::new)?;
-        let surface = state
-            .resource_indexes
-            .content
-            .get(&ContentPublicId::Terminal(terminal_id.clone()))
-            .copied()
-            .with_context(|| format!("unknown terminal {terminal_id}"))?;
-        let now = now_ms();
-        let record = {
-            let records = self.agent_records.lock().unwrap();
-            match records.get(&surface) {
-                Some(existing)
-                    if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
-                {
-                    existing.clone()
-                }
-                _ => AgentRecord {
-                    surface,
-                    state: agent_state,
-                    source,
-                    session: source_session,
-                    updated_at_ms: now,
-                },
+        let (surface, terminal_id) = match target {
+            AgentReportTarget::Surface(surface) => {
+                let runtime = state
+                    .surfaces
+                    .get(&surface)
+                    .with_context(|| format!("unknown surface {surface}"))?;
+                let identity = runtime.resource_identity().with_context(|| {
+                    format!("surface {surface} has no durable resource identity")
+                })?;
+                let ContentPublicId::Terminal(terminal_id) = &identity.content_id else {
+                    anyhow::bail!("surface {surface} is not a terminal");
+                };
+                (surface, terminal_id.clone())
             }
+            AgentReportTarget::Resource { selectors, terminal_id } => {
+                self.resolve_resource_path_in_state(
+                    &state,
+                    &registry,
+                    crate::ResourceTarget::Session,
+                    selectors,
+                )
+                .map_err(anyhow::Error::new)?;
+                let surface = state
+                    .resource_indexes
+                    .content
+                    .get(&ContentPublicId::Terminal((*terminal_id).clone()))
+                    .copied()
+                    .with_context(|| format!("unknown terminal {terminal_id}"))?;
+                (surface, (*terminal_id).clone())
+            }
+        };
+        let now = now_ms();
+        let mut records = self.agent_records.lock().unwrap();
+        let record = match records.get(&surface) {
+            Some(existing)
+                if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
+            {
+                existing.clone()
+            }
+            _ => AgentRecord {
+                surface,
+                state: agent_state,
+                source,
+                session: source_session,
+                updated_at_ms: now,
+            },
         };
         let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
@@ -5969,24 +6029,25 @@ impl Mux {
             "id":agent_id,
             "value":value,
         }]);
-        let commit = registry.commit_resource_patch(
+        let commit = registry.commit_agent_projection(
             mutation,
-            "agent.report",
-            &fingerprint,
-            None,
+            fingerprint,
             expected_revision,
-            &ResourcePatch { changes: Vec::new() },
+            &terminal_id,
             &value,
             &deltas,
         )?;
         state.resource_revision = commit.revision;
+        if !commit.replayed {
+            records.insert(surface, record.clone());
+        }
+        drop(records);
         drop(state);
         drop(registry);
         if !commit.replayed {
-            self.agent_records.lock().unwrap().insert(surface, record);
             self.publish_resource_event();
         }
-        Ok(commit)
+        Ok((commit, Some(record)))
     }
 
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -14893,30 +14954,38 @@ mod tests {
     fn agent_reports_apply_hook_authority() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
-        let socket = mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Socket,
-            Some("socket-session".to_string()),
-        );
+        let initial_revision = mux.with_state(|state| state.resource_revision);
+        let initial_epoch = mux.resource_event_epoch();
+        let socket = mux
+            .report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("socket-session".to_string()),
+            )
+            .unwrap();
         assert_eq!(socket.state, AgentState::Working);
         assert_eq!(socket.source, AgentSource::Socket);
 
-        let hook = mux.report_agent(
-            surface.id,
-            AgentState::Blocked,
-            AgentSource::Hook,
-            Some("hook-session".to_string()),
-        );
+        let hook = mux
+            .report_agent(
+                surface.id,
+                AgentState::Blocked,
+                AgentSource::Hook,
+                Some("hook-session".to_string()),
+            )
+            .unwrap();
         assert_eq!(hook.state, AgentState::Blocked);
         assert_eq!(hook.source, AgentSource::Hook);
 
-        let ignored_socket = mux.report_agent(
-            surface.id,
-            AgentState::Done,
-            AgentSource::Socket,
-            Some("late-socket".to_string()),
-        );
+        let ignored_socket = mux
+            .report_agent(
+                surface.id,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("late-socket".to_string()),
+            )
+            .unwrap();
         assert_eq!(ignored_socket.state, AgentState::Blocked);
         assert_eq!(ignored_socket.source, AgentSource::Hook);
 
@@ -14924,6 +14993,274 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
+        assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let events = mux.resource_events_after(initial_revision).unwrap();
+        assert_eq!(events.batches.len(), 3);
+        assert_eq!(events.batches[0].changes[0]["value"]["source"], "socket");
+        assert_eq!(events.batches[1].changes[0]["value"]["source"], "hook");
+        assert_eq!(events.batches[2].changes[0]["value"]["source"], "hook");
+        assert_eq!(events.batches[2].changes[0]["value"]["state"], "blocked");
+        assert_eq!(events.batches[2].changes[0]["value"]["source_session"], "hook-session");
+    }
+
+    #[test]
+    fn raw_and_resource_agent_reports_share_durable_order_across_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-coordinator-{}", WorkspacePublicId::random().unwrap()));
+        let session = "agent-coordinator";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let mux = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let created = public_request(
+            &mux,
+            "agent-create",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("agent-create"),
+        );
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux.resource_surface_for_terminal(&terminal_id).unwrap();
+        let created_revision =
+            created["result"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        let initial_epoch = mux.resource_event_epoch();
+
+        let raw = mux
+            .report_agent(
+                surface,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("raw-session".into()),
+            )
+            .unwrap();
+        assert_eq!(raw.state, AgentState::Working);
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 1);
+
+        let hook_params = serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal_id":terminal_id,
+            "state":"blocked",
+            "source":"hook",
+            "source_session":"hook-session",
+            "expected_revision":(created_revision + 1).to_string(),
+        });
+        let hook = public_request(
+            &mux,
+            "agent-hook",
+            "agent.report",
+            hook_params.clone(),
+            Some("agent-hook"),
+        );
+        assert_eq!(hook["result"]["revision"], (created_revision + 2).to_string());
+        assert_eq!(hook["result"]["value"]["source"], "hook");
+        assert_eq!(hook["result"]["value"]["state"], "blocked");
+
+        let ignored = mux
+            .report_agent(
+                surface,
+                AgentState::Done,
+                AgentSource::Socket,
+                Some("late-raw-session".into()),
+            )
+            .unwrap();
+        assert_eq!(ignored.state, AgentState::Blocked);
+        assert_eq!(ignored.source, AgentSource::Hook);
+        assert_eq!(ignored.session.as_deref(), Some("hook-session"));
+        assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 3);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+
+        let batches = mux.resource_events_after(created_revision).unwrap().batches;
+        assert_eq!(
+            batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(),
+            vec![created_revision + 1, created_revision + 2, created_revision + 3]
+        );
+        assert_eq!(batches[0].changes[0]["value"]["source"], "socket");
+        assert_eq!(batches[0].changes[0]["value"]["source_session"], "raw-session");
+        assert_eq!(batches[1].changes[0]["value"], hook["result"]["value"]);
+        assert_eq!(batches[2].changes[0]["value"], hook["result"]["value"]);
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"],
+            serde_json::json!([hook["result"]["value"].clone()])
+        );
+
+        mux.shutdown();
+        drop(mux);
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+        let restored = reopened.list_agents(None, None);
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].state, AgentState::Blocked);
+        assert_eq!(restored[0].source, AgentSource::Hook);
+        assert_eq!(restored[0].session.as_deref(), Some("hook-session"));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"],
+            serde_json::json!([hook["result"]["value"].clone()])
+        );
+
+        let epoch_before_replay = reopened.resource_event_epoch();
+        let event_count_before_replay =
+            reopened.resource_events_after(created_revision).unwrap().batches.len();
+        let replay = public_request(
+            &reopened,
+            "agent-hook-replay",
+            "agent.report",
+            hook_params,
+            Some("agent-hook"),
+        );
+        assert_eq!(replay["result"]["replayed"], true);
+        assert_eq!(replay["result"]["revision"], (created_revision + 2).to_string());
+        assert_eq!(replay["result"]["value"], hook["result"]["value"]);
+        assert_eq!(reopened.resource_event_epoch(), epoch_before_replay);
+        assert_eq!(
+            reopened.resource_events_after(created_revision).unwrap().batches.len(),
+            event_count_before_replay
+        );
+        assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 1);
+
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_raw_socket_and_resource_hook_reports_serialize_to_hook_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let revision = mux.with_state(|state| state.resource_revision);
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+
+        let raw_thread = {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                mux.report_agent(
+                    surface_id,
+                    AgentState::Working,
+                    AgentSource::Socket,
+                    Some("racing-socket".into()),
+                )
+                .unwrap()
+            })
+        };
+        let hook_thread = {
+            let mux = mux.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                mux.resource_report_agent_selected(
+                    crate::ResourceSelectors {
+                        machine: Some("current".into()),
+                        session: Some("current".into()),
+                        ..Default::default()
+                    },
+                    &terminal_id,
+                    AgentState::Blocked,
+                    AgentSource::Hook,
+                    Some("racing-hook".into()),
+                    None,
+                    &WorkspaceMutation::new("racing-hook", "resource-test").unwrap(),
+                )
+                .unwrap()
+            })
+        };
+        barrier.wait();
+        let raw_result = raw_thread.join().unwrap();
+        let hook_commit = hook_thread.join().unwrap();
+        assert!(matches!(raw_result.source, AgentSource::Socket | AgentSource::Hook));
+        assert!(
+            matches!(hook_commit.revision, value if value == revision + 1 || value == revision + 2)
+        );
+
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Blocked);
+        assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let batches = mux.resource_events_after(revision).unwrap().batches;
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].revision, revision + 1);
+        assert_eq!(batches[1].revision, revision + 2);
+        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
+        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+    }
+
+    #[test]
+    fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        let epoch = mux.resource_event_epoch();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+
+        let error = mux
+            .report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("failed-session".into()),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("forced resource patch failure"));
+        assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision);
+        assert_eq!(mux.resource_event_epoch(), epoch);
+        assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+    }
+
+    #[test]
+    fn agent_reports_require_a_terminal_and_never_create_a_default_projection() {
+        let mux = test_mux();
+        let browser = mux.new_browser_tab("about:blank".into(), None, None).unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        let epoch = mux.resource_event_epoch();
+        let error = mux
+            .report_agent(
+                browser.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("browser-session".into()),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("is not a terminal"));
+        assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision);
+        assert_eq!(mux.resource_event_epoch(), epoch);
     }
 
     #[test]
@@ -14940,7 +15277,8 @@ mod tests {
             AgentState::Working,
             AgentSource::Socket,
             Some("conf".to_string()),
-        );
+        )
+        .unwrap();
         mux.post_notification(
             "Build".to_string(),
             "ok".to_string(),

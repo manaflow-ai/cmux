@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b06d5029c26c919b3363c08f746f01630131871b65db83dd120dc0891ce723ea",
+  "catalog_sha256": "f225f1a51128c6ce8d6526c5cc83bc28b3e2bd47b27f3da9fbb29262bc7e831b",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -138,6 +138,9 @@
     },
     "pane.zoom": {
       "class": "mutation"
+    },
+    "request.cancel": {
+      "class": "connection_control"
     },
     "screen.close": {
       "class": "mutation"

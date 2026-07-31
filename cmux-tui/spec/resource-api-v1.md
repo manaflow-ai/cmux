@@ -95,7 +95,10 @@ check cannot partially mutate.
 Unix sockets use one UTF-8 JSON object per line. WebSockets use one UTF-8 JSON
 object per text frame. Both transports carry identical envelopes.
 `pairing_request.list` and `pairing_request.resolve` require a trusted local
-Unix-socket connection and are unavailable over WebSocket.
+Unix-socket connection and are unavailable over WebSocket. Request IDs are
+connection-scoped and unique among pending requests. A caller may reuse an ID
+only after consuming its response or completing the `request.cancel`
+lifecycle.
 
 Request:
 
@@ -150,6 +153,18 @@ committed result. Reusing a key with different parameters returns
 `idempotency.conflict`. Replay lookup runs before selectors and revision
 checks. SDKs never retry mutations implicitly.
 
+Completed pure mutations retain the newest 4096 ordinary replay records. A
+running registry may retain at most 127 additional ordinary records between
+batched pruning passes; startup removes that slack. The newest
+`session.terminal_defaults.update` record remains pinned because it is the
+current durable defaults projection. Records associated with pending,
+executing, or indeterminate effect receipts, or prepared, executing, or
+indeterminate creation receipts, remain pinned until those receipts reach a
+terminal state. After an uncorrelated ordinary record leaves the window,
+reuse of its key is a new mutation. Completed creation correlations and effect
+outcomes remain authoritative in their separate receipt tables after a
+mutation replay record expires, subject to the receipt retention policy below.
+
 Interactive terminal, browser, and sidebar input payloads never enter durable
 effect fingerprints or intents as plaintext. Their fingerprint uses
 HMAC-SHA256 with a random 32-byte state-root pepper, the idempotency key,
@@ -165,8 +180,19 @@ retains the newest 4096 uncorrelated committed receipts, with at most 127
 additional rows between batched pruning passes; startup removes that batching
 slack. Pending, executing, indeterminate, and creation-correlated receipts are
 never evicted. After a committed receipt leaves this window, reuse of its
-idempotency key is treated as a new mutation. This finite window is the only
-exception to the mutation replay guarantee above.
+idempotency key is treated as a new mutation. These finite retention windows
+are the exceptions to the mutation replay guarantee above.
+
+`agent.report` requires a live terminal and has no session-global or default
+agent record. The registry stores one current projection row per live
+terminal. Public `agent.report` and raw `report-agent` use the same durable
+commit path, advance the public resource revision, and publish one agent
+change to `session.events`. A hook report replaces socket state. A later
+socket report retains the hook value but still commits the observed durable
+order and publishes that retained value. Restart restores agents from the
+current projection table rather than scanning report history. Tombstoning a
+terminal deletes its projection in the same transaction, so historical
+reports cannot resurrect it.
 
 `terminal.viewport.scroll` changes only the selected terminal's ephemeral
 viewport. Its first success returns the existing resource revision, inserts no
@@ -238,6 +264,23 @@ acknowledgement. After acknowledgement, ordinary stream idleness has no
 implicit deadline. A caller may use a bounded poll without closing the stream;
 only cancellation, a `stream_end`, transport failure, or an explicit
 application-owned lifetime ends it.
+
+`terminal.wait` and `terminal.wait_exit` may remain pending without a protocol
+deadline. After a completely dispatched wait reaches a caller-local timeout or
+abort, an SDK sends `request.cancel` on the same connection with the original
+public request ID and a fresh bounded cleanup deadline. `{canceled: true}` is
+the cancellation linearization point and guarantees that the target request
+will send no response; the worker and its admission permits are released
+before confirmation. For a fully dispatched target on the same connection,
+`{canceled: false}` means the request left the active registry only after its
+response queue attempt. The SDK retains and drains that exact target response
+before reusing a shared connection. An absent target response, or missing or
+malformed cancellation confirmation, closes the transport before reuse.
+
+The server registers each pending screen wait before reading the viewport.
+Terminal output, resize, reconnect, clear-history, request cancellation, and
+connection close wake that registration. An unbounded wait performs no
+periodic screen polling.
 
 Stream items use decimal strings for sequences and cursors:
 
@@ -326,7 +369,7 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 | read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
 | mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
 | stream_open | `browser.attach`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
-| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
+| connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
 
 A selector is a flat object of scope strings. A nested target includes every

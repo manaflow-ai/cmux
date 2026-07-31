@@ -1,8 +1,8 @@
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Buffer } from "node:buffer";
 import { CmuxConnectionError } from "./errors.js";
+import { NewlineFrameBuffer } from "./internal/newline-frame-buffer.js";
 import type { Transport, Unsubscribe } from "./transport.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
@@ -42,7 +42,7 @@ export class UnixSocketTransport implements Transport {
   private readonly maxOutboundMessageBytes: number;
   private readonly maxPendingBytes: number;
   private readonly maxPendingMessages: number;
-  private buffer = Buffer.alloc(0);
+  private readonly inbound: NewlineFrameBuffer;
   private pendingBytes = 0;
   private connected = false;
   private closed = false;
@@ -67,6 +67,13 @@ export class UnixSocketTransport implements Transport {
       "maxPendingMessages",
       options.maxPendingMessages,
       MAX_PENDING_MESSAGES,
+    );
+    this.inbound = new NewlineFrameBuffer(
+      this.maxInboundMessageBytes,
+      (line) => {
+        for (const handler of this.messageHandlers) handler(line);
+      },
+      (error) => this.failAndClose(error),
     );
     this.socket = net.createConnection({ path: socketPath });
     this.socket.on("connect", () => {
@@ -123,7 +130,10 @@ export class UnixSocketTransport implements Transport {
   }
 
   close(): void {
-    if (!this.closed) this.socket.destroy();
+    if (!this.closed) {
+      this.inbound.dispose();
+      this.socket.destroy();
+    }
   }
 
   private write(json: string): void {
@@ -133,39 +143,7 @@ export class UnixSocketTransport implements Transport {
   }
 
   private receive(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    for (;;) {
-      const index = this.buffer.indexOf(0x0a);
-      if (index < 0) {
-        if (this.buffer.byteLength > this.maxInboundMessageBytes) {
-          this.failAndClose(
-            new CmuxConnectionError(
-              `inbound message exceeds ${this.maxInboundMessageBytes} bytes`,
-            ),
-          );
-        }
-        return;
-      }
-      if (index > this.maxInboundMessageBytes) {
-        this.failAndClose(
-          new CmuxConnectionError(
-            `inbound message exceeds ${this.maxInboundMessageBytes} bytes`,
-          ),
-        );
-        return;
-      }
-      const bytes = this.buffer.subarray(0, index);
-      this.buffer = this.buffer.slice(index + 1);
-      let line: string;
-      try {
-        line = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      } catch {
-        this.failAndClose(new CmuxConnectionError("inbound message is not valid UTF-8"));
-        return;
-      }
-      if (line.trim() === "") continue;
-      for (const handler of this.messageHandlers) handler(line);
-    }
+    this.inbound.push(chunk);
   }
 
   private fail(error: Error): void {
@@ -182,7 +160,7 @@ export class UnixSocketTransport implements Transport {
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
-    this.buffer = Buffer.alloc(0);
+    this.inbound.dispose();
     for (const handler of this.closeHandlers) handler();
   }
 }

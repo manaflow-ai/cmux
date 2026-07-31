@@ -77,15 +77,17 @@ using Clock = std::chrono::steady_clock;
         factory = options.transport_factory;
     }
     if (!factory) {
-        std::string path = options.socket_path;
-        if (path.empty()) {
-            path = socket_path_from_environment();
+        auto path = resolve_socket_path(
+            options.socket_path, options.session);
+        if (!path) {
+            return std::move(path).error();
         }
-        if (path.empty()) {
-            path = default_socket_path(options.session);
-        }
-        options.socket_path = path;
-        factory = unix_transport_factory(path, options.timeout, options.transport_limits);
+        auto resolved_path = std::move(path).value();
+        options.socket_path = resolved_path;
+        factory = unix_transport_factory(
+            std::move(resolved_path),
+            options.timeout,
+            options.transport_limits);
     }
     return factory();
 }

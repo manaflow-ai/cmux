@@ -43,6 +43,8 @@ public final class Client implements AutoCloseable {
     private static final HexFormat LOWERCASE_HEX = HexFormat.of();
     private static final Duration FAILED_STREAM_OPEN_CLEANUP_TIMEOUT =
         Duration.ofSeconds(1);
+    private static final Duration ABANDONED_REQUEST_CLEANUP_TIMEOUT =
+        Duration.ofSeconds(1);
     static final int FAILED_STREAM_OPEN_CLEANUP_QUEUE_CAPACITY = 8;
 
     @FunctionalInterface
@@ -56,6 +58,16 @@ public final class Client implements AutoCloseable {
     }
 
     record StreamMessage(Map<String, Object> envelope, RuntimeException error, int size) {}
+
+    static final class AbandonedRequestCleanup {
+        private final AtomicBoolean claimed = new AtomicBoolean();
+        private final CompletableFuture<RuntimeException> outcome =
+            new CompletableFuture<>();
+    }
+
+    static final class InterruptTracker {
+        private boolean interrupted;
+    }
 
     static final class StreamRoute {
         private final ArrayBlockingQueue<StreamMessage> messages =
@@ -231,6 +243,10 @@ public final class Client implements AutoCloseable {
     private final ReentrantLock writeLock = new ReentrantLock();
     private final Condition failedOpenCleanupFinished =
         writeLock.newCondition();
+    private final Object requestCleanupMonitor = new Object();
+    private int requestCleanups;
+    private CompletableFuture<Void> requestCleanupFinished =
+        CompletableFuture.completedFuture(null);
     private final ThreadPoolExecutor cleanupExecutor =
         newCleanupExecutor();
     private final ScheduledThreadPoolExecutor deadlineExecutor =
@@ -380,18 +396,23 @@ public final class Client implements AutoCloseable {
             envelope.put(Wire.IDEMPOTENCY_KEY, mutationKey);
         }
         CompletableFuture<Object> future = new CompletableFuture<>();
+        AbandonedRequestCleanup cleanup = isCancelableWait(operation)
+            ? new AbandonedRequestCleanup()
+            : null;
         pending.put(requestId, future);
         if (closed.get()) {
             pending.remove(requestId, future);
             throw closedError();
         }
         boolean transportSendStarted = false;
+        boolean transportDispatched = false;
         try {
             lockForRequest(deadline, operation.wireName());
             try {
                 ensureOpen();
                 transportSendStarted = true;
                 sendWithDeadline(envelope, operation.wireName(), deadline);
+                transportDispatched = true;
                 if (onDispatched != null) {
                     onDispatched.run();
                 }
@@ -425,9 +446,7 @@ public final class Client implements AutoCloseable {
                 TimeUnit.NANOSECONDS
             );
         } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            pending.remove(requestId);
-            throw uncertain(
+            RuntimeException original = uncertain(
                 operation,
                 mutationKey,
                 new TransportError(
@@ -435,13 +454,35 @@ public final class Client implements AutoCloseable {
                     error
                 )
             );
+            if (cleanup != null && transportDispatched) {
+                cleanupAbandonedRequest(
+                    cleanup,
+                    operation,
+                    requestId,
+                    future
+                );
+            } else {
+                pending.remove(requestId, future);
+            }
+            Thread.currentThread().interrupt();
+            throw original;
         } catch (TimeoutException error) {
-            pending.remove(requestId);
-            throw uncertain(
+            RuntimeException original = uncertain(
                 operation,
                 mutationKey,
                 new TransportError(operation.wireName() + " timed out", error)
             );
+            if (cleanup != null && transportDispatched) {
+                cleanupAbandonedRequest(
+                    cleanup,
+                    operation,
+                    requestId,
+                    future
+                );
+            } else {
+                pending.remove(requestId, future);
+            }
+            throw original;
         } catch (ExecutionException error) {
             Throwable cause = error.getCause();
             if (cause instanceof RuntimeException runtime) {
@@ -452,6 +493,241 @@ public final class Client implements AutoCloseable {
             }
             throw new TransportError(operation.wireName() + " failed", cause);
         }
+    }
+
+    private static boolean isCancelableWait(Operations operation) {
+        return operation == Operations.TERMINAL_WAIT ||
+            operation == Operations.TERMINAL_WAIT_EXIT;
+    }
+
+    private RuntimeException cleanupAbandonedRequest(
+        AbandonedRequestCleanup cleanup,
+        Operations operation,
+        String targetId,
+        CompletableFuture<Object> targetResponse
+    ) {
+        if (!cleanup.claimed.compareAndSet(false, true)) {
+            return cleanup.outcome.join();
+        }
+
+        long deadline = System.nanoTime() +
+            ABANDONED_REQUEST_CLEANUP_TIMEOUT.toNanos();
+        InterruptTracker interrupts = new InterruptTracker();
+        RuntimeException failure = null;
+        boolean locked = false;
+        String cancelId = null;
+        CompletableFuture<Object> cancelResponse = null;
+        beginRequestCleanup();
+        try {
+            if (!acquireCleanupWriteLock(deadline, interrupts)) {
+                throw abandonedRequestCleanupTimeout();
+            }
+            locked = true;
+            ensureOpen();
+            if (framingUnsafe) {
+                throw new TransportError(
+                    "cannot cancel abandoned request on framing-unsafe transport"
+                );
+            }
+
+            cancelId = "java-" + nextRequest.incrementAndGet();
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put("protocol", Wire.PROTOCOL);
+            envelope.put("type", "request");
+            envelope.put("id", cancelId);
+            envelope.put("operation", Operations.REQUEST_CANCEL.wireName());
+            envelope.put(
+                "params",
+                Wire.encode(Map.of("request_id", targetId))
+            );
+            cancelResponse = new CompletableFuture<>();
+            pending.put(cancelId, cancelResponse);
+            ensureOpen();
+            sendWithDeadline(
+                envelope,
+                Operations.REQUEST_CANCEL.wireName(),
+                deadline
+            );
+
+            Object cancelValue = awaitCleanupResponse(
+                cancelResponse,
+                deadline,
+                interrupts
+            );
+            boolean canceled = decodeRequestCancelResult(cancelValue);
+            if (canceled) {
+                if (!pending.remove(targetId, targetResponse)) {
+                    drainAbandonedWaitResponse(
+                        operation,
+                        targetResponse,
+                        deadline,
+                        interrupts
+                    );
+                    throw new ProtocolError(
+                        "request.cancel returned canceled=true after the target responded"
+                    );
+                }
+            } else {
+                drainAbandonedWaitResponse(
+                    operation,
+                    targetResponse,
+                    deadline,
+                    interrupts
+                );
+            }
+        } catch (TimeoutException error) {
+            failure = new TransportError(
+                "request cancellation cleanup timed out after " +
+                    ABANDONED_REQUEST_CLEANUP_TIMEOUT,
+                error
+            );
+        } catch (ExecutionException error) {
+            Throwable cause = error.getCause();
+            failure = transportError(
+                "request cancellation cleanup failed",
+                cause == null ? error : cause
+            );
+        } catch (IOException | RuntimeException error) {
+            failure = transportError(
+                "request cancellation cleanup failed",
+                error
+            );
+        } finally {
+            if (cancelId != null && cancelResponse != null) {
+                pending.remove(cancelId, cancelResponse);
+            }
+            if (failure != null) {
+                pending.remove(targetId, targetResponse);
+                fail(failure, false);
+            }
+            if (locked) {
+                writeLock.unlock();
+            }
+            finishRequestCleanup();
+            cleanup.outcome.complete(failure);
+            if (interrupts.interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return failure;
+    }
+
+    private boolean acquireCleanupWriteLock(
+        long deadline,
+        InterruptTracker interrupts
+    ) {
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                return false;
+            }
+            try {
+                return writeLock.tryLock(
+                    remaining,
+                    TimeUnit.NANOSECONDS
+                );
+            } catch (InterruptedException error) {
+                interrupts.interrupted = true;
+            }
+        }
+    }
+
+    private static Object awaitCleanupResponse(
+        CompletableFuture<Object> response,
+        long deadline,
+        InterruptTracker interrupts
+    ) throws TimeoutException, ExecutionException {
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                throw new TimeoutException("cleanup response timed out");
+            }
+            try {
+                return response.get(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException error) {
+                interrupts.interrupted = true;
+            }
+        }
+    }
+
+    private static boolean decodeRequestCancelResult(Object value) {
+        Map<String, Object> result = exactObject(
+            value,
+            "request cancel result",
+            "canceled"
+        );
+        return Wire.bool(
+            result.get("canceled"),
+            "request cancel canceled"
+        );
+    }
+
+    private static void drainAbandonedWaitResponse(
+        Operations operation,
+        CompletableFuture<Object> response,
+        long deadline,
+        InterruptTracker interrupts
+    ) throws TimeoutException, ExecutionException {
+        Object value;
+        try {
+            value = awaitCleanupResponse(response, deadline, interrupts);
+        } catch (ExecutionException error) {
+            if (error.getCause() instanceof ResourceError) {
+                return;
+            }
+            throw error;
+        }
+        if (operation == Operations.TERMINAL_WAIT) {
+            decodeTerminalWait(value);
+            return;
+        }
+        if (operation == Operations.TERMINAL_WAIT_EXIT) {
+            decodeTerminalWaitExit(value);
+            return;
+        }
+        throw new ProtocolError(
+            "request cancellation targeted unsupported operation " +
+                operation.wireName()
+        );
+    }
+
+    private void beginRequestCleanup() {
+        synchronized (requestCleanupMonitor) {
+            if (requestCleanups == 0) {
+                requestCleanupFinished = new CompletableFuture<>();
+            }
+            requestCleanups++;
+        }
+    }
+
+    private void finishRequestCleanup() {
+        CompletableFuture<Void> finished = null;
+        synchronized (requestCleanupMonitor) {
+            if (requestCleanups > 0) {
+                requestCleanups--;
+            }
+            if (requestCleanups == 0) {
+                finished = requestCleanupFinished;
+            }
+        }
+        if (finished != null) {
+            finished.complete(null);
+        }
+    }
+
+    private CompletableFuture<Void> activeRequestCleanup() {
+        synchronized (requestCleanupMonitor) {
+            return requestCleanups == 0
+                ? null
+                : requestCleanupFinished;
+        }
+    }
+
+    private static TransportError abandonedRequestCleanupTimeout() {
+        return new TransportError(
+            "request cancellation cleanup timed out after " +
+                ABANDONED_REQUEST_CLEANUP_TIMEOUT
+        );
     }
 
     <T> ResourceStream<T> openStream(
@@ -1191,38 +1467,73 @@ public final class Client implements AutoCloseable {
     }
 
     private void lockForRequest(long deadline, String operation) {
-        long remainingBeforeLock = deadline - System.nanoTime();
-        if (remainingBeforeLock <= 0L ||
-                !tryWriteLock(Duration.ofNanos(remainingBeforeLock))) {
-            throw new TransportError(
-                operation + " timed out waiting to write"
-            );
-        }
-        boolean keepLock = false;
-        try {
-            while (failedOpenCleanups > 0 && !closed.get()) {
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0L) {
-                    throw new TransportError(
-                        operation +
-                            " timed out waiting for failed stream-open cleanup"
-                    );
+        while (true) {
+            long remainingBeforeLock = deadline - System.nanoTime();
+            if (remainingBeforeLock <= 0L ||
+                    !tryWriteLock(Duration.ofNanos(remainingBeforeLock))) {
+                throw new TransportError(
+                    operation + " timed out waiting to write"
+                );
+            }
+            boolean keepLock = false;
+            CompletableFuture<Void> requestCleanup = null;
+            try {
+                while (failedOpenCleanups > 0 && !closed.get()) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0L) {
+                        throw new TransportError(
+                            operation +
+                                " timed out waiting for failed stream-open cleanup"
+                        );
+                    }
+                    try {
+                        failedOpenCleanupFinished.awaitNanos(remaining);
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new TransportError(
+                            "interrupted while waiting for failed stream-open cleanup",
+                            error
+                        );
+                    }
                 }
-                try {
-                    failedOpenCleanupFinished.awaitNanos(remaining);
-                } catch (InterruptedException error) {
-                    Thread.currentThread().interrupt();
-                    throw new TransportError(
-                        "interrupted while waiting for failed stream-open cleanup",
-                        error
-                    );
+                ensureOpen();
+                requestCleanup = activeRequestCleanup();
+                if (requestCleanup == null) {
+                    keepLock = true;
+                    return;
+                }
+            } finally {
+                if (!keepLock) {
+                    writeLock.unlock();
                 }
             }
-            ensureOpen();
-            keepLock = true;
-        } finally {
-            if (!keepLock) {
-                writeLock.unlock();
+
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                throw new TransportError(
+                    operation +
+                        " timed out waiting for request cancellation cleanup"
+                );
+            }
+            try {
+                requestCleanup.get(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new TransportError(
+                    "interrupted while waiting for request cancellation cleanup",
+                    error
+                );
+            } catch (TimeoutException error) {
+                throw new TransportError(
+                    operation +
+                        " timed out waiting for request cancellation cleanup",
+                    error
+                );
+            } catch (ExecutionException error) {
+                throw new TransportError(
+                    "request cancellation cleanup failed",
+                    error.getCause() == null ? error : error.getCause()
+                );
             }
         }
     }

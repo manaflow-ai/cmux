@@ -621,6 +621,9 @@ TEST("operation classes contain capability corrections") {
         cmux::operation_class(cmux::Operation::client_metadata_update),
         cmux::OperationClass::connection_control);
     CHECK_EQ(
+        cmux::operation_class(cmux::Operation::request_cancel),
+        cmux::OperationClass::connection_control);
+    CHECK_EQ(
         cmux::operation_name(cmux::Operation::tab_create_browser),
         std::string_view("tab.create_browser"));
 }
@@ -950,6 +953,280 @@ TEST("cancellation before send and uncertain mutation outcomes are typed") {
         std::string("uncertain-exact-key"));
     std::lock_guard lock(state->mutex);
     CHECK_EQ(state->outgoing.size(), 1U);
+}
+
+TEST("timed out terminal wait cancels once and reuses its connection") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::atomic<bool> cancel_route_ok{false};
+    std::thread server([state, &cancel_route_ok] {
+        wait_for_writes(state, 1);
+        cmux::Json wait;
+        {
+            std::lock_guard lock(state->mutex);
+            wait = cmux::Json::parse(state->outgoing.at(0)).value();
+        }
+        const auto wait_id =
+            std::string(wait.find("id")->as_string().value());
+        CHECK_EQ(
+            wait.find("operation")->as_string().value(),
+            std::string_view("terminal.wait"));
+
+        wait_for_writes(state, 2);
+        cmux::Json cancel;
+        {
+            std::lock_guard lock(state->mutex);
+            cancel = cmux::Json::parse(state->outgoing.at(1)).value();
+        }
+        const auto cancel_id =
+            std::string(cancel.find("id")->as_string().value());
+        const auto* params =
+            cancel.find("params")->as_object().value();
+        cancel_route_ok.store(
+            cancel.find("operation")->as_string().value() ==
+                    "request.cancel" &&
+                params->size() == 1U &&
+                params->at("request_id").as_string().value() == wait_id &&
+                cancel.find("idempotency_key") == nullptr,
+            std::memory_order_release);
+        enqueue(
+            state,
+            response(cancel_id, R"({"canceled":true})"));
+
+        wait_for_writes(state, 3);
+        cmux::Json ping;
+        {
+            std::lock_guard lock(state->mutex);
+            ping = cmux::Json::parse(state->outgoing.at(2)).value();
+        }
+        CHECK_EQ(
+            ping.find("operation")->as_string().value(),
+            std::string_view("session.ping"));
+        enqueue(
+            state,
+            response(
+                std::string(ping.find("id")->as_string().value()),
+                R"({"alive":true,"cursor":{"generation":"g","revision":"1"}})"));
+    });
+
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    auto terminal = client.terminal(std::move(terminal_id).value());
+    auto waited = terminal.wait(
+        "never",
+        std::nullopt,
+        cmux::CallOptions::with_timeout(
+            std::chrono::milliseconds(20)));
+    CHECK(!waited);
+    CHECK_EQ(waited.error().code, cmux::ErrorCode::timeout);
+    auto ping = client.read(cmux::Operation::session_ping);
+    CHECK(ping);
+    server.join();
+    CHECK(cancel_route_ok.load(std::memory_order_acquire));
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK_EQ(state->outgoing.size(), 3U);
+        CHECK_EQ(state->close_calls, 0U);
+    }
+}
+
+TEST("terminal wait cancel false drains raced completion before reuse") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::thread server([state] {
+        wait_for_writes(state, 1);
+        cmux::Json wait;
+        {
+            std::lock_guard lock(state->mutex);
+            wait = cmux::Json::parse(state->outgoing.at(0)).value();
+        }
+        const auto wait_id =
+            std::string(wait.find("id")->as_string().value());
+
+        wait_for_writes(state, 2);
+        cmux::Json cancel;
+        {
+            std::lock_guard lock(state->mutex);
+            cancel = cmux::Json::parse(state->outgoing.at(1)).value();
+        }
+        {
+            std::lock_guard lock(state->mutex);
+            state->incoming.push_back(response(
+                std::string(cancel.find("id")->as_string().value()),
+                R"({"canceled":false})"));
+            state->incoming.push_back(response(
+                wait_id,
+                R"({"matched":true,"text":"raced"})"));
+            state->changed.notify_all();
+        }
+
+        wait_for_writes(state, 3);
+        cmux::Json ping;
+        {
+            std::lock_guard lock(state->mutex);
+            ping = cmux::Json::parse(state->outgoing.at(2)).value();
+        }
+        CHECK_EQ(
+            ping.find("operation")->as_string().value(),
+            std::string_view("session.ping"));
+        enqueue(
+            state,
+            response(
+                std::string(ping.find("id")->as_string().value()),
+                R"({"alive":true,"cursor":{"generation":"g","revision":"2"}})"));
+    });
+
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    auto terminal = client.terminal(std::move(terminal_id).value());
+    auto waited = terminal.wait(
+        "raced",
+        std::nullopt,
+        cmux::CallOptions::with_timeout(
+            std::chrono::milliseconds(20)));
+    CHECK(!waited);
+    CHECK_EQ(waited.error().code, cmux::ErrorCode::timeout);
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->incoming.empty());
+        CHECK_EQ(state->outgoing.size(), 2U);
+    }
+    CHECK(client.read(cmux::Operation::session_ping));
+    server.join();
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 3U);
+    CHECK_EQ(state->close_calls, 0U);
+}
+
+TEST("wait exit abort is preserved and predispatch abort is wire silent") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::thread server([state] {
+        wait_for_writes(state, 1);
+        cmux::Json wait;
+        {
+            std::lock_guard lock(state->mutex);
+            wait = cmux::Json::parse(state->outgoing.at(0)).value();
+        }
+        CHECK_EQ(
+            wait.find("operation")->as_string().value(),
+            std::string_view("terminal.wait_exit"));
+        const auto wait_id =
+            std::string(wait.find("id")->as_string().value());
+
+        wait_for_writes(state, 2);
+        cmux::Json cancel;
+        {
+            std::lock_guard lock(state->mutex);
+            cancel = cmux::Json::parse(state->outgoing.at(1)).value();
+        }
+        const auto* params =
+            cancel.find("params")->as_object().value();
+        CHECK_EQ(params->size(), 1U);
+        CHECK_EQ(
+            params->at("request_id").as_string().value(),
+            std::string_view(wait_id));
+        enqueue(
+            state,
+            response(
+                std::string(cancel.find("id")->as_string().value()),
+                R"({"canceled":true})"));
+
+        wait_for_writes(state, 3);
+        cmux::Json ping;
+        {
+            std::lock_guard lock(state->mutex);
+            ping = cmux::Json::parse(state->outgoing.at(2)).value();
+        }
+        CHECK_EQ(
+            ping.find("operation")->as_string().value(),
+            std::string_view("session.ping"));
+        enqueue(
+            state,
+            response(
+                std::string(ping.find("id")->as_string().value()),
+                R"({"alive":true,"cursor":{"generation":"g","revision":"3"}})"));
+    });
+
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    auto terminal = client.terminal(std::move(terminal_id).value());
+    std::stop_source stopped;
+    std::optional<cmux::Result<cmux::TerminalWaitExitResult>> waited;
+    std::thread worker([&] {
+        cmux::CallOptions call;
+        call.cancel = stopped.get_token();
+        waited = terminal.wait_exit(
+            std::nullopt,
+            std::move(call));
+    });
+    wait_for_writes(state, 1);
+    stopped.request_stop();
+    worker.join();
+    CHECK(waited.has_value());
+    CHECK(!*waited);
+    CHECK_EQ(waited->error().code, cmux::ErrorCode::canceled);
+
+    std::stop_source already_stopped;
+    already_stopped.request_stop();
+    cmux::CallOptions predispatch_call;
+    predispatch_call.cancel = already_stopped.get_token();
+    auto predispatch = terminal.wait_exit(
+        std::nullopt,
+        std::move(predispatch_call));
+    CHECK(!predispatch);
+    CHECK_EQ(
+        predispatch.error().code,
+        cmux::ErrorCode::canceled);
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK_EQ(state->outgoing.size(), 2U);
+    }
+
+    CHECK(client.read(cmux::Operation::session_ping));
+    server.join();
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 3U);
+    CHECK_EQ(state->close_calls, 0U);
+}
+
+TEST("malformed wait cleanup preserves timeout and fail closes once") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    std::thread server([state] {
+        wait_for_writes(state, 2);
+        cmux::Json cancel;
+        {
+            std::lock_guard lock(state->mutex);
+            cancel = cmux::Json::parse(state->outgoing.at(1)).value();
+        }
+        enqueue(
+            state,
+            response(
+                std::string(cancel.find("id")->as_string().value()),
+                R"({"canceled":true,"future":true})"));
+    });
+
+    auto terminal_id = cmux::TerminalId::parse(
+        "term_0123456789abcdef0123456789abcdef");
+    CHECK(terminal_id);
+    auto waited =
+        client.terminal(std::move(terminal_id).value())
+            .wait(
+                "never",
+                std::nullopt,
+                cmux::CallOptions::with_timeout(
+                    std::chrono::milliseconds(20)));
+    CHECK(!waited);
+    CHECK_EQ(waited.error().code, cmux::ErrorCode::timeout);
+    server.join();
+    CHECK(client.closed());
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 2U);
+    CHECK_EQ(state->close_calls, 1U);
 }
 
 TEST("terminal lifecycle and wait-exit unions decode strictly") {

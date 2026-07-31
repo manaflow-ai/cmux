@@ -6,7 +6,7 @@ selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/1` transports 111 operations for exactly one local mux
+`cmux.protocol/1` transports 112 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 
@@ -15,7 +15,7 @@ broker protocol.
 | `read` | 35 | Reads state and forbids an idempotency key |
 | `mutation` | 61 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 4 | Opens a connection-owned typed stream |
-| `connection_control` | 11 | Changes only connection-local state |
+| `connection_control` | 12 | Changes only connection-local state |
 
 The 39 mutations with an external effect may return the non-retryable
 `mutation.indeterminate` error after a crash. The same key is never repeated
@@ -36,6 +36,7 @@ correlation, and idempotency metadata.
 | `notification` | 2 | `notification.create`, `notification.list` |
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
+| `request` | 1 | `request.cancel` |
 | `screen` | 8 | `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.rename` |
 | `session` | 12 | `session.creation.resolve`, `session.events`, `session.get`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |

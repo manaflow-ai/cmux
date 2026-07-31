@@ -497,23 +497,105 @@ impl Client {
         }
         budget.check(operation)?;
         *dispatched = true;
+        let mut reusable_after_abandonment = false;
         let result = {
             let active = connection.as_mut().ok_or(Error::Closed)?;
-            budget
-                .remaining(operation)
-                .and_then(|send_timeout| {
-                    active.with_write_timeout(send_timeout, |active| {
-                        active.send_with_limit(&envelope, self.shared.config.max_request_bytes)
-                    })
+            let sent = budget.remaining(operation).and_then(|send_timeout| {
+                active.with_write_timeout(send_timeout, |active| {
+                    active.send_with_limit(&envelope, self.shared.config.max_request_bytes)
                 })
-                .and_then(|()| receive_response_with_budget(active, &id, operation, &budget))
+            });
+            match sent {
+                Err(error) => Err(error),
+                Ok(()) => match receive_response_with_budget(active, &id, operation, &budget) {
+                    Err(original)
+                        if request_can_be_abandoned(operation)
+                            && matches!(&original, Error::Timeout(_) | Error::Cancelled(_)) =>
+                    {
+                        reusable_after_abandonment =
+                            self.cancel_abandoned_request(active, &id).is_ok();
+                        Err(original)
+                    }
+                    result => result,
+                },
+            }
         };
-        if result.as_ref().is_err_and(discard_connection_after)
+        if !reusable_after_abandonment
+            && result.as_ref().is_err_and(discard_connection_after)
             && let Some(active) = connection.take()
         {
             active.close();
         }
         result
+    }
+
+    fn cancel_abandoned_request(
+        &self,
+        connection: &mut JsonLineConnection,
+        target_id: &str,
+    ) -> Result<()> {
+        let operation = ops::REQUEST_CANCEL;
+        let budget = CallBudget::new(
+            RequestOptions { timeout: Some(self.shared.config.timeout), cancellation: None },
+            self.shared.config.timeout,
+        )?;
+        let cancel_id = self.next_request_id();
+        let params = Value::Object(Map::from_iter([(
+            "request_id".to_string(),
+            Value::String(target_id.to_string()),
+        )]));
+        let envelope = request_envelope(&cancel_id, operation, params, None);
+        let send_timeout = budget.remaining(operation)?;
+        connection.with_write_timeout(send_timeout, |connection| {
+            connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
+        })?;
+
+        let mut cancel_result = None;
+        let mut target_seen = false;
+        loop {
+            let envelope = receive_envelope_with_budget(connection, operation, &budget)?;
+            let response_id = envelope
+                .as_object()
+                .and_then(|object| object.get("id"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    Error::UnexpectedEnvelope(
+                        "request cleanup requires a response with a string id".to_string(),
+                    )
+                })?;
+            if response_id == target_id {
+                if target_seen {
+                    return Err(Error::UnexpectedEnvelope(
+                        "request cleanup received a duplicate target response".to_string(),
+                    ));
+                }
+                validate_completed_response(envelope, target_id)?;
+                target_seen = true;
+            } else if response_id == cancel_id {
+                if cancel_result.is_some() {
+                    return Err(Error::UnexpectedEnvelope(
+                        "request cleanup received a duplicate cancel response".to_string(),
+                    ));
+                }
+                cancel_result =
+                    Some(decode_request_cancel_result(decode_response(envelope, &cancel_id)?)?);
+            } else {
+                return Err(Error::UnexpectedEnvelope(
+                    "request cleanup received a response for an unknown request".to_string(),
+                ));
+            }
+
+            match cancel_result {
+                Some(true) if target_seen => {
+                    return Err(Error::UnexpectedEnvelope(
+                        "canceled request also emitted a target response".to_string(),
+                    ));
+                }
+                Some(true) => return Ok(()),
+                Some(false) if target_seen => return Ok(()),
+                _ => {}
+            }
+        }
     }
 
     fn next_request_id(&self) -> String {
@@ -577,7 +659,8 @@ fn operation_class(operation: &str) -> OperationClass {
         OperationClass::StreamOpen
     } else if matches!(
         operation,
-        ops::STREAM_CANCEL
+        ops::REQUEST_CANCEL
+            | ops::STREAM_CANCEL
             | ops::CLIENT_METADATA_UPDATE
             | ops::CLIENT_SIZING_SET
             | ops::CLIENT_SIZING_RELEASE
@@ -682,6 +765,31 @@ fn receive_envelope_with_budget(
             Ok(response) => return Ok(response),
         }
     }
+}
+
+fn request_can_be_abandoned(operation: &str) -> bool {
+    matches!(operation, ops::TERMINAL_WAIT | ops::TERMINAL_WAIT_EXIT)
+}
+
+fn validate_completed_response(response: Value, expected_id: &str) -> Result<()> {
+    match decode_response(response, expected_id) {
+        Ok(_) | Err(Error::Protocol { .. } | Error::ConfirmationRequired { .. }) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn decode_request_cancel_result(result: Value) -> Result<bool> {
+    let object = result.as_object().ok_or_else(|| {
+        Error::UnexpectedEnvelope("request cancel result must be an object".to_string())
+    })?;
+    if object.len() != 1 || !object.contains_key("canceled") {
+        return Err(Error::UnexpectedEnvelope(
+            "request cancel result must contain only canceled".to_string(),
+        ));
+    }
+    object.get("canceled").and_then(Value::as_bool).ok_or_else(|| {
+        Error::UnexpectedEnvelope("request cancel result canceled must be a boolean".to_string())
+    })
 }
 
 fn stream_overflow_error() -> Error {
@@ -837,6 +945,7 @@ mod tests {
     #[test]
     fn classification_matches_connection_control_exceptions() {
         assert_eq!(operation_class(ops::TERMINAL_COPY), OperationClass::Read);
+        assert_eq!(operation_class(ops::REQUEST_CANCEL), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TERMINAL_VIEWER_RESIZE), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TAB_CREATE_TERMINAL), OperationClass::Mutation);
     }

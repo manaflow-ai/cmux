@@ -1,5 +1,12 @@
 use super::*;
 
+/// Completed pure mutations keep a finite exactly-once replay window. Pruning
+/// runs in batches, so a live registry may temporarily retain the interval as
+/// slack; startup always restores the hard bound. Non-terminal effect or
+/// creation receipts remain protected by their authoritative receipt tables.
+pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
+pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -124,6 +131,26 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            committed_revision INTEGER NOT NULL,
            PRIMARY KEY(idempotency_key)
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_projections (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           result_json TEXT NOT NULL,
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           CHECK (
+             json_valid(result_json)
+             AND COALESCE(
+               json_extract(result_json, '$.terminal_id') = terminal_id,
+               0
+             )
+           )
+         );
+         CREATE TRIGGER IF NOT EXISTS resource_agent_projection_terminal_tombstone
+           AFTER UPDATE OF deleted_revision ON resource_terminals
+           WHEN NEW.deleted_revision IS NOT NULL
+         BEGIN
+           DELETE FROM resource_agent_projections
+           WHERE terminal_id = NEW.public_id;
+         END;
          CREATE TABLE IF NOT EXISTS resource_events (
            revision INTEGER PRIMARY KEY NOT NULL,
            previous_revision INTEGER NOT NULL,
@@ -133,6 +160,37 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);",
+    )?;
+    Ok(())
+}
+
+pub(super) fn migrate_resource_agent_projections(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "WITH ranked AS (
+           SELECT result_json, committed_revision,
+                  json_extract(result_json, '$.terminal_id') AS terminal_id,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY json_extract(result_json, '$.terminal_id')
+                    ORDER BY committed_revision DESC, idempotency_key DESC
+                  ) AS terminal_rank
+           FROM resource_mutations
+           WHERE operation = 'agent.report'
+         )
+         INSERT INTO resource_agent_projections(
+           terminal_id, result_json, committed_revision
+         )
+         SELECT ranked.terminal_id, ranked.result_json, ranked.committed_revision
+         FROM ranked
+         JOIN resource_terminals AS terminal
+           ON terminal.public_id = ranked.terminal_id
+          AND terminal.deleted_revision IS NULL
+         WHERE ranked.terminal_rank = 1
+         ON CONFLICT(terminal_id) DO UPDATE SET
+           result_json = excluded.result_json,
+           committed_revision = excluded.committed_revision",
+        [],
     )?;
     Ok(())
 }
@@ -155,7 +213,55 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
          )
          SELECT idempotency_key, origin, operation, fingerprint, result_json, committed_revision
          FROM resource_mutations_by_origin;
-         DROP TABLE resource_mutations_by_origin;",
+         DROP TABLE resource_mutations_by_origin;
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
+           ON resource_mutations(operation, committed_revision DESC);",
+    )?;
+    Ok(())
+}
+
+pub(super) fn initialize_resource_mutation_retention(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    compact_resource_mutations(transaction)
+}
+
+pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
+        return Ok(());
+    }
+    compact_resource_mutations(transaction)
+}
+
+fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM resource_mutations
+         WHERE rowid IN (
+           SELECT candidate.rowid
+           FROM resource_mutations AS candidate
+           WHERE candidate.rowid != COALESCE((
+                   SELECT latest.rowid
+                   FROM resource_mutations AS latest
+                   WHERE latest.operation = 'session.terminal_defaults.update'
+                   ORDER BY latest.committed_revision DESC, latest.rowid DESC
+                   LIMIT 1
+                 ), -1)
+             AND NOT EXISTS (
+               SELECT 1
+               FROM resource_effect_receipts AS effect
+               WHERE effect.idempotency_key = candidate.idempotency_key
+                 AND effect.state IN ('pending', 'executing', 'indeterminate')
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM resource_creation_receipts AS creation
+               WHERE creation.idempotency_key = candidate.idempotency_key
+                 AND creation.state IN ('prepared', 'executing', 'indeterminate')
+             )
+           ORDER BY candidate.committed_revision DESC, candidate.rowid DESC
+           LIMIT -1 OFFSET ?1
+         )",
+        [i64::try_from(RESOURCE_MUTATION_REPLAY_CAPACITY)?],
     )?;
     Ok(())
 }
@@ -202,6 +308,96 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
+    }
+
+    pub fn commit_agent_projection(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "agent.report";
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        anyhow::ensure!(
+            result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
+            "agent projection terminal does not match {terminal_id}"
+        );
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let deltas_json = canonical_json(deltas)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let terminal_is_live = tx
+            .query_row(
+                "SELECT 1 FROM resource_terminals
+                 WHERE public_id = ?1 AND deleted_revision IS NULL",
+                [terminal_id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        anyhow::ensure!(terminal_is_live, "unknown terminal {terminal_id}");
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        tx.execute(
+            "INSERT INTO resource_agent_projections(
+               terminal_id, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3)
+             ON CONFLICT(terminal_id) DO UPDATE SET
+               result_json = excluded.result_json,
+               committed_revision = excluded.committed_revision",
+            params![terminal_id.as_str(), result_json, sqlite_revision],
+        )?;
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                sqlite_revision,
+                i64::try_from(previous_revision)
+                    .context("resource revision exceeds SQLite range")?,
+                mutation.origin,
+                mutation.id,
+                deltas_json,
+            ],
+        )?;
+        prune_resource_events(&tx)?;
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
 
     pub fn terminal_resource_id(
@@ -680,6 +876,16 @@ impl WorkspaceRegistry {
                 row.get::<_, i64>(0)
             })?;
         u64::try_from(count).context("resource mutation count is negative")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
+        let count = self.connection.query_row(
+            "SELECT COUNT(*) FROM resource_agent_projections",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        u64::try_from(count).context("resource agent projection count is negative")
     }
 }
 

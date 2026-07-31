@@ -53,6 +53,7 @@ struct OperationInfo {
     X(session_window_title_clear, "session.window.title.clear", mutation)             \
     X(pairing_request_list, "pairing_request.list", read)                             \
     X(pairing_request_resolve, "pairing_request.resolve", mutation)                   \
+    X(request_cancel, "request.cancel", connection_control)                           \
     X(frontend_projection_get, "frontend_projection.get", read)                       \
     X(frontend_projection_put, "frontend_projection.put", mutation)                   \
     X(workspace_list, "workspace.list", read)                                         \
@@ -157,6 +158,7 @@ struct OperationInfo {
 [[nodiscard]] bool requires_machine(Operation operation) noexcept {
     switch (operation) {
         case Operation::machine_list:
+        case Operation::request_cancel:
             return false;
         default:
             return true;
@@ -168,6 +170,7 @@ struct OperationInfo {
         case Operation::machine_list:
         case Operation::machine_get:
         case Operation::session_list:
+        case Operation::request_cancel:
             return false;
         default:
             return true;
@@ -1100,6 +1103,135 @@ public:
     std::atomic<std::uint64_t> next_request_id{1};
     std::atomic<bool> is_closed{false};
 
+    [[nodiscard]] Result<void> cancel_abandoned_request(
+        std::string_view target_request_id) {
+        const auto deadline =
+            std::chrono::steady_clock::now() + options.timeout;
+        const auto remaining = [&]() -> Timeout {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) {
+                return Timeout::zero();
+            }
+            return std::max(
+                Timeout(1),
+                std::chrono::duration_cast<Timeout>(deadline - now));
+        };
+        const auto cancel_request_id =
+            "cpp-request-" +
+            std::to_string(
+                next_request_id.fetch_add(1, std::memory_order_relaxed));
+        auto timeout = remaining();
+        if (timeout == Timeout::zero()) {
+            return make_error(
+                ErrorCode::timeout,
+                "request cleanup timed out before cancellation");
+        }
+        auto sent = send_envelope(
+            *control,
+            cancel_request_id,
+            Operation::request_cancel,
+            {
+                {
+                    "request_id",
+                    Json(std::string(target_request_id)),
+                },
+            },
+            std::nullopt,
+            timeout,
+            options.json_limits);
+        if (!sent) {
+            return std::move(sent).error();
+        }
+
+        std::optional<bool> cancel_result;
+        bool target_seen = false;
+        while (true) {
+            timeout = remaining();
+            if (timeout == Timeout::zero()) {
+                return make_error(
+                    ErrorCode::timeout,
+                    "request cleanup timed out");
+            }
+            auto wire = control->receive(timeout);
+            if (!wire) {
+                return std::move(wire).error();
+            }
+            auto parsed = Json::parse(wire.value(), options.json_limits);
+            if (!parsed) {
+                return std::move(parsed).error();
+            }
+            auto protocol = require_string(parsed.value(), "protocol");
+            auto type = require_string(parsed.value(), "type");
+            auto response_id = require_string(parsed.value(), "id");
+            if (!protocol || protocol.value() != "cmux.protocol/1" ||
+                !type || type.value() != "response" || !response_id) {
+                return make_error(
+                    ErrorCode::protocol,
+                    "request cleanup requires a cmux.protocol/1 response");
+            }
+            if (response_id.value() == target_request_id) {
+                if (target_seen) {
+                    return make_error(
+                        ErrorCode::protocol,
+                        "request cleanup received duplicate target response");
+                }
+                auto completed = decode_response(
+                    parsed.value(),
+                    target_request_id,
+                    "abandoned request response");
+                if (!completed) {
+                    auto error = std::move(completed).error();
+                    if (error.code != ErrorCode::command) {
+                        return error;
+                    }
+                }
+                target_seen = true;
+            } else if (response_id.value() == cancel_request_id) {
+                if (cancel_result) {
+                    return make_error(
+                        ErrorCode::protocol,
+                        "request cleanup received duplicate cancel response");
+                }
+                auto response = decode_response(
+                    parsed.value(),
+                    cancel_request_id,
+                    "request cancel response");
+                if (!response) {
+                    return std::move(response).error();
+                }
+                auto exact = require_exact_fields(
+                    response.value(),
+                    {"canceled"},
+                    "request cancel result");
+                auto canceled =
+                    require_bool(response.value(), "canceled");
+                if (!exact || !canceled) {
+                    return make_error(
+                        ErrorCode::protocol,
+                        "request cancel result must contain only boolean "
+                        "canceled");
+                }
+                cancel_result = canceled.value();
+            } else {
+                return make_error(
+                    ErrorCode::protocol,
+                    "request cleanup received an unknown response ID");
+            }
+
+            if (cancel_result == true) {
+                if (target_seen) {
+                    return make_error(
+                        ErrorCode::protocol,
+                        "canceled request also emitted a target response");
+                }
+                return {};
+            }
+            if (cancel_result == false && target_seen) {
+                return {};
+            }
+        }
+    }
+
     [[nodiscard]] Result<Json> call(
         Operation operation,
         Json::Object params,
@@ -1152,14 +1284,30 @@ public:
             close();
             return outcome_error(std::move(sent).error());
         }
+        const auto finish_abandoned =
+            [&](Error original) -> Result<Json> {
+            const bool cancellable =
+                operation == Operation::terminal_wait ||
+                operation == Operation::terminal_wait_exit;
+            if (cancellable &&
+                (original.code == ErrorCode::timeout ||
+                 original.code == ErrorCode::canceled)) {
+                auto cleaned =
+                    cancel_abandoned_request(request_id);
+                if (!cleaned) {
+                    close();
+                }
+            }
+            return outcome_error(std::move(original));
+        };
         while (true) {
             if (call.cancel.stop_requested()) {
-                return outcome_error(
+                return finish_abandoned(
                     make_error(ErrorCode::canceled, "operation was canceled"));
             }
             auto timeout = remaining();
             if (timeout == Timeout::zero()) {
-                return outcome_error(
+                return finish_abandoned(
                     make_error(ErrorCode::timeout, "operation timed out"));
             }
             if (call.cancel.stop_possible()) {
@@ -1172,7 +1320,7 @@ public:
                     remaining() != Timeout::zero()) {
                     continue;
                 }
-                return outcome_error(std::move(wire).error());
+                return finish_abandoned(std::move(wire).error());
             }
             auto parsed = Json::parse(wire.value(), options.json_limits);
             if (!parsed) {
@@ -1350,16 +1498,18 @@ Result<Client> Client::connect(ClientOptions options) {
             ErrorCode::invalid_argument,
             "machine and session routing selectors must not be empty");
     }
-    std::string path = options.socket_path;
-    if (path.empty()) {
-        path = socket_path_from_environment();
-    }
-    if (path.empty()) {
-        path = default_socket_path(options.session);
-    }
     if (!options.transport_factory) {
+        auto path = resolve_socket_path(
+            options.socket_path, options.session);
+        if (!path) {
+            return std::move(path).error();
+        }
+        auto resolved_path = std::move(path).value();
+        options.socket_path = resolved_path;
         options.transport_factory = unix_transport_factory(
-            path, options.timeout, options.transport_limits);
+            std::move(resolved_path),
+            options.timeout,
+            options.transport_limits);
     }
     if (!options.stream_transport_factory) {
         options.stream_transport_factory = options.transport_factory;
@@ -2212,7 +2362,8 @@ Result<MutationResult<EmptyResult>> Terminal::clear_history(
 
 Result<TerminalWaitResult> Terminal::wait(
     std::string pattern,
-    std::optional<std::uint64_t> timeout_ms) const {
+    std::optional<std::uint64_t> timeout_ms,
+    CallOptions call) const {
     if (pattern.empty()) {
         return make_error(
             ErrorCode::invalid_argument,
@@ -2222,16 +2373,23 @@ Result<TerminalWaitResult> Terminal::wait(
     if (timeout_ms) {
         params.emplace("timeout_ms", Json(std::to_string(*timeout_ms)));
     }
-    return read(Operation::terminal_wait, std::move(params));
+    return read(
+        Operation::terminal_wait,
+        std::move(params),
+        std::move(call));
 }
 
 Result<TerminalWaitExitResult> Terminal::wait_exit(
-    std::optional<std::uint64_t> timeout_ms) const {
+    std::optional<std::uint64_t> timeout_ms,
+    CallOptions call) const {
     Json::Object params;
     if (timeout_ms) {
         params.emplace("timeout_ms", Json(std::to_string(*timeout_ms)));
     }
-    return read(Operation::terminal_wait_exit, std::move(params));
+    return read(
+        Operation::terminal_wait_exit,
+        std::move(params),
+        std::move(call));
 }
 
 Result<TerminalCopyResult> Terminal::copy(Json::Object params) const {

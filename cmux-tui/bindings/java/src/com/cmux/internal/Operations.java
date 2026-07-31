@@ -112,6 +112,7 @@ public enum Operations {
     SIDEBAR_VIEW_INPUT("sidebar_view.input", Class.MUTATION),
     SIDEBAR_VIEW_RESIZE("sidebar_view.resize", Class.MUTATION),
     SIDEBAR_VIEW_RELOAD("sidebar_view.reload", Class.MUTATION),
+    REQUEST_CANCEL("request.cancel", Class.CONNECTION_CONTROL),
     STREAM_CANCEL("stream.cancel", Class.CONNECTION_CONTROL);
 
     public enum Class {

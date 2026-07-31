@@ -1220,6 +1220,416 @@ class ResourceApiTests(unittest.TestCase):
                     )
                 self.assertTrue(client.session(SESSION).ping().alive)
 
+    def test_terminal_wait_timeout_cancels_once_and_gates_reuse(self) -> None:
+        observed = []
+        wait_seen = threading.Event()
+        cancel_seen = threading.Event()
+        release_cancel = threading.Event()
+        ping_seen = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            target = next(requests)
+            observed.append(target)
+            wait_seen.set()
+            canceled = next(requests)
+            observed.append(canceled)
+            cancel_seen.set()
+            release_cancel.wait(1)
+            ok(connection, canceled, {"canceled": True})
+            ping = next(requests)
+            observed.append(ping)
+            ping_seen.set()
+            ok(
+                connection,
+                ping,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                session = client.session(SESSION)
+                terminal = session.terminal(TERMINAL)
+                wait_failures = []
+                ping_results = []
+
+                def wait():
+                    try:
+                        client.with_request_options(
+                            RequestOptions(timeout=0.02),
+                            terminal.wait,
+                            cmux.TerminalWaitOptions("never"),
+                        )
+                    except BaseException as error:
+                        wait_failures.append(error)
+
+                def ping():
+                    ping_results.append(session.ping())
+
+                wait_thread = threading.Thread(target=wait)
+                wait_thread.start()
+                self.assertTrue(wait_seen.wait(1))
+                self.assertTrue(cancel_seen.wait(1))
+                ping_thread = threading.Thread(target=ping)
+                ping_thread.start()
+                self.assertFalse(ping_seen.wait(0.03))
+                release_cancel.set()
+                wait_thread.join(timeout=1)
+                ping_thread.join(timeout=1)
+                self.assertFalse(wait_thread.is_alive())
+                self.assertFalse(ping_thread.is_alive())
+
+        self.assertEqual(len(wait_failures), 1)
+        self.assertIsInstance(wait_failures[0], cmux.TimeoutError)
+        self.assertIn(
+            "terminal.wait did not respond before the deadline",
+            str(wait_failures[0]),
+        )
+        self.assertEqual(len(ping_results), 1)
+        self.assertTrue(ping_results[0].alive)
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait", "request.cancel", "session.ping"],
+        )
+        self.assertEqual(
+            observed[1]["params"],
+            {"request_id": observed[0]["id"]},
+        )
+
+    def test_terminal_wait_exit_timeout_uses_request_cancel(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            target = next(requests)
+            observed.append(target)
+            canceled = next(requests)
+            observed.append(canceled)
+            ok(connection, canceled, {"canceled": True})
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.1) as client:
+                terminal = client.session(SESSION).terminal(TERMINAL)
+                with self.assertRaises(cmux.TimeoutError):
+                    client.with_request_options(
+                        RequestOptions(timeout=0.01),
+                        terminal.wait_exit,
+                    )
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait_exit", "request.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"],
+            {"request_id": observed[0]["id"]},
+        )
+
+    def test_terminal_wait_cancellation_only_cancels_after_dispatch(self) -> None:
+        observed = []
+
+        def before_handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        cancellation = CancellationToken()
+        cancellation.cancel()
+        with UnixJsonServer(before_handler) as server:
+            with Client(server.path) as client:
+                session = client.session(SESSION)
+                with self.assertRaises(CancelledError) as raised:
+                    client.with_request_options(
+                        RequestOptions(cancellation=cancellation),
+                        session.terminal(TERMINAL).wait,
+                        cmux.TerminalWaitOptions("never"),
+                    )
+                self.assertFalse(raised.exception.dispatched)
+                self.assertTrue(session.ping().alive)
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.ping"],
+        )
+
+        observed.clear()
+        wait_seen = threading.Event()
+
+        def after_handler(connection, _index):
+            requests = frames(connection)
+            target = next(requests)
+            observed.append(target)
+            wait_seen.set()
+            canceled = next(requests)
+            observed.append(canceled)
+            ok(connection, canceled, {"canceled": True})
+
+        cancellation = CancellationToken()
+        failures = []
+        with UnixJsonServer(after_handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                terminal = client.session(SESSION).terminal(TERMINAL)
+
+                def wait():
+                    try:
+                        client.with_request_options(
+                            RequestOptions(cancellation=cancellation),
+                            terminal.wait,
+                            cmux.TerminalWaitOptions("never"),
+                        )
+                    except BaseException as error:
+                        failures.append(error)
+
+                wait_thread = threading.Thread(target=wait)
+                wait_thread.start()
+                self.assertTrue(wait_seen.wait(1))
+                cancellation.cancel()
+                cancellation.cancel()
+                wait_thread.join(timeout=1)
+                self.assertFalse(wait_thread.is_alive())
+
+        self.assertEqual(len(failures), 1)
+        self.assertIsInstance(failures[0], CancelledError)
+        self.assertTrue(failures[0].dispatched)
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait", "request.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"],
+            {"request_id": observed[0]["id"]},
+        )
+
+    def test_request_cancel_false_drains_raced_wait_before_reuse(self) -> None:
+        for response_first in (False, True):
+            with self.subTest(response_first=response_first):
+                observed = []
+                wait_seen = threading.Event()
+                cancel_seen = threading.Event()
+                first_sent = threading.Event()
+                release_second = threading.Event()
+                ping_seen = threading.Event()
+
+                def handler(connection, _index):
+                    requests = frames(connection)
+                    target = next(requests)
+                    observed.append(target)
+                    wait_seen.set()
+                    canceled = next(requests)
+                    observed.append(canceled)
+                    cancel_seen.set()
+                    if response_first:
+                        ok(connection, target, {"matched": False, "text": ""})
+                    else:
+                        ok(connection, canceled, {"canceled": False})
+                    first_sent.set()
+                    release_second.wait(1)
+                    if response_first:
+                        ok(connection, canceled, {"canceled": False})
+                    else:
+                        ok(connection, target, {"matched": False, "text": ""})
+                    ping = next(requests)
+                    observed.append(ping)
+                    ping_seen.set()
+                    ok(
+                        connection,
+                        ping,
+                        {
+                            "alive": True,
+                            "cursor": {
+                                "generation": "generation-a",
+                                "revision": "1",
+                            },
+                        },
+                    )
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        session = client.session(SESSION)
+                        terminal = session.terminal(TERMINAL)
+                        cancellation = CancellationToken()
+                        failures = []
+                        ping_results = []
+
+                        def wait():
+                            try:
+                                client.with_request_options(
+                                    RequestOptions(
+                                        cancellation=cancellation,
+                                    ),
+                                    terminal.wait,
+                                    cmux.TerminalWaitOptions("never"),
+                                )
+                            except BaseException as error:
+                                failures.append(error)
+
+                        wait_thread = threading.Thread(target=wait)
+                        wait_thread.start()
+                        self.assertTrue(wait_seen.wait(1))
+                        cancellation.cancel()
+                        self.assertTrue(cancel_seen.wait(1))
+                        ping_thread = threading.Thread(
+                            target=lambda: ping_results.append(session.ping())
+                        )
+                        ping_thread.start()
+                        self.assertTrue(first_sent.wait(1))
+                        self.assertFalse(ping_seen.wait(0.03))
+                        release_second.set()
+                        wait_thread.join(timeout=1)
+                        ping_thread.join(timeout=1)
+                        self.assertFalse(wait_thread.is_alive())
+                        self.assertFalse(ping_thread.is_alive())
+
+                self.assertEqual(len(failures), 1)
+                self.assertIsInstance(failures[0], CancelledError)
+                self.assertEqual(len(ping_results), 1)
+                self.assertTrue(ping_results[0].alive)
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["terminal.wait", "request.cancel", "session.ping"],
+                )
+
+    def test_unconfirmed_terminal_wait_cancel_closes_without_masking_timeout(
+        self,
+    ) -> None:
+        for failure in (
+            "malformed-cancel",
+            "malformed-target",
+            "missing-target",
+            "true-after-target",
+        ):
+            with self.subTest(failure=failure):
+                observed = []
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        target = next(requests)
+                        observed.append(target)
+                        canceled = next(requests)
+                        observed.append(canceled)
+                        if failure == "malformed-cancel":
+                            ok(
+                                connection,
+                                canceled,
+                                {"canceled": True, "extra": True},
+                            )
+                        elif failure == "true-after-target":
+                            ok(
+                                connection,
+                                target,
+                                {"matched": False, "text": ""},
+                            )
+                            ok(connection, canceled, {"canceled": True})
+                        else:
+                            ok(connection, canceled, {"canceled": False})
+                            if failure == "malformed-target":
+                                send_frame(
+                                    connection,
+                                    {
+                                        "protocol": "cmux.protocol/1",
+                                        "type": "response",
+                                        "id": target["id"],
+                                        "ok": True,
+                                        "result": {
+                                            "matched": False,
+                                            "text": "",
+                                        },
+                                        "extra": True,
+                                    },
+                                )
+                        list(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.05) as client:
+                        terminal = client.session(SESSION).terminal(TERMINAL)
+                        with self.assertRaises(cmux.TimeoutError) as raised:
+                            client.with_request_options(
+                                RequestOptions(timeout=0.01),
+                                terminal.wait,
+                                cmux.TerminalWaitOptions("never"),
+                            )
+                        self.assertIn(
+                            "terminal.wait did not respond before the deadline",
+                            str(raised.exception),
+                        )
+                        self.assertTrue(client.closed)
+                        with self.assertRaises(
+                            (CmuxConnectionError, cmux.ProtocolError)
+                        ):
+                            client.session(SESSION).ping()
+                        self.assertTrue(disconnected.wait(0.5))
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["terminal.wait", "request.cancel"],
+                )
+
+    def test_uncertain_request_cancel_send_closes_without_masking_timeout(
+        self,
+    ) -> None:
+        wait_seen = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                request = next(frames(connection))
+                self.assertEqual(request["operation"], "terminal.wait")
+                wait_seen.set()
+                connection.recv(1)
+            finally:
+                disconnected.set()
+
+        attempted = []
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.05) as client:
+                def uncertain_send(value, timeout):
+                    attempted.append(value)
+                    raise CmuxConnectionError("uncertain cancel send")
+
+                with patch.object(
+                    client._connection._wire,
+                    "send_bounded",
+                    side_effect=uncertain_send,
+                ):
+                    with self.assertRaises(cmux.TimeoutError) as raised:
+                        client.with_request_options(
+                            RequestOptions(timeout=0.01),
+                            client.session(SESSION).terminal(TERMINAL).wait,
+                            cmux.TerminalWaitOptions("never"),
+                        )
+                self.assertTrue(wait_seen.is_set())
+                self.assertIn(
+                    "terminal.wait did not respond before the deadline",
+                    str(raised.exception),
+                )
+                self.assertTrue(client.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(len(attempted), 1)
+        self.assertEqual(attempted[0]["operation"], "request.cancel")
+        self.assertEqual(
+            set(attempted[0]["params"]),
+            {"request_id"},
+        )
+
     def test_acknowledged_stream_outlives_the_request_timeout(self) -> None:
         def handler(connection, _index):
             requests = frames(connection)

@@ -170,6 +170,8 @@ pub enum ResourceOperation {
     PairingRequestList,
     #[serde(rename = "pairing_request.resolve")]
     PairingRequestResolve,
+    #[serde(rename = "request.cancel")]
+    RequestCancel,
     #[serde(rename = "frontend_projection.get")]
     FrontendProjectionGet,
     #[serde(rename = "frontend_projection.put")]
@@ -392,7 +394,8 @@ impl ResourceOperation {
             OperationClass::StreamOpen
         } else if matches!(
             self,
-            Self::StreamCancel
+            Self::RequestCancel
+                | Self::StreamCancel
                 | Self::ClientMetadataUpdate
                 | Self::ClientSizingSet
                 | Self::ClientSizingRelease
@@ -1680,6 +1683,7 @@ mod tests {
         ] {
             assert_eq!(operation.class(), OperationClass::StreamOpen);
         }
+        assert_eq!(ResourceOperation::RequestCancel.class(), OperationClass::ConnectionControl);
         assert_eq!(ResourceOperation::StreamCancel.class(), OperationClass::ConnectionControl);
         let connection_control = [
             ResourceOperation::ClientMetadataUpdate,
@@ -1705,6 +1709,7 @@ mod tests {
 
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::RequestCancel,
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,
             ResourceOperation::ClientDetach,

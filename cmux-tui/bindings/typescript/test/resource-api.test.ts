@@ -133,6 +133,24 @@ class FakeTransport implements Transport {
   }
 }
 
+async function waitForOperation(
+  transport: FakeTransport,
+  operation: string,
+  index = 0,
+): Promise<Envelope> {
+  const deadline = Date.now() + 1_000;
+  for (;;) {
+    const request = transport.requests.filter(
+      (candidate) => candidate.operation === operation,
+    )[index];
+    if (request) return request;
+    if (Date.now() >= deadline) {
+      assert.fail(`timed out waiting for ${operation} request ${index}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
+  }
+}
+
 test("resource root, raw boundary, exact commands, and idempotency keys", async () => {
   const randomValues = [HEX_A, HEX_B, HEX_C];
   const transport = new FakeTransport((request, current) => {
@@ -915,64 +933,195 @@ test("terminal waits propagate finite server bounds no longer than request deadl
   locallyUnbounded.close();
 });
 
-test("aborted terminal waits retain bounded capacity until response or server deadline", async () => {
-  const transport = new FakeTransport((request, current) => {
-    if (transport.requests.length === 10) {
-      current.ok(request, { matched: false, text: "" });
-    }
+test("timed-out terminal waits cancel once and gate connection reuse", async () => {
+  const transport = new FakeTransport(() => {});
+  const client = new Client({ transport, timeoutMs: 200 });
+  const session = client.session(SESSION);
+  const waiting = session.terminal(TERMINAL).wait(
+    { pattern: "never" },
+    { timeoutMs: 10 },
+  );
+  const target = await waitForOperation(transport, "terminal.wait");
+  const canceled = await waitForOperation(transport, "request.cancel");
+  assert.deepEqual(canceled.params, { request_id: target.id });
+
+  let pingSettled = false;
+  const ping = session.ping().then((value) => {
+    pingSettled = true;
+    return value;
   });
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  assert.equal(pingSettled, false);
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "session.ping").length,
+    0,
+  );
+
+  transport.ok(canceled, { canceled: true });
+  await assert.rejects(() => waiting, CmuxTimeoutError);
+  const pingRequest = await waitForOperation(transport, "session.ping");
+  transport.ok(pingRequest, {
+    alive: true,
+    cursor: { generation: "generation-a", revision: "1" },
+  });
+  assert.equal((await ping).alive, true);
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "request.cancel").length,
+    1,
+  );
+  client.close();
+});
+
+test("timed-out terminal exit waits use request.cancel", async () => {
+  const transport = new FakeTransport(() => {});
+  const client = new Client({ transport, timeoutMs: 100 });
+  const waiting = client.session(SESSION).terminal(TERMINAL).waitExit(
+    undefined,
+    { timeoutMs: 10 },
+  );
+  const target = await waitForOperation(transport, "terminal.wait_exit");
+  const canceled = await waitForOperation(transport, "request.cancel");
+  assert.deepEqual(canceled.params, { request_id: target.id });
+  transport.ok(canceled, { canceled: true });
+  await assert.rejects(() => waiting, CmuxTimeoutError);
+  client.close();
+});
+
+test("terminal wait abort skips pre-dispatch cancellation and cleans up once", async () => {
+  const transport = new FakeTransport(() => {});
   const client = new Client({ transport, timeoutMs: 200 });
   const terminal = client.session(SESSION).terminal(TERMINAL);
-  const controllers = Array.from({ length: 8 }, () => new AbortController());
-  const waits = controllers.map((controller) =>
-    terminal.wait(
+
+  const preDispatch = new AbortController();
+  preDispatch.abort();
+  await assert.rejects(
+    () => terminal.wait(
       { pattern: "never" },
-      { signal: controller.signal },
-    )
+      { signal: preDispatch.signal },
+    ),
+    CmuxAbortError,
   );
-  controllers.forEach((controller) => controller.abort());
-  await Promise.all(waits.map((wait) => assert.rejects(() => wait, CmuxAbortError)));
+  assert.equal(transport.requests.length, 0);
 
-  await assert.rejects(
-    () => terminal.wait({ pattern: "blocked" }),
-    (error: unknown) => {
-      assert.ok(error instanceof CmuxProtocolError);
-      assert.match(error.message, /terminal wait capacity is 8/);
-      return true;
-    },
+  const abort = new AbortController();
+  const waiting = terminal.wait(
+    { pattern: "never" },
+    { signal: abort.signal, timeoutMs: 20 },
   );
-  assert.equal(transport.requests.length, 8);
-  assert.deepEqual(
-    transport.requests.map((request) => (request.params as Envelope).timeout_ms),
-    Array(8).fill("200"),
+  const target = await waitForOperation(transport, "terminal.wait");
+  abort.abort();
+  abort.abort();
+  const canceled = await waitForOperation(transport, "request.cancel");
+  await new Promise<void>((resolve) => setTimeout(resolve, 30));
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "request.cancel").length,
+    1,
   );
-
-  transport.ok(transport.requests[0]!, { matched: false, text: "" });
-  const replacementController = new AbortController();
-  const replacement = terminal.wait(
-    { pattern: "replacement" },
-    { signal: replacementController.signal },
-  );
-  replacementController.abort();
-  await assert.rejects(() => replacement, CmuxAbortError);
-  assert.equal(transport.requests.length, 9);
-  await assert.rejects(
-    () => terminal.wait({ pattern: "still-blocked" }),
-    /terminal wait capacity is 8/,
-  );
-  assert.equal(transport.requests.length, 9);
-
-  await new Promise((resolve) => setTimeout(resolve, 225));
-  await assert.rejects(
-    () => terminal.wait({ pattern: "grace-protected" }),
-    /terminal wait capacity is 8/,
-  );
-  assert.equal(transport.requests.length, 9);
-
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal((await terminal.wait({ pattern: "reusable" })).matched, false);
-  assert.equal(transport.requests.length, 10);
+  assert.deepEqual(canceled.params, { request_id: target.id });
+  transport.ok(canceled, { canceled: true });
+  await assert.rejects(() => waiting, CmuxAbortError);
   client.close();
+});
+
+test("request.cancel false drains the raced terminal response before reuse", async () => {
+  for (const responseFirst of [false, true]) {
+    const transport = new FakeTransport(() => {});
+    const client = new Client({ transport, timeoutMs: 200 });
+    const session = client.session(SESSION);
+    const abort = new AbortController();
+    const waiting = session.terminal(TERMINAL).wait(
+      { pattern: "never" },
+      { signal: abort.signal },
+    );
+    const target = await waitForOperation(transport, "terminal.wait");
+    abort.abort();
+    const canceled = await waitForOperation(transport, "request.cancel");
+    const ping = session.ping();
+
+    if (responseFirst) {
+      transport.ok(target, { matched: false, text: "" });
+    } else {
+      transport.ok(canceled, { canceled: false });
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    assert.equal(
+      transport.requests.filter((request) => request.operation === "session.ping").length,
+      0,
+    );
+
+    if (responseFirst) {
+      transport.ok(canceled, { canceled: false });
+    } else {
+      transport.ok(target, { matched: false, text: "" });
+    }
+    await assert.rejects(() => waiting, CmuxAbortError);
+    const pingRequest = await waitForOperation(transport, "session.ping");
+    transport.ok(pingRequest, {
+      alive: true,
+      cursor: { generation: "generation-a", revision: "1" },
+    });
+    assert.equal((await ping).alive, true);
+    client.close();
+  }
+});
+
+test("unconfirmed terminal wait cancellation fail-closes without masking abort", async () => {
+  for (
+    const failure of [
+      "malformed-cancel",
+      "malformed-target",
+      "missing-target",
+      "true-after-target",
+      "send",
+    ] as const
+  ) {
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation !== "request.cancel") return;
+      if (failure === "malformed-cancel") {
+        current.ok(request, { canceled: true, extra: true });
+      } else if (failure === "malformed-target") {
+        current.ok(request, { canceled: false });
+        const target = current.requests.find(
+          (candidate) => candidate.operation === "terminal.wait",
+        )!;
+        current.emit({
+          protocol: "cmux.protocol/1",
+          type: "response",
+          id: target.id,
+          ok: true,
+          result: { matched: false, text: "" },
+          extra: true,
+        });
+      } else if (failure === "missing-target") {
+        current.ok(request, { canceled: false });
+      } else if (failure === "true-after-target") {
+        const target = current.requests.find(
+          (candidate) => candidate.operation === "terminal.wait",
+        )!;
+        current.ok(target, { matched: false, text: "" });
+        current.ok(request, { canceled: true });
+      } else {
+        throw new Error("uncertain cancel send");
+      }
+    });
+    const client = new Client({ transport, timeoutMs: 30 });
+    const abort = new AbortController();
+    const waiting = client.session(SESSION).terminal(TERMINAL).wait(
+      { pattern: "never" },
+      { signal: abort.signal },
+    );
+    await waitForOperation(transport, "terminal.wait");
+    abort.abort();
+    const rejected = assert.rejects(() => waiting, CmuxAbortError);
+    await waitForOperation(transport, "request.cancel");
+    await rejected;
+    assert.equal(client.closed, true);
+    await assert.rejects(() => client.session(SESSION).ping());
+    assert.equal(
+      transport.requests.filter((request) => request.operation === "request.cancel").length,
+      1,
+    );
+  }
 });
 
 test("auxiliary resource discriminants select their decoder and preserve extra fields", async () => {

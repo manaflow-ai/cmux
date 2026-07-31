@@ -49,6 +49,7 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "request.cancel",
     "screen.close",
     "screen.create",
     "screen.focus",

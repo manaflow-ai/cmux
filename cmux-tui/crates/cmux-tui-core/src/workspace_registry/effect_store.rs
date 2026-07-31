@@ -1391,6 +1391,7 @@ pub(super) fn prune_resource_events(transaction: &Transaction<'_>) -> anyhow::Re
         transaction
             .execute("DELETE FROM resource_events WHERE revision < ?1", [oldest_retained])?;
     }
+    resource_store::prune_resource_mutations(transaction)?;
     Ok(())
 }
 

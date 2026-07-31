@@ -52,6 +52,12 @@ result = client.with_request_options(
 )
 ```
 
+After a dispatched `terminal.wait` or `terminal.wait_exit` reaches its local
+deadline or cancellation signal, the SDK confirms `request.cancel` on the same
+connection before reusing it. A completion that wins the server race is drained
+instead. Cleanup failure closes the connection while preserving the original
+`TimeoutError` or `CancelledError`.
+
 Streams retain at most 256 unread messages and 16 MiB. Overflow ends only that
 stream with a recoverable gap and sends best-effort cancellation. Close the
 stream or its client explicitly. `stream.next(timeout=...)` raises
@@ -120,9 +126,8 @@ reported = session.report_agent(AgentReportOptions(
 ```
 
 Each async stream owns its blocking reader worker. A waiting stream does not
-occupy a request worker. Canceling a call removes only that pending request;
-canceling a stream closes only that stream. Closing the client releases all
-remaining stream, request, and reader workers.
+occupy a request worker. Canceling a stream closes only that stream. Closing
+the client releases all remaining stream, request, and reader workers.
 
 The generated protocol-v10 client and numeric mux identities are available
 only from `cmux.raw`:

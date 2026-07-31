@@ -57,6 +57,7 @@ pub const Operation = enum {
     session_window_title_clear,
     pairing_request_list,
     pairing_request_resolve,
+    request_cancel,
     frontend_projection_get,
     frontend_projection_put,
     workspace_list,
@@ -171,6 +172,7 @@ pub const Operation = enum {
             .session_window_title_clear => "session.window.title.clear",
             .pairing_request_list => "pairing_request.list",
             .pairing_request_resolve => "pairing_request.resolve",
+            .request_cancel => "request.cancel",
             .frontend_projection_get => "frontend_projection.get",
             .frontend_projection_put => "frontend_projection.put",
             .workspace_list => "workspace.list",
@@ -270,6 +272,7 @@ pub const Operation = enum {
             .sidebar_view_attach,
             => .stream_open,
 
+            .request_cancel,
             .stream_cancel,
             .client_metadata_update,
             .client_sizing_set,
@@ -326,7 +329,9 @@ pub const Operation = enum {
 
     fn requiresMachine(self: Operation) bool {
         return switch (self) {
-            .machine_list => false,
+            .machine_list,
+            .request_cancel,
+            => false,
             else => true,
         };
     }
@@ -336,6 +341,7 @@ pub const Operation = enum {
             .machine_list,
             .machine_get,
             .session_list,
+            .request_cancel,
             => false,
             else => true,
         };
@@ -373,6 +379,7 @@ pub const Operation = enum {
             .session_window_title_clear => .{ .owner = .session, .method = "clearWindowTitle" },
             .pairing_request_list => .{ .owner = .session, .method = "listPairingRequests" },
             .pairing_request_resolve => .{ .owner = .pairing_request, .method = "resolvePairing" },
+            .request_cancel => .{ .owner = .client, .method = "cancelRequest" },
             .frontend_projection_get => .{ .owner = .frontend_projection, .method = "refresh" },
             .frontend_projection_put => .{ .owner = .frontend_projection, .method = "putProjection" },
             .workspace_list => .{ .owner = .session, .method = "listWorkspaces" },
@@ -2359,6 +2366,100 @@ pub const Client = struct {
         return self.readMessageWithTimeout(self.timeout_ms);
     }
 
+    fn cancelRequest(
+        self: *Client,
+        target_request_id: []const u8,
+    ) !void {
+        errdefer self.close();
+        var deadline = try TimeoutDeadline.start(self.timeout_ms);
+        const cancel_request_id = try self.requestId();
+        defer self.allocator.free(cancel_request_id);
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        var params = raw.wire.Object.init(arena.allocator());
+        try params.put(
+            "request_id",
+            .{
+                .string = try arena.allocator().dupe(
+                    u8,
+                    target_request_id,
+                ),
+            },
+        );
+        try self.sendRequestWithDeadline(
+            cancel_request_id,
+            .request_cancel,
+            .{ .object = params },
+            null,
+            &deadline,
+        );
+
+        var cancel_result: ?bool = null;
+        var target_seen = false;
+        while (true) {
+            var message = try self.readMessageWithDeadline(&deadline);
+            defer message.deinit();
+            const object = switch (message.value) {
+                .object => |item| item,
+                else => return error.ExpectedObject,
+            };
+            const protocol = try objectString(object, "protocol");
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+                return error.InvalidProtocolEnvelope;
+            }
+            const envelope_type = try objectString(object, "type");
+            if (!std.mem.eql(u8, envelope_type, "response")) {
+                return error.UnexpectedStreamEnvelope;
+            }
+            const response_id = try objectString(object, "id");
+            if (std.mem.eql(u8, response_id, target_request_id)) {
+                if (target_seen) {
+                    return error.DuplicateRequestResponse;
+                }
+                switch (try parseExactResponse(object)) {
+                    .success, .failure => {},
+                }
+                target_seen = true;
+            } else if (std.mem.eql(
+                u8,
+                response_id,
+                cancel_request_id,
+            )) {
+                if (cancel_result != null) {
+                    return error.DuplicateCancelResponse;
+                }
+                const result = switch (try parseExactResponse(object)) {
+                    .success => |value| value,
+                    .failure => return error.RequestCancelRejected,
+                };
+                const result_object = switch (result) {
+                    .object => |item| item,
+                    else => return error.ExpectedObject,
+                };
+                try ensureOnlyFields(
+                    result_object,
+                    &.{"canceled"},
+                );
+                cancel_result = try objectBool(
+                    result_object,
+                    "canceled",
+                );
+            } else {
+                return error.UnexpectedResponseId;
+            }
+
+            if (cancel_result) |canceled| {
+                if (canceled) {
+                    if (target_seen) {
+                        return error.CanceledRequestResponded;
+                    }
+                    return;
+                }
+                if (target_seen) return;
+            }
+        }
+    }
+
     fn callLocked(
         self: *Client,
         operation: Operation,
@@ -2372,6 +2473,12 @@ pub const Client = struct {
         try self.sendRequest(request_id, operation, params, mutation);
         while (true) {
             var message = self.readMessage() catch |failure| {
+                if ((operation == .terminal_wait or
+                    operation == .terminal_wait_exit) and
+                    failure == error.Timeout)
+                {
+                    self.cancelRequest(request_id) catch {};
+                }
                 if (mutation) |options| {
                     if (mutationTransportCause(failure)) |cause| {
                         try self.setMutationTransportUncertain(
@@ -12712,6 +12819,9 @@ const FakeMode = enum {
     delayed_stream_item,
     dropped_mutation_timeout,
     dropped_mutation_disconnect,
+    abandoned_wait_cancel_true,
+    abandoned_wait_cancel_false,
+    abandoned_wait_malformed_cancel,
 };
 
 const FakeStreamOpenAck = enum {
@@ -12875,14 +12985,30 @@ const FakeShared = struct {
     delayed_stream_open_timeout_ms: ?u32 = null,
     delayed_stream_read_started: bool = false,
     delayed_stream_read_had_deadline: bool = false,
+    abandoned_request_id: ?[]u8 = null,
+    request_cancel_count: usize = 0,
+    request_cancel_route_ok: bool = false,
 
     fn deinit(self: *FakeShared) void {
         if (self.delayed_stream_id) |stream_id| {
             self.allocator.free(stream_id);
         }
+        if (self.abandoned_request_id) |request_id| {
+            self.allocator.free(request_id);
+        }
         self.input.deinit(self.allocator);
         self.output.deinit(self.allocator);
         self.* = undefined;
+    }
+
+    fn abandonedWaitMode(self: *const FakeShared) bool {
+        return switch (self.mode) {
+            .abandoned_wait_cancel_true,
+            .abandoned_wait_cancel_false,
+            .abandoned_wait_malformed_cancel,
+            => true,
+            else => false,
+        };
     }
 
     fn appendInput(self: *FakeShared, value: []const u8) !void {
@@ -13198,6 +13324,82 @@ const FakeShared = struct {
                 object.get("idempotency_key") != null)
             {
                 continue;
+            }
+            if (self.abandonedWaitMode()) {
+                if (std.mem.eql(u8, operation, "terminal.wait") or
+                    std.mem.eql(u8, operation, "terminal.wait_exit"))
+                {
+                    if (self.abandoned_request_id != null) {
+                        return error.DuplicateAbandonedRequest;
+                    }
+                    self.abandoned_request_id = try self.allocator.dupe(
+                        u8,
+                        id,
+                    );
+                    continue;
+                }
+                if (std.mem.eql(u8, operation, "request.cancel")) {
+                    self.request_cancel_count += 1;
+                    const params = switch (object.get("params") orelse
+                        return error.MissingField) {
+                        .object => |item| item,
+                        else => return error.ExpectedObject,
+                    };
+                    const target_id = try objectString(
+                        params,
+                        "request_id",
+                    );
+                    self.request_cancel_route_ok =
+                        self.request_cancel_count == 1 and
+                        params.count() == 1 and
+                        self.abandoned_request_id != null and
+                        std.mem.eql(
+                            u8,
+                            target_id,
+                            self.abandoned_request_id.?,
+                        ) and
+                        object.get("idempotency_key") == null;
+                    const result = switch (self.mode) {
+                        .abandoned_wait_cancel_true => "{\"canceled\":true}",
+                        .abandoned_wait_cancel_false => "{\"canceled\":false}",
+                        .abandoned_wait_malformed_cancel => "{\"canceled\":true,\"future\":true}",
+                        else => unreachable,
+                    };
+                    const response = try std.fmt.allocPrint(
+                        self.allocator,
+                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                            "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                            "\"result\":{s}}}",
+                        .{ id, result },
+                    );
+                    defer self.allocator.free(response);
+                    try self.appendInput(response);
+                    if (self.mode == .abandoned_wait_cancel_false) {
+                        const target_response = try std.fmt.allocPrint(
+                            self.allocator,
+                            "{{\"protocol\":\"cmux.protocol/1\"," ++
+                                "\"type\":\"response\",\"id\":\"{s}\"," ++
+                                "\"ok\":true,\"result\":{{}}}}",
+                            .{self.abandoned_request_id.?},
+                        );
+                        defer self.allocator.free(target_response);
+                        try self.appendInput(target_response);
+                    }
+                    continue;
+                }
+                if (std.mem.eql(u8, operation, "session.ping")) {
+                    const response = try std.fmt.allocPrint(
+                        self.allocator,
+                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                            "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                            "\"result\":{{\"alive\":true,\"cursor\":{{" ++
+                            "\"generation\":\"g\",\"revision\":\"1\"}}}}}}",
+                        .{id},
+                    );
+                    defer self.allocator.free(response);
+                    try self.appendInput(response);
+                    continue;
+                }
             }
             if (self.mode == .remote_error) {
                 const response = try std.fmt.allocPrint(
@@ -13682,6 +13884,18 @@ const FakeConnection = struct {
                 self.shared.delayed_stream_item_emitted = true;
             }
             if (self.shared.read_cursor == self.shared.input.items.len) {
+                if (self.shared.abandonedWaitMode() and
+                    self.shared.abandoned_request_id != null and
+                    self.shared.request_cancel_count == 0)
+                {
+                    if (timeout_ms) |milliseconds| {
+                        std.Thread.sleep(
+                            @as(u64, milliseconds) *
+                                std.time.ns_per_ms,
+                        );
+                    }
+                    return error.Timeout;
+                }
                 if (self.shared.cancel_delivery_active and
                     self.shared.cancel_end == .missing)
                 {
@@ -14028,7 +14242,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 111), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 112), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -14626,6 +14840,166 @@ test "session terminal emits only machine session and terminal selectors" {
             "\"terminal\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"timeout_ms\":\"5000\"}}\n",
         shared.output.items,
+    );
+}
+
+test "timed out wait exit cancels once and reuses its control connection" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_cancel_true,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client.session(session_id).terminal(terminal_id).waitForExit(null),
+    );
+    try std.testing.expect(!client.closed);
+    try std.testing.expect(shared.request_cancel_route_ok);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        client.inbound.items.len,
+    );
+
+    var ping = try client.session(session_id).ping();
+    defer ping.deinit();
+    try std.testing.expect(ping.value.alive);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"request.cancel\"",
+        ),
+    );
+}
+
+test "wait cancel false drains the raced response before reuse" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_cancel_false,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(session_id)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(!client.closed);
+    try std.testing.expect(shared.request_cancel_route_ok);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        client.inbound.items.len,
+    );
+
+    var ping = try client.session(session_id).ping();
+    defer ping.deinit();
+    try std.testing.expect(ping.value.alive);
+}
+
+test "malformed wait cleanup preserves timeout and fail closes once" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_malformed_cancel,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expect(shared.request_cancel_route_ok);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("again", null),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+}
+
+test "wait timeout before dispatch sends no cancellation" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_cancel_true,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 0,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitForExit(null),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        shared.output.items.len,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        shared.request_cancel_count,
     );
 }
 

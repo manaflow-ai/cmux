@@ -139,6 +139,7 @@ export const operations = Object.freeze({
   sidebarViewResize: op("sidebar_view.resize", "mutation"),
   sidebarViewReload: op("sidebar_view.reload", "mutation"),
 
+  requestCancel: op("request.cancel", "connection_control"),
   streamCancel: op("stream.cancel", "connection_control"),
 
   sidebarPluginList: op("sidebar_plugin.list", "local"),

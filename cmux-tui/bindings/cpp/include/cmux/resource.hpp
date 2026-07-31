@@ -64,6 +64,7 @@ enum class Operation {
     session_window_title_clear,
     pairing_request_list,
     pairing_request_resolve,
+    request_cancel,
     frontend_projection_get,
     frontend_projection_put,
     workspace_list,
@@ -1983,9 +1984,11 @@ public:
         MutationOptions options = MutationOptions::unique()) const;
     [[nodiscard]] Result<TerminalWaitResult> wait(
         std::string pattern,
-        std::optional<std::uint64_t> timeout_ms = std::nullopt) const;
+        std::optional<std::uint64_t> timeout_ms = std::nullopt,
+        CallOptions call = {}) const;
     [[nodiscard]] Result<TerminalWaitExitResult> wait_exit(
-        std::optional<std::uint64_t> timeout_ms = std::nullopt) const;
+        std::optional<std::uint64_t> timeout_ms = std::nullopt,
+        CallOptions call = {}) const;
     [[nodiscard]] Result<TerminalCopyResult> copy(
         Json::Object params = {}) const;
     [[nodiscard]] Result<ProcessInfoResult> process() const;

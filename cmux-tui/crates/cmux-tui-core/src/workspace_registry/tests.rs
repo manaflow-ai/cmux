@@ -169,6 +169,12 @@ fn terminal_resource(id: &str) -> TerminalPublicId {
     TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
 }
 
+fn agent_resource(terminal_id: &TerminalPublicId) -> crate::resource::AgentPublicId {
+    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+    let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    crate::resource::AgentPublicId::parse(format!("agent_{payload}")).unwrap()
+}
+
 fn browser_id(value: u128) -> BrowserPublicId {
     BrowserPublicId::parse(format!("browser_{value:032x}")).unwrap()
 }
@@ -701,6 +707,374 @@ fn resource_patch_replays_across_registry_reopen_and_origin_change() {
     assert_eq!(replay.revision, first.revision);
     assert!(replay.replayed);
     assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
+}
+
+#[test]
+fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
+    let mut registry = WorkspaceRegistry::in_memory("mutation-runtime-bound").unwrap();
+    let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
+    let interval = usize::try_from(resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL).unwrap();
+    let before_boundary = capacity + interval - 1;
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for index in 0..before_boundary {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("bounded-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 1).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [before_boundary.to_string()],
+        )
+        .unwrap();
+        resource_store::prune_resource_mutations(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(before_boundary).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        let index = before_boundary;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                format!("bounded-{index:08}"),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                canonical_json(&json!({"sequence":index})).unwrap(),
+                i64::try_from(index + 1).unwrap(),
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [(before_boundary + 1).to_string()],
+        )
+        .unwrap();
+        resource_store::prune_resource_mutations(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+    let oldest: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = 'bounded-00000000'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let first_retained: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
+            [format!("bounded-{interval:08}")],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(oldest, 0);
+    assert_eq!(first_retained, 1);
+
+    let pages_after_first_wave: i64 =
+        registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap();
+    let wave = capacity + interval;
+    let mut pages = vec![pages_after_first_wave];
+    for wave_index in 0..2 {
+        let start = before_boundary + 1 + wave_index * wave;
+        let tx = registry.connection.transaction().unwrap();
+        for index in start..start + wave {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("bounded-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 1).unwrap(),
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [(index + 1).to_string()],
+            )
+            .unwrap();
+            resource_store::prune_resource_mutations(&tx).unwrap();
+        }
+        tx.commit().unwrap();
+        assert_eq!(
+            registry.resource_mutation_count_for_test().unwrap(),
+            u64::try_from(capacity).unwrap()
+        );
+        pages.push(
+            registry.connection.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap(),
+        );
+    }
+    assert!(
+        pages[1] <= pages[0] + 16,
+        "mutation journal grew after reaching steady state: {pages:?}"
+    );
+    assert!(pages[2] <= pages[1] + 16, "mutation journal did not reuse freed pages: {pages:?}");
+}
+
+#[test]
+fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay() {
+    let root = temp_root("mutation-startup-bound");
+    let effect_fingerprint = json!({"title":"pending"});
+    let effect_intent = json!({"notification_id":"reserved"});
+    let active_creation_fingerprint = json!({"name":"active"});
+    let active_creation_intent = json!({"reservation":"active"});
+    let created_fingerprint = json!({"name":"created"});
+    let created_intent = json!({"reservation":"created"});
+    let created_path = json!({"kind":"test","id":"created"});
+    let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
+    let ordinary_count = capacity + 32;
+
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "mutation-retention").unwrap();
+        registry
+            .prepare_resource_creation(
+                "created-correlation",
+                "created-attempt",
+                "test.create.completed",
+                &created_fingerprint,
+                &created_intent,
+                false,
+                None,
+                Some(0),
+            )
+            .unwrap();
+        registry
+            .commit_resource_creation_patch(
+                "created-correlation",
+                &WorkspaceMutation::new("created-attempt", "test").unwrap(),
+                "test.create.completed",
+                &created_fingerprint,
+                &ResourcePatch { changes: Vec::new() },
+                &json!({"created":true}),
+                &created_path,
+                &json!([]),
+            )
+            .unwrap();
+        registry
+            .prepare_resource_effect(
+                "pending-effect",
+                "notification.create",
+                &effect_fingerprint,
+                &effect_intent,
+                None,
+                None,
+            )
+            .unwrap();
+        registry
+            .prepare_resource_creation(
+                "active-correlation",
+                "active-attempt",
+                "test.create.active",
+                &active_creation_fingerprint,
+                &active_creation_intent,
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+
+        let tx = registry.connection.transaction().unwrap();
+        for (key, operation, fingerprint, result, revision) in [
+            (
+                "pending-effect",
+                "notification.create",
+                effect_fingerprint.clone(),
+                json!({"pending":true}),
+                2_i64,
+            ),
+            (
+                "active-attempt",
+                "test.create.active",
+                active_creation_fingerprint.clone(),
+                json!({"active":true}),
+                3_i64,
+            ),
+            (
+                "terminal-defaults",
+                "session.terminal_defaults.update",
+                json!({"operation":"session.terminal_defaults.update"}),
+                json!({
+                    "foreground":"#123456",
+                    "background":null,
+                    "cursor":null,
+                    "selection_background":null,
+                    "selection_foreground":null,
+                    "cursor_style":"block",
+                    "cursor_blink":false,
+                    "palette":{},
+                }),
+                4_i64,
+            ),
+        ] {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', ?2, ?3, ?4, ?5)",
+                params![
+                    key,
+                    operation,
+                    canonical_json(&fingerprint).unwrap(),
+                    canonical_json(&result).unwrap(),
+                    revision,
+                ],
+            )
+            .unwrap();
+        }
+        for index in 0..ordinary_count {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("ordinary-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 5).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+        assert_eq!(
+            registry.resource_mutation_count_for_test().unwrap(),
+            u64::try_from(ordinary_count + 4).unwrap()
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "mutation-retention").unwrap();
+    assert_eq!(
+        reopened.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity + 3).unwrap()
+    );
+    for key in ["pending-effect", "active-attempt", "terminal-defaults"] {
+        let count: i64 = reopened
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "{key}");
+    }
+    for key in ["created-attempt", "ordinary-00000000"] {
+        let count: i64 = reopened
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_mutations WHERE idempotency_key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "{key}");
+    }
+
+    assert_eq!(
+        reopened
+            .lookup_resource_effect("pending-effect", "notification.create", &effect_fingerprint,)
+            .unwrap(),
+        Some(ResourceEffectPreparation::Execute { intent: effect_intent, resumed: true })
+    );
+    assert_eq!(
+        reopened
+            .lookup_resource_creation(
+                "active-correlation",
+                "active-attempt",
+                "test.create.active",
+                &active_creation_fingerprint,
+                false,
+            )
+            .unwrap(),
+        Some(ResourceCreationPreparation::Execute {
+            idempotency_key: "active-attempt".to_string(),
+            intent: active_creation_intent,
+            resumed: true,
+        })
+    );
+    assert!(matches!(
+        reopened
+            .lookup_resource_creation(
+                "created-correlation",
+                "created-attempt",
+                "test.create.completed",
+                &created_fingerprint,
+                false,
+            )
+            .unwrap(),
+        Some(ResourceCreationPreparation::Created { created_path: path, revision: 1, .. })
+            if path == created_path
+    ));
+    assert!(
+        reopened
+            .replay_resource_patch(
+                &WorkspaceMutation::new("created-attempt", "retry").unwrap(),
+                "test.create.completed",
+                &created_fingerprint,
+            )
+            .unwrap()
+            .is_none(),
+        "completed correlation remains authoritative after its replay key expires"
+    );
+
+    let newest_index = ordinary_count - 1;
+    let newest_key = format!("ordinary-{newest_index:08}");
+    let newest_fingerprint = json!({"sequence":newest_index});
+    let replay = reopened
+        .replay_resource_patch(
+            &WorkspaceMutation::new(&newest_key, "retry").unwrap(),
+            "test.pure",
+            &newest_fingerprint,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.result, json!({"sequence":newest_index}));
+    let conflict = reopened
+        .replay_resource_patch(
+            &WorkspaceMutation::new(&newest_key, "retry").unwrap(),
+            "test.pure",
+            &json!({"sequence":"changed"}),
+        )
+        .unwrap_err();
+    assert!(conflict.to_string().contains("idempotency.conflict"));
+    assert!(reopened.public_projections().unwrap().terminal_defaults.is_some());
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "mutation-retention").unwrap();
+    assert_eq!(
+        reopened_again.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity + 3).unwrap()
+    );
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -1983,6 +2357,126 @@ fn schema_seven_resumes_interrupted_sensitive_receipt_cleanup() {
             .unwrap()
             .is_none()
     );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection() {
+    let root = temp_root("schema-seven-agent-projection");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let terminal = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "agent-migration-topology");
+        let session = registry.session_id().clone();
+        let agent = agent_resource(&terminal);
+        for (key, state, source_session, expected_revision) in [
+            ("agent-migration-old", "working", "old-session", 1_u64),
+            ("agent-migration-new", "done", "new-session", 2_u64),
+        ] {
+            let fingerprint = json!({
+                "terminal_id":terminal,
+                "state":state,
+                "source":"hook",
+                "source_session":source_session,
+            });
+            let result = json!({
+                "id":agent,
+                "session_id":session,
+                "terminal_id":terminal,
+                "state":state,
+                "source":"hook",
+                "updated_at_ms":expected_revision.to_string(),
+                "source_session":source_session,
+            });
+            let commit = registry
+                .commit_agent_projection(
+                    &WorkspaceMutation::new(key, "migration-test").unwrap(),
+                    &fingerprint,
+                    Some(expected_revision),
+                    &terminal,
+                    &result,
+                    &json!([{
+                        "kind":"upsert",
+                        "sequence":0,
+                        "resource":"agent",
+                        "id":agent,
+                        "value":result,
+                    }]),
+                )
+                .unwrap();
+            assert_eq!(commit.revision, expected_revision + 1);
+        }
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+    }
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+             DROP TABLE resource_agent_projections;
+             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+
+    let mut migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 1);
+    let agents = migrated.public_projections().unwrap().agents;
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].terminal_id, terminal);
+    assert_eq!(agents[0].state, "done");
+    assert_eq!(agents[0].source, "hook");
+    assert_eq!(agents[0].source_session.as_deref(), Some("new-session"));
+
+    migrated
+        .commit_resource_patch(
+            &WorkspaceMutation::new("agent-migration-tombstone", "migration-test").unwrap(),
+            "terminal.close",
+            &json!({"terminal_id":terminal}),
+            None,
+            Some(3),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1) },
+                    ResourceChange::TombstoneTerminal {
+                        public_id: terminal,
+                        expected_incarnation: None,
+                    },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([{"kind":"delete","resource":"agent"}]),
+        )
+        .unwrap();
+    assert_eq!(migrated.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(migrated.public_projections().unwrap().agents.is_empty());
+    drop(migrated);
+
+    // Re-running the v7 migration against stale historical reports must not
+    // recreate state for a terminal that is already tombstoned.
+    Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER resource_agent_projection_terminal_tombstone;
+             DROP TABLE resource_agent_projections;
+             UPDATE meta SET value = '7' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(reopened.resource_agent_projection_count_for_test().unwrap(), 0);
+    assert!(reopened.public_projections().unwrap().agents.is_empty());
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }

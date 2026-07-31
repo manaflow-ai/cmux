@@ -395,6 +395,371 @@ func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 	}
 }
 
+func TestTerminalWaitTimeoutCancelsAndGatesConcurrentReuse(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	cancelSeen := make(chan map[string]any, 1)
+	nextRequest := make(chan map[string]any, 1)
+	releaseCancel := make(chan struct{})
+	serverDone := make(chan error, 1)
+	const followers = 4
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		wait := readRequest(t, reader)
+		if wait["operation"] != "terminal.wait" {
+			serverDone <- fmt.Errorf("wait operation = %#v", wait["operation"])
+			return
+		}
+		cancel := readRequest(t, reader)
+		if cancel["operation"] != "request.cancel" {
+			serverDone <- fmt.Errorf(
+				"cancel operation = %#v",
+				cancel["operation"],
+			)
+			return
+		}
+		if requestParams(t, cancel)["request_id"] != wait["id"] {
+			serverDone <- fmt.Errorf(
+				"cancel target = %#v, want %#v",
+				requestParams(t, cancel)["request_id"],
+				wait["id"],
+			)
+			return
+		}
+		cancelSeen <- cancel
+		go func() {
+			nextRequest <- readRequest(t, reader)
+		}()
+		<-releaseCancel
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{
+			"canceled": true,
+		})
+		for index := 0; index < followers; index++ {
+			var ping map[string]any
+			if index == 0 {
+				ping = <-nextRequest
+			} else {
+				ping = readRequest(t, reader)
+			}
+			if ping["operation"] != "session.ping" {
+				serverDone <- fmt.Errorf(
+					"post-cleanup operation = %#v",
+					ping["operation"],
+				)
+				return
+			}
+			writeSuccess(t, serverSide, ping["id"], pingResult())
+		}
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	terminal := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	waitContext, cancelWait := context.WithTimeout(
+		context.Background(),
+		20*time.Millisecond,
+	)
+	defer cancelWait()
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := terminal.Wait(waitContext, TerminalWaitOptions{
+			Pattern: "ready",
+		})
+		waitDone <- err
+	}()
+
+	<-cancelSeen
+	pingDone := make(chan error, followers)
+	for index := 0; index < followers; index++ {
+		go func() {
+			_, err := client.Session(SelectID(testSessionID)).
+				Ping(context.Background(), SessionPingOptions{})
+			pingDone <- err
+		}()
+	}
+	select {
+	case request := <-nextRequest:
+		t.Fatalf(
+			"request %#v reused connection before cancel confirmation",
+			request["operation"],
+		)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(releaseCancel)
+
+	if err := <-waitDone; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	for index := 0; index < followers; index++ {
+		if err := <-pingDone; err != nil {
+			t.Fatalf("ping follower %d: %v", index, err)
+		}
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTerminalWaitExitAbortDrainsFalseRaceBeforeReuse(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	waitSeen := make(chan struct{})
+	falseConfirmed := make(chan struct{})
+	releaseTarget := make(chan struct{})
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		wait := readRequest(t, reader)
+		if wait["operation"] != "terminal.wait_exit" {
+			serverDone <- fmt.Errorf("wait operation = %#v", wait["operation"])
+			return
+		}
+		close(waitSeen)
+		cancel := readRequest(t, reader)
+		if cancel["operation"] != "request.cancel" {
+			serverDone <- fmt.Errorf(
+				"cancel operation = %#v",
+				cancel["operation"],
+			)
+			return
+		}
+		writeSuccess(t, serverSide, cancel["id"], map[string]any{
+			"canceled": false,
+		})
+		close(falseConfirmed)
+		<-releaseTarget
+		writeSuccess(t, serverSide, wait["id"], terminalWaitExitResult())
+
+		ping := readRequest(t, reader)
+		if ping["operation"] != "session.ping" {
+			serverDone <- fmt.Errorf(
+				"post-race operation = %#v",
+				ping["operation"],
+			)
+			return
+		}
+		writeSuccess(t, serverSide, ping["id"], pingResult())
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	terminal := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := terminal.WaitExit(
+			waitContext,
+			TerminalWaitExitOptions{},
+		)
+		waitDone <- err
+	}()
+	<-waitSeen
+	cancelWait()
+	<-falseConfirmed
+	select {
+	case err := <-waitDone:
+		t.Fatalf("wait returned before target response drain: %v", err)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(releaseTarget)
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("wait error = %T %v", err, err)
+	}
+	if _, err := client.Session(SelectID(testSessionID)).
+		Ping(context.Background(), SessionPingOptions{}); err != nil {
+		t.Fatalf("ping after false race: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTerminalWaitCleanupFailureClosesButPreservesAbort(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		cancelResult map[string]any
+		targetResult map[string]any
+	}{
+		{
+			name: "malformed cancel confirmation",
+			cancelResult: map[string]any{
+				"canceled": true,
+				"extra":    true,
+			},
+		},
+		{
+			name:         "malformed false-race target",
+			cancelResult: map[string]any{"canceled": false},
+			targetResult: map[string]any{"matched": true},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			clientSide, serverSide := net.Pipe()
+			waitSeen := make(chan struct{})
+			go func() {
+				defer serverSide.Close()
+				reader := bufio.NewReader(serverSide)
+				wait := readRequest(t, reader)
+				close(waitSeen)
+				cancel := readRequest(t, reader)
+				writeSuccess(
+					t,
+					serverSide,
+					cancel["id"],
+					testCase.cancelResult,
+				)
+				if testCase.targetResult != nil {
+					writeSuccess(
+						t,
+						serverSide,
+						wait["id"],
+						testCase.targetResult,
+					)
+				}
+				var trailing [1]byte
+				_, _ = serverSide.Read(trailing[:])
+			}()
+
+			client := resourceClientForConn(t, clientSide)
+			terminal := client.Session(SelectID(testSessionID)).
+				Terminal(SelectID(testTerminalID))
+			waitContext, cancelWait := context.WithCancel(context.Background())
+			waitDone := make(chan error, 1)
+			go func() {
+				_, err := terminal.Wait(
+					waitContext,
+					TerminalWaitOptions{Pattern: "ready"},
+				)
+				waitDone <- err
+			}()
+			<-waitSeen
+			cancelWait()
+			if err := <-waitDone; !errors.Is(err, context.Canceled) {
+				t.Fatalf("wait error = %T %v", err, err)
+			}
+			select {
+			case <-client.done:
+			default:
+				t.Fatal("cleanup failure did not close the connection")
+			}
+			started := time.Now()
+			if _, err := client.Session(SelectID(testSessionID)).
+				Ping(
+					context.Background(),
+					SessionPingOptions{},
+				); err == nil {
+				t.Fatal("request after cleanup failure succeeded")
+			}
+			if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+				t.Fatalf("closed connection reuse took %s", elapsed)
+			}
+		})
+	}
+}
+
+func TestTerminalWaitPreCanceledContextSendsNothing(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	noRequest := make(chan error, 1)
+	serverDone := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		if err := serverSide.SetReadDeadline(
+			time.Now().Add(40 * time.Millisecond),
+		); err != nil {
+			noRequest <- err
+			return
+		}
+		reader := bufio.NewReader(serverSide)
+		var request map[string]any
+		err := json.NewDecoder(reader).Decode(&request)
+		if err == nil {
+			noRequest <- fmt.Errorf(
+				"pre-canceled wait sent %#v",
+				request["operation"],
+			)
+			return
+		}
+		var timeout net.Error
+		if !errors.As(err, &timeout) || !timeout.Timeout() {
+			noRequest <- err
+			return
+		}
+		noRequest <- nil
+		if err := serverSide.SetReadDeadline(time.Time{}); err != nil {
+			serverDone <- err
+			return
+		}
+		ping := readRequest(t, reader)
+		writeSuccess(t, serverSide, ping["id"], pingResult())
+		serverDone <- nil
+	}()
+
+	client := resourceClientForConn(t, clientSide)
+	waitContext, cancelWait := context.WithCancel(context.Background())
+	cancelWait()
+	_, err := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID)).
+		Wait(waitContext, TerminalWaitOptions{Pattern: "ready"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-canceled wait error = %T %v", err, err)
+	}
+	if err := <-noRequest; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Session(SelectID(testSessionID)).
+		Ping(context.Background(), SessionPingOptions{}); err != nil {
+		t.Fatalf("connection after pre-cancel: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTerminalWaitUncertainSendClosesWithoutCancel(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	sendError := errors.New("wait send failed after complete frame")
+	wrappedClient := &fullFrameWriteErrorConn{
+		Conn: clientSide,
+		err:  sendError,
+	}
+	observed := make(chan map[string]any, 1)
+	trailing := make(chan error, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		observed <- readRequest(t, reader)
+		var extra map[string]any
+		err := json.NewDecoder(reader).Decode(&extra)
+		if err == nil {
+			trailing <- fmt.Errorf(
+				"uncertain send appended %#v",
+				extra["operation"],
+			)
+			return
+		}
+		trailing <- nil
+	}()
+
+	client := resourceClientForConn(t, wrappedClient)
+	_, err := client.Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID)).
+		Wait(
+			context.Background(),
+			TerminalWaitOptions{Pattern: "ready"},
+		)
+	if !errors.Is(err, sendError) {
+		t.Fatalf("wait send error = %T %v", err, err)
+	}
+	if request := <-observed; request["operation"] != "terminal.wait" {
+		t.Fatalf("operation = %#v", request["operation"])
+	}
+	if err := <-trailing; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSessionReportAgentUsesOnlySessionRoute(t *testing.T) {
 	client, requests := pipeClient(t, nil, 1)
 	defer client.Close(context.Background()) //nolint:errcheck
@@ -3425,6 +3790,48 @@ func (c *fullFrameWriteErrorConn) Write(value []byte) (int, error) {
 		return count, c.err
 	}
 	return count, err
+}
+
+func resourceClientForConn(t *testing.T, conn net.Conn) *Client {
+	t.Helper()
+	client, err := NewClient(context.Background(), ClientOptions{
+		Timeout: 2 * time.Second,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return conn, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = client.Close(context.Background())
+	})
+	return client
+}
+
+func pingResult() map[string]any {
+	return map[string]any{
+		"alive": true,
+		"cursor": map[string]any{
+			"generation": "g",
+			"revision":   "1",
+		},
+	}
+}
+
+func terminalWaitExitResult() map[string]any {
+	return map[string]any{
+		"state":       "exited",
+		"terminal_id": testTerminalID,
+		"lifecycle":   "exited",
+		"outcome": map[string]any{
+			"kind":        "signal",
+			"signal":      15,
+			"core_dumped": false,
+		},
+		"exited_at": "10",
+		"revision":  "11",
+	}
 }
 
 func pipeClient(

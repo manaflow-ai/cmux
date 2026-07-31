@@ -6,6 +6,7 @@
 //! VT operations.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::mem::size_of;
 use std::ops::Deref;
@@ -24,6 +25,7 @@ use ghostty_vt::{
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::TabResourceIdentity;
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
@@ -911,6 +913,7 @@ pub(crate) fn apply_clear_history_transition(
 }
 
 pub(crate) struct TerminalStreamProgress {
+    next_resource_waiter_id: AtomicU64,
     state: Mutex<TerminalStreamProgressState>,
     changed: Condvar,
 }
@@ -919,6 +922,9 @@ pub(crate) struct TerminalStreamProgress {
 struct TerminalStreamProgressState {
     revision: u64,
     waiters: usize,
+    resource_waiters: HashMap<u64, Weak<ResourceWaitWake>>,
+    #[cfg(test)]
+    resource_subscriptions: u64,
     clear_history_wait: Option<ClearHistoryWaitState>,
 }
 
@@ -935,6 +941,15 @@ pub(crate) struct ClearHistoryWaitLease<'a> {
     progress: &'a TerminalStreamProgress,
     deadline: Instant,
     timed_out: bool,
+}
+
+/// One-shot terminal-stream wakeup. Registering before reading the viewport
+/// closes the read/wait race, while cancellation and writer shutdown can wake
+/// the same blocking primitive without a polling deadline.
+pub(crate) struct TerminalStreamSubscription<'a> {
+    progress: &'a TerminalStreamProgress,
+    waiter_id: u64,
+    wake: Arc<ResourceWaitWake>,
 }
 
 impl ClearHistoryWaitLease<'_> {
@@ -955,7 +970,11 @@ impl Drop for ClearHistoryWaitLease<'_> {
 
 impl Default for TerminalStreamProgress {
     fn default() -> Self {
-        Self { state: Mutex::new(TerminalStreamProgressState::default()), changed: Condvar::new() }
+        Self {
+            next_resource_waiter_id: AtomicU64::new(1),
+            state: Mutex::new(TerminalStreamProgressState::default()),
+            changed: Condvar::new(),
+        }
     }
 }
 
@@ -972,7 +991,28 @@ impl TerminalStreamProgress {
         if state.clear_history_wait.as_ref().is_some_and(|wait| wait.waiters == 0) {
             state.clear_history_wait = None;
         }
+        let resource_waiters = std::mem::take(&mut state.resource_waiters);
         self.changed.notify_all();
+        drop(state);
+        for wake in resource_waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
+            wake.notify();
+        }
+    }
+
+    fn notify_reconnect(&self) {
+        self.notify();
+    }
+
+    pub(crate) fn subscribe(&self) -> TerminalStreamSubscription<'_> {
+        let waiter_id = self.next_resource_waiter_id.fetch_add(1, Ordering::Relaxed);
+        let wake = Arc::new(ResourceWaitWake::default());
+        let mut state = self.state.lock().unwrap();
+        state.resource_waiters.insert(waiter_id, Arc::downgrade(&wake));
+        #[cfg(test)]
+        {
+            state.resource_subscriptions = state.resource_subscriptions.wrapping_add(1);
+        }
+        TerminalStreamSubscription { progress: self, waiter_id, wake }
     }
 
     pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
@@ -1037,7 +1077,29 @@ impl TerminalStreamProgress {
 
     #[cfg(test)]
     fn waiter_count(&self) -> usize {
-        self.state.lock().unwrap().waiters
+        let state = self.state.lock().unwrap();
+        state.waiters + state.resource_waiters.len()
+    }
+
+    #[cfg(test)]
+    fn resource_subscription_count(&self) -> u64 {
+        self.state.lock().unwrap().resource_subscriptions
+    }
+}
+
+impl TerminalStreamSubscription<'_> {
+    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
+        self.wake.clone()
+    }
+
+    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
+        self.wake.wait_until(deadline)
+    }
+}
+
+impl Drop for TerminalStreamSubscription<'_> {
+    fn drop(&mut self) {
+        self.progress.state.lock().unwrap().resource_waiters.remove(&self.waiter_id);
     }
 }
 
@@ -1924,7 +1986,7 @@ impl Surface {
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
-                        pty.stream_progress.notify();
+                        pty.stream_progress.notify_reconnect();
                         pty.request_frame(generation);
                         reader = replacement_reader;
                         control_responses = replacement_control_responses;
@@ -2299,6 +2361,15 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
+    pub(crate) fn subscribe_terminal_stream_change(
+        &self,
+    ) -> ghostty_vt::Result<TerminalStreamSubscription<'_>> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        Ok(pty.stream_progress.subscribe())
+    }
+
     /// Wait until PTY output advances beyond `observed`, or until `deadline`.
     /// Unlike an attach stream, this wakeup is coalesced and cannot overflow.
     pub(crate) fn wait_for_terminal_stream_change(
@@ -2326,6 +2397,11 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn terminal_stream_waiter_count_for_test(&self) -> Option<usize> {
         Some(self.as_pty()?.stream_progress.waiter_count())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_stream_subscription_count_for_test(&self) -> Option<u64> {
+        Some(self.as_pty()?.stream_progress.resource_subscription_count())
     }
 
     pub fn encode_mouse(
@@ -4635,6 +4711,46 @@ mod tests {
         assert_eq!(surface.try_with_terminal(|term| term.history_rows()).unwrap(), 0);
 
         assert_eq!(progress.revision(), revision_before);
+    }
+
+    #[test]
+    fn resource_wait_subscription_wakes_for_output_resize_reconnect_and_clear() {
+        let mux = Mux::new_for_test("terminal-resource-progress", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let wake_deadline = || Some(Instant::now() + Duration::from_secs(1));
+
+        let output = surface.subscribe_terminal_stream_change().unwrap();
+        surface.apply_stream_output_for_test(b"progress-output").unwrap();
+        assert!(
+            output.wait_until(wake_deadline()),
+            "terminal output did not wake the subscription"
+        );
+
+        let resize = surface.subscribe_terminal_stream_change().unwrap();
+        assert!(surface.resize(91, 37).unwrap(), "test resize did not change the surface");
+        assert!(
+            resize.wait_until(wake_deadline()),
+            "terminal resize did not wake the subscription"
+        );
+
+        let reconnect = surface.subscribe_terminal_stream_change().unwrap();
+        surface.as_pty().unwrap().stream_progress.notify_reconnect();
+        assert!(
+            reconnect.wait_until(wake_deadline()),
+            "authoritative reconnect progress did not wake the subscription"
+        );
+
+        surface.with_terminal(|term| {
+            term.vt_write(b"\x1b]133;C\x07");
+            for line in 0..40 {
+                term.vt_write(format!("history-{line}\r\n").as_bytes());
+            }
+            term.vt_write(b"active-command");
+        });
+        let clear = surface.subscribe_terminal_stream_change().unwrap();
+        surface.clear_history().unwrap();
+        assert!(clear.wait_until(wake_deadline()), "terminal clear did not wake the subscription");
     }
 
     #[test]

@@ -28,6 +28,7 @@ const (
 	MaxStreamQueueMessages         = 256
 	MaxStreamQueueBytes            = 16 * 1024 * 1024
 	failedStreamOpenCleanupTimeout = time.Second
+	abandonedRequestCleanupTimeout = time.Second
 )
 
 var errFrameTooLarge = errors.New("cmux server frame too large")
@@ -106,6 +107,16 @@ type pendingResponse struct {
 	err      error
 }
 
+type requestCancelResultWire struct {
+	Canceled *bool `json:"canceled"`
+}
+
+type abandonedRequestCleanup struct {
+	once sync.Once
+	done chan struct{}
+	err  error
+}
+
 type streamRoute struct {
 	messages         chan streamMessage
 	mu               sync.Mutex
@@ -141,6 +152,10 @@ type Client struct {
 	writer           chan struct{}
 	framingUnsafe    bool // guarded by writer
 	nextRequestID    atomic.Uint64
+
+	requestCleanupMu   sync.Mutex
+	requestCleanups    int
+	requestCleanupDone chan struct{}
 
 	mu      sync.Mutex
 	pending map[string]chan pendingResponse
@@ -275,6 +290,10 @@ func (c *Client) doTracked(
 		}
 	}
 	waiter := make(chan pendingResponse, 1)
+	var cleanup *abandonedRequestCleanup
+	if isCancelableWait(operation) {
+		cleanup = &abandonedRequestCleanup{done: make(chan struct{})}
+	}
 	c.mu.Lock()
 	if c.closed {
 		err := c.err
@@ -293,7 +312,7 @@ func (c *Client) doTracked(
 		onDispatched,
 	)
 	if err != nil {
-		c.removePending(requestID)
+		c.removePending(requestID, waiter)
 		if mayHaveSent {
 			// A partial JSON frame poisons the shared transport regardless of
 			// operation. Only a complete frame leaves framing safe enough for
@@ -334,8 +353,18 @@ func (c *Client) doTracked(
 	case response := <-waiter:
 		return handleResponse(response)
 	case <-ctx.Done():
-		c.removePending(requestID)
-		return uncertain(ctx.Err())
+		original := ctx.Err()
+		if cleanup != nil {
+			_ = c.cleanupAbandonedRequest(
+				cleanup,
+				operation,
+				requestID,
+				waiter,
+			)
+		} else {
+			c.removePending(requestID, waiter)
+		}
+		return uncertain(original)
 	case <-c.done:
 		// Preserve a response that raced with transport shutdown.
 		select {
@@ -346,6 +375,355 @@ func (c *Client) doTracked(
 		default:
 		}
 		return uncertain(c.connectionError())
+	}
+}
+
+func isCancelableWait(operation wirev1.Operation) bool {
+	return operation == wirev1.TerminalWait ||
+		operation == wirev1.TerminalWaitExit
+}
+
+func (c *Client) cleanupAbandonedRequest(
+	cleanup *abandonedRequestCleanup,
+	operation wirev1.Operation,
+	targetID string,
+	targetWaiter chan pendingResponse,
+) error {
+	cleanup.once.Do(func() {
+		deadline := time.Now().Add(abandonedRequestCleanupTimeout)
+		c.beginRequestCleanup()
+		cleanup.err = c.runAbandonedRequestCleanup(
+			operation,
+			targetID,
+			targetWaiter,
+			deadline,
+		)
+		if cleanup.err != nil {
+			c.failWithCleanup(cleanup.err, false)
+		}
+		c.finishRequestCleanup()
+		close(cleanup.done)
+	})
+	<-cleanup.done
+	return cleanup.err
+}
+
+func (c *Client) runAbandonedRequestCleanup(
+	operation wirev1.Operation,
+	targetID string,
+	targetWaiter chan pendingResponse,
+	deadline time.Time,
+) error {
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case <-c.writer:
+	case <-timer.C:
+		return &TransportError{
+			Operation: wirev1.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
+	case <-c.done:
+		return c.connectionError()
+	}
+	defer func() { c.writer <- struct{}{} }()
+
+	if c.framingUnsafe {
+		return &TransportError{
+			Operation: wirev1.RequestCancel.Name,
+			Err:       errors.New("connection framing is unsafe"),
+		}
+	}
+
+	cancelID := "go-" + strconv.FormatUint(c.nextRequestID.Add(1), 10)
+	cancelWaiter := make(chan pendingResponse, 1)
+	c.mu.Lock()
+	if c.closed {
+		err := c.err
+		c.mu.Unlock()
+		if err == nil {
+			err = ErrClosed
+		}
+		return err
+	}
+	c.pending[cancelID] = cancelWaiter
+	c.mu.Unlock()
+	defer c.removePending(cancelID, cancelWaiter)
+
+	request := map[string]any{
+		"protocol":  wirev1.Protocol,
+		"type":      "request",
+		"id":        cancelID,
+		"operation": wirev1.RequestCancel.Name,
+		"params": map[string]any{
+			wirev1.FieldRequestID: targetID,
+		},
+	}
+	if err := c.writeFrameLocked(
+		wirev1.RequestCancel.Name,
+		request,
+		deadline,
+	); err != nil {
+		return err
+	}
+
+	cancelResponse, err := c.awaitPendingResponseUntil(
+		cancelWaiter,
+		deadline,
+	)
+	if err != nil {
+		return err
+	}
+	canceled, err := decodeRequestCancelResponse(cancelResponse)
+	if err != nil {
+		return err
+	}
+	if canceled {
+		if c.removePending(targetID, targetWaiter) {
+			return nil
+		}
+		targetResponse, err := c.awaitPendingResponseUntil(
+			targetWaiter,
+			deadline,
+		)
+		if err != nil {
+			return err
+		}
+		if err := validateAbandonedWaitResponse(
+			operation,
+			targetResponse,
+		); err != nil {
+			return err
+		}
+		return &ProtocolError{
+			Message: "request.cancel returned canceled=true after the target responded",
+		}
+	}
+
+	targetResponse, err := c.awaitPendingResponseUntil(
+		targetWaiter,
+		deadline,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateAbandonedWaitResponse(
+		operation,
+		targetResponse,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func decodeRequestCancelResponse(response pendingResponse) (bool, error) {
+	if response.err != nil {
+		return false, response.err
+	}
+	if !response.envelope.OK {
+		if response.envelope.Error == nil {
+			return false, &ProtocolError{
+				Message: "request.cancel failed without a structured error",
+			}
+		}
+		return false, &ResourceError{
+			Code:      response.envelope.Error.Code,
+			Message:   response.envelope.Error.Message,
+			Details:   cloneRaw(response.envelope.Error.Details),
+			Retryable: response.envelope.Error.Retryable,
+		}
+	}
+	var result requestCancelResultWire
+	if err := strictDecode(response.envelope.Result, &result); err != nil {
+		return false, &ProtocolError{
+			Message: "cannot decode request.cancel result: " + err.Error(),
+		}
+	}
+	if result.Canceled == nil {
+		return false, &ProtocolError{
+			Message: "request.cancel result omitted canceled",
+		}
+	}
+	return *result.Canceled, nil
+}
+
+func validateAbandonedWaitResponse(
+	operation wirev1.Operation,
+	response pendingResponse,
+) error {
+	if response.err != nil {
+		return response.err
+	}
+	if !response.envelope.OK {
+		if response.envelope.Error == nil {
+			return &ProtocolError{
+				Message: operation.Name + " failed without a structured error",
+			}
+		}
+		return nil
+	}
+	switch operation {
+	case wirev1.TerminalWait:
+		_, err := decodeValue[TerminalWaitResult](
+			response.envelope.Result,
+			"terminal wait result",
+		)
+		return err
+	case wirev1.TerminalWaitExit:
+		_, err := decodeTerminalWaitExitResult(response.envelope.Result)
+		if err != nil {
+			return &ProtocolError{
+				Message: "cannot decode terminal wait exit result: " + err.Error(),
+			}
+		}
+		return nil
+	default:
+		return &ProtocolError{
+			Message: "request cancellation targeted unsupported operation " +
+				operation.Name,
+		}
+	}
+}
+
+func (c *Client) awaitPendingResponseUntil(
+	waiter <-chan pendingResponse,
+	deadline time.Time,
+) (pendingResponse, error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return pendingResponse{}, &TransportError{
+			Operation: wirev1.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case response, ok := <-waiter:
+		if !ok {
+			return pendingResponse{}, &ProtocolError{
+				Message: "request response route closed without a response",
+			}
+		}
+		return response, nil
+	case <-timer.C:
+		return pendingResponse{}, &TransportError{
+			Operation: wirev1.RequestCancel.Name,
+			Err:       context.DeadlineExceeded,
+		}
+	case <-c.done:
+		select {
+		case response, ok := <-waiter:
+			if ok {
+				return response, nil
+			}
+		default:
+		}
+		return pendingResponse{}, c.connectionError()
+	}
+}
+
+func (c *Client) writeFrameLocked(
+	operation string,
+	value any,
+	deadline time.Time,
+) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return &ProtocolError{
+			Message: "cannot encode " + operation + ": " + err.Error(),
+		}
+	}
+	if len(encoded) > c.maxRequestBytes {
+		return fmt.Errorf(
+			"%w: %s request exceeds %d bytes",
+			ErrInvalidArgument,
+			operation,
+			c.maxRequestBytes,
+		)
+	}
+	if err := c.conn.SetWriteDeadline(deadline); err != nil {
+		return &TransportError{Operation: operation, Err: err}
+	}
+	encoded = append(encoded, '\n')
+	written := false
+	for len(encoded) > 0 {
+		count, writeErr := c.conn.Write(encoded)
+		if count < 0 || count > len(encoded) {
+			c.framingUnsafe = true
+			return &TransportError{
+				Operation: operation,
+				Err:       errors.New("transport returned an invalid write count"),
+			}
+		}
+		written = written || count > 0
+		encoded = encoded[count:]
+		if writeErr != nil {
+			if len(encoded) > 0 {
+				c.framingUnsafe = true
+			}
+			return &TransportError{Operation: operation, Err: writeErr}
+		}
+		if count == 0 {
+			if written {
+				c.framingUnsafe = true
+			}
+			return &TransportError{
+				Operation: operation,
+				Err:       io.ErrNoProgress,
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Client) beginRequestCleanup() {
+	c.requestCleanupMu.Lock()
+	if c.requestCleanups == 0 {
+		c.requestCleanupDone = make(chan struct{})
+	}
+	c.requestCleanups++
+	c.requestCleanupMu.Unlock()
+}
+
+func (c *Client) finishRequestCleanup() {
+	c.requestCleanupMu.Lock()
+	if c.requestCleanups > 0 {
+		c.requestCleanups--
+	}
+	if c.requestCleanups == 0 && c.requestCleanupDone != nil {
+		close(c.requestCleanupDone)
+		c.requestCleanupDone = nil
+	}
+	c.requestCleanupMu.Unlock()
+}
+
+func (c *Client) acquireWriter(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.connectionError()
+		case <-c.writer:
+		}
+
+		c.requestCleanupMu.Lock()
+		active := c.requestCleanups > 0
+		cleanupDone := c.requestCleanupDone
+		c.requestCleanupMu.Unlock()
+		if !active {
+			return nil
+		}
+		c.writer <- struct{}{}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.connectionError()
+		case <-cleanupDone:
+		}
 	}
 }
 
@@ -385,12 +763,8 @@ func (c *Client) write(
 			c.maxRequestBytes,
 		)
 	}
-	select {
-	case <-ctx.Done():
-		return false, false, ctx.Err()
-	case <-c.done:
-		return false, false, c.connectionError()
-	case <-c.writer:
+	if err := c.acquireWriter(ctx); err != nil {
+		return false, false, err
 	}
 	defer func() {
 		if mayHaveSent && !fullyWritten {
@@ -1100,10 +1474,17 @@ func (r *streamRoute) purgeLocked() {
 	}
 }
 
-func (c *Client) removePending(id string) {
+func (c *Client) removePending(
+	id string,
+	expected chan pendingResponse,
+) bool {
 	c.mu.Lock()
-	delete(c.pending, id)
+	current, exists := c.pending[id]
+	if exists && current == expected {
+		delete(c.pending, id)
+	}
 	c.mu.Unlock()
+	return exists && current == expected
 }
 
 func (c *Client) connectionError() error {

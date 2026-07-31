@@ -29,6 +29,7 @@ const PROTOCOL = "cmux.protocol/1";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const STREAM_OPEN_CLEANUP_TIMEOUT_MS = 1_000;
+const REQUEST_CLEANUP_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 0x7fff_ffff;
 const TERMINAL_WAIT_CAPACITY = 8;
 // The server checks canceled/disconnected wait workers in 100 ms slices. Keep
@@ -45,6 +46,18 @@ interface Pending {
   onResourceError?: () => void;
   timer?: ReturnType<typeof setTimeout>;
   removeAbort?: () => void;
+  abandonment?: RequestAbandonment;
+}
+
+interface RequestAbandonment {
+  readonly originalError: CmuxAbortError | CmuxTimeoutError;
+  readonly targetResponse: Promise<Error | undefined>;
+  readonly resolveTargetResponse: (error: Error | undefined) => void;
+  readonly cleanupBarrier: Promise<void>;
+  readonly resolveCleanupBarrier: () => void;
+  targetResponseObserved: boolean;
+  cleanupStarted: boolean;
+  cleanupFinished: boolean;
 }
 
 interface TerminalWaitLease {
@@ -113,6 +126,7 @@ export class ResourceProtocol {
   private readonly randomHex128: () => string;
   private readonly pending = new Map<string, Pending>();
   private readonly terminalWaitLeases = new Map<string, TerminalWaitLease>();
+  private readonly requestCleanups = new Set<Promise<void>>();
   private readonly streams = new Map<StreamId, StreamState<unknown>>();
   private readonly unsubscribers: Unsubscribe[];
   private nextRequest = 0;
@@ -364,17 +378,92 @@ export class ResourceProtocol {
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
   ): Promise<unknown> {
+    if (this.requestCleanups.size === 0) {
+      return this.sendRequestNow(
+        operation,
+        params,
+        idempotencyKey,
+        signal,
+        timeoutMs,
+        onDispatched,
+        onSendError,
+        onResourceError,
+      );
+    }
+    return this.sendRequestAfterCleanup(
+      operation,
+      params,
+      idempotencyKey,
+      signal,
+      timeoutMs,
+      onDispatched,
+      onSendError,
+      onResourceError,
+    );
+  }
+
+  private async sendRequestAfterCleanup(
+    operation: string,
+    params: Readonly<Record<string, unknown>>,
+    idempotencyKey?: string,
+    signal?: AbortSignal,
+    timeoutMs?: number,
+    onDispatched?: () => void,
+    onSendError?: (error: unknown) => void,
+    onResourceError?: () => void,
+  ): Promise<unknown> {
+    if (this.closed) {
+      throw this.failure ?? new CmuxConnectionError("closed");
+    }
+    if (signal?.aborted) throw abortError();
+    const effectiveTimeout = timeoutMs ?? this.timeoutMs;
+    validateTimeout(effectiveTimeout);
+    const deadline = effectiveTimeout > 0
+      ? Date.now() + effectiveTimeout
+      : undefined;
+    while (this.requestCleanups.size > 0) {
+      await waitUntilDeadline(
+        Promise.all([...this.requestCleanups]),
+        deadline,
+        signal,
+        `${operation} timed out before dispatch`,
+      );
+    }
+    const remaining = deadline === undefined
+      ? 0
+      : deadline - Date.now();
+    if (deadline !== undefined && remaining <= 0) {
+      throw new CmuxTimeoutError(`${operation} timed out before dispatch`);
+    }
+    return this.sendRequestNow(
+      operation,
+      params,
+      idempotencyKey,
+      signal,
+      remaining,
+      onDispatched,
+      onSendError,
+      onResourceError,
+    );
+  }
+
+  private sendRequestNow(
+    operation: string,
+    params: Readonly<Record<string, unknown>>,
+    idempotencyKey?: string,
+    signal?: AbortSignal,
+    timeoutMs?: number,
+    onDispatched?: () => void,
+    onSendError?: (error: unknown) => void,
+    onResourceError?: () => void,
+  ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
     const effectiveTimeout = timeoutMs ?? this.timeoutMs;
-    if (
-      !Number.isFinite(effectiveTimeout)
-      || effectiveTimeout < 0
-      || effectiveTimeout > MAX_TIMEOUT_MS
-    ) {
-      return Promise.reject(
-        new TypeError("timeoutMs must be between 0 and 2147483647"),
-      );
+    try {
+      validateTimeout(effectiveTimeout);
+    } catch (error) {
+      return Promise.reject(error);
     }
     const requestId = `ts-${++this.nextRequest}`;
     const terminalWaitTimeout = terminalWaitServerTimeout(
@@ -425,22 +514,32 @@ export class ResourceProtocol {
     }
     return new Promise<unknown>((resolve, reject) => {
       const pending: Pending = { resolve, reject, onResourceError };
+      let dispatchStarted = false;
+      let dispatchComplete = false;
+      const abandon = (
+        error: CmuxAbortError | CmuxTimeoutError,
+      ) => {
+        if (this.pending.get(requestId) !== pending) return;
+        if (isCancelableTerminalWait(operation) && dispatchStarted) {
+          this.beginRequestAbandonment(requestId, pending, error);
+          if (dispatchComplete) {
+            this.startRequestCleanup(requestId, pending);
+          }
+          return;
+        }
+        this.pending.delete(requestId);
+        this.finishPending(pending);
+        this.releaseTerminalWait(requestId);
+        reject(error);
+      };
       if (effectiveTimeout > 0) {
         pending.timer = setTimeout(() => {
-          if (this.pending.get(requestId) !== pending) return;
-          this.pending.delete(requestId);
-          this.finishPending(pending);
-          reject(new CmuxTimeoutError(`${operation} timed out`));
+          abandon(new CmuxTimeoutError(`${operation} timed out`));
         }, effectiveTimeout);
       }
-      let sent = false;
       if (signal) {
         const abort = () => {
-          if (this.pending.get(requestId) !== pending) return;
-          this.pending.delete(requestId);
-          this.finishPending(pending);
-          if (!sent) this.releaseTerminalWait(requestId);
-          reject(abortError());
+          abandon(abortError());
         };
         signal.addEventListener("abort", abort, { once: true });
         pending.removeAbort = () => signal.removeEventListener("abort", abort);
@@ -454,13 +553,17 @@ export class ResourceProtocol {
         return;
       }
       try {
-        sent = true;
+        dispatchStarted = true;
         this.activeTransportSends += 1;
         try {
           this.transport.send(json);
+          dispatchComplete = true;
           onDispatched?.();
         } finally {
           this.activeTransportSends -= 1;
+        }
+        if (pending.abandonment) {
+          this.startRequestCleanup(requestId, pending);
         }
       } catch (error) {
         this.pending.delete(requestId);
@@ -472,7 +575,8 @@ export class ResourceProtocol {
             `${operation} transport send failed: ${String(error)}`,
           ), false);
         }
-        reject(error);
+        reject(pending.abandonment?.originalError ?? error);
+        this.finishRequestCleanup(pending);
       }
     });
   }
@@ -501,21 +605,30 @@ export class ResourceProtocol {
       try {
         decoded = decodeResponseEnvelope(value);
       } catch (error) {
+        const failure = error instanceof Error
+          ? error
+          : new CmuxProtocolError(String(error));
         if (pending) {
           this.pending.delete(value.id);
           this.finishPending(pending);
-          pending.reject(error);
+          if (pending.abandonment) {
+            pending.abandonment.targetResponseObserved = true;
+            pending.abandonment.resolveTargetResponse(failure);
+          } else {
+            pending.reject(failure);
+          }
         }
-        this.fail(
-          error instanceof Error
-            ? error
-            : new CmuxProtocolError(String(error)),
-        );
+        this.fail(failure);
         return;
       }
       if (!pending) return;
       this.pending.delete(value.id);
       this.finishPending(pending);
+      if (pending.abandonment) {
+        pending.abandonment.targetResponseObserved = true;
+        pending.abandonment.resolveTargetResponse(undefined);
+        return;
+      }
       if (decoded.ok) pending.resolve(decoded.result);
       else {
         pending.onResourceError?.();
@@ -755,6 +868,110 @@ export class ResourceProtocol {
     }
   }
 
+  private beginRequestAbandonment(
+    requestId: string,
+    pending: Pending,
+    originalError: CmuxAbortError | CmuxTimeoutError,
+  ): void {
+    if (pending.abandonment) return;
+    this.finishPending(pending);
+    const abandonment = createRequestAbandonment(originalError);
+    pending.abandonment = abandonment;
+    this.requestCleanups.add(abandonment.cleanupBarrier);
+    if (this.pending.get(requestId) !== pending) {
+      abandonment.targetResponseObserved = true;
+      abandonment.resolveTargetResponse(undefined);
+    }
+  }
+
+  private startRequestCleanup(requestId: string, pending: Pending): void {
+    const abandonment = pending.abandonment;
+    if (
+      !abandonment
+      || abandonment.cleanupStarted
+      || abandonment.cleanupFinished
+    ) {
+      return;
+    }
+    abandonment.cleanupStarted = true;
+    queueMicrotask(() => {
+      void this.performRequestCleanup(requestId, pending);
+    });
+  }
+
+  private async performRequestCleanup(
+    requestId: string,
+    pending: Pending,
+  ): Promise<void> {
+    const abandonment = pending.abandonment;
+    if (!abandonment || abandonment.cleanupFinished) return;
+    const configured = this.timeoutMs > 0
+      ? this.timeoutMs
+      : REQUEST_CLEANUP_TIMEOUT_MS;
+    const cleanupTimeoutMs = Math.min(
+      Math.max(configured, 1),
+      REQUEST_CLEANUP_TIMEOUT_MS,
+    );
+    const deadline = Date.now() + cleanupTimeoutMs;
+    try {
+      const result = await this.sendRequestNow(
+        operations.requestCancel.name,
+        { request_id: requestId },
+        undefined,
+        undefined,
+        remainingTime(
+          deadline,
+          "request cancellation did not finish before the deadline",
+        ),
+      );
+      const canceled = decodeRequestCancelResult(result);
+      if (canceled) {
+        if (abandonment.targetResponseObserved) {
+          const responseError = await abandonment.targetResponse;
+          if (responseError) throw responseError;
+          throw new CmuxProtocolError(
+            "request.cancel returned canceled true after the target responded",
+          );
+        }
+        if (this.pending.get(requestId) === pending) {
+          this.pending.delete(requestId);
+        }
+        this.releaseTerminalWait(requestId);
+        abandonment.resolveTargetResponse(undefined);
+      } else {
+        const responseError = await waitUntilDeadline(
+          abandonment.targetResponse,
+          deadline,
+          undefined,
+          "request cancellation did not receive the completed target response",
+        );
+        if (responseError) throw responseError;
+      }
+    } catch (error) {
+      const failure = error instanceof CmuxProtocolError
+        ? error
+        : new CmuxConnectionError(
+          `request cancellation was not confirmed: ${String(error)}`,
+        );
+      if (!this.closed) this.fail(failure);
+    } finally {
+      if (this.pending.get(requestId) === pending) {
+        this.pending.delete(requestId);
+        this.finishPending(pending);
+      }
+      pending.reject(abandonment.originalError);
+      this.finishRequestCleanup(pending);
+    }
+  }
+
+  private finishRequestCleanup(pending: Pending): void {
+    const abandonment = pending.abandonment;
+    if (!abandonment || abandonment.cleanupFinished) return;
+    abandonment.cleanupFinished = true;
+    this.requestCleanups.delete(abandonment.cleanupBarrier);
+    abandonment.resolveCleanupBarrier();
+  }
+
   private finishPending(pending: Pending): void {
     if (pending.timer) clearTimeout(pending.timer);
     pending.removeAbort?.();
@@ -813,7 +1030,15 @@ export class ResourceProtocol {
     try {
       for (const pending of this.pending.values()) {
         this.finishPending(pending);
-        pending.reject(error);
+        if (pending.abandonment) {
+          if (!pending.abandonment.targetResponseObserved) {
+            pending.abandonment.targetResponseObserved = true;
+            pending.abandonment.resolveTargetResponse(error);
+          }
+          pending.reject(pending.abandonment.originalError);
+        } else {
+          pending.reject(error);
+        }
       }
       this.pending.clear();
       for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
@@ -862,9 +1087,7 @@ function terminalWaitServerTimeout(
   params: Readonly<Record<string, unknown>>,
   requestTimeoutMs: number,
 ): bigint | undefined {
-  if (operation !== "terminal.wait" && operation !== "terminal.wait_exit") {
-    return undefined;
-  }
+  if (!isCancelableTerminalWait(operation)) return undefined;
   const requestBound = BigInt(Math.min(
     Math.floor(requestTimeoutMs > 0 ? requestTimeoutMs : DEFAULT_REQUEST_TIMEOUT_MS),
     MAX_TERMINAL_WAIT_TIMEOUT_MS,
@@ -876,6 +1099,26 @@ function terminalWaitServerTimeout(
   }
   const suppliedBound = BigInt(supplied);
   return suppliedBound < requestBound ? suppliedBound : requestBound;
+}
+
+function isCancelableTerminalWait(operation: string): boolean {
+  return operation === "terminal.wait" || operation === "terminal.wait_exit";
+}
+
+function validateTimeout(timeoutMs: number): void {
+  if (
+    !Number.isFinite(timeoutMs)
+    || timeoutMs < 0
+    || timeoutMs > MAX_TIMEOUT_MS
+  ) {
+    throw new TypeError("timeoutMs must be between 0 and 2147483647");
+  }
+}
+
+function remainingTime(deadline: number, message: string): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new CmuxTimeoutError(message);
+  return remaining;
 }
 
 export class ResourceStream<Value>
@@ -1152,9 +1395,32 @@ function createStreamCancellationConfirmation(): StreamCancellationConfirmation 
   };
 }
 
+function createRequestAbandonment(
+  originalError: CmuxAbortError | CmuxTimeoutError,
+): RequestAbandonment {
+  let resolveTargetResponse!: (error: Error | undefined) => void;
+  const targetResponse = new Promise<Error | undefined>((resolve) => {
+    resolveTargetResponse = resolve;
+  });
+  let resolveCleanupBarrier!: () => void;
+  const cleanupBarrier = new Promise<void>((resolve) => {
+    resolveCleanupBarrier = resolve;
+  });
+  return {
+    originalError,
+    targetResponse,
+    resolveTargetResponse,
+    cleanupBarrier,
+    resolveCleanupBarrier,
+    targetResponseObserved: false,
+    cleanupStarted: false,
+    cleanupFinished: false,
+  };
+}
+
 function waitUntilDeadline<Value>(
   promise: Promise<Value>,
-  deadline: number,
+  deadline: number | undefined,
   signal: AbortSignal | undefined,
   timeoutMessage: string,
 ): Promise<Value> {
@@ -1178,15 +1444,17 @@ function waitUntilDeadline<Value>(
       return;
     }
     signal?.addEventListener("abort", abort, { once: true });
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) {
-      finish(() => reject(new CmuxTimeoutError(timeoutMessage)));
-      return;
+    if (deadline !== undefined) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        finish(() => reject(new CmuxTimeoutError(timeoutMessage)));
+        return;
+      }
+      timer = setTimeout(
+        () => finish(() => reject(new CmuxTimeoutError(timeoutMessage))),
+        remaining,
+      );
     }
-    timer = setTimeout(
-      () => finish(() => reject(new CmuxTimeoutError(timeoutMessage))),
-      remaining,
-    );
   });
 }
 
@@ -1194,6 +1462,20 @@ function decodeEmptyResult(value: unknown): void {
   if (!isRecord(value) || Object.keys(value).length !== 0) {
     throw new CmuxProtocolError("empty result must be an object with no fields");
   }
+}
+
+function decodeRequestCancelResult(value: unknown): boolean {
+  if (
+    !isRecord(value)
+    || Object.keys(value).length !== 1
+    || !Object.hasOwn(value, "canceled")
+    || typeof value.canceled !== "boolean"
+  ) {
+    throw new CmuxProtocolError(
+      "request.cancel result must contain exactly boolean canceled",
+    );
+  }
+  return value.canceled;
 }
 
 function requireString(value: unknown, name: string): string {

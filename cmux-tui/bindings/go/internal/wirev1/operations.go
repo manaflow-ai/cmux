@@ -159,7 +159,8 @@ var (
 	SidebarViewResize = Operation{"sidebar_view.resize", Mutation}
 	SidebarViewReload = Operation{"sidebar_view.reload", Mutation}
 
-	StreamCancel = Operation{"stream.cancel", ConnectionControl}
+	RequestCancel = Operation{"request.cancel", ConnectionControl}
+	StreamCancel  = Operation{"stream.cancel", ConnectionControl}
 )
 
 const (
@@ -174,6 +175,7 @@ const (
 	FieldBrowser         = "browser"
 	FieldClient          = "client"
 	FieldStreamID        = "stream_id"
+	FieldRequestID       = "request_id"
 	FieldIdempotencyKey  = "idempotency_key"
 	FieldArgv            = "argv"
 	FieldName            = "name"

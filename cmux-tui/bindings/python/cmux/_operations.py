@@ -467,6 +467,7 @@ class Operations:
         "sidebar_view.reload", "mutation", ("session", "sidebar_view")
     )
 
+    REQUEST_CANCEL = _op("request.cancel", "connection_control")
     STREAM_CANCEL = _op(
         "stream.cancel", "connection_control", ("stream",)
     )

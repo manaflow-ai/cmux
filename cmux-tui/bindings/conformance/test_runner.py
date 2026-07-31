@@ -16,6 +16,7 @@ from runner import (
     MAX_STREAM_BYTES,
     MAX_STREAM_MESSAGES,
     PROTOCOL,
+    TRANSPORTED_OPERATION_COUNT,
     ConformanceFailure,
     ResourceV1Server,
     assert_response,
@@ -136,9 +137,18 @@ class ContractTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_catalog_is_public_v1_and_has_111_transported_operations(self) -> None:
+    def test_catalog_is_public_v1_and_has_expected_transported_operations(
+        self,
+    ) -> None:
         self.assertEqual(self.catalog["protocol"], PROTOCOL)
-        self.assertEqual(len(self.catalog["operations"]), 111)
+        self.assertEqual(
+            len(self.catalog["operations"]),
+            TRANSPORTED_OPERATION_COUNT,
+        )
+        self.assertEqual(
+            self.catalog["operations"]["request.cancel"]["class"],
+            "connection_control",
+        )
         self.assertEqual(
             self.catalog["operations"]["workspace.rename"]["class"], "mutation"
         )

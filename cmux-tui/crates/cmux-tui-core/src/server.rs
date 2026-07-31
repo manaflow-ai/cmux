@@ -1272,7 +1272,6 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
-const RESOURCE_WAIT_CANCEL_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
@@ -2367,6 +2366,15 @@ impl Drop for ResourceClientWait {
 struct ResourceWaitCancellation {
     canceled: AtomicBool,
     wakeups: Mutex<Vec<Weak<ResourceWaitWake>>>,
+    lifecycle: Mutex<ResourceWaitLifecycleState>,
+    lifecycle_changed: Condvar,
+}
+
+#[derive(Default)]
+struct ResourceWaitLifecycleState {
+    completion_started: bool,
+    response_attempted: bool,
+    worker_finished: bool,
 }
 
 impl ResourceWaitCancellation {
@@ -2394,6 +2402,52 @@ impl ResourceWaitCancellation {
             wake.notify();
         }
     }
+
+    fn begin_completion(&self) -> bool {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        if self.is_canceled() || lifecycle.completion_started {
+            return false;
+        }
+        lifecycle.completion_started = true;
+        true
+    }
+
+    fn completion_started(&self) -> bool {
+        self.lifecycle.lock().unwrap().completion_started
+    }
+
+    fn mark_response_attempted(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        lifecycle.response_attempted = true;
+        self.lifecycle_changed.notify_all();
+    }
+
+    fn wait_for_response_attempt(&self) -> bool {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        while !lifecycle.response_attempted && !lifecycle.worker_finished {
+            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+        }
+        lifecycle.response_attempted
+    }
+
+    fn mark_worker_finished(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        lifecycle.worker_finished = true;
+        self.lifecycle_changed.notify_all();
+    }
+
+    fn wait_for_worker_finish(&self) {
+        let mut lifecycle = self.lifecycle.lock().unwrap();
+        while !lifecycle.worker_finished {
+            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+        }
+    }
+}
+
+enum ResourceWaitCancel {
+    Missing,
+    Canceled(Arc<ResourceWaitCancellation>),
+    Completing(Arc<ResourceWaitCancellation>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2416,6 +2470,7 @@ impl From<ResourceWorkerAdmissionError> for ResourceStreamInstallError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResourceWaitInstallError {
     UnknownClient,
+    Duplicate,
     ClientCapacity,
     ServerCapacity,
 }
@@ -2438,7 +2493,7 @@ struct ClientRecord {
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
     resource_streams: HashMap<String, ResourceClientStream>,
-    resource_waits: HashMap<u64, ResourceClientWait>,
+    resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
     announced_attached: bool,
     writer: MessageWriter,
 }
@@ -2461,7 +2516,6 @@ struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     next_id: AtomicU64,
-    next_resource_wait_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
     state: Mutex<ClientRegistryState>,
@@ -2471,7 +2525,6 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
-            next_resource_wait_id: AtomicU64::new(1),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -2568,27 +2621,91 @@ impl ClientRegistry {
     fn install_resource_wait(
         &self,
         client: u64,
-    ) -> Result<(u64, Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
+        request_id: &ResourceRequestId,
+    ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
     {
         let mut state = self.state.lock().unwrap();
         let record =
             state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
+        if record.resource_waits.contains_key(request_id) {
+            return Err(ResourceWaitInstallError::Duplicate);
+        }
         let worker_permit = self.resource_wait_admission.try_reserve(client)?;
-        let wait_id = self.next_resource_wait_id.fetch_add(1, Ordering::Relaxed);
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
-            wait_id,
+            request_id.clone(),
             ResourceClientWait {
                 canceled: canceled.clone(),
                 _worker_permit: worker_permit.clone(),
             },
         );
-        Ok((wait_id, canceled, worker_permit))
+        Ok((canceled, worker_permit))
     }
 
-    fn finish_resource_wait(&self, client: u64, wait_id: u64) {
-        if let Some(record) = self.state.lock().unwrap().clients.get_mut(&client) {
-            record.resource_waits.remove(&wait_id);
+    /// Atomically claim completion for one exact request registration.
+    ///
+    /// The cancellation identity check prevents an old worker from removing a
+    /// replacement that reused the same public request id after cancellation.
+    fn begin_resource_wait_completion(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+        canceled: &Arc<ResourceWaitCancellation>,
+    ) -> bool {
+        let state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get(&client) else { return false };
+        record
+            .resource_waits
+            .get(request_id)
+            .filter(|wait| Arc::ptr_eq(&wait.canceled, canceled))
+            .is_some_and(|_| canceled.begin_completion())
+    }
+
+    fn finish_resource_wait(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+        canceled: &Arc<ResourceWaitCancellation>,
+    ) -> bool {
+        let removed = {
+            let mut state = self.state.lock().unwrap();
+            let Some(record) = state.clients.get_mut(&client) else { return false };
+            if record
+                .resource_waits
+                .get(request_id)
+                .is_some_and(|wait| Arc::ptr_eq(&wait.canceled, canceled))
+            {
+                record.resource_waits.remove(request_id)
+            } else {
+                None
+            }
+        };
+        removed.is_some()
+    }
+
+    /// Remove and wake a detached wait by its public request id. Removal is
+    /// the cancellation linearization point, so repeated and late requests
+    /// return false and a worker that lost this race cannot send a response.
+    fn cancel_resource_wait(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+    ) -> ResourceWaitCancel {
+        {
+            let mut state = self.state.lock().unwrap();
+            let Some(record) = state.clients.get_mut(&client) else {
+                return ResourceWaitCancel::Missing;
+            };
+            let Some(wait) = record.resource_waits.get(request_id) else {
+                return ResourceWaitCancel::Missing;
+            };
+            if wait.canceled.completion_started() {
+                ResourceWaitCancel::Completing(wait.canceled.clone())
+            } else {
+                let canceled = wait.canceled.clone();
+                record.resource_waits.remove(request_id);
+                ResourceWaitCancel::Canceled(canceled)
+            }
         }
     }
 
@@ -3509,6 +3626,7 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::SessionShutdown
             | ResourceOperation::PairingRequestList
             | ResourceOperation::PairingRequestResolve
+            | ResourceOperation::RequestCancel
             | ResourceOperation::ClientList
             | ResourceOperation::ClientGet
             | ResourceOperation::ClientMetadataUpdate
@@ -3714,6 +3832,10 @@ fn handle_resource_connection_message(
         ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit => {
             start_resource_wait(mux.clone(), client, writer.clone(), request, id)
         }
+        ResourceOperation::RequestCancel => {
+            let result = cancel_resource_request(mux, client, writer, &request);
+            send_resource_response(writer, id, operation, result)
+        }
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
             send_resource_response(writer, id, operation, result)
@@ -3738,12 +3860,37 @@ fn handle_resource_connection_message(
 struct ResourceWaitWorkerGuard {
     mux: Arc<Mux>,
     client: u64,
-    wait_id: u64,
+    request_id: ResourceRequestId,
+    canceled: Arc<ResourceWaitCancellation>,
+}
+
+impl ResourceWaitWorkerGuard {
+    fn claim_completion(&self) -> bool {
+        self.mux.control_clients.begin_resource_wait_completion(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        )
+    }
+
+    fn finish_response_attempt(&self) {
+        self.canceled.mark_response_attempted();
+        let _ = self.mux.control_clients.finish_resource_wait(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        );
+    }
 }
 
 impl Drop for ResourceWaitWorkerGuard {
     fn drop(&mut self) {
-        self.mux.control_clients.finish_resource_wait(self.client, self.wait_id);
+        let _ = self.mux.control_clients.finish_resource_wait(
+            self.client,
+            &self.request_id,
+            &self.canceled,
+        );
+        self.canceled.mark_worker_finished();
     }
 }
 
@@ -3798,56 +3945,37 @@ fn run_terminal_resource_wait(
             .map_err(resource_wait_runtime_error)?
             .map_err(resource_wait_runtime_error)
     };
-    let mut observed = surface.terminal_stream_revision().map_err(resource_wait_runtime_error)?;
-    let mut text = check()?;
-    if regex.is_match(&text) {
-        return Ok(Some(json!({"matched":true,"text":text})));
-    }
-    if timeout == Some(Duration::ZERO) {
-        return Ok(Some(json!({"matched":false,"text":text})));
-    }
-
     loop {
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);
         }
-        let wait = match deadline {
-            Some(deadline) => {
-                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                    return Ok(Some(json!({"matched":false,"text":text})));
-                };
-                remaining.min(RESOURCE_WAIT_CANCEL_POLL)
-            }
-            None => RESOURCE_WAIT_CANCEL_POLL,
-        };
-        let wake_deadline = Instant::now()
-            .checked_add(wait)
-            .ok_or_else(|| resource_wait_runtime_error("terminal wait wake deadline overflowed"))?;
-        let progress = surface
-            .wait_for_terminal_stream_change(observed, Some(wake_deadline))
-            .map_err(resource_wait_runtime_error)?;
+        // Register every wake source before reading terminal state. Output,
+        // cancellation, and connection close therefore share one blocking
+        // primitive without a read/wait gap or an idle polling deadline.
+        let subscription =
+            surface.subscribe_terminal_stream_change().map_err(resource_wait_runtime_error)?;
+        let wake = subscription.wake();
+        canceled.register(&wake);
+        writer.register_wait_wakeup(&wake);
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);
         }
-        match progress {
-            Some(revision) => {
-                observed = revision;
-                text = check()?;
-                if regex.is_match(&text) {
-                    return Ok(Some(json!({"matched":true,"text":text})));
-                }
-            }
-            None => {
-                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                    // Close the output/deadline race with one final
-                    // authoritative snapshot.
-                    text = check()?;
-                    return Ok(Some(json!({
-                        "matched":regex.is_match(&text),
-                        "text":text,
-                    })));
-                }
-            }
+        let text = check()?;
+        if regex.is_match(&text) {
+            return Ok(Some(json!({"matched":true,"text":text})));
+        }
+        if timeout == Some(Duration::ZERO) {
+            return Ok(Some(json!({"matched":false,"text":text})));
+        }
+
+        if !subscription.wait_until(deadline) {
+            // Close the output/deadline race with one final authoritative
+            // snapshot after the one deadline wake.
+            let text = check()?;
+            return Ok(Some(json!({
+                "matched":regex.is_match(&text),
+                "text":text,
+            })));
         }
     }
 }
@@ -3930,8 +4058,7 @@ fn start_resource_wait(
         ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
         _ => unreachable!("only terminal waits use the detached request path"),
     };
-    let (wait_id, canceled, worker_permit) = match mux.control_clients.install_resource_wait(client)
-    {
+    let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
         Ok(installed) => installed,
         Err(error) => {
             return send_resource_response(
@@ -3944,25 +4071,29 @@ fn start_resource_wait(
     };
     let worker_writer = writer.clone();
     let worker_mux = mux.clone();
-    let worker_canceled = canceled;
+    let worker_canceled = canceled.clone();
     let worker_id = id.clone();
     let spawn =
         std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
-            let _registration =
-                ResourceWaitWorkerGuard { mux: worker_mux.clone(), client, wait_id };
+            let _registration = ResourceWaitWorkerGuard {
+                mux: worker_mux.clone(),
+                client,
+                request_id: worker_id.clone(),
+                canceled: worker_canceled.clone(),
+            };
             let _worker_permit = worker_permit;
             if let Some(result) =
                 run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
-                && !worker_canceled.is_canceled()
-                && worker_writer.is_open()
+                && _registration.claim_completion()
             {
                 let _ = send_resource_response(&worker_writer, worker_id, operation, result);
+                _registration.finish_response_attempt();
             }
         });
     match spawn {
         Ok(_) => true,
         Err(error) => {
-            mux.control_clients.finish_resource_wait(client, wait_id);
+            mux.control_clients.finish_resource_wait(client, &id, &canceled);
             send_resource_response(
                 &writer,
                 id,
@@ -4617,6 +4748,12 @@ fn resource_wait_install_error(
         ResourceWaitInstallError::UnknownClient => {
             ("control connection is no longer registered", "connection_closed", "client", 0)
         }
+        ResourceWaitInstallError::Duplicate => (
+            "request id already owns a detached terminal wait on this connection",
+            "request_id_in_use",
+            "client",
+            1,
+        ),
         ResourceWaitInstallError::ClientCapacity => (
             "terminal wait capacity exceeded for this connection",
             "terminal_wait_capacity",
@@ -5679,6 +5816,34 @@ fn cancel_resource_stream(
             .map_err(|_| ResourceError::transport_closed("could not end the canceled stream"))?;
     }
     Ok(json!({}))
+}
+
+fn cancel_resource_request(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let request_id = ResourceRequestId::parse(
+        request.fields["request_id"].as_str().expect("catalog validates request cancellation ids"),
+    )?;
+    let canceled = match mux.control_clients.cancel_resource_wait(client, &request_id) {
+        ResourceWaitCancel::Missing => false,
+        ResourceWaitCancel::Canceled(lifecycle) => {
+            lifecycle.wait_for_worker_finish();
+            true
+        }
+        ResourceWaitCancel::Completing(lifecycle) => {
+            if !lifecycle.wait_for_response_attempt() {
+                writer.close();
+                return Err(ResourceError::transport_closed(
+                    "terminal wait completion ended before attempting its response",
+                ));
+            }
+            false
+        }
+    };
+    Ok(json!({"canceled":canceled}))
 }
 
 fn resource_stream_end(
@@ -7428,7 +7593,7 @@ fn handle_command_with_cancellation(
             get_surface(mux, surface)?;
             let state = parse_agent_state(&state)?;
             let source = parse_agent_source(&source)?;
-            let record = mux.report_agent(surface, state, source, session);
+            let record = mux.report_agent(surface, state, source, session)?;
             Ok(json!({
                 "surface": record.surface,
                 "state": record.state.as_str(),
@@ -8904,6 +9069,75 @@ mod tests {
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }
 
+    struct BlockingControlSink {
+        outbound: Arc<BoundedOutbound>,
+        blocked_request_id: String,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl MessageSink for BlockingControlSink {
+        fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_initial(serde_json::to_string(value)?, stream)
+        }
+
+        fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_regular(serde_json::to_string(value)?, stream)
+        }
+
+        fn send_control(&self, value: &Value) -> std::io::Result<()> {
+            if value["type"] == "response"
+                && value["id"].as_str() == Some(self.blocked_request_id.as_str())
+            {
+                self.entered.send(()).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "response blocker observer closed",
+                    )
+                })?;
+                self.release.lock().unwrap().recv().map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "response blocker release closed",
+                    )
+                })?;
+            }
+            self.outbound.push_control(serde_json::to_string(value)?)
+        }
+
+        fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+            self.outbound.push_terminal(serde_json::to_string(value)?, stream)
+        }
+
+        fn is_open(&self) -> bool {
+            self.outbound.is_open()
+        }
+
+        fn close(&self) {
+            self.outbound.close();
+        }
+    }
+
+    fn blocking_control_writer(
+        request_id: &str,
+    ) -> (
+        MessageWriter,
+        Arc<BoundedOutbound>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let writer = MessageWriter::new(BlockingControlSink {
+            outbound: outbound.clone(),
+            blocked_request_id: request_id.to_string(),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        (writer, outbound, entered_rx, release_tx)
+    }
+
     fn pop_json(outbound: &BoundedOutbound) -> Value {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
@@ -9128,6 +9362,409 @@ mod tests {
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(response["result"]["matched"], true, "{response}");
         disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn request_cancel_suppresses_target_response_and_reuses_request_id_and_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-request-cancel",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-request-cancel"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+
+        let wait = resource_request(
+            "reused-request-id",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-request-cancel-never-matches",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 1);
+
+        let cancel = resource_request(
+            "cancel-reused-request-id",
+            "request.cancel",
+            json!({"request_id":"reused-request-id"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        let canceled = pop_json(&outbound);
+        assert_eq!(canceled["id"], "cancel-reused-request-id");
+        assert_eq!(canceled["ok"], true, "{canceled}");
+        assert_eq!(canceled["result"], json!({"canceled":true}));
+        assert_eq!(
+            mux.control_clients.resource_wait_admission.active(),
+            0,
+            "cancel confirmation preceded worker permit release"
+        );
+        assert_eq!(surface.terminal_stream_waiter_count_for_test(), Some(0));
+        assert!(outbound.try_pop().is_none(), "canceled target emitted a response");
+
+        let repeated = resource_request(
+            "repeat-cancel",
+            "request.cancel",
+            json!({"request_id":"reused-request-id"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &repeated, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":false}));
+
+        let replacement = resource_request(
+            "reused-request-id",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"CMUX_REUSED_REQUEST_READY",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &replacement, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(
+                Instant::now() < waiting_deadline,
+                "replacement terminal wait did not subscribe"
+            );
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"CMUX_REUSED_REQUEST_READY").unwrap();
+        let replacement = pop_json(&outbound);
+        assert_eq!(replacement["id"], "reused-request-id");
+        assert_eq!(replacement["result"]["matched"], true, "{replacement}");
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "completed wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn request_cancel_wakes_wait_exit_and_is_connection_local() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (other_writer, other_outbound) = captured_writer();
+        let other = mux.control_clients.register(ClientTransport::Unix, other_writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let other_scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-wait-exit-cancel",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-wait-exit-cancel"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let wait = resource_request(
+            "connection-owned-wait-exit",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1 {
+            assert!(Instant::now() < waiting_deadline, "wait_exit did not subscribe");
+            std::thread::yield_now();
+        }
+
+        let foreign_cancel = resource_request(
+            "foreign-cancel",
+            "request.cancel",
+            json!({"request_id":"connection-owned-wait-exit"}),
+            None,
+        );
+        assert!(handle_connection_message(
+            &mux,
+            other,
+            &foreign_cancel,
+            &other_writer,
+            &other_scheduler,
+        ));
+        assert_eq!(pop_json(&other_outbound)["result"], json!({"canceled":false}));
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 1);
+
+        let owner_cancel = resource_request(
+            "owner-cancel",
+            "request.cancel",
+            json!({"request_id":"connection-owned-wait-exit"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &owner_cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":true}));
+        assert_eq!(
+            mux.control_clients.resource_wait_admission.active(),
+            0,
+            "wait_exit cancel confirmation preceded worker permit release"
+        );
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+        assert!(outbound.try_pop().is_none(), "canceled wait_exit emitted a response");
+
+        assert!(disconnect_client(&mux, other, false));
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn completion_winner_queues_target_response_before_cancel_false() {
+        let mux = test_mux();
+        let (writer, outbound, target_send_entered, release_target_send) =
+            blocking_control_writer("ordered-target");
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-cancel-order",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-cancel-order"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "ordered-target",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"CMUX_ORDERED_TARGET_READY",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "ordered wait did not subscribe");
+            std::thread::yield_now();
+        }
+        surface.apply_stream_output_for_test(b"CMUX_ORDERED_TARGET_READY").unwrap();
+        target_send_entered
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait completion did not begin its target response");
+
+        let cancel = resource_request(
+            "ordered-cancel",
+            "request.cancel",
+            json!({"request_id":"ordered-target"}),
+            None,
+        );
+        std::thread::scope(|scope| {
+            let cancel_mux = mux.clone();
+            let cancel_writer = writer.clone();
+            let cancel_scheduler = scheduler.clone();
+            let cancel = scope.spawn(move || {
+                handle_connection_message(
+                    &cancel_mux,
+                    client,
+                    &cancel,
+                    &cancel_writer,
+                    &cancel_scheduler,
+                )
+            });
+            std::thread::yield_now();
+            assert!(
+                outbound.try_pop().is_none(),
+                "cancel responded before the completing target attempted its response"
+            );
+            release_target_send.send(()).unwrap();
+            assert!(cancel.join().unwrap());
+        });
+
+        let target = pop_json(&outbound);
+        let canceled = pop_json(&outbound);
+        assert_eq!(target["id"], "ordered-target", "{target}");
+        assert_eq!(target["result"]["matched"], true, "{target}");
+        assert_eq!(canceled["id"], "ordered-cancel", "{canceled}");
+        assert_eq!(canceled["result"], json!({"canceled":false}));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "completed wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn request_cancel_and_completion_have_one_atomic_winner() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer);
+        for index in 0..128 {
+            let request_id = ResourceRequestId::parse(format!("request-race-{index}")).unwrap();
+            let (canceled, worker_permit) =
+                mux.control_clients.install_resource_wait(client, &request_id).unwrap();
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let completion = std::thread::scope(|scope| {
+                let completion_barrier = barrier.clone();
+                let completion_id = request_id.clone();
+                let completion_canceled = canceled.clone();
+                let completion_mux = mux.clone();
+                let completion = scope.spawn(move || {
+                    completion_barrier.wait();
+                    let won = completion_mux.control_clients.begin_resource_wait_completion(
+                        client,
+                        &completion_id,
+                        &completion_canceled,
+                    );
+                    if won {
+                        completion_canceled.mark_response_attempted();
+                        completion_mux.control_clients.finish_resource_wait(
+                            client,
+                            &completion_id,
+                            &completion_canceled,
+                        );
+                    }
+                    completion_canceled.mark_worker_finished();
+                    won
+                });
+                barrier.wait();
+                let cancellation =
+                    match mux.control_clients.cancel_resource_wait(client, &request_id) {
+                        ResourceWaitCancel::Missing => false,
+                        ResourceWaitCancel::Canceled(lifecycle) => {
+                            lifecycle.wait_for_worker_finish();
+                            true
+                        }
+                        ResourceWaitCancel::Completing(lifecycle) => {
+                            assert!(lifecycle.wait_for_response_attempt());
+                            false
+                        }
+                    };
+                (completion.join().unwrap(), cancellation)
+            });
+            assert_ne!(
+                completion.0, completion.1,
+                "completion and cancellation did not have exactly one winner"
+            );
+            drop(worker_permit);
+        }
+        assert_eq!(mux.control_clients.resource_wait_admission.active(), 0);
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn idle_terminal_wait_worker_registers_once_without_polling() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-idle-screen-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-idle-screen-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "idle-screen-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"cmux-idle-pattern-that-never-matches",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1)
+            || surface.terminal_stream_subscription_count_for_test() != Some(1)
+        {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not become idle");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(350));
+        assert_eq!(
+            surface.terminal_stream_subscription_count_for_test(),
+            Some(1),
+            "idle terminal.wait worker polled"
+        );
+
+        let cancel = resource_request(
+            "cancel-idle-screen-wait",
+            "request.cancel",
+            json!({"request_id":"idle-screen-wait"}),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &cancel, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["result"], json!({"canceled":true}));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "idle wait retained admission");
+            std::thread::yield_now();
+        }
+        assert!(disconnect_client(&mux, client, false));
     }
 
     #[test]
@@ -10164,7 +10801,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 20);
+        assert_eq!(connection_operations, 21);
     }
 
     #[test]
@@ -11510,6 +12147,39 @@ mod tests {
                 .any(|capability| capability == "browser-pointer-frame-guard-v1")),
             "the server must advertise guarded browser pointer input"
         );
+    }
+
+    #[test]
+    fn raw_report_agent_command_commits_public_revision_projection_and_event() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let revision = mux.with_state(|state| state.resource_revision);
+        let epoch = mux.resource_event_epoch();
+
+        let result = handle_command(
+            &mux,
+            0,
+            Command::ReportAgent {
+                surface: surface.id,
+                state: "working".into(),
+                source: "socket".into(),
+                session: Some("raw-command".into()),
+            },
+            &test_writer(),
+        )
+        .unwrap();
+
+        assert_eq!(result["surface"], surface.id);
+        assert_eq!(result["state"], "working");
+        assert_eq!(result["source"], "socket");
+        assert_eq!(result["session"], "raw-command");
+        assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
+        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        let events = mux.resource_events_after(revision).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        assert_eq!(events.batches[0].changes[0]["resource"], "agent");
+        assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
     }
 
     #[test]

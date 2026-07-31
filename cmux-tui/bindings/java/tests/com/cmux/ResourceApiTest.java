@@ -32,6 +32,12 @@ public final class ResourceApiTest {
         strictTypedModels();
         layoutUndoUsesTypedConfirmation();
         creationResolutionAndWaitExitStaySeparate();
+        terminalWaitTimeoutCancelsAndReusesConnection();
+        terminalWaitAbortGatesConcurrentReuse();
+        terminalWaitFalseRaceDrainsTargetResponse();
+        terminalWaitCleanupFailureClosesButPreservesAbort();
+        terminalWaitPredispatchInterruptSendsNothing();
+        terminalWaitUncertainSendClosesWithoutCancel();
         typedStream();
         malformedStreamItemEnvelopeClosesConnection();
         idleStreamOutlivesRequestTimeout();
@@ -625,6 +631,291 @@ public final class ResourceApiTest {
             require(
                 params.get("expected_revision").equals("8"),
                 "confirmed undo sends the preview revision"
+            );
+        }
+    }
+
+    private static void terminalWaitTimeoutCancelsAndReusesConnection() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofMillis(30))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                }
+            }, "terminal-wait-timeout");
+            waiter.start();
+            require(transport.awaitWait(), "timed wait was dispatched");
+            require(
+                transport.awaitRequestCancel(),
+                "timed wait dispatched request.cancel"
+            );
+            transport.respondCancel(Map.of("canceled", true));
+            join(waiter, Duration.ofSeconds(1), "timed terminal wait cleanup");
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("timed out"),
+                "wait preserves its original local timeout"
+            );
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .ping(Options.Read.defaults());
+            require(
+                transport.operationCount("session.ping") == 1,
+                "connection is reusable after confirmed cancellation"
+            );
+        }
+    }
+
+    private static void terminalWaitAbortGatesConcurrentReuse() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> waitFailure =
+                new AtomicReference<>();
+            AtomicReference<Boolean> interruptRestored =
+                new AtomicReference<>(false);
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    waitFailure.set(error);
+                    interruptRestored.set(Thread.currentThread().isInterrupted());
+                }
+            }, "terminal-wait-abort");
+            waiter.start();
+            require(transport.awaitWait(), "aborted wait was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "aborted wait dispatched request.cancel"
+            );
+
+            int followerCount = 4;
+            BlockingQueue<RuntimeException> followerFailures =
+                new LinkedBlockingQueue<>();
+            List<Thread> followers = new ArrayList<>();
+            for (int index = 0; index < followerCount; index++) {
+                Thread follower = new Thread(() -> {
+                    try {
+                        client.machine(Selector.current())
+                            .session(Selector.current())
+                            .ping(Options.Read.defaults());
+                    } catch (RuntimeException error) {
+                        followerFailures.add(error);
+                    }
+                }, "request-cleanup-follower-" + index);
+                followers.add(follower);
+                follower.start();
+            }
+            sleep(Duration.ofMillis(40));
+            require(
+                transport.operationCount("session.ping") == 0,
+                "concurrent reuse stays gated before cancel confirmation"
+            );
+
+            transport.respondCancel(Map.of("canceled", true));
+            join(waiter, Duration.ofSeconds(1), "aborted terminal wait cleanup");
+            for (Thread follower : followers) {
+                join(
+                    follower,
+                    Duration.ofSeconds(1),
+                    "request cleanup follower"
+                );
+            }
+            require(
+                followerFailures.isEmpty(),
+                "all gated followers share successful cleanup"
+            );
+            require(
+                transport.operationCount("request.cancel") == 1,
+                "one cleanup owner sends one request.cancel"
+            );
+            require(
+                waitFailure.get() instanceof TransportError &&
+                    waitFailure.get().getMessage().contains("interrupted"),
+                "wait preserves its original local abort"
+            );
+            require(
+                interruptRestored.get(),
+                "wait restores the caller interrupt after cleanup"
+            );
+        }
+    }
+
+    private static void terminalWaitFalseRaceDrainsTargetResponse() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            AtomicReference<Boolean> interruptRestored =
+                new AtomicReference<>(false);
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitExit(Options.WaitExit.defaults());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                    interruptRestored.set(Thread.currentThread().isInterrupted());
+                }
+            }, "terminal-wait-false-race");
+            waiter.start();
+            require(transport.awaitWait(), "wait-exit was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "wait-exit abort dispatched request.cancel"
+            );
+            transport.respondCancel(Map.of("canceled", false));
+            sleep(Duration.ofMillis(40));
+            require(
+                waiter.isAlive(),
+                "canceled=false waits for the original target response"
+            );
+            transport.respondTarget(Map.of(
+                "state", "exited",
+                "terminal_id", "term_" + HEX,
+                "lifecycle", "exited",
+                "outcome", Map.of(
+                    "kind", "signal",
+                    "signal", 15,
+                    "core_dumped", false
+                ),
+                "exited_at", "10",
+                "revision", "11"
+            ));
+            join(waiter, Duration.ofSeconds(1), "false-race target drain");
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("interrupted"),
+                "false-race drain preserves the original abort"
+            );
+            require(
+                interruptRestored.get(),
+                "false-race drain restores the interrupt"
+            );
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .ping(Options.Read.defaults());
+        }
+    }
+
+    private static void terminalWaitCleanupFailureClosesButPreservesAbort() {
+        for (boolean malformedTarget : List.of(false, true)) {
+            WaitCancelTransport transport = new WaitCancelTransport();
+            try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+                AtomicReference<RuntimeException> failure =
+                    new AtomicReference<>();
+                Thread waiter = new Thread(() -> {
+                    try {
+                        waitTerminal(client).waitFor(
+                            waitOptions()
+                        );
+                    } catch (RuntimeException error) {
+                        failure.set(error);
+                    }
+                }, malformedTarget
+                    ? "malformed-wait-target"
+                    : "malformed-cancel-confirmation");
+                waiter.start();
+                require(transport.awaitWait(), "cleanup-failure wait dispatched");
+                waiter.interrupt();
+                require(
+                    transport.awaitRequestCancel(),
+                    "cleanup-failure request.cancel dispatched"
+                );
+                if (malformedTarget) {
+                    transport.respondCancel(Map.of("canceled", false));
+                    transport.respondTarget(Map.of("matched", true));
+                } else {
+                    transport.respondCancel(Map.of(
+                        "canceled", true,
+                        "extra", true
+                    ));
+                }
+                join(
+                    waiter,
+                    Duration.ofSeconds(1),
+                    "failed request cancellation cleanup"
+                );
+                require(
+                    failure.get() instanceof TransportError &&
+                        failure.get().getMessage().contains("interrupted"),
+                    "cleanup failure preserves the original abort"
+                );
+                require(client.isClosed(), "cleanup failure closes transport");
+                long started = System.nanoTime();
+                expect(
+                    RuntimeException.class,
+                    () -> client.machine(Selector.current())
+                        .session(Selector.current())
+                        .ping(Options.Read.defaults())
+                );
+                require(
+                    Duration.ofNanos(System.nanoTime() - started)
+                        .compareTo(Duration.ofMillis(100)) < 0,
+                    "reuse after cleanup failure fails promptly"
+                );
+            }
+        }
+    }
+
+    private static void terminalWaitPredispatchInterruptSendsNothing() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            AtomicReference<Boolean> interruptRestored =
+                new AtomicReference<>(false);
+            Thread waiter = new Thread(() -> {
+                Thread.currentThread().interrupt();
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                    interruptRestored.set(Thread.currentThread().isInterrupted());
+                }
+            }, "predispatch-interrupted-wait");
+            waiter.start();
+            join(waiter, Duration.ofSeconds(1), "predispatch interrupted wait");
+            require(
+                failure.get() instanceof TransportError,
+                "predispatch interrupt is reported"
+            );
+            require(
+                interruptRestored.get(),
+                "predispatch interrupt remains set"
+            );
+            require(
+                transport.operationCount("terminal.wait") == 0 &&
+                    transport.operationCount("request.cancel") == 0,
+                "predispatch interrupt sends no wait or cleanup"
+            );
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .ping(Options.Read.defaults());
+        }
+    }
+
+    private static void terminalWaitUncertainSendClosesWithoutCancel() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        transport.failWaitSend = true;
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            TransportError failure = expect(
+                TransportError.class,
+                () -> waitTerminal(client).waitFor(
+                    waitOptions()
+                )
+            );
+            require(
+                failure.getMessage().contains("cannot send terminal.wait") &&
+                    failure.getCause() != null &&
+                    failure.getCause().getMessage().contains("wait send failed"),
+                "uncertain wait send reports the transport failure"
+            );
+            require(client.isClosed(), "uncertain wait send fail-closes");
+            require(
+                transport.operationCount("terminal.wait") == 1 &&
+                    transport.operationCount("request.cancel") == 0,
+                "uncertain send never appends request.cancel"
             );
         }
     }
@@ -2151,6 +2442,30 @@ public final class ResourceApiTest {
             .build();
     }
 
+    private static Client waitClient(
+        WaitCancelTransport transport,
+        Duration timeout
+    ) {
+        return Client.builder()
+            .transport(transport)
+            .timeout(timeout)
+            .build();
+    }
+
+    private static Terminal waitTerminal(Client client) {
+        return client.machine(Selector.current())
+            .session(Selector.current())
+            .terminal(Selector.id(new Ids.TerminalId("term_" + HEX)));
+    }
+
+    private static Options.Wait waitOptions() {
+        return new Options.Wait(
+            Options.Read.defaults(),
+            "ready",
+            0
+        );
+    }
+
     private static Thread closeCapturing(
         ResourceStream<?> stream,
         AtomicReference<RuntimeException> failure,
@@ -2256,6 +2571,141 @@ public final class ResourceApiTest {
     @FunctionalInterface
     private interface ThrowingRunnable {
         void run() throws Exception;
+    }
+
+    private static final class WaitCancelTransport implements Transport {
+        private final BlockingQueue<Map<String, Object>> inbound =
+            new LinkedBlockingQueue<>();
+        private final List<Map<String, Object>> sent = new ArrayList<>();
+        private final CountDownLatch waitSent = new CountDownLatch(1);
+        private final CountDownLatch requestCancelSent = new CountDownLatch(1);
+        private volatile String waitRequestId;
+        private volatile String cancelRequestId;
+        private volatile boolean closed;
+        private volatile boolean failWaitSend;
+
+        @Override
+        public void send(Map<String, Object> message) throws IOException {
+            Map<String, Object> copy = new LinkedHashMap<>(message);
+            synchronized (sent) {
+                sent.add(copy);
+            }
+            String operation = String.valueOf(copy.get("operation"));
+            String id = String.valueOf(copy.get("id"));
+            Map<String, Object> params = object(copy.get("params"));
+            switch (operation) {
+                case "terminal.wait", "terminal.wait_exit" -> {
+                    waitRequestId = id;
+                    waitSent.countDown();
+                    if (failWaitSend) {
+                        throw new IOException(
+                            "wait send failed after uncertain progress"
+                        );
+                    }
+                }
+                case "request.cancel" -> {
+                    if (!String.valueOf(params.get("request_id"))
+                            .equals(waitRequestId)) {
+                        throw new IOException(
+                            "request.cancel targeted the wrong request"
+                        );
+                    }
+                    cancelRequestId = id;
+                    requestCancelSent.countDown();
+                }
+                case "session.ping" -> inbound.add(success(
+                    id,
+                    Map.of(
+                        "alive", true,
+                        "cursor", Map.of(
+                            "generation", "generation-1",
+                            "revision", "1"
+                        )
+                    )
+                ));
+                default -> inbound.add(success(id, Map.of()));
+            }
+        }
+
+        boolean awaitWait() {
+            return await(waitSent, "terminal wait");
+        }
+
+        boolean awaitRequestCancel() {
+            return await(requestCancelSent, "request.cancel");
+        }
+
+        void respondCancel(Map<String, Object> result) {
+            String id = cancelRequestId;
+            if (id == null) {
+                throw new AssertionError("request.cancel is not pending");
+            }
+            inbound.add(success(id, result));
+        }
+
+        void respondTarget(Map<String, Object> result) {
+            String id = waitRequestId;
+            if (id == null) {
+                throw new AssertionError("terminal wait is not pending");
+            }
+            inbound.add(success(id, result));
+        }
+
+        long operationCount(String operation) {
+            synchronized (sent) {
+                return sent.stream()
+                    .filter(value -> operation.equals(value.get("operation")))
+                    .count();
+            }
+        }
+
+        @Override
+        public Map<String, Object> receive() throws IOException {
+            try {
+                Map<String, Object> value = inbound.take();
+                if (closed && value.isEmpty()) {
+                    throw new IOException("closed");
+                }
+                return value;
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted", error);
+            }
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            inbound.offer(Map.of());
+        }
+
+        private static boolean await(
+            CountDownLatch latch,
+            String description
+        ) {
+            try {
+                return latch.await(1, TimeUnit.SECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(
+                    "interrupted waiting for " + description,
+                    error
+                );
+            }
+        }
+
+        private static Map<String, Object> success(
+            String id,
+            Map<String, Object> result
+        ) {
+            return new LinkedHashMap<>(Map.of(
+                "protocol", "cmux.protocol/1",
+                "type", "response",
+                "id", id,
+                "ok", true,
+                "result", result
+            ));
+        }
     }
 
     private enum CancelEndMode {

@@ -75,6 +75,12 @@ const reported = await session.reportAgent({
 });
 ```
 
+After a dispatched `terminal.wait()` or `terminal.waitExit()` reaches its local
+deadline or abort signal, the SDK confirms `request.cancel` on the same
+connection before reusing it. A completion that wins the server race is drained
+instead. Cleanup failure closes the connection while preserving the original
+`CmuxTimeoutError` or `CmuxAbortError`.
+
 Streams retain at most 256 unread messages and 16 MiB. Overflow ends only that
 stream with a recoverable gap and sends best-effort cancellation. Pass an
 `AbortSignal`, call `cancel()`, or close the client to release work.

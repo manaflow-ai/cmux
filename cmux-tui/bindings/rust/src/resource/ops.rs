@@ -23,6 +23,7 @@ pub(crate) const SESSION_WINDOW_TITLE_SET: &str = "session.window.title.set";
 pub(crate) const SESSION_WINDOW_TITLE_CLEAR: &str = "session.window.title.clear";
 pub(crate) const PAIRING_REQUEST_LIST: &str = "pairing_request.list";
 pub(crate) const PAIRING_REQUEST_RESOLVE: &str = "pairing_request.resolve";
+pub(crate) const REQUEST_CANCEL: &str = "request.cancel";
 pub(crate) const FRONTEND_PROJECTION_GET: &str = "frontend_projection.get";
 pub(crate) const FRONTEND_PROJECTION_PUT: &str = "frontend_projection.put";
 pub(crate) const WORKSPACE_LIST: &str = "workspace.list";

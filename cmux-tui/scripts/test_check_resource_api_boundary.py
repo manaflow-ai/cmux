@@ -662,7 +662,7 @@ class ContractRegistryTests(unittest.TestCase):
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v1.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 111)
+        self.assertEqual(len(catalog["operations"]), 112)
         self.assertEqual(len(catalog["local_operations"]), 6)
         self.assertEqual(
             set(catalog["types"]["MachineSnapshot"]["fields"]),

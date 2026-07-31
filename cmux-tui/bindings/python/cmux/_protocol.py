@@ -43,6 +43,7 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 STREAM_CLEANUP_TIMEOUT = 1.0
+REQUEST_CLEANUP_TIMEOUT = 1.0
 ItemT = TypeVar("ItemT")
 
 
@@ -122,6 +123,9 @@ class _Pending:
     value: Optional[Mapping[str, Any]] = None
     error: Optional[BaseException] = None
     on_resource_error: Optional[Callable[[], None]] = None
+    abandoned_error: Optional[BaseException] = None
+    response_received: bool = False
+    cleanup_started: bool = False
 
 
 @dataclass(frozen=True)
@@ -373,7 +377,10 @@ class ProtocolConnection:
         # reader must remain idle indefinitely between requests and events.
         self._wire.set_timeout(None)
         self._lock = threading.Lock()
+        self._request_cleanup_condition = threading.Condition(self._lock)
         self._pending: Dict[str, _Pending] = {}
+        self._active_request_dispatches = 0
+        self._active_request_cleanups: set[str] = set()
         self._streams: Dict[StreamId, _StreamState[Any]] = {}
         self._failed_open_cleanups: Dict[StreamId, _StreamState[Any]] = {}
         self._closed = False
@@ -403,6 +410,7 @@ class ProtocolConnection:
         _on_resource_error: Optional[Callable[[], None]] = None,
         _bounded_dispatch: bool = False,
         _dispatch_guard: Optional[Callable[[], bool]] = None,
+        _skip_request_cleanup_gate: bool = False,
     ) -> Any:
         if cancel_event is not None and cancel_event.is_set():
             raise CancelledError(operation, dispatched=False)
@@ -416,6 +424,7 @@ class ProtocolConnection:
             raise ValueError(
                 "request timeout must be finite and greater than zero"
             )
+        deadline = time.monotonic() + wait_for
         request_id = f"request-{secrets.token_hex(16)}"
         envelope: Dict[str, Any] = {
             "protocol": PROTOCOL,
@@ -440,30 +449,59 @@ class ProtocolConnection:
             threading.Event(),
             on_resource_error=_on_resource_error,
         )
-        with self._lock:
+        claimed_dispatch = False
+        with self._request_cleanup_condition:
+            if not _skip_request_cleanup_gate:
+                while self._active_request_cleanups:
+                    if self._closed:
+                        raise self._closed_error()
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise CancelledError(operation, dispatched=False)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            f"{operation} did not dispatch before the deadline"
+                        )
+                    self._request_cleanup_condition.wait(
+                        min(remaining, 0.01)
+                    )
             if self._closed:
                 raise self._closed_error()
+            if cancel_event is not None and cancel_event.is_set():
+                raise CancelledError(operation, dispatched=False)
+            if deadline - time.monotonic() <= 0:
+                raise TimeoutError(
+                    f"{operation} did not dispatch before the deadline"
+                )
+            if not _skip_request_cleanup_gate:
+                self._active_request_dispatches += 1
+                claimed_dispatch = True
             self._pending[request_id] = pending
-        deadline = time.monotonic() + wait_for
         try:
-            if _bounded_dispatch:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError(
-                        f"{operation} did not dispatch before the deadline"
-                    )
-                if _dispatch_guard is None:
-                    self._wire.send_bounded(envelope, remaining)
-                elif not self._wire.send_bounded_if(
-                    envelope,
-                    remaining,
-                    _dispatch_guard,
-                ):
-                    with self._lock:
-                        self._pending.pop(request_id, None)
-                    return _REQUEST_NOT_DISPATCHED
-            else:
-                self._wire.send(envelope, on_sent=_on_dispatched)
+            try:
+                if _bounded_dispatch:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            f"{operation} did not dispatch before the deadline"
+                        )
+                    if _dispatch_guard is None:
+                        self._wire.send_bounded(envelope, remaining)
+                    elif not self._wire.send_bounded_if(
+                        envelope,
+                        remaining,
+                        _dispatch_guard,
+                    ):
+                        with self._lock:
+                            self._pending.pop(request_id, None)
+                        return _REQUEST_NOT_DISPATCHED
+                else:
+                    self._wire.send(envelope, on_sent=_on_dispatched)
+            finally:
+                if claimed_dispatch:
+                    with self._request_cleanup_condition:
+                        self._active_request_dispatches -= 1
+                        self._request_cleanup_condition.notify_all()
         except BaseException as error:
             with self._lock:
                 self._pending.pop(request_id, None)
@@ -473,21 +511,153 @@ class ProtocolConnection:
             raise
         while not pending.event.is_set():
             if cancel_event is not None and cancel_event.is_set():
+                cancellation = CancelledError(operation, dispatched=True)
+                if (
+                    _is_cancelable_terminal_wait(operation)
+                    and self._begin_request_cleanup(
+                        request_id,
+                        pending,
+                        cancellation,
+                    )
+                ):
+                    self._cleanup_abandoned_request(
+                        request_id,
+                        pending,
+                    )
+                    raise cancellation
                 with self._lock:
                     self._pending.pop(request_id, None)
-                raise CancelledError(operation, dispatched=True)
+                if pending.event.is_set():
+                    break
+                raise cancellation
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                with self._lock:
-                    self._pending.pop(request_id, None)
-                raise TimeoutError(
+                timeout_error = TimeoutError(
                     f"{operation} did not respond before the deadline"
                 )
+                if (
+                    _is_cancelable_terminal_wait(operation)
+                    and self._begin_request_cleanup(
+                        request_id,
+                        pending,
+                        timeout_error,
+                    )
+                ):
+                    self._cleanup_abandoned_request(
+                        request_id,
+                        pending,
+                    )
+                    raise timeout_error
+                with self._lock:
+                    self._pending.pop(request_id, None)
+                if pending.event.is_set():
+                    break
+                raise timeout_error
             pending.event.wait(min(remaining, 0.01))
         if pending.error is not None:
             raise pending.error
         assert pending.value is not None
         return _decode_response(pending.value)
+
+    def _begin_request_cleanup(
+        self,
+        request_id: str,
+        pending: _Pending,
+        original_error: BaseException,
+    ) -> bool:
+        with self._request_cleanup_condition:
+            if (
+                self._pending.get(request_id) is not pending
+                or pending.event.is_set()
+            ):
+                return False
+            if pending.cleanup_started:
+                return True
+            pending.cleanup_started = True
+            pending.abandoned_error = original_error
+            self._active_request_cleanups.add(request_id)
+            self._request_cleanup_condition.notify_all()
+            return True
+
+    def _cleanup_abandoned_request(
+        self,
+        request_id: str,
+        pending: _Pending,
+    ) -> None:
+        cleanup_timeout = min(
+            max(self.timeout, 0.1),
+            REQUEST_CLEANUP_TIMEOUT,
+        )
+        deadline = time.monotonic() + cleanup_timeout
+        try:
+            with self._request_cleanup_condition:
+                while self._active_request_dispatches:
+                    if self._closed:
+                        raise self._closed_error()
+                    self._request_cleanup_condition.wait(
+                        self._remaining_request_cleanup_time(deadline)
+                    )
+            result = self.request(
+                Operations.REQUEST_CANCEL.wire_name,
+                {"request_id": request_id},
+                timeout=self._remaining_request_cleanup_time(deadline),
+                _bounded_dispatch=True,
+                _skip_request_cleanup_gate=True,
+            )
+            canceled = _decode_request_cancel_result(result)
+            if canceled:
+                with self._lock:
+                    if pending.response_received:
+                        raise ProtocolError(
+                            "request.cancel returned canceled true after "
+                            "the target responded"
+                        )
+                    if self._pending.get(request_id) is pending:
+                        self._pending.pop(request_id, None)
+            else:
+                if not pending.event.wait(
+                    self._remaining_request_cleanup_time(deadline)
+                ):
+                    raise TimeoutError(
+                        "request cancellation did not receive the completed "
+                        "target response"
+                    )
+                with self._lock:
+                    response_received = pending.response_received
+                    response_error = pending.error
+                if not response_received:
+                    if response_error is not None:
+                        raise response_error
+                    raise ProtocolError(
+                        "request cancellation did not receive the completed "
+                        "target response"
+                    )
+        except BaseException as error:
+            if not self.closed:
+                failure: BaseException
+                if isinstance(error, ProtocolError):
+                    failure = error
+                else:
+                    failure = CmuxConnectionError(
+                        "request cancellation was not confirmed: "
+                        f"{error}"
+                    )
+                self._fail(failure, attempt_cleanup=False)
+        finally:
+            with self._request_cleanup_condition:
+                if self._pending.get(request_id) is pending:
+                    self._pending.pop(request_id, None)
+                self._active_request_cleanups.discard(request_id)
+                self._request_cleanup_condition.notify_all()
+
+    @staticmethod
+    def _remaining_request_cleanup_time(deadline: float) -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "request cancellation did not finish before the deadline"
+            )
+        return remaining
 
     def open_stream(
         self,
@@ -660,7 +830,7 @@ class ProtocolConnection:
             self._streams.pop(stream_id, None)
 
     def close(self) -> None:
-        with self._lock:
+        with self._request_cleanup_condition:
             if self._closed:
                 return
             self._closed = True
@@ -673,6 +843,7 @@ class ProtocolConnection:
             )
             self._streams.clear()
             self._failed_open_cleanups.clear()
+            self._request_cleanup_condition.notify_all()
         for item in pending:
             item.error = error
             item.event.set()
@@ -704,6 +875,8 @@ class ProtocolConnection:
             assert isinstance(request_id, str)
             with self._lock:
                 pending = self._pending.pop(request_id, None)
+                if pending is not None:
+                    pending.response_received = True
             if pending is not None:
                 if response_error is not None:
                     if pending.on_resource_error is not None:
@@ -771,7 +944,7 @@ class ProtocolConnection:
             (CmuxConnectionError, ProtocolError, TimeoutError),
         ):
             error = CmuxConnectionError(str(error))
-        with self._lock:
+        with self._request_cleanup_condition:
             if self._closed:
                 return
             self._closed = True
@@ -783,6 +956,7 @@ class ProtocolConnection:
             )
             self._streams.clear()
             self._failed_open_cleanups.clear()
+            self._request_cleanup_condition.notify_all()
         for item in pending:
             item.error = error
             item.event.set()
@@ -1006,6 +1180,22 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
 
     def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
         self.cancel()
+
+
+def _is_cancelable_terminal_wait(operation: str) -> bool:
+    return operation in {"terminal.wait", "terminal.wait_exit"}
+
+
+def _decode_request_cancel_result(value: Any) -> bool:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"canceled"}
+        or not isinstance(value["canceled"], bool)
+    ):
+        raise ProtocolError(
+            "request.cancel result must contain exactly boolean canceled"
+        )
+    return value["canceled"]
 
 
 def _decode_response(envelope: Mapping[str, Any]) -> Any:

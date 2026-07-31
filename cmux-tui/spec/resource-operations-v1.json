@@ -14,6 +14,7 @@
     "client",
     "split",
     "stream",
+    "request",
     "notification",
     "agent",
     "frontend_projection",
@@ -199,6 +200,19 @@
     "EmptyResult": {
       "kind": "object",
       "fields": {},
+      "extra": false
+    },
+    "RequestCancelResult": {
+      "kind": "object",
+      "fields": {
+        "canceled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
       "extra": false
     },
     "StreamOpened": {
@@ -7245,6 +7259,43 @@
         "validation.invalid"
       ]
     },
+    "request.cancel": {
+      "class": "connection_control",
+      "idempotency": "forbidden",
+      "target": "request",
+      "ancestors": [],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "request_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Original public request id on this connection."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "RequestCancelResult"
+      },
+      "errors": [
+        "operation.failed",
+        "transport.closed",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Cancellation is connection-local and applies only to an active detached terminal.wait or terminal.wait_exit request.",
+        "canceled is true exactly when cancellation atomically won against request completion; that target sends no response and releases its worker admission before confirmation.",
+        "For a fully dispatched same-connection target, canceled false means its response was already queue-attempted before the cancellation response.",
+        "Unknown, completed, repeatedly canceled, and other-connection request ids return canceled false."
+      ]
+    },
     "screen.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -10306,6 +10357,11 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ],
+      "constraints": [
+        "Omitting timeout_ms waits until a match, connection close, or connection-local request cancellation.",
+        "Viewport output, resize, reconnect, and clear-history transitions wake the wait without periodic polling.",
+        "A timeout closes the output/deadline race with one final authoritative viewport snapshot."
       ]
     },
     "terminal.wait_exit": {

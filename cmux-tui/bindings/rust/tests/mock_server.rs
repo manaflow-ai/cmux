@@ -2396,6 +2396,206 @@ fn one_call_deadline_drops_the_stale_connection_and_reconnects() {
 }
 
 #[test]
+fn timed_out_terminal_wait_cancels_once_and_reuses_its_connection() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let wait = request(&mut reader);
+        assert_eq!(wait["operation"], "terminal.wait");
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        assert_eq!(cancel["params"], json!({"request_id": wait["id"]}));
+        assert!(cancel.get("idempotency_key").is_none());
+        success(&mut stream, &cancel, json!({"canceled": true}));
+
+        let ping = request(&mut reader);
+        assert_eq!(ping["operation"], "session.ping");
+        success(
+            &mut stream,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "1"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "never".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn terminal_wait_cancel_false_drains_the_completion_race_before_reuse() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let wait = request(&mut reader);
+        assert_eq!(wait["operation"], "terminal.wait");
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        assert_eq!(cancel["params"], json!({"request_id": wait["id"]}));
+
+        success(&mut stream, &cancel, json!({"canceled": false}));
+        thread::sleep(Duration::from_millis(10));
+        success(&mut stream, &wait, json!({"matched": true, "text": "raced"}));
+
+        let ping = request(&mut reader);
+        assert_eq!(ping["operation"], "session.ping");
+        success(
+            &mut stream,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "2"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "raced".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn malformed_wait_cleanup_preserves_timeout_and_reconnects() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let mut first_reader = BufReader::new(first.try_clone().unwrap());
+        let wait = request(&mut first_reader);
+        assert_eq!(wait["operation"], "terminal.wait");
+        let cancel = request(&mut first_reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        success(&mut first, &cancel, json!({"canceled": true, "future": true}));
+        assert_connection_closed_without_request(
+            &mut first_reader,
+            "malformed request.cancel cleanup",
+        );
+
+        let (mut second, _) = listener.accept().unwrap();
+        let ping = request(&mut BufReader::new(second.try_clone().unwrap()));
+        assert_eq!(ping["operation"], "session.ping");
+        success(
+            &mut second,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "3"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "never".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn canceled_wait_exit_preserves_abort_and_predispatch_sends_nothing() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let (wait_seen_tx, wait_seen_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let wait = request(&mut reader);
+        assert_eq!(wait["operation"], "terminal.wait_exit");
+        wait_seen_tx.send(()).unwrap();
+
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        assert_eq!(cancel["params"], json!({"request_id": wait["id"]}));
+        success(&mut stream, &cancel, json!({"canceled": true}));
+
+        let ping = request(&mut reader);
+        assert_eq!(ping["operation"], "session.ping");
+        success(
+            &mut stream,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "3"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let cancellation = CancellationToken::new();
+    let worker_client = client.clone();
+    let worker_cancellation = cancellation.clone();
+    let worker = thread::spawn(move || {
+        worker_client.with_request_options(
+            RequestOptions::new().with_cancellation(worker_cancellation),
+            || {
+                worker_client
+                    .current_session()
+                    .terminal(TerminalId::parse(TERMINAL).unwrap())
+                    .wait_exit(None)
+            },
+        )
+    });
+    wait_seen_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    cancellation.cancel();
+    assert!(matches!(worker.join().unwrap(), Err(Error::Cancelled(_))));
+
+    let already_canceled = CancellationToken::new();
+    already_canceled.cancel();
+    let predispatch = client
+        .with_request_options(RequestOptions::new().with_cancellation(already_canceled), || {
+            client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap()).wait_exit(None)
+        });
+    assert!(matches!(predispatch, Err(Error::Cancelled(_))));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn cancellation_after_mutation_dispatch_preserves_the_exact_key() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

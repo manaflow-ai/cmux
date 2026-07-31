@@ -52,11 +52,13 @@ pub use resource_store::{
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema, migrate_resource_browser_metadata,
+    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
+    migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
+const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
@@ -394,8 +396,8 @@ impl WorkspaceRegistry {
                 Some("1") => true,
                 Some(_) => anyhow::bail!("resource receipt pepper cleanup state is invalid"),
             };
-        let needs_sensitive_receipt_cleanup =
-            cleanup_pending || stored_schema.is_some_and(|schema| schema < SCHEMA_VERSION);
+        let needs_sensitive_receipt_cleanup = cleanup_pending
+            || stored_schema.is_some_and(|schema| schema < RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION);
         if needs_sensitive_receipt_cleanup {
             connection.execute_batch("PRAGMA secure_delete=ON;")?;
         }
@@ -441,7 +443,32 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(7) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
                 tx.commit()?;
             }
             Some(5) => {
@@ -450,6 +477,7 @@ impl WorkspaceRegistry {
                 create_terminal_schema(&tx)?;
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -460,6 +488,7 @@ impl WorkspaceRegistry {
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -471,6 +500,7 @@ impl WorkspaceRegistry {
                 migrate_resource_mutations_to_session_scope(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 create_resource_effect_schema(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -491,6 +521,7 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -543,6 +574,7 @@ impl WorkspaceRegistry {
             create_resource_effect_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
+            initialize_resource_mutation_retention(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
