@@ -173,7 +173,11 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
         guard valid(size: before.viewportSize),
               valid(size: after.viewportSize),
               valid(size: pixels.pixelSize),
-              approximatelyEqual(before.viewportSize, after.viewportSize) else {
+              approximatelyEqual(before.viewportSize, after.viewportSize),
+              hasUniformScale(
+                  viewportSize: after.viewportSize,
+                  pixelSize: pixels.pixelSize
+              ) else {
             return .accepted
         }
 
@@ -288,6 +292,15 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
             && size.height.isFinite
             && size.width > 0
             && size.height > 0
+    }
+
+    /// Rejects coordinate mappings that would scale CSS axes differently.
+    private func hasUniformScale(viewportSize: NSSize, pixelSize: NSSize) -> Bool {
+        let widthScale = pixelSize.width / viewportSize.width
+        let heightScale = pixelSize.height / viewportSize.height
+        let largestScale = max(widthScale, heightScale)
+        return largestScale > 0
+            && abs(widthScale - heightScale) / largestScale <= 0.01
     }
 
     /// Returns whether two viewport sizes are within the configured CSS-point tolerance.

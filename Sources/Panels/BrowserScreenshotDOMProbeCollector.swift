@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import QuartzCore
 import WebKit
 
 /// Reads stable, high-contrast text probes from one `WKWebView`.
@@ -153,6 +154,7 @@ final class BrowserScreenshotDOMProbeCollector {
         webView.layoutSubtreeIfNeeded()
         presentationView.displayIfNeeded()
         webView.displayIfNeeded()
+        CATransaction.flush()
     }
 
     private func waitForAnimationFrames(in webView: WKWebView) async {

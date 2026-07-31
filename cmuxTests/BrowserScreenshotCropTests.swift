@@ -3,6 +3,7 @@ import CmuxBrowser
 import ObjectiveC.runtime
 import Testing
 import UniformTypeIdentifiers
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -179,17 +180,12 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func screenshotPresentationUsesScreenUpdatesOnlyWhenVisible() {
+    func screenshotPresentationSeparatesHostingFromSynchronization() {
         let onscreen = BrowserScreenshotCaptureService.Presentation.onscreen
-        #expect(onscreen.afterScreenUpdates(windowIsVisible: true))
-        #expect(!onscreen.afterScreenUpdates(windowIsVisible: false))
+        #expect(!onscreen.afterScreenUpdates)
         #expect(!onscreen.usesOffscreenRenderHost)
         #expect(BrowserScreenshotCaptureService.Presentation.offscreen.usesOffscreenRenderHost)
-        #expect(
-            !BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates(
-                windowIsVisible: true
-            )
-        )
+        #expect(!BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates)
         #expect(
             onscreen.waitsForAnimationFrame(isRetry: false)
         )
@@ -462,6 +458,21 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierAcceptsNonuniformViewportToPixelScaling() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: NSSize(width: 100, height: 50),
+                color: .black
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
     func verifierAcceptsAOnePixelTextStroke() {
         let probes = textProbeSet()
         let outcome = BrowserScreenshotFrameVerifier().verify(
@@ -701,6 +712,118 @@ struct BrowserScreenshotCropTests {
         #expect(color.blue < 0.1)
     }
 
+    @Test
+    func domProbeCollectorCompositesNestedSolidBackgrounds() async throws {
+        let probes = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; width: 100%; height: 100%; background: rgb(0, 0, 0); }
+              #surface {
+                position: absolute;
+                inset: 0;
+                background: rgba(255, 255, 255, 0.2);
+              }
+              p {
+                margin: 0;
+                position: absolute;
+                left: 40px;
+                top: 40px;
+                color: rgb(255, 255, 255);
+                font: 20px sans-serif;
+              }
+            </style>
+            <div id="surface"><p>MMMM</p></div>
+            """
+        )
+        let probe = try #require(probes.probes.first)
+
+        #expect(abs(probe.background.red - 0.2) < 0.01)
+        #expect(abs(probe.background.green - 0.2) < 0.01)
+        #expect(abs(probe.background.blue - 0.2) < 0.01)
+        #expect(probe.foreground.red > 0.99)
+    }
+
+    @Test
+    func domProbeCollectorRejectsFullyClippedTextAndEmptyPages() async throws {
+        let clipped = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; background: black; }
+              #clip { width: 1px; height: 1px; overflow: hidden; }
+              span { color: white; font: 20px sans-serif; }
+            </style>
+            <div id="clip"><span>MMMM</span></div>
+            """
+        )
+        let imageOnly = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>html, body { margin: 0; background: black; }</style>
+            <canvas width="100" height="100"></canvas>
+            """
+        )
+
+        #expect(clipped.probes.isEmpty)
+        #expect(imageOnly.probes.isEmpty)
+    }
+
+    @Test
+    func pointerEventsNoneOverlayIsInconclusiveForDOMAttestation() async throws {
+        let probes = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; width: 100%; height: 100%; background: white; }
+              p {
+                margin: 0;
+                position: absolute;
+                color: black;
+                font: 20px sans-serif;
+              }
+              #first { left: 20px; top: 20px; }
+              #second { right: 20px; bottom: 20px; }
+              #overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 10;
+                pointer-events: none;
+                background: rgb(255, 0, 0);
+              }
+            </style>
+            <p id="first">MMMM</p>
+            <p id="second">WWWW</p>
+            <div id="overlay"></div>
+            """
+        )
+        #expect(probes.probes.count >= 2)
+
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: probes.viewportSize,
+                color: .init(red: 1, green: 0, blue: 0, alpha: 1)
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    private func collectDOMProbes(
+        html: String
+    ) async throws -> BrowserScreenshotFrameVerifier.ProbeSet {
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 400, height: 300),
+            configuration: WKWebViewConfiguration()
+        )
+        let navigation = BrowserScreenshotTestNavigation()
+        try await navigation.load(html: html, in: webView)
+        let collected = await BrowserScreenshotDOMProbeCollector(webView: webView).collect()
+        return try #require(collected)
+    }
+
     private func textProbeSet(
         firstText: String = "Balance"
     ) -> BrowserScreenshotFrameVerifier.ProbeSet {
@@ -878,5 +1001,45 @@ struct BrowserScreenshotCropTests {
         #expect(abs(actualRGB.greenComponent - expectedRGB.greenComponent) < tolerance)
         #expect(abs(actualRGB.blueComponent - expectedRGB.blueComponent) < tolerance)
         #expect(abs(actualRGB.alphaComponent - expectedRGB.alphaComponent) < tolerance)
+    }
+}
+
+@MainActor
+private final class BrowserScreenshotTestNavigation: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func load(html: String, in webView: WKWebView) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.navigationDelegate = self
+            webView.loadHTMLString(html, baseURL: nil)
+        }
+        webView.navigationDelegate = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(.success(()))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        finish(.failure(error))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(with: result)
     }
 }

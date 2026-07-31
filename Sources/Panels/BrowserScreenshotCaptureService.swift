@@ -14,8 +14,11 @@ struct BrowserScreenshotCaptureService {
         /// no displayed window update to deliver.
         case offscreen
 
-        func afterScreenUpdates(windowIsVisible: Bool) -> Bool {
-            self == .onscreen && windowIsVisible
+        var afterScreenUpdates: Bool {
+            // Waiting for a displayed update can stall if the window becomes
+            // occluded after the visibility check. Double-rAF plus the AppKit
+            // transaction flush provide the bounded synchronization signal.
+            false
         }
 
         var usesOffscreenRenderHost: Bool {
@@ -86,9 +89,7 @@ struct BrowserScreenshotCaptureService {
             snapshot: {
                 try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
-                    afterScreenUpdates: presentation.afterScreenUpdates(
-                        windowIsVisible: webView.window?.occlusionState.contains(.visible) == true
-                    )
+                    afterScreenUpdates: presentation.afterScreenUpdates
                 )
             },
             makePixelSource: {
