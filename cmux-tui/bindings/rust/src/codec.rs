@@ -230,18 +230,25 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
         })?;
     }
 
-    let raw_descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+    let creation = platform_socket_creation_plan();
+    let raw_descriptor = unsafe { libc::socket(libc::AF_UNIX, creation.socket_type, 0) };
     if raw_descriptor < 0 {
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
     let descriptor = unsafe { OwnedFd::from_raw_fd(raw_descriptor) };
-    let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
-    if descriptor_flags < 0
-        || unsafe {
-            libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFD, descriptor_flags | libc::FD_CLOEXEC)
-        } < 0
-    {
-        return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+    if creation.needs_cloexec_fcntl {
+        let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+        if descriptor_flags < 0
+            || unsafe {
+                libc::fcntl(
+                    descriptor.as_raw_fd(),
+                    libc::F_SETFD,
+                    descriptor_flags | libc::FD_CLOEXEC,
+                )
+            } < 0
+        {
+            return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+        }
     }
     let status_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFL) };
     if status_flags < 0
@@ -277,6 +284,47 @@ fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<Un
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
     Ok(UnixStream::from(descriptor))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SocketCreationPlan {
+    socket_type: libc::c_int,
+    needs_cloexec_fcntl: bool,
+}
+
+fn socket_creation_plan(_atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreationPlan {
+    SocketCreationPlan { socket_type: libc::SOCK_STREAM, needs_cloexec_fcntl: true }
+}
+
+fn platform_socket_creation_plan() -> SocketCreationPlan {
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "hurd",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+    ))]
+    {
+        socket_creation_plan(Some(libc::SOCK_CLOEXEC))
+    }
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "hurd",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+    )))]
+    {
+        socket_creation_plan(None)
+    }
 }
 
 fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
@@ -363,6 +411,28 @@ fn socket_timeout(timeout: Duration) -> Duration {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
+
+    struct SocketPath(std::path::PathBuf);
+
+    impl Drop for SocketPath {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn listening_socket(name: &str) -> (SocketPath, UnixListener) {
+        let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+        let path = SocketPath(
+            std::env::temp_dir()
+                .join(format!("cmux-rust-codec-{name}-{}-{id}.sock", std::process::id())),
+        );
+        let listener = UnixListener::bind(&path.0).unwrap();
+        (path, listener)
+    }
 
     fn pair(limit: usize) -> (JsonLineConnection, UnixStream) {
         let (client, server) = UnixStream::pair().unwrap();
@@ -414,5 +484,54 @@ mod tests {
             Err(CmuxError::Timeout(_))
         ));
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn socket_creation_plan_uses_atomic_close_on_exec_when_available() {
+        let atomic_flag = 0x4000;
+        assert_eq!(
+            socket_creation_plan(Some(atomic_flag)),
+            SocketCreationPlan {
+                socket_type: libc::SOCK_STREAM | atomic_flag,
+                needs_cloexec_fcntl: false,
+            }
+        );
+        assert_eq!(
+            socket_creation_plan(None),
+            SocketCreationPlan { socket_type: libc::SOCK_STREAM, needs_cloexec_fcntl: true }
+        );
+    }
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    ))]
+    #[test]
+    fn connector_disables_sigpipe_on_supported_sockets() {
+        let (path, listener) = listening_socket("nosigpipe");
+        let stream = connect_unix_with_timeout(&path.0, Duration::from_secs(1)).unwrap();
+        let (_peer, _) = listener.accept().unwrap();
+        let mut enabled: libc::c_int = 0;
+        let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+        assert_eq!(
+            unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&raw mut enabled).cast(),
+                    &raw mut length,
+                )
+            },
+            0
+        );
+        assert_eq!(length as usize, size_of::<libc::c_int>());
+        assert_eq!(enabled, 1);
     }
 }
