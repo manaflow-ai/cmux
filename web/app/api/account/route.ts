@@ -5,6 +5,7 @@ import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
 import {
   accountDeletionTombstones,
+  accountMutationLeases,
   billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
@@ -23,6 +24,7 @@ import {
   irohEndpointBindings,
   irohRegistrationChallenges,
   notificationSendEvents,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -38,7 +40,10 @@ import {
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
 import { isAscConfigured } from "../../../services/asc/client";
-import { removeTester } from "../../../services/asc/testflight";
+import {
+  removeProTesterAccess,
+  removeTester,
+} from "../../../services/asc/testflight";
 import { captureAscError } from "../../../services/errors";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
 import {
@@ -49,9 +54,11 @@ import { deleteObject } from "../../../services/vault/storage";
 import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   AccountDeletionAnalyticsForwardInProgressError,
+  AccountDeletionUserMutationInProgressError,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   assertNoAccountAnalyticsForwardInProgress,
+  assertNoAccountDeletionUserMutationInProgress,
   isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
@@ -186,12 +193,20 @@ export async function DELETE(request: Request): Promise<Response> {
         },
       },
     );
-    await removeTestFlightAccessForAccountDeletion(stackUser, {
-      afterExternalMutation: () => {
-        restoreBillingEntitlementsOnFailure = false;
-        destructiveCleanupStarted = true;
+    // Do not erase the only user identity and ownership record before every
+    // TestFlight revocation is confirmed. ASC timeouts are ambiguous, so the
+    // deletion tombstone stays retryable with billing entitlements cleared
+    // until this idempotent cleanup succeeds.
+    await removeTestFlightAccessForAccountDeletion(
+      stackUser,
+      originalStackMetadata,
+      {
+        beforeExternalMutation: () => {
+          restoreBillingEntitlementsOnFailure = false;
+          destructiveCleanupStarted = true;
+        },
       },
-    });
+    );
     await refreshAccountDeletionTombstoneLease(userId);
     try {
       const revokedIdentityLeases = await revokeAccountDeletionIdentityLeases(userId, {
@@ -291,7 +306,8 @@ export async function DELETE(request: Request): Promise<Response> {
     logAccountDeleteError("account.delete.failed", error);
     if (
       analyticsCleanupStarted ||
-      error instanceof AccountDeletionAnalyticsForwardInProgressError
+      error instanceof AccountDeletionAnalyticsForwardInProgressError ||
+      error instanceof AccountDeletionUserMutationInProgressError
     ) {
       return jsonResponse({
         error: "account_delete_retryable",
@@ -328,6 +344,7 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
   const userIdHash = accountDeletionUserHash(userId);
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    await assertNoAccountDeletionUserMutationInProgress(tx, userId, now);
     const [existing] = await tx
       .select({
         userIdHash: accountDeletionTombstones.userIdHash,
@@ -928,20 +945,25 @@ function deletedStripeAccountId(userId: string): string {
 
 async function removeTestFlightAccessForAccountDeletion(
   user: DeletableStackUser,
-  options: { readonly afterExternalMutation?: () => void } = {},
+  ownershipMetadata: unknown,
+  options: { readonly beforeExternalMutation?: () => void } = {},
 ): Promise<void> {
   if (!isAscConfigured()) return;
-  const email = user.primaryEmail?.trim();
-  if (!email) return;
+  const email = user.primaryEmail?.trim() ?? null;
   try {
-    await removeTester(email);
-    options.afterExternalMutation?.();
+    await removeProTesterAccess(
+      email,
+      ownershipMetadata,
+      removeTester,
+      { beforeExternalMutation: options.beforeExternalMutation },
+    );
   } catch (error) {
     captureAscError(error, {
       route: "/api/account",
       stackUserId: user.id,
-      email,
+      email: email ?? undefined,
     });
+    throw error;
   }
 }
 
@@ -1063,6 +1085,12 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(billingEmailClaims.stackUserId, userId),
       eq(billingEmailClaims.claimedByUserId, userId),
     ));
+    await tx
+      .delete(proWelcomeFulfillments)
+      .where(eq(proWelcomeFulfillments.stackUserId, userId));
+    await tx
+      .delete(accountMutationLeases)
+      .where(eq(accountMutationLeases.userIdHash, accountDeletionUserHash(userId)));
     await tx.delete(stripeSubscriptions).where(or(
       and(
         eq(stripeSubscriptions.stackUserId, userId),
