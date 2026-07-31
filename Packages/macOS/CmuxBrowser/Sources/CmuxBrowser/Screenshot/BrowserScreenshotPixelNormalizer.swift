@@ -29,11 +29,15 @@ struct BrowserScreenshotPixelNormalizer {
               topLeftRect.maxY.isFinite else {
             return nil
         }
-        let minX = topLeftRect.minX.rounded(.down)
-        let minY = topLeftRect.minY.rounded(.down)
-        let maxX = topLeftRect.maxX.rounded(.up)
-        let maxY = topLeftRect.maxY.rounded(.up)
-        guard minX >= 0,
+        let minX = topLeftRect.minX
+        let minY = topLeftRect.minY
+        let maxX = topLeftRect.maxX
+        let maxY = topLeftRect.maxY
+        guard minX == minX.rounded(.down),
+              minY == minY.rounded(.down),
+              maxX == maxX.rounded(.down),
+              maxY == maxY.rounded(.down),
+              minX >= 0,
               minY >= 0,
               maxX <= CGFloat(image.width),
               maxY <= CGFloat(image.height) else {
@@ -79,8 +83,8 @@ struct BrowserScreenshotPixelNormalizer {
             }
             context.interpolationQuality = .none
             context.setBlendMode(.copy)
-            context.translateBy(x: 0, y: CGFloat(height))
-            context.scaleBy(x: 1, y: -1)
+            // `CGImage.cropping(to:)` and a bitmap-context draw preserve the
+            // provider's top-to-bottom scanline order in the destination bytes.
             context.draw(
                 cropped,
                 in: CGRect(x: 0, y: 0, width: width, height: height)

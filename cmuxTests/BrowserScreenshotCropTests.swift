@@ -815,29 +815,38 @@ struct BrowserScreenshotCropTests {
 
     @Test
     func bitmapPixelSourceUsesTopLeftCoordinates() throws {
-        let bitmap = try #require(NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: 10,
-            pixelsHigh: 10,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
+        var pixels = Data()
+        pixels.reserveCapacity(400)
+        for row in 0..<10 {
+            let color: [UInt8] = row < 5
+                ? [0, 0, 255, 255]
+                : [255, 0, 0, 255]
+            for _ in 0..<10 {
+                pixels.append(contentsOf: color)
+            }
+        }
+        let provider = try #require(CGDataProvider(data: pixels as CFData))
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        )
+        let cgImage = try #require(CGImage(
+            width: 10,
+            height: 10,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 40,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
         ))
-        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        testRed.setFill()
-        NSRect(x: 0, y: 0, width: 10, height: 5).fill()
-        testBlue.setFill()
-        NSRect(x: 0, y: 5, width: 10, height: 5).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        bitmap.size = NSSize(width: 10, height: 10)
-        let image = NSImage(size: bitmap.size)
-        image.addRepresentation(bitmap)
+        let image = NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
 
         let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
         let top = try #require(source.color(at: NSPoint(x: 5, y: 1)))
@@ -847,6 +856,17 @@ struct BrowserScreenshotCropTests {
         #expect(top.red < 0.1)
         #expect(bottom.red > 0.9)
         #expect(bottom.blue < 0.1)
+    }
+
+    @Test
+    func bitmapPixelSourceRejectsFractionalSampleRectangles() throws {
+        let image = try makeBlankBitmapImage(width: 10, height: 10)
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+
+        #expect(source.colors(
+            in: NSRect(x: 0.5, y: 0, width: 1, height: 1),
+            stride: 1
+        ) == nil)
     }
 
     @Test

@@ -8,7 +8,7 @@ public protocol BrowserScreenshotPixelSource {
     /// Returns regularly spaced colors from a top-left-origin pixel rectangle.
     ///
     /// - Parameters:
-    ///   - rect: Pixel rectangle to sample.
+    ///   - rect: Integral pixel rectangle to sample.
     ///   - stride: Positive distance between sampled pixels on each axis.
     /// - Returns: Row-major normalized sRGB colors, or `nil` when the rectangle
     ///   cannot be sampled completely.
