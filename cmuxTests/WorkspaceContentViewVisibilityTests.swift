@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import Combine
 import CmuxUpdater
 import CoreGraphics
 import SwiftUI
@@ -255,6 +256,132 @@ final class WorkspaceContentViewVisibilityTests {
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
+    }
+
+    @Test
+    @MainActor
+    func testUnreadChangeDoesNotReevaluateContentViewRoot() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewUnreadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let tabManager = TabManager()
+        let workspaceId = try #require(tabManager.selectedTabId)
+        let unread = SidebarUnreadModel()
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(unread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        counts.reset()
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [
+                workspaceId: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Pi finished"
+                ),
+            ],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceId, surfaceId: nil),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.contentViewBody == 0,
+            "Unread changes must update their leaf consumers without rebuilding ContentView."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "Unread changes must not rebuild terminal or browser content."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody > 0,
+            "The sidebar must still receive the unread change."
+        )
+    }
+
+    @Test
+    @MainActor
+    func testUnreadApplyPublishesOneAtomicSnapshot() {
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let unread = SidebarUnreadModel()
+        var publicationCount = 0
+        let cancellable = unread.objectWillChange.sink {
+            publicationCount += 1
+        }
+        let summaries = [
+            workspaceId: SidebarWorkspaceUnreadSummary(
+                unreadCount: 1,
+                latestNotificationText: "Pi finished"
+            ),
+        ]
+        let surfaceKeys: Set<SidebarSurfaceUnreadKey> = [
+            SidebarSurfaceUnreadKey(workspaceId: workspaceId, surfaceId: surfaceId),
+        ]
+        let focusedIndicators = [workspaceId: surfaceId]
+        let manualUnreadWorkspaceIds: Set<UUID> = [workspaceId]
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: summaries,
+            unreadSurfaceKeys: surfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedIndicators,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        #expect(publicationCount == 1)
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: summaries,
+            unreadSurfaceKeys: surfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedIndicators,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        #expect(publicationCount == 1, "Applying an equivalent snapshot must stay silent.")
+        withExtendedLifetime(cancellable) {}
     }
 
     @MainActor
