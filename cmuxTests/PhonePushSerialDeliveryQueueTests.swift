@@ -82,6 +82,125 @@ import Testing
         )))
     }
 
+    @MainActor
+    @Test func cancellationClearsQueuedWorkAndStopsAfterTheInFlightEvent() async {
+        let probe = FirstDeliveryGate()
+        let queue = PhonePushSerialDeliveryQueue {
+            await probe.deliver($0)
+        }
+        let first = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001"
+        )
+        let second = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002"
+        )
+
+        #expect(queue.enqueue(first))
+        #expect(queue.enqueue(second))
+        await probe.waitForCount(1)
+
+        queue.cancelAll()
+        await probe.releaseFirst()
+        await queue.waitUntilIdle()
+
+        #expect(await probe.correlationIDs == [first.correlationID])
+        #expect(queue.pendingCount == 0)
+    }
+
+    @MainActor
+    @Test func accountSwitchDropsOldAccountWorkBeforeStartingTheQueue() async {
+        let probe = RecordingDeliveryProbe()
+        let queue = PhonePushSerialDeliveryQueue(
+            startsImmediately: false,
+            sender: { await probe.deliver($0) }
+        )
+        let oldAccount = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001",
+            expectedAccountID: "account-a"
+        )
+        let newAccount = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002",
+            expectedAccountID: "account-b"
+        )
+        #expect(queue.enqueue(oldAccount))
+        #expect(queue.enqueue(newAccount))
+
+        queue.retainOnly(accountID: "account-b")
+        queue.start()
+        await probe.waitForCount(1)
+
+        #expect(await probe.correlationIDs == [newAccount.correlationID])
+    }
+
+    @MainActor
+    @Test func restoredQueueKeepsDistinctIDsAndOnlyTheLatestSameIDValue() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "phone-push-queue-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PhonePushQueueStore(
+            fileURL: directory.appendingPathComponent("queue.json")
+        )
+        let oldA = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000001",
+            coalescingID: "notification-a"
+        )
+        let distinctB = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000002",
+            coalescingID: "notification-b"
+        )
+        let latestA = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000003",
+            coalescingID: "notification-a"
+        )
+        try await store.save([oldA, distinctB, latestA])
+
+        let restored = try await store.load(nowEpochSeconds: 1_750_000_000)
+        let probe = RecordingDeliveryProbe()
+        let queue = PhonePushSerialDeliveryQueue(
+            startsImmediately: false,
+            sender: { await probe.deliver($0) }
+        )
+        queue.restore(restored)
+        queue.start()
+        await probe.waitForCount(2)
+
+        #expect(
+            await probe.correlationIDs
+                == [distinctB.correlationID, latestA.correlationID]
+        )
+    }
+
+    @MainActor
+    @Test func restartDropsExpiredEventsBeforeTheyCanSend() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "phone-push-expiry-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PhonePushQueueStore(
+            fileURL: directory.appendingPathComponent("queue.json")
+        )
+        try await store.save([
+            PhonePushRequestEnvelope(
+                correlationID: "00000000-0000-4000-8000-000000000001",
+                expirationEpochSeconds: 999,
+                body: Data()
+            ),
+        ])
+
+        #expect(try await store.load(nowEpochSeconds: 1_000).isEmpty)
+    }
+
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {
         let envelope = PhonePushRequestEnvelope(
             correlationID: "00000000-0000-4000-8000-000000000001",
@@ -104,15 +223,29 @@ import Testing
 
         #expect(envelope.belongs(to: original))
         #expect(!envelope.belongs(to: replacement))
+        #expect(PhonePushDeliveryAuthorization.permits(
+            envelope: envelope,
+            session: original,
+            sessionIsCurrent: true
+        ))
+        #expect(!PhonePushDeliveryAuthorization.permits(
+            envelope: envelope,
+            session: original,
+            sessionIsCurrent: false
+        ))
     }
 
     private func requestEnvelope(
-        correlationID: String
+        correlationID: String,
+        coalescingID: String? = nil,
+        expectedAccountID: String? = nil
     ) -> PhonePushRequestEnvelope {
         PhonePushRequestEnvelope(
             correlationID: correlationID,
             expirationEpochSeconds: 1_750_000_120,
-            body: Data()
+            body: Data(),
+            coalescingID: coalescingID,
+            expectedAccountID: expectedAccountID
         )
     }
 }

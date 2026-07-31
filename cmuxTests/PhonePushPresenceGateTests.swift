@@ -502,6 +502,18 @@ import Testing
         )
     }
 
+    @Test func retryWaitUsesInjectedClockInsteadOfRuntimeSleeping() async throws {
+        let recorder = PhonePushClockRecorder()
+        let clock = PhonePushClock(
+            now: { Date(timeIntervalSince1970: 1_750_000_000) },
+            sleep: { duration in await recorder.record(duration) }
+        )
+
+        #expect(clock.nowEpochSeconds == 1_750_000_000)
+        try await clock.sleep(for: .seconds(7))
+        #expect(await recorder.durations == [.seconds(7)])
+    }
+
     @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {
         let body = try JSONEncoder().encode(
             PhonePushServerSummary(
@@ -554,10 +566,37 @@ import Testing
         #expect(!PhonePushHTTPResult.decode(statusCode: 401, data: Data()).shouldRetry)
     }
 
+    @Test func retryClassificationSeparatesAuthConflictAndInProgressResponses() throws {
+        let inProgress = try JSONSerialization.data(withJSONObject: [
+            "error": "push_event_in_progress",
+        ])
+        let conflict = try JSONSerialization.data(withJSONObject: [
+            "error": "correlation_payload_mismatch",
+        ])
+
+        #expect(PhonePushHTTPResult.decode(statusCode: 401, data: Data()) == .authenticationRequired)
+        #expect(PhonePushHTTPResult.decode(statusCode: 403, data: Data()) == .authenticationRequired)
+        #expect(PhonePushHTTPResult.decode(statusCode: 409, data: inProgress) == .retryableFailure)
+        #expect(PhonePushHTTPResult.decode(statusCode: 409, data: conflict) == .correlationConflict)
+        #expect(PhonePushHTTPResult.decode(statusCode: 429, data: Data()) == .retryableFailure)
+        #expect(PhonePushHTTPResult.decode(statusCode: 500, data: Data()) == .retryableFailure)
+        #expect(PhonePushHTTPResult.decode(statusCode: 599, data: Data()) == .retryableFailure)
+        #expect(PhonePushHTTPResult.classifyTransportError(URLError(.timedOut)) == .retryableFailure)
+        #expect(PhonePushHTTPResult.classifyTransportError(URLError(.cancelled)) == .cancelled)
+    }
+
     @Test func malformedHTTP200BodyCannotMasqueradeAsDeliverySuccess() {
         #expect(PhonePushHTTPResult.decode(
             statusCode: 200,
             data: Data("not-json".utf8)
         ) == .invalidResponse)
+    }
+}
+
+private actor PhonePushClockRecorder {
+    private(set) var durations: [Duration] = []
+
+    func record(_ duration: Duration) {
+        durations.append(duration)
     }
 }
