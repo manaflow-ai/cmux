@@ -139,6 +139,26 @@ import Testing
         #expect(await router.count(of: "workspace.group.create") == 0)
     }
 
+    @Test func expiredMacWideTicketKeepsAdvertisedCreateActionsDiscoverable() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.create_in_group.v1",
+                "workspace.group_create.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+
+        connected.clock.advance(by: 2)
+
+        #expect(connected.store.supportsWorkspaceCreateInGroup)
+        #expect(connected.store.supportsWorkspaceGroupCreate)
+    }
+
     private func connectedStore(
         capabilities: [String],
         ticketWorkspaceID: String = "live-workspace",
