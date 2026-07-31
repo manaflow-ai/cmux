@@ -1,5 +1,10 @@
 import OSLog
 
+@MainActor
+let workspaceSwitchSignposts = DynamicTracingSignposts(
+    subsystem: "com.cmux.workspace-switch"
+)
+
 struct DynamicTracingSignposts {
     private let signposter: OSSignposter
 

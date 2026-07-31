@@ -10,9 +10,6 @@ extension Notification.Name {
 /// to that terminal and is installed before selection mutates the mounted tree.
 @MainActor
 final class WorkspaceSwitchCoordinator {
-    private static let signposts = DynamicTracingSignposts(
-        subsystem: "com.cmux.workspace-switch"
-    )
     enum ContentKind: String, Equatable {
         case terminal
         case browser
@@ -128,11 +125,11 @@ final class WorkspaceSwitchCoordinator {
             requestID: requestID,
             sourceWorkspaceID: sourceWorkspaceID,
             targetWorkspaceID: targetWorkspaceID,
-            selectionCommitInterval: Self.signposts.begin(
+            selectionCommitInterval: workspaceSwitchSignposts.begin(
                 "ws.switch.selection-commit",
                 details
             ),
-            interactiveInterval: Self.signposts.begin(
+            interactiveInterval: workspaceSwitchSignposts.begin(
                 "ws.switch.interactive",
                 details
             )
@@ -161,7 +158,7 @@ final class WorkspaceSwitchCoordinator {
               transaction.targetWorkspaceID == targetWorkspaceID else {
             return
         }
-        Self.signposts.end(transaction.selectionCommitInterval)
+        workspaceSwitchSignposts.end(transaction.selectionCommitInterval)
         transaction.selectionCommitInterval = nil
         active = transaction
     }
@@ -203,7 +200,7 @@ final class WorkspaceSwitchCoordinator {
             contentKind: target.contentKind
         )
         if !target.portalPresented {
-            transaction.portalShowInterval = Self.signposts.begin(
+            transaction.portalShowInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.portal-show",
                 details
             )
@@ -214,7 +211,7 @@ final class WorkspaceSwitchCoordinator {
             finishFrameObservation(&transaction)
         }
         if target.interactionReady || !target.requiresInteraction {
-            Self.signposts.end(transaction.interactiveInterval)
+            workspaceSwitchSignposts.end(transaction.interactiveInterval)
             transaction.interactiveInterval = nil
         }
         finishIfPossible(&transaction)
@@ -237,7 +234,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.portalPresented = true
         transaction.readiness = readiness
-        Self.signposts.end(transaction.portalShowInterval)
+        workspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         releaseRendererProtection(&transaction)
         let becameReady = !wasReady && readiness.isReadyForSourceRetirement
@@ -254,7 +251,7 @@ final class WorkspaceSwitchCoordinator {
         let wasReady = readiness.isReadyForSourceRetirement
         readiness.portalPresented = true
         transaction.readiness = readiness
-        Self.signposts.end(transaction.portalShowInterval)
+        workspaceSwitchSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
         let becameReady = !wasReady && readiness.isReadyForSourceRetirement
         finishIfPossible(&transaction)
@@ -289,7 +286,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.interactionReady = true
         transaction.readiness = readiness
-        Self.signposts.end(transaction.interactiveInterval)
+        workspaceSwitchSignposts.end(transaction.interactiveInterval)
         transaction.interactiveInterval = nil
         finishIfPossible(&transaction)
     }
@@ -306,7 +303,7 @@ final class WorkspaceSwitchCoordinator {
         }
         readiness.requiresInteraction = false
         transaction.readiness = readiness
-        Self.signposts.end(transaction.interactiveInterval)
+        workspaceSwitchSignposts.end(transaction.interactiveInterval)
         transaction.interactiveInterval = nil
         finishIfPossible(&transaction)
     }
@@ -314,7 +311,7 @@ final class WorkspaceSwitchCoordinator {
     func sourceWillRetire() {
         guard var transaction = active else { return }
         if transaction.portalHideInterval == nil {
-            transaction.portalHideInterval = Self.signposts.begin(
+            transaction.portalHideInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.portal-hide",
                 Self.details(
                     requestID: transaction.requestID,
@@ -328,7 +325,7 @@ final class WorkspaceSwitchCoordinator {
 
     func sourceDidRetire() {
         guard var transaction = active else { return }
-        Self.signposts.end(transaction.portalHideInterval)
+        workspaceSwitchSignposts.end(transaction.portalHideInterval)
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
         finishIfPossible(&transaction)
@@ -357,8 +354,8 @@ final class WorkspaceSwitchCoordinator {
 
         releaseRendererProtection(&transaction)
         releaseFrameObservation(&transaction)
-        Self.signposts.end(transaction.rendererRealizationInterval)
-        Self.signposts.end(transaction.firstFrameInterval)
+        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
+        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
         transaction.rendererRealizationInterval = nil
         transaction.firstFrameInterval = nil
         transaction.targetSurfaceID = nil
@@ -400,13 +397,13 @@ final class WorkspaceSwitchCoordinator {
         transaction.rendererProtectionActive = true
 
         if !rendererPresented {
-            transaction.rendererRealizationInterval = Self.signposts.begin(
+            transaction.rendererRealizationInterval = workspaceSwitchSignposts.begin(
                 "ws.switch.renderer-realization",
                 details
             )
         }
         guard !transaction.warmFrameAvailable else { return }
-        transaction.firstFrameInterval = Self.signposts.begin(
+        transaction.firstFrameInterval = workspaceSwitchSignposts.begin(
             "ws.switch.first-frame",
             details
         )
@@ -425,9 +422,9 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private func finishFrameObservation(_ transaction: inout ActiveTransaction) {
-        Self.signposts.end(transaction.rendererRealizationInterval)
+        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
         transaction.rendererRealizationInterval = nil
-        Self.signposts.end(transaction.firstFrameInterval)
+        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
         transaction.firstFrameInterval = nil
         releaseFrameObservation(&transaction)
     }
@@ -472,12 +469,12 @@ final class WorkspaceSwitchCoordinator {
     }
 
     private static func endAllIntervals(in transaction: ActiveTransaction) {
-        Self.signposts.end(transaction.selectionCommitInterval)
-        Self.signposts.end(transaction.portalShowInterval)
-        Self.signposts.end(transaction.portalHideInterval)
-        Self.signposts.end(transaction.rendererRealizationInterval)
-        Self.signposts.end(transaction.firstFrameInterval)
-        Self.signposts.end(transaction.interactiveInterval)
+        workspaceSwitchSignposts.end(transaction.selectionCommitInterval)
+        workspaceSwitchSignposts.end(transaction.portalShowInterval)
+        workspaceSwitchSignposts.end(transaction.portalHideInterval)
+        workspaceSwitchSignposts.end(transaction.rendererRealizationInterval)
+        workspaceSwitchSignposts.end(transaction.firstFrameInterval)
+        workspaceSwitchSignposts.end(transaction.interactiveInterval)
     }
 
     private static func details(
