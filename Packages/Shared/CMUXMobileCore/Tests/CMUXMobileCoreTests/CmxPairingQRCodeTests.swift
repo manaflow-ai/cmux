@@ -280,6 +280,20 @@ import Testing
         }
     }
 
+    @Test(arguments: [
+        "cmux-ios://attach?v=3",
+        "cmux-ios://attach?v=3&i=",
+        "cmux-ios://attach?v=3&i=abc",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "C", count: 64))",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&i=\(String(repeating: "d", count: 64))",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&ub=user",
+    ])
+    func decodeRejectsMalformedOrBloatedIrohCodes(url: String) throws {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
     @Test func decodeCapsHostileRouteCounts() throws {
         let routes = (0..<(CmxPairingQRCode.maximumRouteCount + 1))
             .map { "r=100.64.0.\($0 + 1):58465" }
@@ -291,6 +305,9 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString(
+            "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+        ))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))

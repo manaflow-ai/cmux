@@ -374,10 +374,6 @@ public struct WorkspaceListLayoutPreviewView: View {
                 let workspaceListStack = NavigationStack {
                     MobilePrimaryWorkspaceSearchHost(
                         searchCoordinator: primarySearchCoordinator,
-                        // The live shell puts New Task in the bottom toolbar
-                        // next to the system search pill; the tab-scaffold
-                        // preview must render both so their shared bottom-bar
-                        // layout can be exercised without Mac pairing.
                         taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
@@ -422,7 +418,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     MobilePrimaryTabScaffold(
                         selection: $selectedPrimaryTab,
                         searchCoordinator: primarySearchCoordinator,
-                        notificationUnreadCount: 0
+                        notificationUnreadCount: 0,
+                        taskComposerAction: {}
                     ) {
                         workspaceListStack
                     } notifications: {

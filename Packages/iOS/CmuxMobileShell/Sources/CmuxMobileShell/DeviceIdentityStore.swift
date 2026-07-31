@@ -27,6 +27,11 @@ enum DeviceIdentityReadResult: Equatable, Sendable {
 /// Keychain is authoritative and `UserDefaults` is only a legacy migration
 /// source and downgrade mirror.
 protocol DeviceIdentityStoring: Sendable {
+    /// Classify the persisted id. A stored value that is blank after trimming
+    /// whitespace is CORRUPT and must classify as `.absent` (so the caller
+    /// re-mints and `createOrAdopt` overwrites it), never `.found`: callers
+    /// trim every id before use, so a whitespace-only `.found` deadlocks the
+    /// repair by being endlessly re-adopted.
     func read() -> DeviceIdentityReadResult
     /// Persist `desired` only if the store currently holds no id, otherwise adopt
     /// the id already present. Returns the id the store holds afterward (the given
@@ -74,12 +79,17 @@ struct KeychainDeviceIdentityStore: DeviceIdentityStoring {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         switch status {
         case errSecSuccess:
-            // A present item that does not decode to a non-empty UTF-8 string is
+            // A present item that does not decode to a usable UTF-8 string is
             // corrupt, not locked: report `.absent` so the caller re-mints and
             // overwrites it rather than failing closed against a garbage value.
+            // "Usable" means non-blank AFTER trimming — the resolver trims every
+            // id before use, so classifying a whitespace-only value as `.found`
+            // would deadlock the repair: the caller notices the blank and mints,
+            // but `createOrAdopt`'s duplicate-item path re-reads this same value
+            // and adopts it, so the corrupt item is never overwritten.
             guard let data = result as? Data,
                   let value = String(data: data, encoding: .utf8),
-                  !value.isEmpty else {
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .absent
             }
             return .found(value)
