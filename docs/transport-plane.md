@@ -116,10 +116,11 @@ fork's dial cancellation makes them redundant.
 
 ## Verification
 
-`transport-lab` (cmuxterm-hq `scripts/transport-lab/`) runs topology
-scenarios against tagged dev builds and emits a scorecard from diagnostic
-rings and container logs: involuntary-close count (gate: 0), recovery
-trigger histogram, discovery convergence seconds (gate: <5 s), echo
-latency p50/p95. Scenarios: `soak`, `mac-relaunch`, `bgfg`, plus the
-in-app iroh release gate where applicable. The scorecard gates every
-change to this plane.
+The transport lab is the checked-in
+`scripts/mobile-stability-soak.sh` plus `scripts/run-iroh-release-gate.sh`.
+It runs tagged topology scenarios and emits the soak audit, release-gate
+report, latency distribution, diagnostic ring, and bounded process-resource
+log. The soak gates involuntary process exits, functional failures, RSS,
+CPU, file descriptors, and threads. Release-gate modes cover automatic,
+relay-only, relay-expiry, direct-only, and private-path transport. These
+scorecards gate every change to this plane.
