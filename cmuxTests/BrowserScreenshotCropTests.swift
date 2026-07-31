@@ -408,7 +408,7 @@ struct BrowserScreenshotCropTests {
             (error: Error, expectedCode: String?, expectedTimedOut: Bool)
         ] = [
             (BrowserScreenshotError.automationTimedOut, nil, true),
-            (BrowserScreenshotError.captureInProgress, nil, true),
+            (BrowserScreenshotError.captureInProgress, "timeout", false),
             (mismatch, "screenshot_mismatch", false),
             (BrowserScreenshotError.captureAreaTooLarge, "internal_error", false),
             (NSError(domain: "test", code: 1), "internal_error", false),
@@ -1067,6 +1067,33 @@ struct BrowserScreenshotCropTests {
         #expect(abs(probe.background.green - 0.2) < 0.01)
         #expect(abs(probe.background.blue - 0.2) < 0.01)
         #expect(probe.foreground.red > 0.99)
+    }
+
+    @Test
+    func domProbeCollectorSupportsCJKAndLowercaseText() async throws {
+        let cjk = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; background: black; }
+              p { color: white; font: 20px sans-serif; }
+            </style>
+            <p>残高を確認</p>
+            """
+        )
+        let lowercase = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; background: black; }
+              p { color: white; font: 20px sans-serif; }
+            </style>
+            <p>hello world</p>
+            """
+        )
+
+        #expect(cjk.probes.first?.text == "残高を確認")
+        #expect(lowercase.probes.first?.text == "hello world")
     }
 
     @Test

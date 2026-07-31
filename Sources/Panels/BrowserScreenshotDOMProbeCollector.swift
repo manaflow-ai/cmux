@@ -358,14 +358,40 @@ final class BrowserScreenshotDOMProbeCollector {
             return `${components.reverse().join(".")}:${characterIndex}`;
           };
 
-          const preferredCharacterIndex = (text) => {
-            // A coarse sparse grid can miss the ink in narrow glyphs such as
-            // "i" or "1". Skip those nodes instead of risking a false blank.
-            const preferred = /[MW@#%&8BDEFHKLNPRSTXZ2345679]/;
-            for (let index = 0; index < text.length; index += 1) {
-              if (preferred.test(text[index])) return index;
+          const preferredCharacterRange = (node) => {
+            // Choose by rendered geometry instead of script. Wide glyphs are
+            // safe for bounded pixel sampling; narrow glyphs remain
+            // inconclusive rather than risking a false blank.
+            let codeUnitIndex = 0;
+            let visitedCharacters = 0;
+            let widest = null;
+            for (const character of node.data) {
+              if (visitedCharacters >= 64) break;
+              visitedCharacters += 1;
+              const characterIndex = codeUnitIndex;
+              const characterLength = character.length;
+              codeUnitIndex += characterLength;
+              if (/^\\s+$/u.test(character)) continue;
+
+              const range = document.createRange();
+              range.setStart(node, characterIndex);
+              range.setEnd(node, characterIndex + characterLength);
+              const rect = range.getBoundingClientRect();
+              if (rect.width < 2 || rect.height < 6) continue;
+
+              const aspectRatio = rect.width / rect.height;
+              const candidate = {
+                characterIndex,
+                characterLength,
+                rect,
+                aspectRatio
+              };
+              if (!widest || aspectRatio > widest.aspectRatio) {
+                widest = candidate;
+              }
+              if (aspectRatio >= 0.45) return candidate;
             }
-            return -1;
+            return widest && widest.aspectRatio >= 0.25 ? widest : null;
           };
 
           const layerPaints = (element) => {
@@ -465,16 +491,14 @@ final class BrowserScreenshotDOMProbeCollector {
               continue;
             }
 
-            const characterIndex = preferredCharacterIndex(node.data);
-            if (characterIndex < 0) continue;
-            const range = document.createRange();
-            range.setStart(node, characterIndex);
-            range.setEnd(node, characterIndex + 1);
-            const rect = range.getBoundingClientRect();
+            const characterRange = preferredCharacterRange(node);
+            if (!characterRange) continue;
+            const {
+              characterIndex,
+              rect
+            } = characterRange;
             if (
-              rect.width < 2
-              || rect.height < 6
-              || rect.left < 0
+              rect.left < 0
               || rect.top < 0
               || rect.right > viewportWidth
               || rect.bottom > viewportHeight

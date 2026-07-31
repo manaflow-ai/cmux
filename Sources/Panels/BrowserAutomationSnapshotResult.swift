@@ -14,8 +14,13 @@ enum BrowserAutomationSnapshotResult: Sendable {
             )
         }
         switch screenshotError {
-        case .automationTimedOut, .captureInProgress:
+        case .automationTimedOut:
             return .timedOut(message: screenshotError.localizedDescription)
+        case .captureInProgress:
+            return .failure(
+                code: "timeout",
+                message: screenshotError.localizedDescription
+            )
         case .renderedContentMismatch:
             return .failure(
                 code: "screenshot_mismatch",
