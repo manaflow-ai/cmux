@@ -11,6 +11,7 @@ final class BrowserScreenshotSnapshotRequest {
     private let startSnapshot: SnapshotStarter
     private let renderer: BrowserViewportSnapshotRenderer?
     private var continuation: CheckedContinuation<NSImage, Error>?
+    private var pendingResult: Result<NSImage, Error>?
     private var isCancelled = false
     private var didFinish = false
 
@@ -38,6 +39,10 @@ final class BrowserScreenshotSnapshotRequest {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
+                if let pendingResult {
+                    finish(pendingResult)
+                    return
+                }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -81,8 +86,15 @@ final class BrowserScreenshotSnapshotRequest {
 
     private func finish(_ result: Result<NSImage, Error>) {
         guard !didFinish else { return }
+        guard let continuation else {
+            if case nil = pendingResult {
+                pendingResult = result
+            }
+            return
+        }
         didFinish = true
-        continuation?.resume(with: result)
-        continuation = nil
+        pendingResult = nil
+        self.continuation = nil
+        continuation.resume(with: result)
     }
 }

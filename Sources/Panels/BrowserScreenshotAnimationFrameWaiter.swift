@@ -12,6 +12,7 @@ final class BrowserScreenshotAnimationFrameWaiter {
     private let startFrame: FrameStarter
     private let timeout: TimeInterval
     private var continuation: CheckedContinuation<Void, Error>?
+    private var pendingResult: Result<Void, Error>?
     private var timeoutTimer: Timer?
     private var isCancelled = false
     private var didFinish = false
@@ -44,6 +45,10 @@ final class BrowserScreenshotAnimationFrameWaiter {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
+                if let pendingResult {
+                    finish(pendingResult)
+                    return
+                }
                 guard !Task.isCancelled, !isCancelled else {
                     finish(.failure(CancellationError()))
                     return
@@ -91,10 +96,17 @@ final class BrowserScreenshotAnimationFrameWaiter {
 
     private func finish(_ result: Result<Void, Error>) {
         guard !didFinish else { return }
+        guard let continuation else {
+            if case nil = pendingResult {
+                pendingResult = result
+            }
+            return
+        }
         didFinish = true
         timeoutTimer?.invalidate()
         timeoutTimer = nil
-        continuation?.resume(with: result)
-        continuation = nil
+        pendingResult = nil
+        self.continuation = nil
+        continuation.resume(with: result)
     }
 }
