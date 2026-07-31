@@ -14047,7 +14047,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+        // Pane focus cycling. `focusPreviousPane` / `focusNextPane` are the
+        // cmux-owned rebindable entries (default unbound); Ghostty's
+        // goto_split:previous/next triggers (⌘[ / ⌘] in Ghostty's macOS
+        // defaults) stay honored as a fallback so terminal-config bindings
+        // keep working. The Ghostty mirror must yield to a bound Focus
+        // Back/Forward shortcut: both default to ⌘[ / ⌘], and without the
+        // yield the mirror consumed the key here, cycling panes within the
+        // workspace while the focus-history branch below became unreachable
+        // (the titlebar arrows navigated globally; the shortcut never did).
+        if matchConfiguredShortcut(event: event, action: .focusPreviousPane) ||
+            (matchesGhosttyGotoSplitPreviousShortcut(event) &&
+                !ghosttyGotoSplitCycleShortcutYieldsToFocusHistory(event)) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
@@ -14063,7 +14074,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchesGhosttyGotoSplitNextShortcut(event) {
+        if matchConfiguredShortcut(event: event, action: .focusNextPane) ||
+            (matchesGhosttyGotoSplitNextShortcut(event) &&
+                !ghosttyGotoSplitCycleShortcutYieldsToFocusHistory(event)) {
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
             let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
@@ -15826,8 +15839,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
+        guard !ghosttyGotoSplitCycleShortcutYieldsToFocusHistory(event) else { return false }
         return matchesGhosttyGotoSplitPreviousShortcut(event)
             || matchesGhosttyGotoSplitNextShortcut(event)
+    }
+
+    /// Whether an event that matches Ghostty's mirrored goto_split:previous/next
+    /// trigger belongs to a bound Focus Back/Forward shortcut instead. Ghostty's
+    /// macOS defaults put goto_split:previous/next on ⌘[ / ⌘], the same keys as
+    /// cmux's focus-history defaults, and the mirror branches run earlier in the
+    /// dispatch, so without this yield the configured focus-history shortcut is
+    /// unreachable. Unbinding Focus Back/Forward hands the keys back to the
+    /// pane-cycle mirror.
+    func ghosttyGotoSplitCycleShortcutYieldsToFocusHistory(_ event: NSEvent) -> Bool {
+        matchConfiguredShortcut(event: event, action: .focusHistoryBack)
+            || matchConfiguredShortcut(event: event, action: .focusHistoryForward)
     }
 
     private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
