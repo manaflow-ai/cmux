@@ -305,10 +305,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private func refreshAuthoritativeDiscovery() async throws
         -> CmxIrohDiscoveryResponse
     {
-        let discovery = try await CmxAuthoritativeDiscoveryResolver.resolve(
-            broker: broker,
-            cached: authoritativeDiscovery
-        )
+        let discovery = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: authoritativeDiscovery)
         authoritativeDiscovery = discovery
         return discovery
     }

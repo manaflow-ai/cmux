@@ -9,7 +9,7 @@ import cmuxFeature
 import CmuxIrohReleaseGateSupport
 #endif
 
-private let cmuxAppConnectivityLog = Logger(
+nonisolated private let cmuxAppConnectivityLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
     category: "connectivity"
 )

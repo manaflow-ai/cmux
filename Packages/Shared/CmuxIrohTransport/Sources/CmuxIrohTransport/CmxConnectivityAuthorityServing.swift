@@ -5,7 +5,7 @@ public protocol CmxConnectivityAuthorityServing: Sendable {
     /// - Parameter knownRevision: The last completely installed snapshot, or
     ///   `nil` when no authoritative snapshot is available.
     /// - Returns: An unchanged acknowledgement or one complete replacement snapshot.
-    func syncConnectivity(
+    nonisolated func syncConnectivity(
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse
 }
@@ -13,28 +13,45 @@ public protocol CmxConnectivityAuthorityServing: Sendable {
 extension CmxIrohTrustBrokerClient: CmxConnectivityAuthorityServing {}
 
 /// Single fail-closed owner of authoritative discovery revision semantics.
-enum CmxAuthoritativeDiscoveryResolver {
-    static func resolve(
-        broker: any CmxIrohDiscoveryServing,
-        cached: CmxIrohDiscoveryResponse?
+struct CmxAuthoritativeDiscoveryResolver: Sendable {
+    private let broker: any CmxIrohDiscoveryServing
+
+    init(broker: any CmxIrohDiscoveryServing) {
+        self.broker = broker
+    }
+
+    func resolve(
+        cached: CmxIrohDiscoveryResponse?,
+        minimumRevision: UInt64? = nil
     ) async throws -> CmxIrohDiscoveryResponse {
         guard let authority = broker as? any CmxConnectivityAuthorityServing else {
-            return try await broker.discover()
+            let discovery = try await broker.discover()
+            try Self.requireRevision(
+                discovery,
+                atLeast: minimumRevision ?? cached?.revision
+            )
+            return discovery
         }
         let response = try await authority.syncConnectivity(
             knownRevision: cached?.revision
         )
         if let snapshot = response.snapshot {
+            try Self.requireRevision(snapshot, atLeast: minimumRevision)
+            if !response.reset {
+                try Self.requireRevision(snapshot, atLeast: cached?.revision)
+            }
             return snapshot
         }
-        guard let cached, cached.revision == response.revision else {
+        guard !response.reset,
+              let cached,
+              cached.revision == response.revision else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
+        try Self.requireRevision(cached, atLeast: minimumRevision)
         return cached
     }
 
-    static func sync(
-        broker: any CmxIrohDiscoveryServing,
+    func sync(
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse {
         if let authority = broker as? any CmxConnectivityAuthorityServing {
@@ -46,5 +63,16 @@ enum CmxAuthoritativeDiscoveryResolver {
             legacySnapshot: try await broker.discover(),
             knownRevision: knownRevision
         )
+    }
+
+    private static func requireRevision(
+        _ discovery: CmxIrohDiscoveryResponse,
+        atLeast minimumRevision: UInt64?
+    ) throws {
+        guard let minimumRevision else { return }
+        guard let revision = discovery.revision,
+              revision >= minimumRevision else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
     }
 }

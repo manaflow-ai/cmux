@@ -18,6 +18,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     private weak var auth: AuthCoordinator?
     private var subscriber: CmxConnectivityInvalidationSubscriber?
     private var reconfigureTask: Task<Void, Never>?
+    private var authObservationTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var activeScopeKey: String?
 
@@ -44,9 +45,14 @@ final class ConnectivityInvalidationSubscriberCoordinator {
             _ = auth.isAuthenticated
             _ = auth.currentUser?.id
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.evaluate()
-                self?.armAuthScopeObservation()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.authObservationTask?.cancel()
+                self.authObservationTask = Task { @MainActor [weak self] in
+                    guard !Task.isCancelled, let self else { return }
+                    self.evaluate()
+                    self.armAuthScopeObservation()
+                }
             }
         }
     }
@@ -98,6 +104,8 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     func appWillTerminate() {
+        authObservationTask?.cancel()
+        authObservationTask = nil
         reconfigureTask?.cancel()
         let subscriber = subscriber
         self.subscriber = nil

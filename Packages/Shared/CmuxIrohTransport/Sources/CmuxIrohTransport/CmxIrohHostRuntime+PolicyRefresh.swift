@@ -135,7 +135,8 @@ extension CmxIrohHostRuntime {
             if let embedded = registration.discovery {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration.revision,
-                      snapshotRevision >= registrationRevision else {
+                      snapshotRevision == registrationRevision,
+                      snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
                 authoritativeDiscovery = embedded
@@ -190,10 +191,9 @@ extension CmxIrohHostRuntime {
     }
 
     func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
-        let discovery = try await CmxAuthoritativeDiscoveryResolver.resolve(
-            broker: broker,
-            cached: authoritativeDiscovery
-        )
+        let discovery = try await CmxAuthoritativeDiscoveryResolver(
+            broker: broker
+        ).resolve(cached: authoritativeDiscovery)
         authoritativeDiscovery = discovery
         return discovery
     }
