@@ -804,6 +804,10 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// Detached frontends can create shared structure without selecting
+        /// it in the owner TUI.
+        #[serde(default)]
+        activate: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -5153,19 +5157,20 @@ fn handle_command_with_cancellation(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key, mutation } => {
+        Command::CreateWorkspace { name, key, activate, mutation } => {
             if let Some(key) = key.as_deref()
                 && !crate::workspace_registry::is_canonical_workspace_key(key)
             {
                 anyhow::bail!("workspace key must be a lowercase UUID");
             }
             let workspace_mutation = workspace_mutation(&mutation)?;
-            let placement = mux.create_empty_workspace_with_mutation(
+            let placement = mux.create_empty_workspace_with_mutation_and_activation(
                 name,
                 key,
                 mutation.expected_generation.as_deref(),
                 mutation.expected_revision,
                 &workspace_mutation,
+                activate.unwrap_or(true),
             )?;
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -7879,6 +7884,15 @@ mod tests {
                 state.panes[&screen.active_pane].active_surface(),
             )
         });
+
+        let create: Request = serde_json::from_value(json!({
+            "id": 0,
+            "cmd": "create-workspace",
+            "name": "detached",
+            "activate": false
+        }))
+        .unwrap();
+        assert!(matches!(create.cmd, Command::CreateWorkspace { activate: Some(false), .. }));
 
         let request: Request = serde_json::from_value(json!({
             "id": 1,

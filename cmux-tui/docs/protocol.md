@@ -66,8 +66,8 @@ then reconcile its placement result/event, rather than optimistically
 maintaining a second pane tree.
 
 `independent-client-selection-v1` separates shared topology from each client's
-presentation state. A detached frontend can send `new-screen`, `new-pane`,
-`new-pane-right`, `split`, pane-targeted `new-browser-tab`,
+presentation state. A detached frontend can send `create-workspace`,
+`new-screen`, `new-pane`, `new-pane-right`, `split`, pane-targeted `new-browser-tab`,
 pane-targeted `create-terminal`, and every tab/pane relocation command with
 `activate:false`.
 Creation results include `surface`, `pane`, `screen`, and `workspace`, so the

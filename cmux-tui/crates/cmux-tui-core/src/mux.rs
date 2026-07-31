@@ -4102,6 +4102,27 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<WorkspacePlacement> {
+        self.create_empty_workspace_with_mutation_and_activation(
+            name,
+            requested_key,
+            expected_generation,
+            expected_revision,
+            mutation,
+            true,
+        )
+    }
+
+    /// Create a durable empty workspace without requiring a detached
+    /// frontend to change the owner TUI's active workspace.
+    pub fn create_empty_workspace_with_mutation_and_activation(
+        &self,
+        name: Option<String>,
+        requested_key: Option<String>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        activate: bool,
+    ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
@@ -4122,6 +4143,7 @@ impl Mux {
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
+            "activate": activate,
         });
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
@@ -4153,7 +4175,8 @@ impl Mux {
             }
             let name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
             let index = state.workspaces.len();
-            let selection_resync = !state.workspaces.is_empty();
+            let was_empty = state.workspaces.is_empty();
+            let selection_resync = activate && !was_empty;
             let mut desired = self.registry_projection(&state);
             desired.push(RegistryWorkspace {
                 id: ws_id,
@@ -4203,7 +4226,9 @@ impl Mux {
                 screens: Vec::new(),
                 active_screen: 0,
             });
-            state.active_workspace = state.workspaces.len() - 1;
+            if activate || was_empty {
+                state.active_workspace = state.workspaces.len() - 1;
+            }
             state.workspace_revision = commit.revision;
             let revision = commit.revision;
             let entity = crate::server::tree_entity_json(
@@ -13224,6 +13249,41 @@ mod tests {
         mux.with_state(|state| {
             assert_eq!(state.workspaces[state.active_workspace].id, first.workspace);
         });
+    }
+
+    #[test]
+    fn detached_workspace_creation_preserves_owner_selection() {
+        let mux = test_mux();
+        let owner = mux.create_empty_workspace(Some("owner".into()), None, None).unwrap();
+        let events = mux.subscribe();
+        let mutation = WorkspaceMutation::local("detached-browser");
+        let created = mux
+            .create_empty_workspace_with_mutation_and_activation(
+                Some("detached".into()),
+                None,
+                None,
+                Some(1),
+                &mutation,
+                false,
+            )
+            .unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[state.active_workspace].id, owner.workspace);
+            assert_eq!(state.workspace_index(created.workspace), Some(1));
+        });
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::TreeDelta(TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace,
+                ..
+            }) if workspace == created.workspace
+        ));
+        assert!(
+            events.try_recv().is_err(),
+            "nonactivating creation must not publish an owner-selection resync"
+        );
     }
 
     #[test]

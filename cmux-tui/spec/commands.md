@@ -1123,6 +1123,7 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default null | Defaults to the zero-based workspace count at creation time |
 | `key` | `string` | default generated UUID | Must be a lowercase canonical UUID and never previously used |
+| `activate` | `bool` | default `true` | `false` preserves the owner client's active workspace and requires `independent-client-selection-v1` |
 | mutation fields | see [common envelope](#durable-workspace-mutation-envelope) | optional | Exactly-once retry and CAS |
 
 Result:
@@ -1136,7 +1137,7 @@ Errors include `workspace key must be a lowercase UUID`, `workspace key already 
 Example:
 
 ```json
-{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","expected_revision":1}
+{"id":9,"cmd":"create-workspace","name":"ops","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","activate":false,"expected_revision":1}
 {"id":9,"ok":true,"data":{"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","index":1,"workspace_revision":2}}
 ```
 
