@@ -25,6 +25,7 @@ struct PanesTabsPreviewHost: View {
     @State private var paneMapRefreshTrigger = 0
     @State private var fixtureLayoutRevision = 0
     @State private var isPaneMapRefreshing = false
+    @State private var contentWidth: CGFloat = 0
     private let terminalTheme = TerminalTheme.monokai
 
     private let workspace = MobileWorkspacePreview(
@@ -168,9 +169,10 @@ struct PanesTabsPreviewHost: View {
                     refreshingChanged: { isPaneMapRefreshing = $0 }
                 )
                 .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .navigationTitle(workspace.name)
                 .mobileTerminalNavigationChrome(theme: terminalTheme)
-                .toolbar { paneMapToolbar }
+                .toolbar { previewToolbar(mode: .paneMap) }
                 .navigationBarBackButtonHidden(true)
             } terminal: {
                 terminalPreviewEndpoint
@@ -197,9 +199,10 @@ struct PanesTabsPreviewHost: View {
                 .equatable()
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome(theme: terminalTheme)
-        .toolbar { terminalToolbar }
+        .toolbar { previewToolbar(mode: .terminal) }
         .accessibilityIdentifier("PanesTabsPreviewHost")
     }
 
@@ -239,12 +242,93 @@ struct PanesTabsPreviewHost: View {
         paneZoomPresentation.sourceSurfaceID ?? selectedSurfaceID
     }
 
+    private enum PreviewToolbarMode {
+        case paneMap
+        case terminal
+    }
+
     @ToolbarContentBuilder
-    private var paneMapToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+    private func previewToolbar(mode: PreviewToolbarMode) -> some ToolbarContent {
+        ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
             WorkspaceBackButton(unreadCount: 2, action: {})
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        if #available(iOS 26.0, *) {
+            ToolbarSpacer(.fixed, placement: .topBarLeading)
+        }
+        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
+            previewWorkspaceTitleMenu(mode: mode)
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            previewToolbarTrailingContent(mode: mode)
+        }
+    }
+
+    private func previewWorkspaceTitleMenu(mode: PreviewToolbarMode) -> some View {
+        let value = WorkspaceTitleMenuValue(
+            contentWidth: contentWidth,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            hasChatToggle: false,
+            isEnabled: true,
+            workspaceName: workspace.name,
+            hasUnread: false,
+            canCustomizeWorkspace: false,
+            canRenameWorkspace: true,
+            canToggleReadState: false,
+            canCloseWorkspace: false,
+            labelToken: .standard(
+                title: workspace.name,
+                subtitle: previewToolbarSubtitle(mode: mode)
+            ),
+            terminalTheme: terminalTheme
+        )
+        return WorkspaceTitleMenu(
+            value: value,
+            menuContent: {
+                WorkspaceTitleMenuContent(
+                    workspaceName: value.workspaceName,
+                    hasUnread: value.hasUnread,
+                    canCustomizeWorkspace: value.canCustomizeWorkspace,
+                    canRenameWorkspace: value.canRenameWorkspace,
+                    canToggleReadState: value.canToggleReadState,
+                    canCloseWorkspace: value.canCloseWorkspace,
+                    presentCustomization: {},
+                    presentRename: {},
+                    toggleReadState: {},
+                    requestClose: {}
+                )
+            },
+            label: {
+                WorkspaceToolbarTitleView(
+                    title: workspace.name,
+                    subtitle: previewToolbarSubtitle(mode: mode)
+                )
+            }
+        )
+        .equatable()
+    }
+
+    private func previewToolbarSubtitle(mode: PreviewToolbarMode) -> String? {
+        switch mode {
+        case .paneMap:
+            guard let layout = fixtureLayout else { return nil }
+            return PaneMapValue(
+                workspaceName: workspace.name,
+                layout: layout,
+                phoneSelectedSurfaceID: selectedSurfaceID,
+                agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+            ).countSubtitle
+        case .terminal:
+            return workspace.terminals.first {
+                $0.id.rawValue == selectedSurfaceID
+            }?.name
+        }
+    }
+
+    @ViewBuilder
+    private func previewToolbarTrailingContent(mode: PreviewToolbarMode) -> some View {
+        switch mode {
+        case .paneMap:
             HStack(spacing: 8) {
                 Button {
                     paneMapRefreshTrigger &+= 1
@@ -266,15 +350,7 @@ struct PanesTabsPreviewHost: View {
                 )
                 .accessibilityIdentifier("MobilePaneMapDone")
             }
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var terminalToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            WorkspaceBackButton(unreadCount: 2, action: {})
-        }
-        ToolbarItem(placement: .topBarTrailing) {
+        case .terminal:
             WorkspaceUtilitiesMenu(
                 showsViewAsText: false,
                 showsPaneMap: true,
