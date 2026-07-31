@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Search, time-range, grouping, sorting, and reload controls for History.
+/// Search, time-range, sorting, and reload controls for History.
 struct VaultHistoryControls: View {
     @Bindable var model: VaultHistoryTimelineModel
     let isReloadDisabled: Bool
@@ -10,7 +10,6 @@ struct VaultHistoryControls: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 timeRangeMenu
-                groupMenu
                 Spacer(minLength: 4)
                 sortMenu
                 reloadButton
@@ -77,34 +76,6 @@ struct VaultHistoryControls: View {
         .fixedSize()
         .help(String(localized: "vaultHistory.rangePicker.tooltip", defaultValue: "Filter history by time"))
         .accessibilityIdentifier("VaultHistoryTimeRangePicker")
-        .titlebarInteractiveControl()
-    }
-
-    private var groupMenu: some View {
-        Menu {
-            ForEach(VaultHistoryGroupKey.allCases) { key in
-                Button {
-                    model.groupKey = key
-                } label: {
-                    if model.groupKey == key {
-                        Label(key.label, systemImage: "checkmark")
-                    } else {
-                        Text(key.label)
-                    }
-                }
-            }
-        } label: {
-            Label(model.groupKey.label, systemImage: model.groupKey.symbolName)
-                .labelStyle(.iconOnly)
-                .cmuxFont(
-                    size: RightSidebarChromeControlStyle.secondaryIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
-                )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help(String(localized: "vaultHistory.groupPicker.tooltip", defaultValue: "Group history by"))
-        .accessibilityIdentifier("VaultHistoryGroupPicker")
         .titlebarInteractiveControl()
     }
 

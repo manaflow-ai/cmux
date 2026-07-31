@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The History timeline, combining workspace/window lifecycle events with agent sessions.
 struct VaultHistoryView: View {
+    let mode: VaultHistoryMode
     @ObservedObject private var sessionStore: SessionIndexStore
     @ObservedObject private var closedItemStore: ClosedItemHistoryStore
     private let log: VaultHistoryEventLog
@@ -10,18 +11,20 @@ struct VaultHistoryView: View {
     @State private var model: VaultHistoryTimelineModel
 
     init(
+        mode: VaultHistoryMode,
         sessionStore: SessionIndexStore,
         closedItemStore: ClosedItemHistoryStore,
         log: VaultHistoryEventLog,
         onResume: ((SessionEntry) -> Void)?,
         onReopenClosedItem: ((UUID) -> Bool)?
     ) {
+        self.mode = mode
         self.sessionStore = sessionStore
         self.closedItemStore = closedItemStore
         self.log = log
         self.onResume = onResume
         self.onReopenClosedItem = onReopenClosedItem
-        _model = State(initialValue: VaultHistoryTimelineModel(log: log))
+        _model = State(initialValue: VaultHistoryTimelineModel(log: log, mode: mode))
     }
 
     var body: some View {
@@ -33,6 +36,9 @@ struct VaultHistoryView: View {
             onResume: onResume,
             onReopenClosedItem: onReopenClosedItem
         )
+        .onChange(of: mode) { _, mode in
+            model.mode = mode
+        }
     }
 }
 

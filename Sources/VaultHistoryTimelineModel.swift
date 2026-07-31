@@ -1,17 +1,69 @@
 import Foundation
 import Observation
 
+/// The three user-facing ways to browse History. Each mode owns its
+/// primitive and filters out events that cannot belong to that primitive,
+/// avoiding catch-all sections such as agent sessions under "Other"
+/// in the workspace timeline.
+enum VaultHistoryMode: String, CaseIterable, Identifiable, Sendable {
+    case timeline
+    case folder
+    case agent
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .timeline:
+            return String(localized: "vaultPane.tab.timeline", defaultValue: "Timeline")
+        case .folder:
+            return String(localized: "vaultPane.tab.folder", defaultValue: "By Folder")
+        case .agent:
+            return String(localized: "vaultPane.tab.agent", defaultValue: "By Agent")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .timeline: return "clock.arrow.circlepath"
+        case .folder: return "folder"
+        case .agent: return "person.2"
+        }
+    }
+
+    var groupKey: VaultHistoryGroupKey {
+        switch self {
+        case .timeline: return .workspace
+        case .folder: return .directory
+        case .agent: return .agent
+        }
+    }
+
+    func includedEvents(from events: [VaultHistoryEvent]) -> [VaultHistoryEvent] {
+        events.filter { event in
+            switch self {
+            case .timeline:
+                return event.subject.workspaceId != nil
+            case .folder:
+                let directory = event.subject.directory?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !directory.isEmpty && directory != "."
+            case .agent:
+                return event.kind == .sessionActivity && event.subject.agent != nil
+            }
+        }
+    }
+}
+
 /// View model for the History timeline: merges persisted lifecycle events
 /// with session events derived from the agent-session index, and exposes grouped
 /// sections computed by the pure ``VaultHistoryGrouper``.
 @MainActor
 @Observable
 final class VaultHistoryTimelineModel {
-    /// Persisted grouping selection. Defaults to date (last-24-hours first).
-    var groupKey: VaultHistoryGroupKey {
+    var mode: VaultHistoryMode {
         didSet {
-            guard groupKey != oldValue else { return }
-            defaults.set(groupKey.rawValue, forKey: Self.groupKeyDefaultsKey)
+            guard mode != oldValue else { return }
             regroup()
         }
     }
@@ -46,7 +98,6 @@ final class VaultHistoryTimelineModel {
     /// flash before anything loaded.
     private(set) var didLoad = false
 
-    private static let groupKeyDefaultsKey = "vaultHistory.groupKey"
     private static let timeRangeDefaultsKey = "vaultHistory.timeRange"
     private static let sortOrderDefaultsKey = "vaultHistory.sortOrder"
     /// Cap on merged timeline size handed to grouping; both inputs are
@@ -69,6 +120,7 @@ final class VaultHistoryTimelineModel {
 
     init(
         log: VaultHistoryEventLog,
+        mode: VaultHistoryMode = .timeline,
         grouper: VaultHistoryGrouper = VaultHistoryGrouper(),
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
@@ -77,8 +129,7 @@ final class VaultHistoryTimelineModel {
         self.grouper = grouper
         self.defaults = defaults
         self.now = now
-        self.groupKey = defaults.string(forKey: Self.groupKeyDefaultsKey)
-            .flatMap(VaultHistoryGroupKey.init(rawValue:)) ?? .date
+        self.mode = mode
         self.timeRange = defaults.string(forKey: Self.timeRangeDefaultsKey)
             .flatMap(VaultHistoryQuery.TimeRange.init(rawValue:)) ?? .allTime
         self.sortOrder = defaults.string(forKey: Self.sortOrderDefaultsKey)
@@ -132,8 +183,8 @@ final class VaultHistoryTimelineModel {
             searchText: searchText
         )
         groups = grouper.groups(
-            events: mergedEvents,
-            by: groupKey,
+            events: mode.includedEvents(from: mergedEvents),
+            by: mode.groupKey,
             query: query,
             now: currentTime
         )

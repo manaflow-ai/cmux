@@ -44,11 +44,17 @@ struct VaultHistoryTimelineList: NSViewRepresentable {
                     resolvedAgent(for: $0, resumeEntriesByEventId: resumeEntriesByEventId)
                 }.first
                 : nil
+            let groupAction = groupRowAction(
+                for: group,
+                availableClosedItemIds: availableClosedItemIds,
+                actions: actions
+            )
             let header = VaultHistoryTableRow.group(
                 id: group.id,
                 title: group.title,
                 count: group.events.count,
-                agent: groupAgent
+                agent: groupAgent,
+                action: groupAction
             )
             let events = group.events.map { event in
                 VaultHistoryTableRow.event(
@@ -67,6 +73,25 @@ struct VaultHistoryTimelineList: NSViewRepresentable {
             }
             return [header] + events
         }
+    }
+
+    private static func groupRowAction(
+        for group: VaultHistoryGroup,
+        availableClosedItemIds: Set<UUID>,
+        actions: VaultHistoryRowActions
+    ) -> VaultHistoryRowAction? {
+        guard group.id.hasPrefix("workspace:"), actions.canReopen else { return nil }
+        let recoverableEvent = group.events
+            .filter { event in
+                event.kind == .workspaceClosed
+                    && event.subject.closedItemId.map(availableClosedItemIds.contains) == true
+            }
+            .max { lhs, rhs in
+                if lhs.timestamp != rhs.timestamp { return lhs.timestamp < rhs.timestamp }
+                return lhs.id < rhs.id
+            }
+        guard let closedItemId = recoverableEvent?.subject.closedItemId else { return nil }
+        return .reopenClosedItem(closedItemId)
     }
 
     private static func resolvedAgent(
@@ -101,12 +126,18 @@ enum VaultHistoryTableRowID: Hashable {
 }
 
 enum VaultHistoryTableRow {
-    case group(id: String, title: String, count: Int, agent: SessionAgent?)
+    case group(
+        id: String,
+        title: String,
+        count: Int,
+        agent: SessionAgent?,
+        action: VaultHistoryRowAction?
+    )
     case event(event: VaultHistoryEvent, action: VaultHistoryRowAction?, agent: SessionAgent?)
 
     var id: VaultHistoryTableRowID {
         switch self {
-        case .group(let id, _, _, _): return .group(id)
+        case .group(let id, _, _, _, _): return .group(id)
         case .event(let event, _, _): return .event(event.id)
         }
     }
@@ -118,8 +149,15 @@ enum VaultHistoryTableRow {
 
     func hasEquivalentContent(to other: Self) -> Bool {
         switch (self, other) {
-        case let (.group(lhsID, lhsTitle, lhsCount, lhsAgent), .group(rhsID, rhsTitle, rhsCount, rhsAgent)):
-            return lhsID == rhsID && lhsTitle == rhsTitle && lhsCount == rhsCount && lhsAgent == rhsAgent
+        case let (
+            .group(lhsID, lhsTitle, lhsCount, lhsAgent, lhsAction),
+            .group(rhsID, rhsTitle, rhsCount, rhsAgent, rhsAction)
+        ):
+            return lhsID == rhsID
+                && lhsTitle == rhsTitle
+                && lhsCount == rhsCount
+                && lhsAgent == rhsAgent
+                && lhsAction == rhsAction
         case let (.event(lhsEvent, lhsAction, lhsAgent), .event(rhsEvent, rhsAction, rhsAgent)):
             return lhsEvent == rhsEvent && lhsAction == rhsAction && lhsAgent == rhsAgent
         default:
@@ -239,7 +277,7 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row) else { return nil }
         switch rows[row] {
-        case .group(let id, let title, let count, let agent):
+        case .group(let id, let title, let count, let agent, let action):
             let cell = (tableView.makeView(
                 withIdentifier: VaultHistoryTableGroupCellView.reuseIdentifier,
                 owner: self
@@ -249,7 +287,9 @@ final class VaultHistoryTableController: NSObject, NSTableViewDataSource, NSTabl
                 title: title,
                 count: count,
                 agent: agent,
-                globalFontMagnificationPercent: globalFontMagnificationPercent
+                action: action,
+                globalFontMagnificationPercent: globalFontMagnificationPercent,
+                onPerformAction: { [weak self] action in self?.actions.perform(action) }
             )
             return cell
         case .event(let event, let action, let agent):

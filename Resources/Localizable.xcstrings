@@ -259409,24 +259409,7 @@
         }
       }
     },
-    "vaultPane.tab.sessions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション"
-          }
-        }
-      }
-    },
-    "vaultPane.tab.history": {
+    "vaultPane.tab.timeline": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -259439,6 +259422,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイムライン"
+          }
+        }
+      }
+    },
+    "vaultPane.tab.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ別"
+          }
+        }
+      }
+    },
+    "vaultPane.tab.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント別"
           }
         }
       }

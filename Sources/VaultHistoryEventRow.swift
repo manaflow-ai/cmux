@@ -62,6 +62,7 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
         wantsLayer = true
+        layer?.masksToBounds = true
 
         hoverBackground.translatesAutoresizingMaskIntoConstraints = false
         hoverBackground.wantsLayer = true
@@ -75,7 +76,10 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         for label in [titleLabel, subtitleLabel, timeLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
+            label.usesSingleLineMode = true
             label.cell?.truncatesLastVisibleLine = true
+            label.cell?.usesSingleLineMode = true
+            label.cell?.wraps = false
             label.setAccessibilityElement(false)
         }
         titleLabel.textColor = NSColor.labelColor.withAlphaComponent(0.85)
@@ -116,6 +120,8 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
 
             textStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -4),
 
             actionButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
             actionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -173,7 +179,9 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         representedFontPercent = globalFontMagnificationPercent
 
         titleLabel.stringValue = Self.displayTitle(for: event)
-        subtitleLabel.stringValue = Self.subtitle(for: event)
+        subtitleLabel.stringValue = Self.displaySubtitle(for: event)
+        titleLabel.toolTip = VaultHistoryDisplayText.singleLine(event.title)
+        subtitleLabel.toolTip = subtitleLabel.stringValue
         titleLabel.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(11.5, percent: globalFontMagnificationPercent)
         )
@@ -291,8 +299,8 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
     }()
 
     static func displayTitle(for event: VaultHistoryEvent) -> String {
-        let trimmed = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty else { return truncated(trimmed, maximumLength: 240) }
+        let singleLine = VaultHistoryDisplayText.singleLine(event.title)
+        guard singleLine.isEmpty else { return truncated(singleLine, maximumLength: 240) }
         switch event.kind {
         case .windowOpened, .windowClosed:
             return String(localized: "vaultHistory.window", defaultValue: "Window")
@@ -306,11 +314,11 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         return String(value.prefix(maximumLength)) + "…"
     }
 
-    private static func subtitle(for event: VaultHistoryEvent) -> String {
+    static func displaySubtitle(for event: VaultHistoryEvent) -> String {
         var parts: [String] = []
         if event.kind == .sessionActivity {
             if let displayName = event.subject.agentDisplayName, !displayName.isEmpty {
-                parts.append(displayName)
+                parts.append(VaultHistoryDisplayText.singleLine(displayName))
             } else if let raw = event.subject.agent, let agent = SessionAgent(rawValue: raw) {
                 parts.append(agent.displayName)
             } else {
@@ -324,7 +332,7 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
            !previousTitle.isEmpty {
             parts.append(String(
                 format: String(localized: "vaultHistory.detail.renamedFrom", defaultValue: "was “%@”"),
-                previousTitle
+                VaultHistoryDisplayText.singleLine(previousTitle)
             ))
         }
         if let count = event.workspaceCount {
@@ -332,9 +340,11 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
         }
         if let directory = event.subject.directory, !directory.isEmpty {
             let component = (directory as NSString).lastPathComponent
-            if !component.isEmpty, component != "." { parts.append(component) }
+            if !component.isEmpty, component != "." {
+                parts.append(VaultHistoryDisplayText.singleLine(component))
+            }
         }
-        return parts.joined(separator: " · ")
+        return VaultHistoryDisplayText.singleLine(parts.joined(separator: " · "))
     }
 
     private static func workspaceCountLabel(_ count: Int) -> String {
@@ -345,6 +355,12 @@ final class VaultHistoryTableEventCellView: NSTableCellView {
             String(localized: "vaultHistory.workspaceCount.other", defaultValue: "%d workspaces"),
             count
         )
+    }
+}
+
+enum VaultHistoryDisplayText {
+    static func singleLine(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 

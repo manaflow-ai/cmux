@@ -35,9 +35,9 @@ enum VaultHistoryEventKind: String, Codable, CaseIterable, Sendable {
 
     var symbolName: String {
         switch self {
-        case .workspaceCreated: return "plus.square"
+        case .workspaceCreated: return "plus"
         case .workspaceRenamed: return "pencil"
-        case .workspaceClosed: return "xmark.square"
+        case .workspaceClosed: return "minus"
         case .windowOpened: return "macwindow.badge.plus"
         case .windowClosed: return "macwindow"
         case .sessionActivity: return "sparkles"

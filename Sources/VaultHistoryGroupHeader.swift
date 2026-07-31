@@ -11,8 +11,12 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
     private let iconView = CmuxResolvedIconImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let countLabel = NSTextField(labelWithString: "")
+    private let actionButton = NSButton()
     private var iconWidthConstraint: NSLayoutConstraint!
     private var iconToTitleConstraint: NSLayoutConstraint!
+    private var actionButtonWidthConstraint: NSLayoutConstraint!
+    private var representedAction: VaultHistoryRowAction?
+    private var onPerformAction: ((VaultHistoryRowAction) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -30,6 +34,9 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
+        titleLabel.usesSingleLineMode = true
+        titleLabel.cell?.usesSingleLineMode = true
+        titleLabel.cell?.wraps = false
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.setAccessibilityElement(false)
         addSubview(titleLabel)
@@ -41,8 +48,17 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
         countLabel.setAccessibilityElement(false)
         addSubview(countLabel)
 
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.isBordered = false
+        actionButton.imagePosition = .imageOnly
+        actionButton.focusRingType = .none
+        actionButton.target = self
+        actionButton.action = #selector(performRepresentedAction(_:))
+        addSubview(actionButton)
+
         iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 0)
         iconToTitleConstraint = titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor)
+        actionButtonWidthConstraint = actionButton.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -58,7 +74,12 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 4),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -4),
+
+            actionButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            actionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            actionButtonWidthConstraint,
+            actionButton.heightAnchor.constraint(equalToConstant: 18),
         ])
     }
 
@@ -70,6 +91,8 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
     override func prepareForReuse() {
         super.prepareForReuse()
         iconView.apply(nil)
+        configureAction(nil)
+        onPerformAction = nil
     }
 
     func configure(
@@ -77,10 +100,14 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
         title: String,
         count: Int,
         agent: SessionAgent?,
-        globalFontMagnificationPercent: Int
+        action: VaultHistoryRowAction?,
+        globalFontMagnificationPercent: Int,
+        onPerformAction: @escaping (VaultHistoryRowAction) -> Void
     ) {
-        titleLabel.stringValue = title
-        titleLabel.toolTip = title
+        self.onPerformAction = onPerformAction
+        let singleLineTitle = VaultHistoryDisplayText.singleLine(title)
+        titleLabel.stringValue = singleLineTitle
+        titleLabel.toolTip = singleLineTitle
         titleLabel.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(11, percent: globalFontMagnificationPercent),
             weight: .semibold
@@ -90,10 +117,37 @@ final class VaultHistoryTableGroupCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(10, percent: globalFontMagnificationPercent)
         )
         configureIcon(agent)
+        configureAction(action)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("VaultHistoryGroup:\(id)")
-        setAccessibilityLabel("\(title), \(count.formatted())")
+        setAccessibilityLabel("\(singleLineTitle), \(count.formatted())")
+    }
+
+    private func configureAction(_ action: VaultHistoryRowAction?) {
+        representedAction = action
+        guard let action else {
+            actionButton.isHidden = true
+            actionButtonWidthConstraint.constant = 0
+            actionButton.image = nil
+            actionButton.toolTip = nil
+            actionButton.setAccessibilityLabel(nil)
+            return
+        }
+        actionButton.isHidden = false
+        actionButtonWidthConstraint.constant = 18
+        actionButton.image = NSImage(
+            systemSymbolName: action.symbolName,
+            accessibilityDescription: action.label
+        )?.withSymbolConfiguration(.init(pointSize: 9, weight: .medium))
+        actionButton.contentTintColor = .secondaryLabelColor
+        actionButton.toolTip = action.label
+        actionButton.setAccessibilityLabel(action.label)
+    }
+
+    @objc private func performRepresentedAction(_ sender: Any?) {
+        guard let representedAction else { return }
+        onPerformAction?(representedAction)
     }
 
     private func configureIcon(_ agent: SessionAgent?) {

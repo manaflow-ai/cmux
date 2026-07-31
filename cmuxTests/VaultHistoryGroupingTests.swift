@@ -195,6 +195,36 @@ import Testing
         #expect(groups[0].events.map(\.id) == ["c2", "c1"])
     }
 
+    @Test func historyModesExposeWorkspaceFolderAndAgentPrimitives() {
+        let workspaceId = UUID()
+        let events = [
+            event(
+                id: "workspace",
+                secondsAgo: 30,
+                kind: .workspaceCreated,
+                title: "History",
+                workspaceId: workspaceId,
+                directory: "/tmp/repo"
+            ),
+            event(
+                id: "session",
+                secondsAgo: 20,
+                kind: .sessionActivity,
+                title: "Implement History",
+                agent: "codex",
+                directory: "/tmp/repo"
+            ),
+            event(id: "window", secondsAgo: 10, kind: .windowOpened, windowId: UUID()),
+        ]
+
+        #expect(VaultHistoryMode.timeline.groupKey == .workspace)
+        #expect(VaultHistoryMode.folder.groupKey == .directory)
+        #expect(VaultHistoryMode.agent.groupKey == .agent)
+        #expect(VaultHistoryMode.timeline.includedEvents(from: events).map(\.id) == ["workspace"])
+        #expect(VaultHistoryMode.folder.includedEvents(from: events).map(\.id) == ["workspace", "session"])
+        #expect(VaultHistoryMode.agent.includedEvents(from: events).map(\.id) == ["session"])
+    }
+
     // MARK: - Filtering, search, and sorting
 
     @Test func timeRangesUseRollingBoundaries() {
@@ -341,7 +371,7 @@ import Testing
         )
 
         #expect(rows.map(\.id) == [.group("agent:codex"), .event("codex-session")])
-        guard case .group(_, _, 1, let groupAgent) = rows[0] else {
+        guard case .group(_, _, 1, let groupAgent, nil) = rows[0] else {
             Issue.record("Expected the first virtual row to be a group header")
             return
         }
@@ -396,6 +426,57 @@ import Testing
         #expect(rowAgent == registeredAgent)
         #expect(rowAgent?.assetName == "AgentIcons/Pi")
     }
+
+    @Test func workspaceGroupExposesNewestAvailableRecoveryAction() throws {
+        let workspaceId = UUID()
+        let olderClosedItemId = UUID()
+        let newestClosedItemId = UUID()
+        let events = [
+            VaultHistoryEvent(
+                id: "older-close",
+                timestamp: Self.now.addingTimeInterval(-30),
+                kind: .workspaceClosed,
+                title: "History",
+                subject: VaultHistorySubject(
+                    workspaceId: workspaceId,
+                    closedItemId: olderClosedItemId,
+                    directory: "/tmp/repo"
+                )
+            ),
+            VaultHistoryEvent(
+                id: "newest-close",
+                timestamp: Self.now.addingTimeInterval(-10),
+                kind: .workspaceClosed,
+                title: "History",
+                subject: VaultHistorySubject(
+                    workspaceId: workspaceId,
+                    closedItemId: newestClosedItemId,
+                    directory: "/tmp/repo"
+                )
+            ),
+        ]
+        let group = VaultHistoryGroup(
+            id: "workspace:\(workspaceId.uuidString)",
+            title: "History",
+            events: events
+        )
+
+        let rows = VaultHistoryTimelineList.makeRows(
+            groups: [group],
+            resumeEntriesByEventId: [:],
+            availableClosedItemIds: [olderClosedItemId, newestClosedItemId],
+            actions: VaultHistoryRowActions(
+                onResume: nil,
+                onReopenClosedItem: { _ in true }
+            )
+        )
+
+        guard case .group(_, _, 2, nil, let action) = rows[0] else {
+            Issue.record("Expected a workspace group row with a recovery action")
+            return
+        }
+        #expect(action == .reopenClosedItem(newestClosedItemId))
+    }
 }
 
 @Suite(.serialized)
@@ -433,7 +514,15 @@ struct VaultHistoryAppKitViewportTests {
             )
         }
         controller.apply(
-            rows: [.group(id: "agent:codex", title: "Codex", count: events.count, agent: .codex)] + events,
+            rows: [
+                .group(
+                    id: "agent:codex",
+                    title: "Codex",
+                    count: events.count,
+                    agent: .codex,
+                    action: nil
+                ),
+            ] + events,
             actions: VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil),
             globalFontMagnificationPercent: 100
         )
