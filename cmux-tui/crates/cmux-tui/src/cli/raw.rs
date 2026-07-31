@@ -4,7 +4,6 @@
 //! internal fields and receives no public compatibility guarantees.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
@@ -31,7 +30,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = resolve_socket(&global);
+    let socket = super::resolve_server_socket(&global);
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -130,20 +129,6 @@ fn read_line_limited(
     String::from_utf8(bytes)
         .map(Some)
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
-}
-
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
-    if let Some(path) = &global.socket {
-        return path.clone();
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
-        {
-            return PathBuf::from(path);
-        }
-    }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
 }
 
 #[cfg(test)]

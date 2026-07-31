@@ -621,6 +621,9 @@ fn resolve_server_socket_with(
     if let Some(path) = &global.socket {
         return path.clone();
     }
+    if let Some(session) = global.session.as_deref() {
+        return cmux_tui_core::server::default_socket_path(session);
+    }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
         if let Some(path) = ambient_socket(name)
             && !path.as_os_str().is_empty()
@@ -628,7 +631,7 @@ fn resolve_server_socket_with(
             return path;
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::default_socket_path("main")
 }
 
 #[cfg(test)]
