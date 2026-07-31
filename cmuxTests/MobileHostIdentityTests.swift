@@ -101,6 +101,60 @@ struct MobileHostIdentityTests {
         #expect(!String(describing: payload).contains("api_origin"))
     }
 
+    @Test func authenticatedPhoneSettingsMutationUpdatesTheSharedStatusSource() throws {
+        let suiteName = "mobile-host-push-mutation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let result = TerminalController.shared.v2MobilePhonePushSettingsUpdate(
+            params: [
+                "forwarding_enabled": true,
+                "mode": "always",
+                "hide_content": true,
+            ],
+            defaults: defaults
+        )
+        guard case .ok = result else {
+            Issue.record("Expected phone push settings mutation to succeed")
+            return
+        }
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults,
+            phonePushAPIBaseURL: URL(string: "https://cmux.com")!
+        )
+        let phonePush = try #require(payload["phone_push"] as? [String: Any])
+        #expect(phonePush["forwarding_enabled"] as? Bool == true)
+        #expect(phonePush["mode"] as? String == "always")
+        #expect(phonePush["hide_content"] as? Bool == true)
+    }
+
+    @Test func phoneSettingsMutationUsesTheSameAccountAuthorizationGate() async {
+        let request = MobileHostRPCRequest(
+            id: "push-settings",
+            method: "phone_push.settings.update",
+            params: ["forwarding_enabled": true],
+            auth: nil
+        )
+        let denied = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { _ in
+                .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Mobile sync authorization failed."
+                ))
+            }
+        )
+
+        guard case let .failure(error) = denied else {
+            Issue.record("Expected unauthenticated mutation to fail")
+            return
+        }
+        #expect(error.code == "unauthorized")
+    }
+
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
         let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

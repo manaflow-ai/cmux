@@ -54,6 +54,42 @@ import Testing
         #expect(readiness.repair == .connectMac)
     }
 
+    @Test(arguments: [
+        MobilePushAuthorization.provisional,
+        .ephemeral,
+    ])
+    func quietOrTemporaryOSAuthorizationDoesNotMasqueradeAsFullReadiness(
+        authorization: MobilePushAuthorization
+    ) {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: authorization,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.systemPermissionLimited))
+        #expect(readiness.repair == .openSystemSettings)
+    }
+
+    @Test func authenticatedConnectionAccountMismatchIsDistinctFromUnavailableMac() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: nil,
+            macAccountMismatch: true,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.macAccountMismatch))
+        #expect(readiness.repair == .signIntoMatchingAccount)
+    }
+
     @Test func attachedMacWithForwardingOffReportsTheSecondGate() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,

@@ -4,7 +4,28 @@ import Foundation
 final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
     enum Scenario: Sendable {
         case sameOrigin301
-        case crossOrigin308
+        case sameOrigin302
+        case sameOrigin303
+        case sameOrigin307
+        case sameOrigin308
+        case schemeDowngrade307
+        case crossHost308
+        case portChange302
+
+        var statusCode: Int {
+            switch self {
+            case .sameOrigin301:
+                301
+            case .sameOrigin302, .portChange302:
+                302
+            case .sameOrigin303:
+                303
+            case .sameOrigin307, .schemeDowngrade307:
+                307
+            case .sameOrigin308, .crossHost308:
+                308
+            }
+        }
     }
 
     static let state = PushRedirectState()
@@ -25,17 +46,26 @@ final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
             let scenario = await Self.state.scenario
             if url.path == Self.startPath {
                 let target: URL
-                let status: Int
                 switch scenario {
-                case .sameOrigin301:
+                case .sameOrigin301, .sameOrigin302, .sameOrigin303,
+                     .sameOrigin307, .sameOrigin308:
                     var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
                     components.path = Self.targetPath
                     target = components.url!
-                    status = 301
-                case .crossOrigin308:
+                case .schemeDowngrade307:
+                    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                    components.scheme = "http"
+                    components.path = Self.targetPath
+                    target = components.url!
+                case .crossHost308:
                     target = URL(string: "https://\(Self.targetHost)\(Self.targetPath)")!
-                    status = 308
+                case .portChange302:
+                    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                    components.port = 444
+                    components.path = Self.targetPath
+                    target = components.url!
                 }
+                let status = scenario.statusCode
                 let response = HTTPURLResponse(
                     url: url,
                     statusCode: status,
@@ -43,7 +73,7 @@ final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
                     headerFields: ["Location": target.absoluteString]
                 )!
                 var proposed = URLRequest(url: target)
-                proposed.httpMethod = status == 308 ? request.httpMethod : "GET"
+                proposed.httpMethod = [307, 308].contains(status) ? request.httpMethod : "GET"
                 client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
                 client?.urlProtocolDidFinishLoading(self)
@@ -58,6 +88,7 @@ final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
                 headerFields: nil
             )!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"ok":true}"#.utf8))
             client?.urlProtocolDidFinishLoading(self)
         }
     }

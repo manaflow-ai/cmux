@@ -90,6 +90,29 @@ describe("apns payload", () => {
     expect(payload.cmux).toEqual({ workspaceId: "ws-9" });
   });
 
+  test("preserves one opaque correlation id from Mac input through the provider body without content leakage", () => {
+    const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
+    const parsed = parsePushPayload({
+      title: "secret terminal title",
+      subtitle: "secret subtitle",
+      body: "secret terminal output",
+      hideContent: true,
+      correlationId,
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+
+    const providerPayload = buildApnsPayload(parsed.value) as {
+      aps: { alert: Record<string, string> };
+      cmux: Record<string, string>;
+    };
+    expect(providerPayload.cmux.correlationId).toBe(correlationId);
+    expect(providerPayload.aps.alert).toEqual({
+      title: "cmux",
+      body: "An agent needs your attention",
+    });
+    expect(JSON.stringify(providerPayload)).not.toContain("secret");
+  });
+
   test("empty title falls back to cmux", () => {
     const payload = buildApnsPayload({ title: "   ", body: "b" }) as { aps: { alert: { title: string } } };
     expect(payload.aps.alert.title).toBe("cmux");
@@ -251,6 +274,7 @@ describe("apns route policy", () => {
         surfaceId: "sf-1",
         macDeviceId: "mac-1",
         notificationId: "n-1",
+        correlationId: null,
         dismissedIds: [],
         badgeCount: null,
         retargetsToLiveSurfaceOwner: false,
@@ -281,6 +305,7 @@ describe("apns route policy", () => {
         surfaceId: null,
         macDeviceId: null,
         notificationId: null,
+        correlationId: null,
         dismissedIds: [],
         badgeCount: null,
         retargetsToLiveSurfaceOwner: true,
@@ -311,6 +336,7 @@ describe("apns route policy", () => {
         surfaceId: null,
         macDeviceId: null,
         notificationId: null,
+        correlationId: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,
         retargetsToLiveSurfaceOwner: false,

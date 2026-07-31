@@ -84,6 +84,40 @@ import Testing
         #expect(PhonePushClient.shouldForward(mode: .always, presence: decision))
     }
 
+    @Test func desktopBannerOffDoesNotDisableExplicitPhoneForwarding() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = false
+
+        #expect(TerminalNotificationStore.shouldAttemptPhoneForward(
+            effects: effects,
+            phoneForwardingEnabled: true,
+            categoryAllowsDelivery: true
+        ))
+    }
+
+    @Test func allLocalEffectsOffStillAllowsExplicitPhoneForwarding() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = false
+        effects.sound = false
+        effects.command = false
+
+        #expect(TerminalNotificationStore.shouldAttemptPhoneForward(
+            effects: effects,
+            phoneForwardingEnabled: true,
+            categoryAllowsDelivery: true
+        ))
+    }
+
+    @Test func categoryNeverRemainsAuthoritativeOverPhoneOptIn() {
+        let effects = TerminalNotificationPolicyEffects()
+
+        #expect(!TerminalNotificationStore.shouldAttemptPhoneForward(
+            effects: effects,
+            phoneForwardingEnabled: true,
+            categoryAllowsDelivery: false
+        ))
+    }
+
     @Test func phonePayloadOmitsSurfaceForConfinedNotificationsOnly() {
         let workspaceId = UUID()
         let surfaceId = UUID()

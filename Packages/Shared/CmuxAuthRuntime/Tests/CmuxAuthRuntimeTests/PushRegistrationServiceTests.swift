@@ -85,9 +85,10 @@ struct FakeTokenProvider: TokenProviding {
 
     private func makeScriptedService(
         tokenProvider: any TokenProviding = FakeTokenProvider(),
-        retryDelays: [Duration] = []
+        retryDelays: [Duration] = [],
+        suite: String = "push-scripted-\(UUID().uuidString)",
+        accountID: String? = "push-user-1"
     ) -> (PushRegistrationService, UserDefaults) {
-        let suite = "push-scripted-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PushRegistrationURLProtocol.self]
@@ -98,6 +99,7 @@ struct FakeTokenProvider: TokenProviding {
             apnsEnvironment: "sandbox",
             suiteName: suite,
             session: URLSession(configuration: configuration),
+            accountID: { accountID },
             retryDelays: retryDelays,
             retryJitter: { _ in 1 }
         )
@@ -259,6 +261,46 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
+    @Test func deviceCap429IsPermanentAndActionableWithoutRetry() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(
+                429,
+                json: #"{"error":"too_many_devices","limit":200}"#
+            ),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.zero])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(
+            await service.snapshot.backendState
+                == .failed(.deviceLimitReached(limit: 200))
+        )
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 1)
+    }
+
+    @Test(arguments: ["", "not-json", #"{"error":"future"}"#])
+    func malformedOrMissing429BodyRemainsAConventionalRetryableRateLimit(
+        body: String
+    ) async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(429, headers: ["Retry-After": "0"], json: body),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.zero])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        for _ in 0..<100 where await service.snapshot.backendState != .registered {
+            await Task.yield()
+        }
+
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+    }
+
     @Test func networkFailureIsVisibleWhileRetryIsPending() async {
         await PushRegistrationURLProtocol.script.reset([.failure(.notConnectedToInternet)])
         let (service, _) = makeScriptedService(retryDelays: [.seconds(60)])
@@ -268,6 +310,23 @@ struct FakeTokenProvider: TokenProviding {
 
         #expect(await service.snapshot.backendState == .failed(.networkUnavailable))
         #expect(await service.snapshot.backendState.isRecoverable)
+    }
+
+    @Test func apnsTokenCallbackFailureIsActionableAndSuccessfulRetryRecovers() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, _) = makeScriptedService()
+
+        await service.setEnabled(true)
+        await service.deviceTokenRegistrationFailed()
+
+        #expect(
+            await service.snapshot.backendState
+                == .deviceTokenRegistrationFailed
+        )
+
+        await service.register(deviceToken: Data(repeating: 0xCD, count: 32))
+
+        #expect(await service.snapshot.backendState == .registered)
     }
 
     @Test func disablingCancelsPendingRetryAndClearsReadiness() async {
@@ -284,20 +343,106 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await service.snapshot == .disabled)
     }
 
-    @Test func sameOrigin301PreservesRegistrationMethodBodyAndCredentials() async throws {
-        await PushRedirectURLProtocol.state.reset(.sameOrigin301)
+    @Test func offlineOptOutRetriesDeleteForTheSameAccountAfterRelaunch() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .failure(.notConnectedToInternet),
+            .response(200),
+        ])
+        let suite = "push-optout-retry-\(UUID().uuidString)"
+        let (service, _) = makeScriptedService(suite: suite)
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        await service.setEnabled(false)
+
+        let (relaunched, _) = makeScriptedService(suite: suite)
+        await relaunched.syncTokenIfPossible()
+
+        let methods = await PushRegistrationURLProtocol.script.requests
+            .map(\.httpMethod)
+        #expect(methods == ["POST", "DELETE", "DELETE"])
+        #expect(await relaunched.snapshot == .disabled)
+    }
+
+    @Test func pendingOldAccountDeleteNeverUsesNextAccountsCredentials() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .failure(.notConnectedToInternet),
+            .response(200),
+        ])
+        let suite = "push-account-switch-\(UUID().uuidString)"
+        let (oldService, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "old-access", refresh: "old-refresh"),
+            suite: suite,
+            accountID: "old-user"
+        )
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        await oldService.unregisterFromServer(
+            accessToken: "old-access",
+            refreshToken: "old-refresh"
+        )
+
+        let (nextService, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: "next-access", refresh: "next-refresh"),
+            suite: suite,
+            accountID: "next-user"
+        )
+        await nextService.syncTokenIfPossible()
+
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 1)
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.first?
+                .value(forHTTPHeaderField: "Authorization")
+                == "Bearer old-access"
+        )
+    }
+
+    @Test func disableIsIdempotentAfterUnregisterSucceeds() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService()
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        await service.setEnabled(false)
+        await service.setEnabled(false)
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .filter { $0.httpMethod == "DELETE" }
+                .count
+                == 1
+        )
+    }
+
+    private func makeRedirectService(
+        scenario: PushRedirectURLProtocol.Scenario
+    ) async -> PushRegistrationService {
+        await PushRedirectURLProtocol.state.reset(scenario)
         let suite = "push-redirect-\(UUID().uuidString)"
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PushRedirectURLProtocol.self]
-        let service = PushRegistrationService(
+        return PushRegistrationService(
             tokenProvider: FakeTokenProvider(),
             apiBaseURL: "https://\(PushRedirectURLProtocol.startHost)",
             bundleID: "dev.cmux.ios.push1",
             apnsEnvironment: "sandbox",
             suiteName: suite,
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            retryDelays: []
         )
+    }
 
+    @Test(arguments: [
+        PushRedirectURLProtocol.Scenario.sameOrigin301,
+        .sameOrigin302,
+        .sameOrigin307,
+        .sameOrigin308,
+    ])
+    func sameOriginRedirectsPreserveRegistrationMethodBodyAndCredentials(
+        scenario: PushRedirectURLProtocol.Scenario
+    ) async throws {
+        let service = await makeRedirectService(scenario: scenario)
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
 
@@ -308,19 +453,29 @@ struct FakeTokenProvider: TokenProviding {
         #expect(target.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
     }
 
-    @Test func crossOrigin308FailsClosedBeforeSendingTokenOrCustomCredentials() async {
-        await PushRedirectURLProtocol.state.reset(.crossOrigin308)
-        let suite = "push-cross-origin-\(UUID().uuidString)"
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [PushRedirectURLProtocol.self]
-        let service = PushRegistrationService(
-            tokenProvider: FakeTokenProvider(),
-            apiBaseURL: "https://\(PushRedirectURLProtocol.startHost)",
-            bundleID: "dev.cmux.ios.push1",
-            apnsEnvironment: "sandbox",
-            suiteName: suite,
-            session: URLSession(configuration: configuration)
-        )
+    @Test func sameOrigin303UsesGETWithoutBodyAndKeepsSameOriginCredentials() async throws {
+        let service = await makeRedirectService(scenario: .sameOrigin303)
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        let target = try #require(await PushRedirectURLProtocol.state.targetRequests.first)
+        #expect(target.httpMethod == "GET")
+        #expect(target.httpBody == nil)
+        #expect(target.httpBodyStream == nil)
+        #expect(target.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(target.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+    }
+
+    @Test(arguments: [
+        PushRedirectURLProtocol.Scenario.schemeDowngrade307,
+        .crossHost308,
+        .portChange302,
+    ])
+    func originChangesFailClosedBeforeSendingTokenOrCustomCredentials(
+        scenario: PushRedirectURLProtocol.Scenario
+    ) async {
+        let service = await makeRedirectService(scenario: scenario)
 
         await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
         await service.setEnabled(true)
