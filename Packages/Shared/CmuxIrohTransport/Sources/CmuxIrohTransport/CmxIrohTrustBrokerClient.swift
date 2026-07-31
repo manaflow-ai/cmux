@@ -40,11 +40,22 @@ public struct CmxIrohBrokerTokenSource: Sendable {
     /// Both tokens from ONE snapshot, so a request can never mix an old access
     /// token with a rotated refresh token.
     public let credentialPair: @Sendable () async -> CmxIrohBrokerCredentials?
+    /// Replaces one pair the broker rejected as unauthorized.
+    ///
+    /// Live sources may re-read or force-mint credentials. Frozen destructive
+    /// operations keep the default `nil` recovery so they cannot silently
+    /// switch sessions. The broker client invokes this at most once.
+    public let recoveredCredentialPair:
+        @Sendable (_ rejected: CmxIrohBrokerCredentials) async -> CmxIrohBrokerCredentials?
 
     public init(
-        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?
+        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?,
+        recoveredCredentialPair: @escaping @Sendable (
+            _ rejected: CmxIrohBrokerCredentials
+        ) async -> CmxIrohBrokerCredentials? = { _ in nil }
     ) {
         self.credentialPair = credentialPair
+        self.recoveredCredentialPair = recoveredCredentialPair
         self.accessToken = { await credentialPair()?.accessToken }
         self.refreshToken = { await credentialPair()?.refreshToken }
     }
@@ -492,8 +503,45 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard let pair = await tokenSource.credentialPair() else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
-        let accessToken = pair.accessToken
-        let refreshToken = pair.refreshToken
+        do {
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: pair
+            )
+        } catch let error as CmxIrohTrustBrokerClientError
+            where Self.isUnauthorizedRejection(error) {
+            guard let recovered = await tokenSource.recoveredCredentialPair(pair) else {
+                throw error
+            }
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: recovered
+            )
+        }
+    }
+
+    private static func isUnauthorizedRejection(
+        _ error: CmxIrohTrustBrokerClientError
+    ) -> Bool {
+        guard case let .rejected(statusCode, _) = error else { return false }
+        return statusCode == 401
+    }
+
+    private func performAuthenticatedRequest<Response: Decodable & Sendable>(
+        path: String,
+        method: String,
+        body: Data?,
+        queryItems: [URLQueryItem],
+        credentials: CmxIrohBrokerCredentials
+    ) async throws -> Response {
+        let accessToken = credentials.accessToken
+        let refreshToken = credentials.refreshToken
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }

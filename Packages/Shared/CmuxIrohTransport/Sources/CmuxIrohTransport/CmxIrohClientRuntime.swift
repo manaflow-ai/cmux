@@ -42,6 +42,11 @@ public actor CmxIrohClientRuntime {
         let cachedLANRendezvous: CmxIrohLANRendezvous?
     }
 
+    struct PolicyExpectations: Sendable {
+        let local: CmxIrohLocalBindingExpectation
+        let offline: CmxIrohClientOfflinePolicyExpectation?
+    }
+
     private struct ConnectivityReconciliationOperation {
         let id: UUID
         let task: Task<CmxIrohLiveDiscoveryRefreshOutcome, Never>
@@ -93,6 +98,8 @@ public actor CmxIrohClientRuntime {
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
+    var relayActivationTask: Task<Void, Never>?
+    var relayForegroundRefreshTask: Task<Void, Never>?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
     var registrationRefreshTaskID: UUID?
@@ -100,6 +107,7 @@ public actor CmxIrohClientRuntime {
     private var pendingConnectivityRevision: UInt64?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
+    var registrationRefreshAllowsBindingReplacement = false
     var liveDiscoveryGeneration: UInt64 = 0
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
@@ -457,6 +465,7 @@ public actor CmxIrohClientRuntime {
         let revision = lifecycleRevision
         registrationRefreshPending = false
         registrationRefreshEnabled = false
+        registrationRefreshAllowsBindingReplacement = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -480,12 +489,25 @@ public actor CmxIrohClientRuntime {
                   endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            let policy = try await resolvePolicy(
-                expectedEndpointID: endpointID,
-                revision: revision
-            )
+            let cached = try await cachedPolicy(expectedEndpointID: endpointID)
+            let policy: ResolvedPolicy
+            if let cached {
+                policy = cached
+            } else {
+                policy = try await resolvePolicy(
+                    expectedEndpointID: endpointID,
+                    revision: revision
+                )
+            }
+            let activatedFromCache = policy.registration == nil
+                && policy.discovery == nil
+            registrationRefreshAllowsBindingReplacement = activatedFromCache
             try requireCurrent(revision)
-            try await install(policy: policy, revision: revision, startRelays: true)
+            try await install(
+                policy: policy,
+                revision: revision,
+                startRelays: !activatedFromCache
+            )
             if !protocolConfiguration.allowsNATTraversalAfterAdmission {
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
@@ -515,9 +537,19 @@ public actor CmxIrohClientRuntime {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
             registrationRefreshEnabled = true
-            if registrationRefreshPending {
+            if activatedFromCache {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
+            } else if registrationRefreshPending {
+                registrationRefreshPending = false
+                scheduleRegistrationRefresh(revision: revision)
+            }
+            if activatedFromCache
+                || protocolConfiguration.allowsNATTraversalAfterAdmission {
+                scheduleRelayActivation(
+                    binding: policy.binding,
+                    revision: revision
+                )
             }
         } catch {
             guard lifecyclePhase == .starting,
@@ -557,17 +589,12 @@ public actor CmxIrohClientRuntime {
     public func didBecomeActive() async throws {
         guard lifecyclePhase == .active else { return }
         let revision = lifecycleRevision
-        // A registration refresh reads the active endpoint. Keep the preserved
-        // generation installed until any existing refresh finishes, then pause
-        // new refreshes across the brief unbound window used for stale-driver
-        // replacement. Supervisor events become one pending refresh that the
-        // explicit foreground refresh below consumes.
         registrationRefreshEnabled = false
+        registrationRefreshTask?.cancel()
+        registrationRefreshTask = nil
+        registrationRefreshTaskID = nil
+        registrationRefreshPending = false
         do {
-            if let refresh = registrationRefreshTask {
-                _ = try await refresh.value
-                try requireCurrent(revision)
-            }
             try await connectivityEngine.resume()
             let checked = await connectivityEngine.snapshot()
             try requireCurrent(revision)
@@ -575,12 +602,9 @@ public actor CmxIrohClientRuntime {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
             try requireCurrent(revision)
-            registrationRefreshPending = false
             registrationRefreshEnabled = true
-            _ = try await refreshLiveDiscoveryThrowing()
-            try requireCurrent(revision)
-            try await relayCoordinator?.refreshIfNeeded()
-            try requireCurrent(revision)
+            scheduleRegistrationRefresh(revision: revision)
+            scheduleRelayForegroundRefresh(revision: revision)
         } catch {
             if lifecyclePhase == .active, lifecycleRevision == revision {
                 registrationRefreshEnabled = true

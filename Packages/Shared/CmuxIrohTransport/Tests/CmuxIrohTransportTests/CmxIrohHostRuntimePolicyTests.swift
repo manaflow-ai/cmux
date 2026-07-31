@@ -151,7 +151,7 @@ extension CmxIrohHostRuntimeTests {
         .rejected(statusCode: 400, code: "invalid_request"),
         .invalidResponse,
     ])
-    func terminalBrokerFailureNeverUsesCachedPolicy(
+    func terminalBrokerFailureDeactivatesCachedPolicy(
         _ failure: CmxIrohTrustBrokerClientError
     ) async throws {
         let fixture = try HostRuntimeFixture()
@@ -164,6 +164,7 @@ extension CmxIrohHostRuntimeTests {
             discovery: fixture.discovery,
             registrationError: failure
         )
+        let deactivations = HostRuntimeDeactivationRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -172,18 +173,21 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
         )
 
-        do {
-            try await runtime.start()
-            Issue.record("Expected terminal broker failure")
-        } catch let error as CmxIrohTrustBrokerClientError {
-            #expect(error == failure)
-        }
+        try await runtime.start()
+        await broker.waitForRegistrationCount(1)
+        await deactivations.waitForCount(1)
 
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await runtime.snapshot().state == .failed)
+        #expect(await deactivations.values() == [
+            cachedFixture.binding.bindingID,
+        ])
     }
 
     @Test
@@ -220,6 +224,8 @@ extension CmxIrohHostRuntimeTests {
         )
 
         try await runtime.start()
+        await broker.waitForRegistrationCount(1)
+        await bindings.waitForCount(1)
 
         #expect(await runtime.snapshot().bindingID == fixture.binding.bindingID)
         #expect(await bindings.count() == 1)
@@ -275,6 +281,7 @@ extension CmxIrohHostRuntimeTests {
             discovery: fixture.discovery,
             discoveryError: .connectivity
         )
+        let deactivations = HostRuntimeDeactivationRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -283,14 +290,18 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+        await broker.waitForRegistrationCount(1)
+        await deactivations.waitForCount(1)
 
         #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await runtime.snapshot().state == .failed)
     }
 
     @Test
@@ -309,6 +320,7 @@ extension CmxIrohHostRuntimeTests {
             registrationBinding: fixture.binding,
             discovery: mismatchedDiscovery
         )
+        let deactivations = HostRuntimeDeactivationRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -317,14 +329,18 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.routeContractMismatch) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+        await broker.waitForRegistrationCount(1)
+        await deactivations.waitForCount(1)
 
         #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await runtime.snapshot().state == .failed)
     }
 
     @Test
@@ -343,6 +359,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
+        let deactivations = HostRuntimeDeactivationRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -351,12 +368,15 @@ extension CmxIrohHostRuntimeTests {
             ),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
         )
 
-        await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+        await broker.waitForRegistrationCount(1)
+        await deactivations.waitForCount(1)
 
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await runtime.snapshot().state == .failed)

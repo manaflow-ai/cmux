@@ -225,6 +225,8 @@ public final class MobileIrohRuntimeComposition:
     private var transitionTask: Task<Void, Never>?
     private let connectionReadiness = MobileIrohConnectionReadinessSignal()
     private var sceneTransitionTask: Task<Void, Never>?
+    private var foregroundRefreshTask: Task<Void, Never>?
+    private var foregroundRevision: UInt64 = 0
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
     // this production composition type. Runtime ownership remains private.
@@ -555,7 +557,7 @@ public final class MobileIrohRuntimeComposition:
         }
     }
 
-    /// Waits for the authenticated endpoint, broker binding, and relay policy.
+    /// Waits for local auth bootstrap and endpoint readiness.
     ///
     /// Tagged attach-URL launches use this barrier before starting the shell's
     /// bounded pairing attempt. Transport creation calls the same entrypoint,
@@ -803,38 +805,55 @@ public final class MobileIrohRuntimeComposition:
             a: DiagnosticAppLifecyclePhase.background.rawValue
         ))
         guard signOutPhase.allowsLifecycle else { return }
+        foregroundRevision &+= 1
         sceneTransitionTask?.cancel()
-        // Archive the diagnostic ring so a later relaunch keeps the events
-        // around a drop exportable.
-        persistDiagnosticsSnapshot()
-        let runtime = runtime
-        sceneTransitionTask = Task {
-            await runtime?.didEnterBackground()
-        }
+        sceneTransitionTask = nil
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
     }
 
-    /// Health-checks and refreshes the preserved endpoint on foreground return.
+    /// Restores endpoint readiness while network policy refreshes independently.
     public func didBecomeActive() {
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.active.rawValue
         ))
         guard signOutPhase.allowsLifecycle else { return }
+        foregroundRevision &+= 1
+        let foregroundGeneration = foregroundRevision
+        let compositionRevision = lifecycleRevision
+        let accountID = activeAccountID
         sceneTransitionTask?.cancel()
+        foregroundRefreshTask?.cancel()
         let auth = auth
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
-        sceneTransitionTask = Task {
-            await auth?.revalidateSession()
-            guard !Task.isCancelled, auth?.isAuthenticated != false else { return }
-            await lanPeerDiscovery?.permissionMayHaveChanged()
-            do {
-                try await runtime?.didBecomeActive()
-            } catch {
-                mobileIrohLog.error(
-                    "Iroh foreground health check failed: \(String(describing: error), privacy: .private)"
-                )
+        if let runtime {
+            sceneTransitionTask = Task { @MainActor [weak self] in
+                guard let self,
+                      foregroundGeneration == self.foregroundRevision,
+                      compositionRevision == self.lifecycleRevision,
+                      self.runtime === runtime else { return }
+                do {
+                    try await runtime.didBecomeActive()
+                } catch {
+                    mobileIrohLog.error(
+                        "Iroh foreground endpoint resume failed: \(String(describing: error), privacy: .private)"
+                    )
+                }
             }
+        } else {
+            sceneTransitionTask = nil
+        }
+        foregroundRefreshTask = Task { @MainActor [weak self, weak auth] in
+            await auth?.revalidateSession()
+            guard let self,
+                  !Task.isCancelled,
+                  foregroundGeneration == self.foregroundRevision,
+                  compositionRevision == self.lifecycleRevision,
+                  accountID == self.activeAccountID,
+                  auth?.isAuthenticated != false else { return }
+            await lanPeerDiscovery?.permissionMayHaveChanged()
         }
     }
 
@@ -1334,6 +1353,11 @@ public final class MobileIrohRuntimeComposition:
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
+        foregroundRevision &+= 1
+        sceneTransitionTask?.cancel()
+        sceneTransitionTask = nil
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
         connectionReadiness.begin(revision: revision)
         let previous = transitionTask
         previous?.cancel()
@@ -1526,7 +1550,6 @@ public final class MobileIrohRuntimeComposition:
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
-        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -1534,33 +1557,12 @@ public final class MobileIrohRuntimeComposition:
                 credentialStore: customRelayCredentials,
                 broker: brokerBundle.relayPolicy
             )
-            let effective: CmxIrohEffectiveRelayPolicy
-            diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-            do {
-                let outcome = try await service.refreshWithCredential(
-                    endpointID: endpointID,
-                    accountID: accountID,
-                    trustRoot: relayPolicyTrustRoot,
-                    now: now()
-                )
-                effective = outcome.effective
-                freshRelayCredential = outcome.relayCredential
-                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-            } catch {
-                diagnosticLog?.record(DiagnosticEvent(
-                    .relayPolicyRefreshFailed,
-                    b: Self.diagnosticFailureKind(for: error).rawValue
-                ))
-                effective = await service.restore(
-                    accountID: accountID,
-                    trustRoot: relayPolicyTrustRoot,
-                    relayCredential: cachedRelay,
-                    now: now()
-                )
-                mobileIrohLog.error(
-                    "Signed relay policy refresh failed; restored verified cache: \(String(describing: error), privacy: .private)"
-                )
-            }
+            let effective = await service.restore(
+                accountID: accountID,
+                trustRoot: relayPolicyTrustRoot,
+                relayCredential: cachedRelay,
+                now: now()
+            )
             endpointRelayProfile = effective.endpointRelayProfile
             managedRelayURLs = Set(effective.managedPolicy?.relays.map(\.url) ?? [])
             resolvedPolicyService = service
@@ -1584,9 +1586,6 @@ public final class MobileIrohRuntimeComposition:
         let compatibleCachedRelay = cachedRelay.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
-        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1597,7 +1596,7 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay
+            cachedRelayCredential: compatibleCachedRelay
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -1772,7 +1771,8 @@ public final class MobileIrohRuntimeComposition:
             accountID: accountID,
             endpointID: endpointID,
             trustRoot: relayPolicyTrustRoot,
-            revision: revision
+            revision: revision,
+            refreshImmediately: true
         )
         publishIrohSettingsUpdate()
     }
@@ -2419,7 +2419,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        refreshImmediately: Bool = false
     ) {
         relayPolicyRefreshTask?.cancel()
         guard Self.shouldScheduleRelayPolicyRefresh(
@@ -2434,7 +2435,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
             return
         }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
-            var retryAt: Date?
+            var retryAt = refreshImmediately ? self?.now() : nil
             var failureCount = 0
             var relayAuthorityExpired = false
             while !Task.isCancelled {
@@ -2894,6 +2895,24 @@ extension MobileIrohRuntimeComposition {
         CmxIrohBrokerTokenSource(
             credentialPair: { [weak auth] in
                 guard let auth,
+                      let session = try? await auth.authenticatedSessionSnapshot(),
+                      session.accountID == expectedAccountID else { return nil }
+                return CmxIrohBrokerCredentials(
+                    accessToken: session.accessToken,
+                    refreshToken: session.refreshToken
+                )
+            },
+            recoveredCredentialPair: { [weak auth] rejected in
+                guard let auth else { return nil }
+                if let session = try? await auth.authenticatedSessionSnapshot(),
+                   session.accountID == expectedAccountID,
+                   session.accessToken != rejected.accessToken {
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
+                }
+                guard (try? await auth.forceRefreshAccessToken()) != nil,
                       let session = try? await auth.authenticatedSessionSnapshot(),
                       session.accountID == expectedAccountID else { return nil }
                 return CmxIrohBrokerCredentials(

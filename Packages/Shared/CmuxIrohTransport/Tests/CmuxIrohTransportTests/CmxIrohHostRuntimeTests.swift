@@ -463,8 +463,24 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
 
 actor HostRuntimeBindingRecorder {
     private var recordedCount = 0
+    private var waiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
-    func record() { recordedCount += 1 }
+    func record() {
+        recordedCount += 1
+        let ready = waiters.filter { recordedCount >= $0.count }
+        waiters.removeAll { recordedCount >= $0.count }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func waitForCount(_ count: Int) async {
+        guard recordedCount < count else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
+    }
+
     func count() -> Int { recordedCount }
 }
 

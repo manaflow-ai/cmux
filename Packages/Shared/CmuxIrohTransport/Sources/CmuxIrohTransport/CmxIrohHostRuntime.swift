@@ -100,6 +100,7 @@ public actor CmxIrohHostRuntime {
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var registrationRefreshFailureCount = 0
+    var registrationRefreshAllowsBindingReplacement = false
     var localBinding: CmxIrohBrokerBindingMetadata?
     var managedRelayURLs: Set<String>
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -158,8 +159,7 @@ public actor CmxIrohHostRuntime {
         currentEndpointRelayProfile = configuration.endpointRelayProfile
     }
 
-
-    /// Activates connectivity and resolves authenticated broker policy before any cached fallback.
+    /// Activates locally verified cached authority before refreshing the broker.
     public func start() async throws {
         guard lifecyclePhase.allowsStart else {
             throw CmxIrohHostRuntimeError.alreadyActive
@@ -170,6 +170,7 @@ public actor CmxIrohHostRuntime {
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        registrationRefreshAllowsBindingReplacement = false
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .starting,
             endpointID: nil,
@@ -204,11 +205,29 @@ public actor CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
 
-            let policy = try await resolveInitialPolicy(
-                engine: connectivityEngine,
-                expectedEndpointID: endpointID,
-                revision: revision
-            )
+            let cachedPolicy: ResolvedPolicy?
+            do {
+                cachedPolicy = try initialCachedPolicy(
+                    expectedEndpointID: endpointID
+                )
+            } catch {
+                // Never activate malformed or stale cached authority. A live
+                // broker round may still replace it with current policy.
+                cachedPolicy = nil
+            }
+            let policy: ResolvedPolicy
+            if let cachedPolicy {
+                policy = cachedPolicy
+            } else {
+                policy = try await resolveInitialPolicy(
+                    engine: connectivityEngine,
+                    expectedEndpointID: endpointID,
+                    revision: revision
+                )
+            }
+            let activatedFromCache = policy.registration == nil
+                && policy.discovery == nil
+            registrationRefreshAllowsBindingReplacement = activatedFromCache
             try requireCurrent(revision)
 
             let offlineSessions = CmxIrohOfflinePairingSessions(
@@ -337,16 +356,8 @@ public actor CmxIrohHostRuntime {
             try requireCurrent(revision)
             registrationRefreshEnabled = true
             if !publishedFreshBinding {
-                // Cached authority keeps offline admission and LAN discovery
-                // available, but it cannot describe this endpoint generation's
-                // live direct port. Give the lifecycle-owned retry loop the
-                // incomplete activation so the broker is refreshed without
-                // creating a second endpoint or relying on another network event.
                 registrationRefreshPending = false
-                scheduleRegistrationRetry(
-                    revision: revision,
-                    retryAfterSeconds: publishedPolicy.registrationRetryAfterSeconds
-                )
+                scheduleRegistrationRefresh(revision: revision)
             } else if registrationRefreshPending {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)

@@ -82,6 +82,7 @@ extension CmxIrohHostRuntime {
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
+        registrationRefreshAllowsBindingReplacement = false
         relayActivationTask?.cancel()
         relayActivationTask = nil
         lanPublicationGeneration &+= 1

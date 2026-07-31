@@ -58,6 +58,7 @@ extension CmxIrohClientRuntimeTests {
         }
         #expect(await runtime.snapshot().state == .active)
         #expect(await factory.observedConfigurations().count == 2)
+        await broker.waitForRegistrationCount(2)
         #expect(await broker.observedRegistrations().count == 2)
         #expect(await staleEndpoint.observedCloseCallCount() == 1)
         await runtime.stop()

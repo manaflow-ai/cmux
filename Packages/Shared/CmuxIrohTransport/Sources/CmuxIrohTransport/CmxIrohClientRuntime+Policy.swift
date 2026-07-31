@@ -2,6 +2,54 @@ public import CMUXMobileCore
 public import Foundation
 
 extension CmxIrohClientRuntime {
+    func policyExpectations(
+        expectedEndpointID: CmxIrohPeerIdentity
+    ) throws -> PolicyExpectations {
+        let local = try CmxIrohLocalBindingExpectation(
+            deviceID: configuration.deviceID,
+            appInstanceID: configuration.appInstanceID,
+            tag: configuration.tag,
+            platform: .ios,
+            endpointID: expectedEndpointID,
+            identityGeneration: configuration.identity.generation,
+            pairingEnabled: false,
+            capabilities: configuration.capabilities
+        )
+        // Without a managed relay fleet there is no signed relay authority to
+        // bind into an offline policy.
+        let offline: CmxIrohClientOfflinePolicyExpectation? =
+            try offlinePolicyCache.flatMap { _ in
+                guard !managedRelayURLs.isEmpty else { return nil }
+                return try CmxIrohClientOfflinePolicyExpectation(
+                    accountID: configuration.accountID,
+                    localBindingExpectation: local,
+                    managedRelayURLs: managedRelayURLs
+                )
+            }
+        return PolicyExpectations(local: local, offline: offline)
+    }
+
+    func cachedPolicy(
+        expectedEndpointID: CmxIrohPeerIdentity
+    ) async throws -> ResolvedPolicy? {
+        let expectations = try policyExpectations(
+            expectedEndpointID: expectedEndpointID
+        )
+        guard let cached = try await offlineBootstrap(
+            expectation: expectations.offline,
+            confirmedLocalBinding: nil
+        ) else { return nil }
+        return ResolvedPolicy(
+            registration: nil,
+            discovery: nil,
+            binding: cached.localBinding,
+            expectation: expectations.local,
+            offlineExpectation: expectations.offline,
+            cachedTargetBindings: cached.targetBindings,
+            cachedLANRendezvous: cached.lanRendezvous
+        )
+    }
+
     func resolvePolicy(
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
@@ -38,28 +86,11 @@ extension CmxIrohClientRuntime {
             directPorts: directPorts,
             now: now()
         )
-        let expectation = try CmxIrohLocalBindingExpectation(
-            deviceID: configuration.deviceID,
-            appInstanceID: configuration.appInstanceID,
-            tag: configuration.tag,
-            platform: .ios,
-            endpointID: expectedEndpointID,
-            identityGeneration: configuration.identity.generation,
-            pairingEnabled: false,
-            capabilities: configuration.capabilities
+        let expectations = try policyExpectations(
+            expectedEndpointID: expectedEndpointID
         )
-        // Without a managed relay fleet (policy unavailable or direct-only)
-        // there is no relay bootstrap to cache offline; activation proceeds
-        // with direct paths instead of failing the expectation's fleet check.
-        let offlineExpectation: CmxIrohClientOfflinePolicyExpectation? =
-            try offlinePolicyCache.flatMap { _ in
-                guard !managedRelayURLs.isEmpty else { return nil }
-                return try CmxIrohClientOfflinePolicyExpectation(
-                    accountID: configuration.accountID,
-                    localBindingExpectation: expectation,
-                    managedRelayURLs: managedRelayURLs
-                )
-            }
+        let expectation = expectations.local
+        let offlineExpectation = expectations.offline
         let signer = try CmxIrohRegistrationSigner(
             identity: configuration.identity,
             endpointID: expectedEndpointID.endpointID
@@ -217,6 +248,17 @@ extension CmxIrohClientRuntime {
             registryContextProvider = provider
         }
         await contextRouter.install(provider)
+        let replacesBinding = localBinding.map {
+            $0.bindingID != policy.binding.bindingID
+        } ?? false
+        if replacesBinding {
+            relayActivationTask?.cancel()
+            relayActivationTask = nil
+            relayForegroundRefreshTask?.cancel()
+            relayForegroundRefreshTask = nil
+            await relayCoordinator?.deactivate()
+            relayCoordinator = nil
+        }
         localBinding = policy.binding
 
         guard endpointRelayProfile.source == .managed,
@@ -243,20 +285,18 @@ extension CmxIrohClientRuntime {
             relayCoordinator = coordinator
         }
 
-        let bootstrap = startRelays ? configuration.cachedRelayCredential : nil
-        if startRelays || bootstrap != nil {
-            let requiresRelayReadiness = !protocolConfiguration
-                .allowsNATTraversalAfterAdmission
+        let requiresRelayReadiness = !protocolConfiguration
+            .allowsNATTraversalAfterAdmission
+        if startRelays, requiresRelayReadiness {
             do {
                 try await coordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: policy.binding.endpointID,
-                    bootstrap: bootstrap,
-                    waitForInitialCredential: requiresRelayReadiness
+                    bootstrap: configuration.cachedRelayCredential,
+                    waitForInitialCredential: true
                 )
             } catch {
-                if requiresRelayReadiness { throw error }
-                // Registration remains authoritative; direct paths remain usable.
+                throw error
             }
         }
     }
