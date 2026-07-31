@@ -15,6 +15,7 @@ extension DockSplitStore {
 
     @discardableResult
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
+        appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         AppDelegate.shared?.notificationStore?.clearNotifications(

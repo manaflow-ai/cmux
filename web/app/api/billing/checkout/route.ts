@@ -9,10 +9,7 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import {
-  resolveProPlanStatus,
-  syncProPlanMetadata,
-} from "../../../../services/billing/pro";
+import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
@@ -102,7 +99,6 @@ async function stripeProCheckout(
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
-    await syncProPlanMetadata(user, true);
     return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
   }
 
