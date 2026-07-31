@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Defines nested deadlines for one browser screenshot request.
 public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
