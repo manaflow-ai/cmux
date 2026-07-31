@@ -44,7 +44,7 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            auth.browserSignIn.beginSignIn()
+            auth.accountFlow.startSignIn()
         }
         registry.register(commandId: Self.commandPaletteAuthSignOutCommandId) {
 #if DEBUG
@@ -55,7 +55,7 @@ extension ContentView {
                 return
             }
             Task { @MainActor in
-                await auth.browserSignIn.signOut()
+                await auth.accountFlow.signOut()
             }
         }
     }
