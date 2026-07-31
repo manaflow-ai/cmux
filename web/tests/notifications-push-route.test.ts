@@ -193,6 +193,7 @@ describe("notifications push route", () => {
     ];
 
     const correlationId = "4d02de48-a21d-4ba1-97b5-42e9400ee09b";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1000) + 120;
     const request = () => new Request(
       "https://cmux.test/api/notifications/push",
       {
@@ -205,7 +206,7 @@ describe("notifications push route", () => {
           title: "agent",
           body: "done",
           correlationId,
-          expirationEpochSeconds: Math.floor(Date.now() / 1000) + 120,
+          expirationEpochSeconds,
         }),
       },
     );
@@ -389,6 +390,7 @@ describe("notifications push route", () => {
       },
     ]];
     const correlationId = "8c797e1a-797a-47cc-a995-30cffdfbe423";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1000) + 120;
     const request = () => new Request(
       "https://cmux.test/api/notifications/push",
       {
@@ -401,7 +403,7 @@ describe("notifications push route", () => {
           title: "agent",
           body: "done",
           correlationId,
-          expirationEpochSeconds: Math.floor(Date.now() / 1000) + 120,
+          expirationEpochSeconds,
         }),
       },
     );
