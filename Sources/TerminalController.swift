@@ -8054,9 +8054,10 @@ class TerminalController {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
+        let timingBudget = BrowserScreenshotTimingBudget()
         guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
             browserPanel,
-            timeout: BrowserScreenshotCaptureService.socketResponseTimeout
+            timeout: timingBudget.socketResponseTimeout
         ) else {
             return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
         }
@@ -8072,7 +8073,8 @@ class TerminalController {
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,
-                channel: .screenshot
+                channel: .screenshot,
+                livenessTimeout: timingBudget.livenessProbeAllowance
             )
             return .err(code: "timeout", message: message, data: nil)
         }

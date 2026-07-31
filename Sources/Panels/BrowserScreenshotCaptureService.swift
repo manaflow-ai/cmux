@@ -36,16 +36,16 @@ struct BrowserScreenshotCaptureService {
     init(
         webView: WKWebView,
         presentation: BrowserScreenshotPresentation,
-        maximumAttempts: Int = Self.defaultMaximumAttempts
+        timingBudget: BrowserScreenshotTimingBudget = .init(),
+        maximumAttempts: Int? = nil
     ) {
-        let timingBudget = BrowserScreenshotTimingBudget()
         let probeCollector = BrowserScreenshotDOMProbeCollector(
             webView: webView,
             animationFrameTimeout: timingBudget.synchronizationAllowance,
             javaScriptTimeout: timingBudget.probeCollectionAllowance
         )
         self.init(
-            maximumAttempts: maximumAttempts,
+            maximumAttempts: maximumAttempts ?? timingBudget.maximumAttempts,
             synchronize: { isRetry in
                 try await probeCollector.synchronize(
                     waitForAnimationFrame: presentation.waitsForAnimationFrame(

@@ -4,8 +4,10 @@ public import Foundation
 public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     /// Maximum number of capture and verification attempts.
     public let maximumAttempts: Int
-    /// Time reserved for acquiring and releasing the browser render lease.
-    public let leaseSetupAllowance: TimeInterval
+    /// Deadline for restoring a discarded web view to its expected URL.
+    public let expectedURLAllowance: TimeInterval
+    /// Deadline for the pre-capture JavaScript layout flush.
+    public let preparationJavaScriptAllowance: TimeInterval
     /// Deadline for each DOM probe collection.
     public let probeCollectionAllowance: TimeInterval
     /// Deadline for the final page-state synchronization operation.
@@ -14,6 +16,8 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     public let snapshotCompletionAllowance: TimeInterval
     /// Delivery margin between the capture lease and the app socket waiter.
     public let socketDeliveryAllowance: TimeInterval
+    /// Deadline for checking and recovering browser liveness after capture timeout.
+    public let livenessProbeAllowance: TimeInterval
     /// Delivery margin between the app socket waiter and the CLI client.
     public let clientDeliveryAllowance: TimeInterval
 
@@ -21,33 +25,41 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - maximumAttempts: Number of capture and verification attempts; defaults to two.
-    ///   - leaseSetupAllowance: Time reserved outside capture attempts; defaults to four seconds.
+    ///   - expectedURLAllowance: Restored-URL deadline; defaults to five seconds.
+    ///   - preparationJavaScriptAllowance: Layout-flush deadline; defaults to one second.
     ///   - probeCollectionAllowance: Per-probe deadline; defaults to one second.
     ///   - synchronizationAllowance: Page-state barrier deadline; defaults to one second.
     ///   - snapshotCompletionAllowance: Snapshot callback deadline; defaults to ten seconds.
     ///   - socketDeliveryAllowance: App socket delivery margin; defaults to two seconds.
+    ///   - livenessProbeAllowance: Post-timeout recovery deadline; defaults to 2.5 seconds.
     ///   - clientDeliveryAllowance: CLI response delivery margin; defaults to three seconds.
     public init(
         maximumAttempts: Int = 2,
-        leaseSetupAllowance: TimeInterval = 4,
+        expectedURLAllowance: TimeInterval = 5,
+        preparationJavaScriptAllowance: TimeInterval = 1,
         probeCollectionAllowance: TimeInterval = 1,
         synchronizationAllowance: TimeInterval = 1,
         snapshotCompletionAllowance: TimeInterval = 10,
         socketDeliveryAllowance: TimeInterval = 2,
+        livenessProbeAllowance: TimeInterval = 2.5,
         clientDeliveryAllowance: TimeInterval = 3
     ) {
         self.maximumAttempts = maximumAttempts
-        self.leaseSetupAllowance = leaseSetupAllowance
+        self.expectedURLAllowance = expectedURLAllowance
+        self.preparationJavaScriptAllowance = preparationJavaScriptAllowance
         self.probeCollectionAllowance = probeCollectionAllowance
         self.synchronizationAllowance = synchronizationAllowance
         self.snapshotCompletionAllowance = snapshotCompletionAllowance
         self.socketDeliveryAllowance = socketDeliveryAllowance
+        self.livenessProbeAllowance = livenessProbeAllowance
         self.clientDeliveryAllowance = clientDeliveryAllowance
     }
 
     /// Maximum duration of the app's render lease.
     public var captureLeaseTimeout: TimeInterval {
-        leaseSetupAllowance + TimeInterval(maximumAttempts) * (
+        expectedURLAllowance
+            + preparationJavaScriptAllowance
+            + TimeInterval(maximumAttempts) * (
             probeCollectionAllowance * 2
                 + synchronizationAllowance
                 + snapshotCompletionAllowance
@@ -61,6 +73,8 @@ public struct BrowserScreenshotTimingBudget: Sendable, Equatable {
 
     /// Maximum duration of the CLI's socket response waiter.
     public var clientResponseTimeout: TimeInterval {
-        socketResponseTimeout + clientDeliveryAllowance
+        socketResponseTimeout
+            + livenessProbeAllowance
+            + clientDeliveryAllowance
     }
 }

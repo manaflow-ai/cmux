@@ -7348,16 +7348,18 @@ extension BrowserPanel {
             completion(.failure(BrowserScreenshotError.captureInProgress))
             return
         }
+        let timingBudget = BrowserScreenshotTimingBudget()
 
         withVisualAutomationRenderLease(
             reason: "browser.screenshot",
-            timeout: BrowserScreenshotCaptureService.automationLeaseTimeout,
+            timingBudget: timingBudget,
             operation: { webView, presentation, finish in
                 Task { @MainActor in
                     do {
                         let image = try await BrowserScreenshotCaptureService(
                             webView: webView,
-                            presentation: presentation
+                            presentation: presentation,
+                            timingBudget: timingBudget
                         ).capture()
                         finish(.success(image))
                     } catch {
@@ -7374,7 +7376,7 @@ extension BrowserPanel {
 
     private func withVisualAutomationRenderLease<T>(
         reason: String,
-        timeout: TimeInterval,
+        timingBudget: BrowserScreenshotTimingBudget,
         operation: @escaping (
             _ webView: WKWebView,
             _ presentation: BrowserScreenshotPresentation,
@@ -7394,6 +7396,7 @@ extension BrowserPanel {
         let presentation = visualAutomationPresentation
         let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
         var operationTask: Task<Void, Never>?
+        let timeout = timingBudget.captureLeaseTimeout
 
         let finish: (Result<T, Error>) -> Void = { result in
             guard !didFinish else { return }
@@ -7419,6 +7422,7 @@ extension BrowserPanel {
                 viewportSize: viewportSize,
                 expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
                 timeout: timeout,
+                timingBudget: timingBudget,
                 operation: { operationFinish in
                     let task = operation(
                         captureWebView,
@@ -7444,7 +7448,8 @@ extension BrowserPanel {
 
         BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
             captureWebView,
-            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
+            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+            timingBudget: timingBudget
         ) { result in
             switch result {
             case .success:

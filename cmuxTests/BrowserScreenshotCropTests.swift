@@ -225,7 +225,7 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifiedCaptureBudgetCoversRetriesAndSocketDelivery() {
         #expect(BrowserScreenshotCaptureService.defaultMaximumAttempts == 2)
-        #expect(BrowserScreenshotCaptureService.automationLeaseTimeout == 30)
+        #expect(BrowserScreenshotCaptureService.automationLeaseTimeout == 32)
         #expect(
             BrowserScreenshotCaptureService.socketResponseTimeout
                 > BrowserScreenshotCaptureService.automationLeaseTimeout
@@ -236,17 +236,19 @@ struct BrowserScreenshotCropTests {
     func screenshotTimingBudgetNestsEveryResponseDeadline() {
         let budget = BrowserScreenshotTimingBudget(
             maximumAttempts: 3,
-            leaseSetupAllowance: 2,
+            expectedURLAllowance: 2,
+            preparationJavaScriptAllowance: 3,
             probeCollectionAllowance: 4,
             synchronizationAllowance: 5,
             snapshotCompletionAllowance: 6,
             socketDeliveryAllowance: 7,
-            clientDeliveryAllowance: 8
+            livenessProbeAllowance: 8,
+            clientDeliveryAllowance: 9
         )
 
-        #expect(budget.captureLeaseTimeout == 59)
-        #expect(budget.socketResponseTimeout == 66)
-        #expect(budget.clientResponseTimeout == 74)
+        #expect(budget.captureLeaseTimeout == 62)
+        #expect(budget.socketResponseTimeout == 69)
+        #expect(budget.clientResponseTimeout == 86)
     }
 
     @Test

@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxFoundation
 import Foundation
 import WebKit
 
@@ -134,10 +135,14 @@ extension TerminalController {
         browserPanel: BrowserPanel,
         surfaceId: UUID,
         expectedWebViewIdentifier: ObjectIdentifier,
-        channel: BrowserAutomationProbeChannel
+        channel: BrowserAutomationProbeChannel,
+        livenessTimeout: TimeInterval =
+            BrowserScreenshotTimingBudget().livenessProbeAllowance
     ) -> String {
         var recoveryTask: Task<Void, Never>?
-        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(timeout: 2.5) { finish in
+        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(
+            timeout: livenessTimeout
+        ) { finish in
             recoveryTask = Task { @MainActor in
                 guard !Task.isCancelled else {
                     finish(.cancelled)
