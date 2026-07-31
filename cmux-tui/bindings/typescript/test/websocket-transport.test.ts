@@ -26,7 +26,10 @@ class FakeWebSocket implements WebSocketLike {
   readonly url: string;
   readonly protocols?: string | string[];
   readyState = 0;
+  closeCalls = 0;
+  delayCloseEvent = false;
   sendFailure: ((data: string) => Error | undefined) | undefined;
+  private pendingCloseEvent: { code?: number; reason?: string } | undefined;
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   constructor(url: string | URL, protocols?: string | string[]) {
@@ -40,7 +43,18 @@ class FakeWebSocket implements WebSocketLike {
     if (failure) throw failure;
     this.sent.push(data);
   }
-  close(): void { this.readyState = 3; this.emit("close", {}); }
+  close(code?: number, reason?: string): void {
+    this.closeCalls += 1;
+    this.readyState = 2;
+    this.pendingCloseEvent = { code, reason };
+    if (!this.delayCloseEvent) this.finishClose();
+  }
+  finishClose(): void {
+    this.readyState = 3;
+    const event = this.pendingCloseEvent ?? {};
+    this.pendingCloseEvent = undefined;
+    this.emit("close", event);
+  }
   rejectAuthentication(): void {
     this.readyState = 3;
     this.emit("close", { code: 1008, reason: "authentication failed" });
@@ -274,6 +288,57 @@ for (const preamble of [
           setTimeout(() => reject(new Error("request remained pending")), 50);
         }),
       ]);
+    } finally {
+      client.close();
+      await rejected;
+    }
+  });
+}
+
+for (const preamble of [
+  { name: "pairing", authToken: undefined, frame: '"pair"' },
+  { name: "authentication", authToken: "secret", frame: '"auth"' },
+] as const) {
+  test(`resource WebSocket ${preamble.name} failure ignores late pairing while closing`, async () => {
+    const credentials: string[] = [];
+    const errors: Error[] = [];
+    let closes = 0;
+    const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+      WebSocket: ResourceConstructor,
+      authToken: preamble.authToken,
+      onPairingCredential: (credential) => credentials.push(credential),
+    });
+    const client = new Client({ transport, timeoutMs: 0 });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.delayCloseEvent = true;
+    socket.sendFailure = (data) => data.includes(preamble.frame)
+      ? new Error(`${preamble.name} preamble exploded`)
+      : undefined;
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    transport.send("direct-queued");
+    const ping = client.session(RESOURCE_SESSION).ping();
+    const rejected = assert.rejects(() => ping, CmuxConnectionError);
+
+    try {
+      socket.open();
+      assert.equal(socket.readyState, 2);
+      assert.equal(closes, 0);
+
+      socket.message('{"paired":{"credential":"late-secret"}}');
+      assert.deepEqual(credentials, []);
+      assert.throws(() => transport.send("after-failure"), /closed/);
+
+      socket.sendFailure = undefined;
+      socket.open();
+      assert.deepEqual(socket.sent, []);
+      assert.equal(errors.length, 1);
+      assert.equal(socket.closeCalls, 1);
+
+      socket.finishClose();
+      socket.finishClose();
+      assert.equal(closes, 1);
+      await rejected;
     } finally {
       client.close();
       await rejected;
