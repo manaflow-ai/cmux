@@ -87,6 +87,9 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         await settleActivation(fixture) {
             await fixture.broker.totalRequestCount() >= 1
         }
+        // Drain any still-running reconcile before counting, so the settled
+        // baseline is stable against task-scheduling noise.
+        await fixture.composition.prepareForConnection()
         let settledRequestCount = await fixture.broker.totalRequestCount()
 
         let transportError: any Error
@@ -130,9 +133,74 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         }
         #expect(eventStreamError as? CmxIrohClientRuntimeError == .inactive)
         #expect((eventStreamError as? any CmxRetryAfterProviding)?.retryAfterSeconds == nil)
-        // No cooldown for non-rate-limited failures: each dial retried a
-        // fresh activation and reached the broker again.
-        #expect(await fixture.broker.totalRequestCount() > settledRequestCount)
+        // A non-rate-limited failure arms only the local client backoff: dials
+        // inside the armed window keep the plain inactive error shape (no
+        // Retry-After) and never reach the broker until the window expires.
+        #expect(await fixture.broker.totalRequestCount() == settledRequestCount)
+    }
+
+    @Test
+    func clientBackoffBoundsFailingActivationRetries() async throws {
+        let fixture = try await MobileIrohCooldownFixture.make(
+            registrationError: MobileIrohCooldownTestError.unavailable
+        )
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() >= 1
+        }
+        await fixture.composition.prepareForConnection()
+        let settled = await fixture.broker.totalRequestCount()
+
+        // The injected clock is frozen inside the armed backoff window, so
+        // every re-driven preparation and dial must stay broker-silent. Before
+        // the client backoff existed, each of these re-ran registration.
+        for _ in 0 ..< 20 {
+            await fixture.composition.prepareForConnection()
+        }
+        _ = try? await fixture.composition.transport(for: fixture.request)
+        _ = try? await fixture.composition.transport(for: fixture.request)
+        #expect(await fixture.broker.totalRequestCount() == settled)
+
+        // The armed nap is observable and bounded by the foreground cap: no
+        // multi-minute sleep can be scheduled while the app is active.
+        let scheduled = (await fixture.diagnosticLog.snapshot()).events.filter {
+            $0.code == .retryScheduled
+        }
+        #expect(!scheduled.isEmpty)
+        #expect(scheduled.allSatisfy { ($0.ms ?? .max) <= 30_000 })
+
+        // Past the foreground cap, exactly one further attempt runs; its
+        // failure re-arms the window and later drives stay broker-silent.
+        fixture.clock.advance(by: 31)
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() > settled
+        }
+        #expect(await fixture.broker.totalRequestCount() == settled + 1)
+        for _ in 0 ..< 5 {
+            await fixture.composition.prepareForConnection()
+        }
+        #expect(await fixture.broker.totalRequestCount() == settled + 1)
+    }
+
+    @Test
+    func scenePhaseActiveResetsActivationBackoff() async throws {
+        let fixture = try await MobileIrohCooldownFixture.make(
+            registrationError: MobileIrohCooldownTestError.unavailable
+        )
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() >= 1
+        }
+        await fixture.composition.prepareForConnection()
+        let settled = await fixture.broker.totalRequestCount()
+        await fixture.composition.prepareForConnection()
+        #expect(await fixture.broker.totalRequestCount() == settled)
+
+        // Returning to the foreground clears the armed window without any
+        // clock advance: the very next preparation retries immediately.
+        fixture.composition.didBecomeActive()
+        await settleActivation(fixture) {
+            await fixture.broker.totalRequestCount() > settled
+        }
+        #expect(await fixture.broker.totalRequestCount() == settled + 1)
     }
 
     @Test
