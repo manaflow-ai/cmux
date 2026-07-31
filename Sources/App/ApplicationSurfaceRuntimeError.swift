@@ -5,6 +5,7 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
     case windowUnavailable
     case helperUnavailable
     case pointOutsideContent
+    case captureUnavailable
     case invalidResponse
     case failed(String)
 
@@ -25,7 +26,7 @@ enum ApplicationSurfaceRuntimeError: LocalizedError, Equatable, Sendable {
                 localized: "applicationSurface.error.helperUnavailable",
                 defaultValue: "The cmux Computer Use helper is unavailable."
             )
-        case .pointOutsideContent:
+        case .pointOutsideContent, .captureUnavailable:
             nil
         case .invalidResponse:
             String(

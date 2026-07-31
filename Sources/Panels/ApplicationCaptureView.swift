@@ -70,6 +70,8 @@ final class ApplicationCaptureView: NSView {
             return true
         } catch ApplicationSurfaceRuntimeError.pointOutsideContent {
             return false
+        } catch ApplicationSurfaceRuntimeError.captureUnavailable {
+            return false
         } catch ApplicationSurfaceRuntimeError.windowUnavailable {
             self.handleRuntimeFailure(
                 .windowUnavailable,
@@ -837,7 +839,7 @@ final class ApplicationCaptureView: NSView {
                         .failed,
                         failureDetail: failure.localizedDescription
                     )
-                case .pointOutsideContent:
+                case .pointOutsideContent, .captureUnavailable:
                     continue
                 }
                 return

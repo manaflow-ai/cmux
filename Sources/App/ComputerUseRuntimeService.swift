@@ -951,6 +951,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 throw ApplicationSurfaceRuntimeError.windowUnavailable
             case "point_outside_content":
                 throw ApplicationSurfaceRuntimeError.pointOutsideContent
+            case "capture_unavailable":
+                throw ApplicationSurfaceRuntimeError.captureUnavailable
             case "session_unavailable":
                 throw ApplicationSurfaceRuntimeError.helperUnavailable
             default:
