@@ -48,7 +48,7 @@ struct ResumeLauncherCwdConsistencyTests {
         ))
         #expect(
             input
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore cwd-agent session-9200\n"
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore cwd-agent session-9200\n"
         )
         #expect(
             try fileManager.contentsOfDirectory(

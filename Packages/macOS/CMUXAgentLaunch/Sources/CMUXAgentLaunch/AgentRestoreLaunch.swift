@@ -12,64 +12,12 @@ import Foundation
 /// let startupInput = launch?.authorizing(leadingShell: "", routedCommand: resumeCommand)
 /// ```
 public struct AgentRestoreLaunch: Sendable {
-    /// Shell token for the CLI bundled with the app that owns the surface.
+    /// The readable restore executable typed into cmux-owned terminals.
     ///
-    /// Resolving an absolute path before composing startup input avoids a second
-    /// PATH lookup in the restored interactive shell. The app-bundled CLI is
-    /// preferred; an already-resolved executable from the app's PATH is accepted
-    /// only as a compatibility fallback. The quoting form is accepted by the
-    /// supported POSIX, fish, and csh-family interactive shells.
-    ///
-    /// - Parameters:
-    ///   - bundledCLIPath: The app-relative CLI candidate.
-    ///   - executableSearchPath: Absolute directories that may contain a fallback CLI.
-    ///   - isExecutableFile: The executable-path lookup used to validate the candidate.
-    /// - Returns: A quoted absolute token, or `nil` when no trustworthy CLI exists.
-    public static func bundledCLIStartupExecutableToken(
-        bundledCLIPath: String? = Bundle.main.resourceURL?
-            .appendingPathComponent("bin/cmux", isDirectory: false)
-            .path,
-        executableSearchPath: String? = ProcessInfo.processInfo.environment["PATH"],
-        isExecutableFile: @Sendable (String) -> Bool = {
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory)
-                && !isDirectory.boolValue
-                && FileManager.default.isExecutableFile(atPath: $0)
-        }
-    ) -> String? {
-        var candidates: [String] = []
-        if let bundledCLIPath {
-            candidates.append(bundledCLIPath)
-        }
-        if let executableSearchPath {
-            for directory in executableSearchPath.split(
-                separator: ":",
-                omittingEmptySubsequences: false
-            ) {
-                let root = String(directory)
-                guard root.hasPrefix("/") else { continue }
-                candidates.append(
-                    URL(fileURLWithPath: root, isDirectory: true)
-                        .appendingPathComponent("cmux", isDirectory: false)
-                        .path
-                )
-            }
-        }
-        guard let path = candidates.first(where: {
-            $0.hasPrefix("/")
-                && !$0.isEmpty
-                && $0.rangeOfCharacter(from: .newlines) == nil
-                && isExecutableFile($0)
-        }) else {
-            return nil
-        }
-        let unescapedScalars = CharacterSet.alphanumerics.union(
-            CharacterSet(charactersIn: "/._-")
-        )
-        return path.unicodeScalars.map { scalar in
-            unescapedScalars.contains(scalar) ? String(scalar) : "\\\(scalar)"
-        }.joined()
-    }
+    /// ``TerminalSurface`` prepends the owning app's bundled `Resources/bin`
+    /// directory to the terminal environment before the login shell starts, so
+    /// this resolves to the same build while keeping restored scrollback useful.
+    public static let cliStartupExecutableToken = "cmux"
 
     /// Returns whether a persisted identifier can be typed as one restore CLI argument.
     ///

@@ -66,7 +66,7 @@ import Testing
         #expect(binding.launchCommand == nil)
         #expect(
             binding.restoreStartupInput()
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore --surface\n"
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore --surface\n"
         )
     }
 
@@ -84,7 +84,7 @@ import Testing
 
         #expect(
             startupInput
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex \(sessionId)\n"
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
         )
     }
 
@@ -492,7 +492,7 @@ import Testing
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex session-local-resume\n"
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session-local-resume\n"
         )
         #expect(!restoredInput.contains(staleExecutablePath))
         #expect(!restoredInput.contains(oversizedArgument))

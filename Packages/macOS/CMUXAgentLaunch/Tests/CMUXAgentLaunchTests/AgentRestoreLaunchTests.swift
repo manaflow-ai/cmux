@@ -47,86 +47,8 @@ import Testing
         )
     }
 
-    @Test func bundledCLIStartupTokenQuotesAbsolutePathWithoutEnvironmentLookup() {
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: "/Applications/cmux!dev user's 日本語 build.app/Contents/Resources/bin/cmux",
-                isExecutableFile: { _ in true }
-            )
-                == "/Applications/cmux\\!dev\\ user\\'s\\ 日本語\\ build.app/Contents/Resources/bin/cmux"
-        )
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: nil,
-                executableSearchPath: nil
-            ) == nil
-        )
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                executableSearchPath: nil,
-                isExecutableFile: { _ in false }
-            ) == nil
-        )
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: "/Applications/cmux\nDEV.app/Contents/Resources/bin/cmux",
-                executableSearchPath: nil,
-                isExecutableFile: { _ in true }
-            ) == nil
-        )
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: nil,
-                executableSearchPath: ":relative:/trusted/bin",
-                isExecutableFile: { $0 == "/trusted/bin/cmux" }
-            ) == "/trusted/bin/cmux"
-        )
-        #expect(
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: nil,
-                executableSearchPath: ":relative",
-                isExecutableFile: { _ in true }
-            ) == nil
-        )
-    }
-
-    @Test(arguments: [
-        "/bin/sh",
-        "/bin/zsh",
-        "/bin/csh",
-        "/bin/tcsh",
-        "/usr/local/bin/fish",
-        "/opt/homebrew/bin/fish",
-    ])
-    func bundledCLIStartupTokenExecutesAcrossSupportedShellFamilies(
-        shellPath: String
-    ) throws {
-        guard FileManager.default.isExecutableFile(atPath: shellPath) else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux!dev user's 日本語 build \(UUID().uuidString)", isDirectory: true)
-        let executable = root.appendingPathComponent("cmux", isDirectory: false)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(
-            at: executable,
-            withDestinationURL: URL(fileURLWithPath: "/usr/bin/true")
-        )
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shellPath)
-        process.arguments = [
-            "-c",
-            try #require(AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: executable.path,
-                executableSearchPath: nil,
-                isExecutableFile: { _ in true }
-            )),
-        ]
-        try process.run()
-        process.waitUntilExit()
-
-        #expect(process.terminationStatus == 0)
+    @Test func startupTokenIsTheReadableManagedPATHCommand() {
+        #expect(AgentRestoreLaunch.cliStartupExecutableToken == "cmux")
     }
 
     @Test func structuredCodexRestorePlansDirectArgvEnvironmentAndCwd() throws {

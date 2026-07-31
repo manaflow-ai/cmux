@@ -161,7 +161,7 @@ struct ForkParentFallbackResidualTests {
         let resumeInput = try #require(snapshot.resumeStartupInput())
         #expect(
             resumeInput
-                == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore codex \(sessionId)\n"
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
         )
         #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)

@@ -13,7 +13,6 @@ struct AgentResumeReturnShellStartupTests {
     @Test("local resume input is one short readable CLI command")
     func localResumeInputUsesRestoreVerb() {
         let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
-        let restoreCLIExecutableToken = "/Applications/cmux\\ DEV.app/Contents/Resources/bin/cmux"
         let agentBinding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume \(sessionID) \(String(repeating: "--config x=y ", count: 200))",
@@ -47,57 +46,19 @@ struct AgentResumeReturnShellStartupTests {
         #expect(
             agentBinding.restoreStartupInput(
                 repairPortableAgentExecutable: true
-            ) == " cmux restore codex \(sessionID)\n"
-        )
-        #expect(
-            agentBinding.restoreStartupInput(
-                repairPortableAgentExecutable: true,
-                restoreCLIExecutableToken: restoreCLIExecutableToken
             )
-                == " \(restoreCLIExecutableToken) restore codex \(sessionID)\n"
+                == " cmux restore codex \(sessionID)\n"
         )
         #expect(
             manualBinding.restoreStartupInput(
-                repairPortableAgentExecutable: true,
-                restoreCLIExecutableToken: restoreCLIExecutableToken
+                repairPortableAgentExecutable: true
             )
-                == " \(restoreCLIExecutableToken) restore --surface\n"
+                == " cmux restore --surface\n"
         )
         #expect(
-            snapshot.resumeStartupInput(
-                restoreCLIExecutableToken: restoreCLIExecutableToken
-            )
-                == " \(restoreCLIExecutableToken) restore codex \(sessionID)\n"
+            snapshot.resumeStartupInput()
+                == " cmux restore codex \(sessionID)\n"
         )
-    }
-
-    @Test("missing absolute CLI preserves legacy startup commands")
-    func missingRestoreCLIPreservesLegacyStartupCommands() throws {
-        let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
-        let binding = SurfaceResumeBindingSnapshot(
-            kind: "codex",
-            command: "codex resume \(sessionID)",
-            checkpointId: sessionID,
-            source: "agent-hook",
-            autoResume: true
-        )
-        let snapshot = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: sessionID
-        )
-
-        let bindingInput = try #require(binding.restoreStartupInput(
-            repairPortableAgentExecutable: true,
-            restoreCLIExecutableToken: nil
-        ))
-        let snapshotInput = try #require(snapshot.resumeStartupInput(
-            restoreCLIExecutableToken: nil
-        ))
-
-        #expect(bindingInput.contains(sessionID))
-        #expect(snapshotInput.contains(sessionID))
-        #expect(!bindingInput.contains("cmux restore"))
-        #expect(!snapshotInput.contains("cmux restore"))
     }
 
     @Test("unsafe identifiers use the ASCII-only surface selector")
@@ -120,7 +81,7 @@ struct AgentResumeReturnShellStartupTests {
         for snapshot in snapshots {
             #expect(
                 snapshot.resumeStartupInput()
-                    == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken() ?? "<unavailable-cmux-cli>") restore --surface\n"
+                    == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore --surface\n"
             )
         }
     }

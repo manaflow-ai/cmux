@@ -786,12 +786,10 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil,
-        restoreCLIExecutableToken: String? =
-            AgentRestoreLaunch.bundledCLIStartupExecutableToken()
+        restoringWorkingDirectory: String? = nil
     ) -> String? {
-        if useLocalRestoreVerb,
-           let executable = restoreCLIExecutableToken {
+        if useLocalRestoreVerb {
+            let executable = AgentRestoreLaunch.cliStartupExecutableToken
             guard AgentRestoreLaunch.isSafeRestoreCLIArgument(kind.rawValue),
                   AgentRestoreLaunch.isSafeRestoreCLIArgument(sessionId) else {
                 return " \(executable) restore --surface\n"
