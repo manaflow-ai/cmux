@@ -17,13 +17,21 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /** Dependency-free Java 17 resource API client. */
@@ -33,6 +41,9 @@ public final class Client implements AutoCloseable {
     public static final int MAX_STREAM_MESSAGES = 256;
     public static final int MAX_STREAM_BYTES = 16 * 1024 * 1024;
     private static final HexFormat LOWERCASE_HEX = HexFormat.of();
+    private static final Duration FAILED_STREAM_OPEN_CLEANUP_TIMEOUT =
+        Duration.ofSeconds(1);
+    static final int FAILED_STREAM_OPEN_CLEANUP_QUEUE_CAPACITY = 8;
 
     @FunctionalInterface
     interface Decoder<T> {
@@ -50,12 +61,21 @@ public final class Client implements AutoCloseable {
         private final ArrayBlockingQueue<StreamMessage> messages =
             new ArrayBlockingQueue<>(MAX_STREAM_MESSAGES + 1);
         private final Map<String, Object> cancelParams;
+        private final Decoder<?> decoder;
         private int queuedBytes;
         private boolean accepting = true;
         private boolean terminated;
+        private boolean endDelivered;
+        private boolean openDispatched;
+        private boolean openAcknowledged;
+        private boolean cleanupStarted;
 
-        StreamRoute(Map<String, Object> cancelParams) {
+        StreamRoute(
+            Map<String, Object> cancelParams,
+            Decoder<?> decoder
+        ) {
             this.cancelParams = Map.copyOf(cancelParams);
+            this.decoder = Objects.requireNonNull(decoder, "decoder");
         }
 
         synchronized boolean deliver(StreamMessage message) {
@@ -72,6 +92,9 @@ public final class Client implements AutoCloseable {
             }
             if (!messages.offer(message)) {
                 return false;
+            }
+            if (end) {
+                endDelivered = true;
             }
             queuedBytes += message.size();
             return true;
@@ -121,6 +144,13 @@ public final class Client implements AutoCloseable {
             return Optional.ofNullable(end);
         }
 
+        synchronized void cancellationConfirmed() {
+            accepting = false;
+            terminated = true;
+            messages.clear();
+            queuedBytes = 0;
+        }
+
         StreamMessage poll(long timeout, TimeUnit unit) throws InterruptedException {
             StreamMessage message = messages.poll(timeout, unit);
             if (message != null) {
@@ -129,6 +159,62 @@ public final class Client implements AutoCloseable {
                 }
             }
             return message;
+        }
+
+        synchronized void markOpenDispatched() {
+            openDispatched = true;
+        }
+
+        synchronized void markOpenAcknowledged() {
+            openAcknowledged = true;
+        }
+
+        synchronized Optional<Map<String, Object>> failedOpenCancelParams() {
+            if (!openDispatched || openAcknowledged || cleanupStarted) {
+                return Optional.empty();
+            }
+            cleanupStarted = true;
+            return Optional.of(cancelParams);
+        }
+
+        synchronized boolean abandonFailedOpen(RuntimeException error) {
+            boolean cleanupNeeded =
+                openDispatched && !openAcknowledged && !cleanupStarted;
+            if (cleanupNeeded) {
+                cleanupStarted = true;
+            }
+            finish(error);
+            return cleanupNeeded;
+        }
+
+        synchronized boolean beginStreamCleanup() {
+            if (cleanupStarted || endDelivered) {
+                return false;
+            }
+            cleanupStarted = true;
+            return true;
+        }
+
+        synchronized boolean cleanupInProgress() {
+            return cleanupStarted;
+        }
+
+        synchronized boolean endDelivered() {
+            return endDelivered;
+        }
+
+        void validatePayload(Map<String, Object> envelope) {
+            Cursor cursor = envelope.containsKey(Wire.CURSOR)
+                ? decodeCursor(envelope.get(Wire.CURSOR))
+                : null;
+            try {
+                decoder.decode(envelope.get("item"), cursor);
+            } catch (IllegalArgumentException invalidPayload) {
+                throw new ProtocolError(
+                    "stream item payload is malformed",
+                    invalidPayload
+                );
+            }
         }
     }
 
@@ -142,8 +228,16 @@ public final class Client implements AutoCloseable {
         new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Ids.StreamId, StreamRoute> streams =
         new ConcurrentHashMap<>();
-    private final Object writeLock = new Object();
+    private final ReentrantLock writeLock = new ReentrantLock();
+    private final Condition failedOpenCleanupFinished =
+        writeLock.newCondition();
+    private final ThreadPoolExecutor cleanupExecutor =
+        newCleanupExecutor();
+    private final ScheduledThreadPoolExecutor deadlineExecutor =
+        newDeadlineExecutor();
     private final Thread reader;
+    private int failedOpenCleanups;
+    private volatile boolean framingUnsafe;
     private volatile RuntimeException connectionError;
 
     private Client(Builder builder) {
@@ -230,6 +324,32 @@ public final class Client implements AutoCloseable {
         Map<String, Object> params,
         Options.Mutation mutation
     ) {
+        return requestValue(operation, params, mutation, timeout, null);
+    }
+
+    private Object requestValue(
+        Operations operation,
+        Map<String, Object> params,
+        Options.Mutation mutation,
+        Duration waitTimeout,
+        Runnable onDispatched
+    ) {
+        return requestValueUntil(
+            operation,
+            params,
+            mutation,
+            System.nanoTime() + waitTimeout.toNanos(),
+            onDispatched
+        );
+    }
+
+    private Object requestValueUntil(
+        Operations operation,
+        Map<String, Object> params,
+        Options.Mutation mutation,
+        long deadline,
+        Runnable onDispatched
+    ) {
         ensureOpen();
         boolean isMutation = operation.operationClass() == Operations.Class.MUTATION;
         if (isMutation != (mutation != null)) {
@@ -265,9 +385,18 @@ public final class Client implements AutoCloseable {
             pending.remove(requestId, future);
             throw closedError();
         }
+        boolean transportSendStarted = false;
         try {
-            synchronized (writeLock) {
-                transport.send(envelope);
+            lockForRequest(deadline, operation.wireName());
+            try {
+                ensureOpen();
+                transportSendStarted = true;
+                sendWithDeadline(envelope, operation.wireName(), deadline);
+                if (onDispatched != null) {
+                    onDispatched.run();
+                }
+            } finally {
+                writeLock.unlock();
             }
         } catch (IOException | RuntimeException error) {
             pending.remove(requestId);
@@ -275,10 +404,26 @@ public final class Client implements AutoCloseable {
                 "cannot send " + operation.wireName(),
                 error
             );
+            if (transportSendStarted) {
+                // Transport does not expose a byte count. Conservatively close
+                // after any send exception because the wire may contain a
+                // partial JSON frame. Pre-close cancellation would append to
+                // that malformed frame, so disconnect without cleanup.
+                fail(failure, false);
+            }
             throw uncertain(operation, mutationKey, failure);
         }
         try {
-            return future.get(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                throw new TimeoutException(
+                    operation.wireName() + " timed out"
+                );
+            }
+            return future.get(
+                remaining,
+                TimeUnit.NANOSECONDS
+            );
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             pending.remove(requestId);
@@ -323,57 +468,361 @@ public final class Client implements AutoCloseable {
             }
         }
         cancelParams.put("stream", streamId);
-        StreamRoute route = new StreamRoute(cancelParams);
+        StreamRoute route = new StreamRoute(cancelParams, decoder);
         streams.put(streamId, route);
         input.put(Wire.STREAM_ID, streamId);
         try {
-            Map<String, Object> opened = request(operation, input, null);
-            requireExactFields(
-                opened,
-                operation.wireName() + " opened result",
-                Wire.STREAM_ID,
-                Wire.CURSOR
+            Object openedValue = requestValue(
+                operation,
+                input,
+                null,
+                timeout,
+                () -> {
+                    route.markOpenDispatched();
+                }
             );
-            Ids.StreamId returned = new Ids.StreamId(Wire.string(
-                opened.get(Wire.STREAM_ID),
-                operation.wireName() + " returned stream_id"
-            ));
-            if (!returned.equals(streamId)) {
-                throw new ProtocolError(
-                    operation.wireName() + " returned a different stream_id"
+            try {
+                Map<String, Object> opened = Wire.object(
+                    openedValue,
+                    operation.wireName() + " result"
                 );
-            }
-            if (opened.containsKey(Wire.CURSOR)) {
-                if (opened.get(Wire.CURSOR) == null) {
+                requireExactFields(
+                    opened,
+                    operation.wireName() + " opened result",
+                    Wire.STREAM_ID,
+                    Wire.CURSOR
+                );
+                Ids.StreamId returned = new Ids.StreamId(Wire.string(
+                    opened.get(Wire.STREAM_ID),
+                    operation.wireName() + " returned stream_id"
+                ));
+                if (!returned.equals(streamId)) {
                     throw new ProtocolError(
-                        operation.wireName() + " returned a null cursor"
+                        operation.wireName() + " returned a different stream_id"
                     );
                 }
-                decodeCursor(opened.get(Wire.CURSOR));
+                if (opened.containsKey(Wire.CURSOR)) {
+                    if (opened.get(Wire.CURSOR) == null) {
+                        throw new ProtocolError(
+                            operation.wireName() + " returned a null cursor"
+                        );
+                    }
+                    decodeCursor(opened.get(Wire.CURSOR));
+                }
+            } catch (IllegalArgumentException invalidAcknowledgment) {
+                throw new ProtocolError(
+                    operation.wireName() +
+                        " returned a malformed stream acknowledgment",
+                    invalidAcknowledgment
+                );
             }
+            acknowledgeStreamOpen(route);
         } catch (RuntimeException error) {
-            streams.remove(streamId);
-            route.finish(error);
+            if (error instanceof ResourceError) {
+                streams.remove(streamId, route);
+                route.finish(error);
+                throw error;
+            }
+            abandonFailedStreamOpen(
+                streamId,
+                route,
+                error
+            );
             throw error;
         }
         return new ResourceStream<>(this, streamId, route, decoder);
+    }
+
+    private void abandonFailedStreamOpen(
+        Ids.StreamId streamId,
+        StreamRoute route,
+        RuntimeException openError
+    ) {
+        if (!route.abandonFailedOpen(openError)) {
+            streams.remove(streamId, route);
+            return;
+        }
+        startBoundedFailedOpenCleanup(streamId, route);
+    }
+
+    private synchronized void acknowledgeStreamOpen(StreamRoute route) {
+        ensureOpen();
+        route.markOpenAcknowledged();
+    }
+
+    private void startBoundedFailedOpenCleanup(
+        Ids.StreamId streamId,
+        StreamRoute route
+    ) {
+        long deadline = System.nanoTime() +
+            FAILED_STREAM_OPEN_CLEANUP_TIMEOUT.toNanos();
+        boolean restoreInterrupt = Thread.interrupted();
+        boolean gateActivated = false;
+        try {
+            while (!gateActivated) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0L) {
+                    fail(
+                        failedOpenCleanupTimeout(),
+                        false
+                    );
+                    return;
+                }
+                boolean locked;
+                try {
+                    locked = writeLock.tryLock(
+                        remaining,
+                        TimeUnit.NANOSECONDS
+                    );
+                } catch (InterruptedException error) {
+                    restoreInterrupt = true;
+                    continue;
+                }
+                if (!locked) {
+                    fail(failedOpenCleanupTimeout(), false);
+                    return;
+                }
+                try {
+                    if (closed.get()) {
+                        return;
+                    }
+                    failedOpenCleanups++;
+                    gateActivated = true;
+                } finally {
+                    writeLock.unlock();
+                }
+            }
+
+            AtomicBoolean gateFinished = new AtomicBoolean();
+            Runnable finishGate = () ->
+                finishFailedOpenCleanupGate(gateFinished);
+            Runnable cleanupAction = () -> {
+                RuntimeException cleanupFailure = null;
+                boolean locked = false;
+                String requestId = null;
+                CompletableFuture<Object> response = null;
+                try {
+                    if (!tryWriteLock(Duration.ofNanos(
+                            Math.max(1L, deadline - System.nanoTime())
+                        ))) {
+                        cleanupFailure = failedOpenCleanupTimeout();
+                        return;
+                    }
+                    locked = true;
+                    if (closed.get()) {
+                        return;
+                    }
+                    Map<String, Object> envelope =
+                        streamCancelEnvelope(route.cancelParams);
+                    requestId = String.valueOf(envelope.get("id"));
+                    response = new CompletableFuture<>();
+                    pending.put(requestId, response);
+                    if (closed.get()) {
+                        return;
+                    }
+                    sendWithDeadline(
+                        envelope,
+                        Operations.STREAM_CANCEL.wireName(),
+                        deadline
+                    );
+                    writeLock.unlock();
+                    locked = false;
+
+                    Object result = response.get(
+                        Math.max(1L, deadline - System.nanoTime()),
+                        TimeUnit.NANOSECONDS
+                    );
+                    requireExactFields(
+                        Wire.object(
+                            result,
+                            "failed stream-open cancellation result"
+                        ),
+                        "failed stream-open cancellation result"
+                    );
+                    streams.remove(streamId, route);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    cleanupFailure = new TransportError(
+                        "interrupted during failed stream-open cleanup",
+                        error
+                    );
+                } catch (TimeoutException error) {
+                    cleanupFailure = failedOpenCleanupTimeout();
+                } catch (ExecutionException error) {
+                    Throwable cause = error.getCause();
+                    cleanupFailure = transportError(
+                        "failed stream-open cleanup was rejected",
+                        cause == null ? error : cause
+                    );
+                } catch (IOException | RuntimeException error) {
+                    cleanupFailure = transportError(
+                        "cannot send failed stream-open cleanup",
+                        error
+                    );
+                } finally {
+                    if (requestId != null && response != null) {
+                        pending.remove(requestId, response);
+                    }
+                    if (cleanupFailure != null) {
+                        streams.remove(streamId, route);
+                        fail(cleanupFailure, false);
+                    }
+                    finishGate.run();
+                    if (locked) {
+                        writeLock.unlock();
+                    }
+                }
+            };
+
+            Future<?> cleanup;
+            try {
+                cleanup = cleanupExecutor.submit(cleanupAction);
+            } catch (RejectedExecutionException rejected) {
+                fail(
+                    new TransportError(
+                        "cannot schedule failed stream-open cleanup",
+                        rejected
+                    ),
+                    false
+                );
+                return;
+            }
+
+            while (true) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0L) {
+                    fail(failedOpenCleanupTimeout(), false);
+                    cleanup.cancel(true);
+                    return;
+                }
+                try {
+                    cleanup.get(remaining, TimeUnit.NANOSECONDS);
+                    return;
+                } catch (InterruptedException error) {
+                    restoreInterrupt = true;
+                } catch (TimeoutException error) {
+                    fail(failedOpenCleanupTimeout(), false);
+                    cleanup.cancel(true);
+                    return;
+                } catch (CancellationException error) {
+                    if (!closed.get()) {
+                        fail(
+                            new TransportError(
+                                "failed stream-open cleanup was canceled",
+                                error
+                            ),
+                            false
+                        );
+                    }
+                    return;
+                } catch (ExecutionException error) {
+                    Throwable cause = error.getCause();
+                    fail(
+                        transportError(
+                            "failed stream-open cleanup failed",
+                            cause == null ? error : cause
+                        ),
+                        false
+                    );
+                    return;
+                }
+            }
+        } finally {
+            if (restoreInterrupt) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     Optional<StreamEndError> cancelStream(
         Ids.StreamId streamId,
         StreamRoute route
     ) {
+        if (!route.beginStreamCleanup()) {
+            streams.remove(streamId, route);
+            return route.cancelTerminal();
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
         try {
-            Map<String, Object> result = request(
-                Operations.STREAM_CANCEL,
-                route.cancelParams,
-                null
+            Map<String, Object> result = Wire.object(
+                requestValueUntil(
+                    Operations.STREAM_CANCEL,
+                    route.cancelParams,
+                    null,
+                    deadline,
+                    null
+                ),
+                "stream cancel result"
             );
             requireExactFields(result, "stream cancel result");
+            StreamEndError terminal = awaitCanceledStreamEnd(
+                streamId,
+                route,
+                deadline
+            );
+            route.cancellationConfirmed();
+            return Optional.of(terminal);
+        } catch (RuntimeException error) {
+            fail(error);
+            throw error;
         } finally {
             streams.remove(streamId, route);
         }
-        return route.cancelTerminal();
+    }
+
+    private StreamEndError awaitCanceledStreamEnd(
+        Ids.StreamId streamId,
+        StreamRoute route,
+        long deadline
+    ) {
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                throw new TransportError(
+                    "stream cancellation timed out waiting for stream_end"
+                );
+            }
+            StreamMessage message;
+            try {
+                message = route.poll(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new TransportError(
+                    "interrupted while waiting for canceled stream_end",
+                    error
+                );
+            }
+            if (message == null) {
+                throw new TransportError(
+                    "stream cancellation timed out waiting for stream_end"
+                );
+            }
+            if (message.error() != null) {
+                throw message.error();
+            }
+            if (!"stream_end".equals(message.envelope().get("type"))) {
+                continue;
+            }
+            Ids.StreamId returned = new Ids.StreamId(
+                Wire.string(
+                    message.envelope().get(Wire.STREAM_ID),
+                    "stream end stream_id"
+                )
+            );
+            if (!returned.equals(streamId)) {
+                throw new ProtocolError(
+                    "stream cancellation returned a different stream_id"
+                );
+            }
+            StreamEndError terminal = decodeStreamEnd(message.envelope());
+            if (!terminal.reason().equals("canceled")) {
+                throw new ProtocolError(
+                    "stream cancellation ended with reason " +
+                        terminal.reason()
+                );
+            }
+            return terminal;
+        }
     }
 
     @Override
@@ -415,25 +864,89 @@ public final class Client implements AutoCloseable {
     }
 
     private void deliverResponse(Map<String, Object> envelope) {
-        String id = Wire.string(envelope.get("id"), "response id");
-        CompletableFuture<Object> future = pending.remove(id);
-        if (future == null) {
-            return;
-        }
-        if (!Wire.bool(envelope.get("ok"), "response ok")) {
-            future.completeExceptionally(decodeResourceError(envelope.get("error")));
-            return;
-        }
-        if (!envelope.containsKey("result")) {
-            future.completeExceptionally(
-                new ProtocolError("successful response omitted result")
+        try {
+            requireExactFields(
+                envelope,
+                "response envelope",
+                "protocol",
+                "type",
+                "id",
+                "ok",
+                "result",
+                "error"
             );
-            return;
+            for (String required : List.of(
+                    "protocol",
+                    "type",
+                    "id",
+                    "ok"
+                )) {
+                if (!envelope.containsKey(required)) {
+                    throw new ProtocolError(
+                        "response envelope omitted " + required
+                    );
+                }
+            }
+            if (!Wire.PROTOCOL.equals(Wire.string(
+                    envelope.get("protocol"),
+                    "response protocol"
+                ))) {
+                throw new ProtocolError(
+                    "response protocol is unrecognized"
+                );
+            }
+            if (!"response".equals(Wire.string(
+                    envelope.get("type"),
+                    "response type"
+                ))) {
+                throw new ProtocolError("response type is invalid");
+            }
+            String id = Wire.string(envelope.get("id"), "response id");
+            boolean ok = Wire.bool(envelope.get("ok"), "response ok");
+            RuntimeException responseError = null;
+            Object result = null;
+            if (!ok) {
+                if (!envelope.containsKey("error") ||
+                        envelope.containsKey("result")) {
+                    throw new ProtocolError(
+                        "failed response requires only error"
+                    );
+                }
+                responseError = decodeResourceError(envelope.get("error"));
+            } else {
+                if (!envelope.containsKey("result") ||
+                        envelope.containsKey("error")) {
+                    throw new ProtocolError(
+                        "successful response requires only result"
+                    );
+                }
+                result = envelope.get("result");
+            }
+
+            CompletableFuture<Object> future = pending.get(id);
+            if (future == null || !pending.remove(id, future)) {
+                return;
+            }
+            if (responseError != null) {
+                future.completeExceptionally(responseError);
+            } else {
+                future.complete(result);
+            }
+        } catch (IllegalArgumentException invalidResponse) {
+            throw new ProtocolError(
+                "response is malformed",
+                invalidResponse
+            );
         }
-        future.complete(envelope.get("result"));
     }
 
     private void deliverStream(Map<String, Object> envelope) {
+        boolean streamEnd = "stream_end".equals(envelope.get("type"));
+        if (streamEnd) {
+            decodeStreamEnd(envelope);
+        } else {
+            validateStreamItemEnvelope(envelope);
+        }
         Ids.StreamId id = new Ids.StreamId(
             Wire.string(envelope.get(Wire.STREAM_ID), "stream id")
         );
@@ -441,7 +954,15 @@ public final class Client implements AutoCloseable {
         if (route == null) {
             return;
         }
-        if ("stream_end".equals(envelope.get("type"))) {
+        if (!streamEnd) {
+            route.validatePayload(envelope);
+            if (route.endDelivered()) {
+                throw new ProtocolError(
+                    "stream item followed stream_end"
+                );
+            }
+        }
+        if (streamEnd && !route.cleanupInProgress()) {
             streams.remove(id, route);
         }
         int size = Wire.json(envelope).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
@@ -454,38 +975,346 @@ public final class Client implements AutoCloseable {
         }
         streams.remove(id, route);
         route.overflow();
-        CompletableFuture.runAsync(() -> {
-            try {
-                request(Operations.STREAM_CANCEL, route.cancelParams, null);
-            } catch (RuntimeException ignored) {
-                // The affected stream has already ended locally.
+        if (route.beginStreamCleanup()) {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Object> result = request(
+                        Operations.STREAM_CANCEL,
+                        route.cancelParams,
+                        null
+                    );
+                    requireExactFields(result, "stream cancel result");
+                } catch (RuntimeException error) {
+                    fail(error);
+                }
+            });
+        }
+    }
+
+    static void validateStreamItemEnvelope(Map<String, Object> envelope) {
+        try {
+            requireExactFields(
+                envelope,
+                "stream item envelope",
+                "protocol",
+                "type",
+                Wire.STREAM_ID,
+                "sequence",
+                Wire.CURSOR,
+                "item"
+            );
+            for (String required : List.of(
+                    "protocol",
+                    "type",
+                    Wire.STREAM_ID,
+                    "sequence",
+                    "item"
+                )) {
+                if (!envelope.containsKey(required)) {
+                    throw new ProtocolError(
+                        "stream item envelope omitted " + required
+                    );
+                }
             }
-        });
+            if (!Wire.PROTOCOL.equals(Wire.string(
+                    envelope.get("protocol"),
+                    "stream item protocol"
+                ))) {
+                throw new ProtocolError(
+                    "stream item protocol is unrecognized"
+                );
+            }
+            if (!"stream_item".equals(Wire.string(
+                    envelope.get("type"),
+                    "stream item type"
+                ))) {
+                throw new ProtocolError("stream item type is invalid");
+            }
+            new Ids.StreamId(Wire.string(
+                envelope.get(Wire.STREAM_ID),
+                "stream item stream_id"
+            ));
+            Wire.decimal(envelope.get("sequence"), "stream item sequence");
+            if (envelope.containsKey(Wire.CURSOR)) {
+                if (envelope.get(Wire.CURSOR) == null) {
+                    throw new ProtocolError(
+                        "stream item cursor must not be null"
+                    );
+                }
+                decodeCursor(envelope.get(Wire.CURSOR));
+            }
+            Wire.object(envelope.get("item"), "stream item payload");
+        } catch (IllegalArgumentException invalidItem) {
+            throw new ProtocolError(
+                "stream item envelope is malformed",
+                invalidItem
+            );
+        }
     }
 
     private void fail(RuntimeException error) {
-        connectionError = error;
+        fail(error, true);
+    }
+
+    private synchronized void fail(
+        RuntimeException error,
+        boolean attemptCleanup
+    ) {
+        if (connectionError == null) {
+            connectionError = error;
+        }
+        RuntimeException terminalError = connectionError;
         if (closed.compareAndSet(false, true)) {
+            if (attemptCleanup) {
+                cancelFailedStreamOpensBeforeClose();
+            }
             try {
                 transport.close();
             } catch (IOException closeError) {
-                error.addSuppressed(closeError);
+                terminalError.addSuppressed(closeError);
             }
         }
+        cleanupExecutor.shutdownNow();
+        deadlineExecutor.shutdownNow();
         for (CompletableFuture<Object> future : pending.values()) {
-            future.completeExceptionally(error);
+            future.completeExceptionally(terminalError);
         }
         pending.clear();
         for (StreamRoute route : streams.values()) {
-            route.finish(error);
+            route.finish(terminalError);
         }
         streams.clear();
+    }
+
+    private void cancelFailedStreamOpensBeforeClose() {
+        Thread cleanup = new Thread(() -> {
+            if (!tryWriteLock(FAILED_STREAM_OPEN_CLEANUP_TIMEOUT)) {
+                return;
+            }
+            try {
+                if (framingUnsafe) {
+                    return;
+                }
+                List<Map<String, Object>> cancelParams = streams.values().stream()
+                    .map(StreamRoute::failedOpenCancelParams)
+                    .flatMap(Optional::stream)
+                    .toList();
+                for (Map<String, Object> params : cancelParams) {
+                    try {
+                        transport.send(streamCancelEnvelope(params));
+                    } catch (IOException | RuntimeException ignored) {
+                        framingUnsafe = true;
+                        return;
+                    }
+                }
+            } finally {
+                writeLock.unlock();
+            }
+        }, "cmux-failed-stream-open-transport-cleanup");
+        cleanup.setDaemon(true);
+        cleanup.start();
+        try {
+            cleanup.join(FAILED_STREAM_OPEN_CLEANUP_TIMEOUT.toMillis());
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private Map<String, Object> streamCancelEnvelope(
+        Map<String, Object> cancelParams
+    ) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("protocol", Wire.PROTOCOL);
+        envelope.put("type", "request");
+        envelope.put("id", "java-" + nextRequest.incrementAndGet());
+        envelope.put("operation", Operations.STREAM_CANCEL.wireName());
+        envelope.put("params", Wire.encode(cancelParams));
+        return envelope;
+    }
+
+    private static ThreadPoolExecutor newCleanupExecutor() {
+        return new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(
+                FAILED_STREAM_OPEN_CLEANUP_QUEUE_CAPACITY
+            ),
+            task -> {
+                Thread thread = new Thread(
+                    task,
+                    "cmux-stream-cleanup"
+                );
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+
+    private static ScheduledThreadPoolExecutor newDeadlineExecutor() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(
+            1,
+            task -> {
+                Thread thread = new Thread(
+                    task,
+                    "cmux-request-deadline"
+                );
+                thread.setDaemon(true);
+                return thread;
+            }
+        );
+        executor.setRemoveOnCancelPolicy(true);
+        executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return executor;
+    }
+
+    private void finishFailedOpenCleanupGate(AtomicBoolean finished) {
+        if (!finished.compareAndSet(false, true)) {
+            return;
+        }
+        boolean acquired = !writeLock.isHeldByCurrentThread();
+        if (acquired) {
+            writeLock.lock();
+        }
+        try {
+            if (failedOpenCleanups > 0) {
+                failedOpenCleanups--;
+            }
+            failedOpenCleanupFinished.signalAll();
+        } finally {
+            if (acquired) {
+                writeLock.unlock();
+            }
+        }
+    }
+
+    private void lockForRequest(long deadline, String operation) {
+        long remainingBeforeLock = deadline - System.nanoTime();
+        if (remainingBeforeLock <= 0L ||
+                !tryWriteLock(Duration.ofNanos(remainingBeforeLock))) {
+            throw new TransportError(
+                operation + " timed out waiting to write"
+            );
+        }
+        boolean keepLock = false;
+        try {
+            while (failedOpenCleanups > 0 && !closed.get()) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0L) {
+                    throw new TransportError(
+                        operation +
+                            " timed out waiting for failed stream-open cleanup"
+                    );
+                }
+                try {
+                    failedOpenCleanupFinished.awaitNanos(remaining);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new TransportError(
+                        "interrupted while waiting for failed stream-open cleanup",
+                        error
+                    );
+                }
+            }
+            ensureOpen();
+            keepLock = true;
+        } finally {
+            if (!keepLock) {
+                writeLock.unlock();
+            }
+        }
+    }
+
+    private void sendWithDeadline(
+        Map<String, Object> envelope,
+        String operation,
+        long deadline
+    ) throws IOException {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0L) {
+            throw new TransportError(
+                operation + " timed out before dispatch"
+            );
+        }
+        AtomicBoolean dispatchPending = new AtomicBoolean(true);
+        ScheduledFuture<?> guard;
+        try {
+            guard = deadlineExecutor.schedule(
+                () -> {
+                    if (dispatchPending.compareAndSet(true, false)) {
+                        fail(
+                            new TransportError(
+                                operation + " timed out during dispatch"
+                            ),
+                            false
+                        );
+                    }
+                },
+                remaining,
+                TimeUnit.NANOSECONDS
+            );
+        } catch (RejectedExecutionException rejected) {
+            throw closed.get()
+                ? closedError()
+                : new TransportError(
+                    "cannot schedule " + operation + " dispatch deadline",
+                    rejected
+                );
+        }
+
+        boolean completedBeforeDeadline;
+        try {
+            transport.send(envelope);
+        } catch (IOException | RuntimeException error) {
+            // Publish framing uncertainty before releasing the writer. A
+            // concurrent connection failure must observe this before
+            // considering any pre-close cancellation.
+            framingUnsafe = true;
+            throw error;
+        } finally {
+            completedBeforeDeadline =
+                dispatchPending.compareAndSet(true, false);
+            if (completedBeforeDeadline) {
+                guard.cancel(false);
+            }
+        }
+        if (!completedBeforeDeadline) {
+            throw closedError();
+        }
+    }
+
+    private static TransportError failedOpenCleanupTimeout() {
+        return new TransportError(
+            "stream-open cleanup timed out after " +
+                FAILED_STREAM_OPEN_CLEANUP_TIMEOUT
+        );
+    }
+
+    private boolean tryWriteLock(Duration timeout) {
+        try {
+            return writeLock.tryLock(
+                Math.max(1L, timeout.toNanos()),
+                TimeUnit.NANOSECONDS
+            );
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new TransportError(
+                "interrupted while waiting to write",
+                error
+            );
+        }
     }
 
     private void ensureOpen() {
         if (closed.get()) {
             throw closedError();
         }
+    }
+
+    boolean isClosed() {
+        return closed.get();
     }
 
     private RuntimeException closedError() {
@@ -521,6 +1350,19 @@ public final class Client implements AutoCloseable {
     }
 
     static StreamEndError decodeStreamEnd(Map<String, Object> envelope) {
+        try {
+            return decodeStreamEndFields(envelope);
+        } catch (IllegalArgumentException invalidEnd) {
+            throw new ProtocolError(
+                "stream end envelope is malformed",
+                invalidEnd
+            );
+        }
+    }
+
+    private static StreamEndError decodeStreamEndFields(
+        Map<String, Object> envelope
+    ) {
         requireExactFields(
             envelope,
             "stream end envelope",
@@ -532,6 +1374,34 @@ public final class Client implements AutoCloseable {
             "recovery",
             "error"
         );
+        for (String required : List.of(
+                "protocol",
+                "type",
+                Wire.STREAM_ID,
+                "reason"
+            )) {
+            if (!envelope.containsKey(required)) {
+                throw new ProtocolError(
+                    "stream end envelope omitted " + required
+                );
+            }
+        }
+        if (!Wire.PROTOCOL.equals(Wire.string(
+                envelope.get("protocol"),
+                "stream end protocol"
+            ))) {
+            throw new ProtocolError("stream end protocol is unrecognized");
+        }
+        if (!"stream_end".equals(Wire.string(
+                envelope.get("type"),
+                "stream end type"
+            ))) {
+            throw new ProtocolError("stream end type is invalid");
+        }
+        new Ids.StreamId(Wire.string(
+            envelope.get(Wire.STREAM_ID),
+            "stream end stream_id"
+        ));
         String reason = Wire.string(
             envelope.get("reason"),
             "stream end reason"

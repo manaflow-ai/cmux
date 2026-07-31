@@ -29,8 +29,6 @@ use crate::workspace_registry::{
 use crate::{Mux, ResourceSelectors, ResourceTarget, Surface, SurfaceKind, WorkspaceMutation};
 
 const MAX_TERMINAL_MOUSE_BYTES: usize = crate::resource::MAX_MESSAGE_BYTES;
-const WAIT_POLL: Duration = Duration::from_millis(250);
-
 #[cfg(test)]
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -214,6 +212,9 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))
     };
+    let mut observed = surface
+        .terminal_stream_revision()
+        .map_err(|error| resource_operation_error(error.into()))?;
     let mut text = check()?;
     if regex.is_match(&text) {
         return Ok(json!({"matched":true,"text":text}));
@@ -222,34 +223,22 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
         return Ok(json!({"matched":false,"text":text}));
     }
 
-    let attach = surface.attach_stream().map_err(|error| resource_operation_error(error.into()))?;
-    text = check()?;
-    if regex.is_match(&text) {
-        return Ok(json!({"matched":true,"text":text}));
-    }
     loop {
-        let wait = match deadline {
-            Some(deadline) => {
-                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                    return Ok(json!({"matched":false,"text":text}));
-                };
-                remaining.min(WAIT_POLL)
-            }
-            None => WAIT_POLL,
-        };
-        match attach.stream.recv_timeout(wait) {
-            Ok(_) => {
+        match surface
+            .wait_for_terminal_stream_change(observed, deadline)
+            .map_err(|error| resource_operation_error(error.into()))?
+        {
+            Some(revision) => {
+                observed = revision;
                 text = check()?;
                 if regex.is_match(&text) {
                     return Ok(json!({"matched":true,"text":text}));
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                    return Ok(json!({"matched":false,"text":text}));
-                }
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            None => {
+                // Close the output/deadline race with one final authoritative
+                // snapshot. The progress notifier itself is coalesced and
+                // cannot disconnect or overflow.
                 text = check()?;
                 return Ok(json!({"matched":regex.is_match(&text),"text":text}));
             }
@@ -1526,6 +1515,8 @@ fn finish_action_failure(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+
     use super::*;
     use crate::SurfaceOptions;
 
@@ -1620,6 +1611,123 @@ mod tests {
         assert!(!handles(ResourceOperation::BrowserAttach));
         assert!(!handles(ResourceOperation::TerminalViewerResize));
         assert!(!handles(ResourceOperation::BrowserViewerResize));
+    }
+
+    #[test]
+    fn terminal_wait_coalesces_more_than_attach_capacity_without_losing_a_later_match() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let request = parsed_request(
+            "terminal.wait",
+            &selectors,
+            json!({"pattern":"READY","timeout_ms":"2000"}),
+            None,
+        );
+        let waiting_mux = mux;
+        let waiter = std::thread::spawn(move || dispatch(&waiting_mux, request));
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        for _ in 0..300 {
+            surface.apply_stream_output_for_test(b"\r").unwrap();
+        }
+        surface.apply_stream_output_for_test(b"READY").unwrap();
+
+        let result = waiter.join().unwrap().unwrap();
+        assert_eq!(result["matched"], true, "wait lost the post-burst match: {result}");
+        assert!(result["text"].as_str().unwrap().contains("READY"));
+    }
+
+    #[test]
+    fn terminal_wait_rechecks_after_resize_reflows_visible_text() {
+        let (mux, surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        surface.apply_stream_output_for_test(b"abcdefghij").unwrap();
+        let request = parsed_request(
+            "terminal.wait",
+            &selectors,
+            json!({"pattern":"abcde\\nfghij","timeout_ms":"2000"}),
+            None,
+        );
+        let waiting_mux = mux;
+        let waiter = std::thread::spawn(move || dispatch(&waiting_mux, request));
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        assert!(surface.resize(5, 4).unwrap(), "fixture resize was unexpectedly unchanged");
+
+        let result = waiter.join().unwrap().unwrap();
+        assert_eq!(result["matched"], true, "wait ignored resize reflow: {result}");
+    }
+
+    #[test]
+    fn terminal_wait_exit_wakes_on_its_durable_terminal_event() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let request =
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"2000"}), None);
+        let waiting_mux = mux.clone();
+        let waiter = std::thread::spawn(move || dispatch(&waiting_mux, request));
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&public_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 23 },
+            exited_at_ms: 2_345_678,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+
+        let result = waiter.join().unwrap().unwrap();
+        assert_eq!(result["state"], "exited", "exit notification did not settle wait: {result}");
+        assert_eq!(result["outcome"], json!({"kind":"exit","code":23}));
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
+    }
+
+    #[test]
+    fn terminal_wait_exit_wakes_when_a_concurrent_terminal_close_tombstones_it() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let request = parsed_request("terminal.wait_exit", &selectors, json!({}), None);
+        let waiting_mux = mux.clone();
+        let (settled_tx, settled_rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let _ = settled_tx.send(dispatch(&waiting_mux, request));
+        });
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&public_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+        let closed = dispatch(
+            &mux,
+            parsed_request("terminal.close", &selectors, json!({}), Some("close-waited-terminal")),
+        )
+        .unwrap();
+        assert_eq!(closed["replayed"], false);
+
+        let error = settled_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal close stranded an unbounded exit wait")
+            .unwrap_err();
+        assert_eq!(error.code, "operation.failed");
+        assert!(error.message.contains("is not live"), "{error:?}");
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
     }
 
     #[test]

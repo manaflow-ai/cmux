@@ -413,40 +413,96 @@ void inject_routing(
 
 [[nodiscard]] Result<Json> decode_response(
     const Json& response,
-    std::string_view request_id) {
+    std::string_view request_id,
+    std::string_view context = "response") {
     auto object = response.as_object();
     if (!object) {
-        return make_error(ErrorCode::protocol, "response must be an object");
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " must be an object");
     }
     auto protocol = require_string(response, "protocol");
     if (!protocol || protocol.value() != "cmux.protocol/1") {
         return make_error(
             ErrorCode::protocol,
-            "response protocol must be cmux.protocol/1");
+            std::string(context) +
+                " protocol must be cmux.protocol/1");
     }
     auto type = require_string(response, "type");
     if (!type || type.value() != "response") {
-        return make_error(ErrorCode::protocol, "expected response envelope");
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " type must be response");
     }
     auto id = require_string(response, "id");
     if (!id || id.value() != request_id) {
-        return make_error(ErrorCode::protocol, "response request ID mismatch");
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " request ID mismatch");
     }
     const Json* ok = response.find("ok");
     if (!ok) {
-        return make_error(ErrorCode::protocol, "response is missing ok");
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " is missing ok");
     }
     auto succeeded = ok->as_bool();
     if (!succeeded) {
-        return make_error(ErrorCode::protocol, "response ok must be boolean");
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " ok must be boolean");
     }
-    if (!succeeded.value()) {
-        return protocol_error(response);
+    auto exact = succeeded.value()
+                     ? require_exact_fields(
+                           response,
+                           {"protocol", "type", "id", "ok", "result"},
+                           context)
+                     : require_exact_fields(
+                           response,
+                           {"protocol", "type", "id", "ok", "error"},
+                           context);
+    if (!exact) {
+        auto error = std::move(exact).error();
+        error.code = ErrorCode::protocol;
+        return error;
     }
-    if (const Json* result = response.find("result")) {
+    if (succeeded.value()) {
+        const Json* result = response.find("result");
+        if (!result) {
+            return make_error(
+                ErrorCode::protocol,
+                std::string(context) + " is missing result");
+        }
         return *result;
     }
-    return Json(Json::Object{});
+    const Json* payload = response.find("error");
+    if (!payload) {
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) + " is missing error");
+    }
+    auto payload_exact = require_exact_fields(
+        *payload,
+        {"code", "message", "details", "retryable"},
+        "response error");
+    if (!payload_exact) {
+        auto error = std::move(payload_exact).error();
+        error.code = ErrorCode::protocol;
+        return error;
+    }
+    auto code = require_string(*payload, "code");
+    auto message = require_string(*payload, "message");
+    const Json* details = payload->find("details");
+    const Json* retryable = payload->find("retryable");
+    if (!code || !message || !details || !retryable ||
+        !retryable->as_bool()) {
+        return make_error(
+            ErrorCode::protocol,
+            std::string(context) +
+                " error must contain string code and message, details, "
+                "and boolean retryable");
+    }
+    return protocol_error(response);
 }
 
 [[nodiscard]] std::array<unsigned char, 16> secure_random_128() {
@@ -1093,6 +1149,7 @@ public:
             remaining(),
             options.json_limits);
         if (!sent) {
+            close();
             return outcome_error(std::move(sent).error());
         }
         while (true) {
@@ -2546,9 +2603,60 @@ namespace {
     return decoded;
 }
 
+[[nodiscard]] Result<void> validate_embedded_error(const Json& error) {
+    auto exact = require_exact_fields(
+        error,
+        {"code", "message", "details", "retryable"},
+        "stream end error");
+    if (!exact) {
+        return std::move(exact).error();
+    }
+    auto code = require_string(error, "code");
+    if (!code) {
+        return std::move(code).error();
+    }
+    auto message = require_string(error, "message");
+    if (!message) {
+        return std::move(message).error();
+    }
+    if (!error.find("details")) {
+        return make_error(
+            ErrorCode::decode,
+            "stream end error is missing details");
+    }
+    const Json* retryable = error.find("retryable");
+    if (!retryable) {
+        return make_error(
+            ErrorCode::decode,
+            "stream end error is missing retryable");
+    }
+    auto parsed_retryable = retryable->as_bool();
+    if (!parsed_retryable) {
+        return make_error(
+            ErrorCode::decode,
+            "stream end error retryable must be boolean");
+    }
+    return {};
+}
+
 [[nodiscard]] Result<StreamEnd> decode_stream_end(
     const Json& envelope,
     const StreamId& expected_stream) {
+    auto exact = require_exact_fields(
+        envelope,
+        {
+            "protocol",
+            "type",
+            "stream_id",
+            "reason",
+            "cursor",
+            "error",
+            "recovery",
+        },
+        "stream end");
+    if (!exact) {
+        return std::move(exact).error();
+    }
     auto protocol = require_string(envelope, "protocol");
     if (!protocol || protocol.value() != "cmux.protocol/1") {
         return make_error(
@@ -2581,29 +2689,43 @@ namespace {
     } else {
         return make_error(ErrorCode::decode, "unknown stream end reason");
     }
-    if (const Json* cursor = envelope.find("cursor");
-        cursor && !cursor->is_null()) {
+    if (const Json* cursor = envelope.find("cursor")) {
+        if (cursor->is_null()) {
+            return make_error(
+                ErrorCode::decode,
+                "stream end cursor must not be null");
+        }
         auto parsed = parse_cursor(*cursor);
         if (!parsed) {
             return std::move(parsed).error();
         }
         decoded.cursor = std::move(parsed).value();
     }
-    if (const Json* recovery = envelope.find("recovery");
-        recovery && !recovery->is_null()) {
-        if (auto text = recovery->as_string()) {
-            decoded.recovery = std::string(text.value());
-        } else {
-            auto encoded = recovery->encode();
-            if (!encoded) {
-                return std::move(encoded).error();
-            }
-            decoded.recovery = std::move(encoded).value();
+    if (const Json* recovery = envelope.find("recovery")) {
+        auto text = recovery->as_string();
+        if (!text) {
+            return make_error(
+                ErrorCode::decode,
+                "stream end recovery must be a string");
         }
+        decoded.recovery = std::string(text.value());
     }
-    if (const Json* error = envelope.find("error");
-        error && !error->is_null()) {
+    if (const Json* error = envelope.find("error")) {
+        if (error->is_null()) {
+            return make_error(
+                ErrorCode::decode,
+                "stream end error must not be null");
+        }
+        auto valid = validate_embedded_error(*error);
+        if (!valid) {
+            return std::move(valid).error();
+        }
         decoded.error = decode_embedded_error(*error, envelope);
+    }
+    if ((decoded.reason == StreamEndReason::error) != decoded.error.has_value()) {
+        return make_error(
+            ErrorCode::decode,
+            "stream end error is required exactly when reason is error");
     }
     return decoded;
 }
@@ -2611,6 +2733,13 @@ namespace {
 [[nodiscard]] Result<RawStreamItem> decode_stream_item(
     const Json& envelope,
     const StreamId& expected_stream) {
+    auto exact = require_exact_fields(
+        envelope,
+        {"protocol", "type", "stream_id", "sequence", "cursor", "item"},
+        "stream item");
+    if (!exact) {
+        return std::move(exact).error();
+    }
     auto protocol = require_string(envelope, "protocol");
     if (!protocol || protocol.value() != "cmux.protocol/1") {
         return make_error(
@@ -2640,8 +2769,12 @@ namespace {
     RawStreamItem decoded;
     decoded.sequence = parsed_sequence.value();
     decoded.value = *item;
-    if (const Json* cursor = envelope.find("cursor");
-        cursor && !cursor->is_null()) {
+    if (const Json* cursor = envelope.find("cursor")) {
+        if (cursor->is_null()) {
+            return make_error(
+                ErrorCode::decode,
+                "stream item cursor must not be null");
+        }
         auto parsed = parse_cursor(*cursor);
         if (!parsed) {
             return std::move(parsed).error();
@@ -2649,6 +2782,37 @@ namespace {
         decoded.cursor = std::move(parsed).value();
     }
     return decoded;
+}
+
+using StreamItemValidator = Result<void> (*)(
+    const Json&,
+    const std::optional<Cursor>&);
+
+template <typename T>
+[[nodiscard]] Result<void> validate_typed_stream_item(
+    const Json& value,
+    const std::optional<Cursor>& cursor) {
+    auto decoded = detail::decode_stream_domain<T>(value, cursor);
+    if (!decoded) {
+        return std::move(decoded).error();
+    }
+    return {};
+}
+
+[[nodiscard]] StreamItemValidator stream_item_validator(
+    Operation operation) noexcept {
+    switch (operation) {
+        case Operation::session_events:
+            return &validate_typed_stream_item<SessionEvent>;
+        case Operation::terminal_attach:
+            return &validate_typed_stream_item<TerminalAttachmentItem>;
+        case Operation::browser_attach:
+            return &validate_typed_stream_item<BrowserAttachmentItem>;
+        case Operation::sidebar_view_attach:
+            return &validate_typed_stream_item<SidebarViewItem>;
+        default:
+            return nullptr;
+    }
 }
 
 [[nodiscard]] Result<std::string> envelope_type(const Json& envelope) {
@@ -2660,6 +2824,30 @@ namespace {
     }
     return require_string(envelope, "type");
 }
+
+}  // namespace
+
+namespace {
+
+class TransportCloseGuard {
+public:
+    explicit TransportCloseGuard(Transport* transport) noexcept
+        : transport_(transport) {}
+
+    TransportCloseGuard(const TransportCloseGuard&) = delete;
+    TransportCloseGuard& operator=(const TransportCloseGuard&) = delete;
+
+    ~TransportCloseGuard() {
+        if (transport_) {
+            transport_->close();
+        }
+    }
+
+    void release() noexcept { transport_ = nullptr; }
+
+private:
+    Transport* transport_;
+};
 
 }  // namespace
 
@@ -2675,6 +2863,11 @@ struct ResourceStream::Impl {
     std::atomic<std::uint64_t> next_request_id{1};
     std::mutex mutex;
     bool transport_closed = false;
+    bool cancel_started = false;
+    std::optional<Error> cancel_failure;
+    StreamItemValidator item_validator = nullptr;
+
+    ~Impl() { close_transport(); }
 
     [[nodiscard]] Result<Json> receive(Timeout timeout) {
         auto wire = transport->receive(timeout);
@@ -2697,8 +2890,26 @@ struct ResourceStream::Impl {
     void close_transport() noexcept {
         if (!transport_closed) {
             transport_closed = true;
-            transport->close();
+            if (transport) {
+                transport->close();
+            }
         }
+    }
+
+    [[nodiscard]] Error fail_closed(Error error) {
+        buffered.clear();
+        close_transport();
+        return error;
+    }
+
+    [[nodiscard]] Result<void> validate_item(
+        const RawStreamItem& item) const {
+        if (!item_validator) {
+            return make_error(
+                ErrorCode::decode,
+                "stream has no typed item validator");
+        }
+        return item_validator(item.value, item.cursor);
     }
 };
 
@@ -2707,6 +2918,9 @@ detail::ResourceClientState::open_stream(
     Operation operation,
     Json::Object params,
     CallOptions call) {
+    if (is_closed.load(std::memory_order_acquire)) {
+        return make_error(ErrorCode::closed, "client is closed");
+    }
     if (!stream_factory) {
         return make_error(
             ErrorCode::unsupported,
@@ -2716,6 +2930,13 @@ detail::ResourceClientState::open_stream(
     if (!transport_result) {
         return std::move(transport_result).error();
     }
+    auto transport = std::move(transport_result).value();
+    if (!transport) {
+        return make_error(
+            ErrorCode::connection,
+            "stream transport factory returned null");
+    }
+    TransportCloseGuard close_on_failure(transport.get());
     auto stream_value = make_stream_value();
     auto parsed_id = StreamId::parse(stream_value);
     if (!parsed_id) {
@@ -2752,9 +2973,16 @@ detail::ResourceClientState::open_stream(
             "stream route selectors must be strings");
     }
     auto impl = std::make_unique<ResourceStream::Impl>();
-    impl->transport = std::move(transport_result).value();
+    impl->transport = std::move(transport);
+    close_on_failure.release();
     impl->options = options;
     impl->stream_id = std::move(parsed_id).value();
+    impl->item_validator = stream_item_validator(operation);
+    if (!impl->item_validator) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "stream operation has no typed item decoder");
+    }
     impl->machine_selector = std::string(machine_selector.value());
     impl->session_selector = std::string(session_selector.value());
     constexpr std::array<std::string_view, 10> route_fields{
@@ -2811,15 +3039,8 @@ detail::ResourceClientState::open_stream(
             return std::move(type).error();
         }
         if (type.value() == "response") {
-            const Json* id = envelope.value().find("id");
-            if (!id) {
-                continue;
-            }
-            auto text = id->as_string();
-            if (!text || text.value() != request_id) {
-                continue;
-            }
-            auto response = decode_response(envelope.value(), request_id);
+            auto response = decode_response(
+                envelope.value(), request_id, "stream open response");
             if (!response) {
                 return std::move(response).error();
             }
@@ -2850,22 +3071,31 @@ detail::ResourceClientState::open_stream(
             }
             return impl;
         }
-        const Json* stream_id = envelope.value().find("stream_id");
-        if (!stream_id) {
-            continue;
+        if (type.value() != "stream_item" &&
+            type.value() != "stream_end") {
+            return make_error(
+                ErrorCode::protocol,
+                "stream open received an unexpected envelope");
         }
-        auto text = stream_id->as_string();
-        if (!text || text.value() != impl->stream_id.value()) {
-            continue;
-        }
-        if (type.value() == "stream_item" || type.value() == "stream_end") {
-            if (impl->buffered.size() >= 256U) {
-                return make_error(
-                    ErrorCode::stream_local_overflow,
-                    "stream buffer exceeded 256 envelopes");
+        if (type.value() == "stream_item") {
+            auto valid = decode_stream_item(
+                envelope.value(), impl->stream_id);
+            if (!valid) {
+                return std::move(valid).error();
             }
-            impl->buffered.push_back(std::move(envelope).value());
+        } else {
+            auto valid = decode_stream_end(
+                envelope.value(), impl->stream_id);
+            if (!valid) {
+                return std::move(valid).error();
+            }
         }
+        if (impl->buffered.size() >= 256U) {
+            return make_error(
+                ErrorCode::stream_local_overflow,
+                "stream buffer exceeded 256 envelopes");
+        }
+        impl->buffered.push_back(std::move(envelope).value());
     }
 }
 
@@ -2915,35 +3145,42 @@ Result<std::optional<RawStreamItem>> ResourceStream::next(Timeout timeout) {
     } else {
         auto wire = impl_->transport->receive(timeout);
         if (!wire) {
+            if (wire.error().code != ErrorCode::timeout) {
+                return impl_->fail_closed(std::move(wire).error());
+            }
             return std::move(wire).error();
         }
         auto parsed = Json::parse(wire.value(), impl_->options.json_limits);
         if (!parsed) {
-            return std::move(parsed).error();
+            return impl_->fail_closed(std::move(parsed).error());
         }
         envelope = std::move(parsed).value();
     }
     auto type = envelope_type(envelope);
     if (!type) {
-        return std::move(type).error();
+        return impl_->fail_closed(std::move(type).error());
     }
     if (type.value() == "stream_end") {
         auto end = decode_stream_end(envelope, impl_->stream_id);
         if (!end) {
-            return std::move(end).error();
+            return impl_->fail_closed(std::move(end).error());
         }
         impl_->stream_end = std::move(end).value();
         impl_->close_transport();
         return std::optional<RawStreamItem>{};
     }
     if (type.value() != "stream_item") {
-        return make_error(
+        return impl_->fail_closed(make_error(
             ErrorCode::protocol,
-            "stream connection received an unexpected envelope");
+            "stream connection received an unexpected envelope"));
     }
     auto item = decode_stream_item(envelope, impl_->stream_id);
     if (!item) {
-        return std::move(item).error();
+        return impl_->fail_closed(std::move(item).error());
+    }
+    auto typed = impl_->validate_item(item.value());
+    if (!typed) {
+        return impl_->fail_closed(std::move(typed).error());
     }
     return std::optional<RawStreamItem>(std::move(item).value());
 }
@@ -2975,35 +3212,50 @@ Result<Json> ResourceStream::connection_control(
         impl_->options.timeout,
         impl_->options.json_limits);
     if (!sent) {
-        return std::move(sent).error();
+        return impl_->fail_closed(std::move(sent).error());
     }
     while (true) {
         auto envelope = impl_->receive();
         if (!envelope) {
-            return std::move(envelope).error();
+            return impl_->fail_closed(std::move(envelope).error());
         }
         auto type = envelope_type(envelope.value());
         if (!type) {
-            return std::move(type).error();
+            return impl_->fail_closed(std::move(type).error());
         }
         if (type.value() == "response") {
-            const Json* id = envelope.value().find("id");
-            if (id) {
-                auto text = id->as_string();
-                if (text && text.value() == request_id) {
-                    return decode_response(envelope.value(), request_id);
-                }
+            auto response = decode_response(
+                envelope.value(), request_id, "stream control response");
+            if (!response && response.error().code != ErrorCode::command) {
+                return impl_->fail_closed(std::move(response).error());
             }
-            continue;
+            return response;
         }
         if (type.value() == "stream_item" || type.value() == "stream_end") {
+            if (type.value() == "stream_item") {
+                auto valid = decode_stream_item(
+                    envelope.value(), impl_->stream_id);
+                if (!valid) {
+                    return impl_->fail_closed(std::move(valid).error());
+                }
+            } else {
+                auto valid = decode_stream_end(
+                    envelope.value(), impl_->stream_id);
+                if (!valid) {
+                    return impl_->fail_closed(std::move(valid).error());
+                }
+            }
             if (impl_->buffered.size() >= 256U) {
-                return make_error(
+                return impl_->fail_closed(make_error(
                     ErrorCode::stream_local_overflow,
-                    "stream buffer exceeded 256 envelopes");
+                    "stream buffer exceeded 256 envelopes"));
             }
             impl_->buffered.push_back(std::move(envelope).value());
+            continue;
         }
+        return impl_->fail_closed(make_error(
+            ErrorCode::protocol,
+            "stream control received an unexpected envelope"));
     }
 }
 
@@ -3057,9 +3309,34 @@ Result<StreamEnd> ResourceStream::cancel() {
     if (impl_->stream_end) {
         return *impl_->stream_end;
     }
+    if (impl_->cancel_failure) {
+        return *impl_->cancel_failure;
+    }
     if (impl_->transport_closed) {
         return make_error(ErrorCode::closed, "stream connection is closed");
     }
+    if (impl_->cancel_started) {
+        return make_error(
+            ErrorCode::closed,
+            "stream cancellation has already started");
+    }
+    impl_->cancel_started = true;
+    const auto fail_cancel = [&](Error error) -> Result<StreamEnd> {
+        error = impl_->fail_closed(std::move(error));
+        impl_->cancel_failure = error;
+        return error;
+    };
+    const auto deadline =
+        std::chrono::steady_clock::now() + impl_->options.timeout;
+    const auto remaining = [&]() -> Timeout {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return Timeout::zero();
+        }
+        return std::max(
+            Timeout(1),
+            std::chrono::duration_cast<Timeout>(deadline - now));
+    };
     const auto request_id = impl_->request_id("cancel");
     Json::Object params{
         {"machine", Json(impl_->machine_selector)},
@@ -3072,53 +3349,98 @@ Result<StreamEnd> ResourceStream::cancel() {
         Operation::stream_cancel,
         std::move(params),
         std::nullopt,
-        impl_->options.timeout,
+        remaining(),
         impl_->options.json_limits);
     if (!sent) {
-        return std::move(sent).error();
+        return fail_cancel(std::move(sent).error());
     }
     bool response_seen = false;
     std::optional<StreamEnd> end;
     while (!response_seen || !end) {
+        const auto timeout = remaining();
+        if (timeout == Timeout::zero()) {
+            return fail_cancel(make_error(
+                ErrorCode::timeout,
+                "stream cancellation timed out"));
+        }
         Json envelope;
         if (!impl_->buffered.empty()) {
             envelope = std::move(impl_->buffered.front());
             impl_->buffered.pop_front();
         } else {
-            auto received = impl_->receive();
+            auto received = impl_->receive(timeout);
             if (!received) {
-                return std::move(received).error();
+                return fail_cancel(std::move(received).error());
             }
             envelope = std::move(received).value();
         }
+        if (remaining() == Timeout::zero()) {
+            return fail_cancel(make_error(
+                ErrorCode::timeout,
+                "stream cancellation timed out"));
+        }
         auto type = envelope_type(envelope);
         if (!type) {
-            return std::move(type).error();
+            return fail_cancel(std::move(type).error());
         }
         if (type.value() == "response") {
-            const Json* id = envelope.find("id");
-            if (!id) {
-                continue;
+            if (response_seen) {
+                return fail_cancel(make_error(
+                    ErrorCode::protocol,
+                    "stream cancellation received duplicate response"));
             }
-            auto text = id->as_string();
-            if (!text || text.value() != request_id) {
-                continue;
-            }
-            auto response = decode_response(envelope, request_id);
+            auto response = decode_response(
+                envelope, request_id, "stream cancel response");
             if (!response) {
-                return std::move(response).error();
+                return fail_cancel(std::move(response).error());
+            }
+            auto exact = require_exact_fields(
+                response.value(), {}, "stream cancel result");
+            if (!exact) {
+                return fail_cancel(std::move(exact).error());
             }
             response_seen = true;
             continue;
         }
         if (type.value() == "stream_end") {
+            if (end) {
+                return fail_cancel(make_error(
+                    ErrorCode::protocol,
+                    "stream cancellation received duplicate stream end"));
+            }
             auto decoded = decode_stream_end(envelope, impl_->stream_id);
             if (!decoded) {
-                return std::move(decoded).error();
+                return fail_cancel(std::move(decoded).error());
+            }
+            if (decoded.value().reason != StreamEndReason::canceled) {
+                return fail_cancel(make_error(
+                    ErrorCode::protocol,
+                    "stream cancellation requires a canceled stream end"));
             }
             end = std::move(decoded).value();
+            continue;
         }
-        // Items already queued before cancellation are intentionally dropped.
+        if (type.value() == "stream_item") {
+            if (end) {
+                return fail_cancel(make_error(
+                    ErrorCode::protocol,
+                    "stream cancellation received an item after stream end"));
+            }
+            auto decoded = decode_stream_item(envelope, impl_->stream_id);
+            if (!decoded) {
+                return fail_cancel(std::move(decoded).error());
+            }
+            auto typed = impl_->validate_item(decoded.value());
+            if (!typed) {
+                return fail_cancel(std::move(typed).error());
+            }
+            // Items already queued before cancellation are intentionally
+            // dropped.
+            continue;
+        }
+        return fail_cancel(make_error(
+            ErrorCode::protocol,
+            "stream cancellation received an unexpected envelope"));
     }
     impl_->stream_end = std::move(end);
     impl_->close_transport();

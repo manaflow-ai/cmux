@@ -3,16 +3,47 @@ use super::model::{
     AgentSnapshot, BrowserSnapshot, ClientSnapshot, Cursor, Document, FrontendProjectionSnapshot,
     MachineSnapshot, NotificationSnapshot, PairingRequestSnapshot, PaneSnapshot,
     ResourceEntitySnapshot, ResourceSnapshot, ScreenSnapshot, SessionSnapshot, SidebarViewSnapshot,
-    StreamEnd, StreamPoll, TabSnapshot, TerminalSnapshot, TypedStreamItem, WorkspaceSnapshot,
+    StreamEnd, StreamItem, StreamPoll, TabSnapshot, TerminalSnapshot, TypedStreamItem,
+    WorkspaceSnapshot,
 };
 use super::ops;
 use super::options::{PixelSize, Size};
-use super::stream::{ResourceStream, StreamCancellation};
+use super::stream::{ResourceStream, StreamCancellation, StreamItemValidator};
 use super::wire::{self, Params, field};
 use crate::{Error, Result};
 use base64::Engine;
 use serde_json::{Map, Value};
 use std::time::Duration;
+
+pub(crate) fn stream_item_validator(operation: &str) -> Result<StreamItemValidator> {
+    Ok(match operation {
+        ops::SESSION_EVENTS => validate_session_stream_item,
+        ops::TERMINAL_ATTACH => validate_terminal_stream_item,
+        ops::BROWSER_ATTACH => validate_browser_stream_item,
+        ops::SIDEBAR_VIEW_ATTACH => validate_sidebar_stream_item,
+        _ => {
+            return Err(Error::InvalidArgument(format!(
+                "{operation} has no typed stream item decoder"
+            )));
+        }
+    })
+}
+
+fn validate_session_stream_item(item: &StreamItem) -> Result<()> {
+    decode_session_event(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
+}
+
+fn validate_terminal_stream_item(item: &StreamItem) -> Result<()> {
+    decode_terminal_item(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
+}
+
+fn validate_browser_stream_item(item: &StreamItem) -> Result<()> {
+    decode_browser_item(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
+}
+
+fn validate_sidebar_stream_item(item: &StreamItem) -> Result<()> {
+    decode_sidebar_item(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResetReason {

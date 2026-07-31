@@ -68,6 +68,52 @@ fn success(stream: &mut UnixStream, request: &Value, result: Value) {
     .unwrap();
 }
 
+fn failure(stream: &mut UnixStream, request: &Value, code: &str, message: &str, details: Value) {
+    writeln!(
+        stream,
+        "{}",
+        json!({
+            "protocol": "cmux.protocol/1",
+            "type": "response",
+            "id": request["id"],
+            "ok": false,
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details,
+                "retryable": false,
+            },
+        })
+    )
+    .unwrap();
+}
+
+fn assert_connection_closed_without_request(reader: &mut BufReader<UnixStream>, context: &str) {
+    if reader.get_ref().set_read_timeout(Some(Duration::from_millis(500))).is_err() {
+        // macOS can reject SO_RCVTIMEO after the peer has already shut down
+        // both halves. A nonblocking read still distinguishes EOF from a live
+        // connection without allowing the test to hang.
+        reader
+            .get_ref()
+            .set_nonblocking(true)
+            .unwrap_or_else(|error| panic!("{context} close setup failed: {error}"));
+    }
+    let mut possible_request = String::new();
+    match reader.read_line(&mut possible_request) {
+        Ok(0) => {}
+        Ok(_) => panic!("{context} sent an unexpected request: {possible_request}"),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) =>
+        {
+            panic!("{context} did not close its dedicated connection")
+        }
+        Err(error) => panic!("{context} close check failed: {error}"),
+    }
+}
+
 fn mutation_result(request: &Value, value: Value) -> Value {
     assert!(request["idempotency_key"].is_string());
     json!({
@@ -811,6 +857,84 @@ fn exact_mutation_key_is_exposed_on_transport_disconnect() {
 }
 
 #[test]
+fn stream_open_requires_an_exact_success_ack_and_closes_ambiguous_transports() {
+    for case in ["non-object", "missing-id", "mismatched-id", "unknown-field", "bad-cursor"] {
+        let path = socket_path();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let _control = listener.accept().unwrap().0;
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let open = request(&mut reader);
+            let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+            let result = match case {
+                "non-object" => json!(stream_id),
+                "missing-id" => json!({}),
+                "mismatched-id" => {
+                    json!({"stream_id":"stream_ffffffffffffffffffffffffffffffff"})
+                }
+                "unknown-field" => json!({"stream_id":stream_id,"extra":true}),
+                "bad-cursor" => json!({
+                    "stream_id":stream_id,
+                    "cursor":{"generation":"g","revision":1},
+                }),
+                _ => unreachable!(),
+            };
+            success(&mut stream, &open, result);
+            assert_connection_closed_without_request(&mut reader, case);
+        });
+
+        let client = connect(&path);
+        let error = match client.current_session().events(EventStreamOptions::default()) {
+            Ok(_) => panic!("{case} success ACK must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, Error::UnexpectedEnvelope(_)), "{case}: {error:?}");
+        client.close().unwrap();
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn valid_stream_open_rejection_preserves_the_error_without_canceling() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let _control = listener.accept().unwrap().0;
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        failure(
+            &mut stream,
+            &open,
+            "selector.not_found",
+            "sidebar is absent",
+            json!({"resource":"sidebar_view","selector":"current"}),
+        );
+        assert_connection_closed_without_request(&mut reader, "rejected stream open");
+    });
+
+    let client = connect(&path);
+    let error = match client.current_session().events(EventStreamOptions::default()) {
+        Ok(_) => panic!("rejected stream open must fail"),
+        Err(error) => error,
+    };
+    match error {
+        Error::Protocol { code, message, details, retryable } => {
+            assert_eq!(code, "selector.not_found");
+            assert_eq!(message, "sidebar is absent");
+            assert_eq!(details, json!({"resource":"sidebar_view","selector":"current"}));
+            assert!(!retryable);
+        }
+        other => panic!("stream rejection changed error: {other:?}"),
+    }
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
@@ -1177,7 +1301,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
 }
 
 #[test]
-fn pre_ack_stream_limits_cancel_and_isolate_the_control_connection() {
+fn pre_ack_stream_limits_close_and_isolate_the_control_connection() {
     for overflow_by_bytes in [false, true] {
         let path = socket_path();
         let listener = UnixListener::bind(&path).unwrap();
@@ -1209,9 +1333,7 @@ fn pre_ack_stream_limits_cancel_and_isolate_the_control_connection() {
                 writeln!(stream, "{}", item("2", "y")).unwrap();
             }
 
-            let canceled = request(&mut stream_reader);
-            assert_eq!(canceled["operation"], "stream.cancel");
-            assert_eq!(canceled["params"]["stream"], stream_id);
+            assert_connection_closed_without_request(&mut stream_reader, "failed stream open");
 
             let ping = request(&mut control_reader);
             assert_eq!(ping["operation"], "session.ping");
@@ -1247,6 +1369,409 @@ fn pre_ack_stream_limits_cancel_and_isolate_the_control_connection() {
         server.join().unwrap();
         std::fs::remove_file(path).unwrap();
     }
+}
+
+#[test]
+fn explicit_cancel_is_deadline_bounded_and_closes_after_uncertain_cleanup() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let _control = listener.accept().unwrap().0;
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id":stream_id}));
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        thread::sleep(Duration::from_millis(350));
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol":"cmux.protocol/1",
+                "type":"stream_item",
+                "stream_id":stream_id,
+                "sequence":"0",
+                "item":{"kind":"future_event"},
+            })
+        )
+        .unwrap();
+        assert_connection_closed_without_request(&mut reader, "timed-out stream cancel");
+    });
+
+    let client = cmux::Client::connect(
+        Config::from_socket_path(&path).with_timeout(Duration::from_millis(500)),
+    )
+    .unwrap();
+    let mut events = client.current_session().events(EventStreamOptions::default()).unwrap();
+    let started = std::time::Instant::now();
+    assert!(matches!(events.cancel(), Err(Error::Timeout(_))));
+    assert!(started.elapsed() < Duration::from_millis(700));
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
+    for case in [
+        "wrong-id",
+        "non-empty-result",
+        "duplicate-response",
+        "duplicate-end",
+        "wrong-end-id",
+        "wrong-end-reason",
+        "unknown-response-field",
+        "success-with-error",
+        "failure-with-result",
+        "unknown-response-error-field",
+        "malformed-known-pre-end-item",
+        "valid-known-post-end-item",
+        "malformed-known-stale-item",
+        "unknown-end-field",
+        "unknown-error-field",
+    ] {
+        let path = socket_path();
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = thread::spawn(move || {
+            let _control = listener.accept().unwrap().0;
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let open = request(&mut reader);
+            let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+            success(&mut stream, &open, json!({"stream_id":stream_id}));
+            let cancel = request(&mut reader);
+            assert_eq!(cancel["operation"], "stream.cancel");
+            match case {
+                "wrong-id" => {
+                    success(&mut stream, &json!({"id":"wrong-cancel-response"}), json!({}));
+                }
+                "non-empty-result" => {
+                    success(&mut stream, &cancel, json!({"unexpected":true}));
+                }
+                "duplicate-response" => {
+                    success(&mut stream, &cancel, json!({}));
+                    success(&mut stream, &cancel, json!({}));
+                }
+                "duplicate-end" => {
+                    for _ in 0..2 {
+                        writeln!(
+                            stream,
+                            "{}",
+                            json!({
+                                "protocol":"cmux.protocol/1",
+                                "type":"stream_end",
+                                "stream_id":stream_id,
+                                "reason":"canceled",
+                            })
+                        )
+                        .unwrap();
+                    }
+                }
+                "wrong-end-id" => {
+                    success(&mut stream, &cancel, json!({}));
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":"stream_ffffffffffffffffffffffffffffffff",
+                            "reason":"canceled",
+                        })
+                    )
+                    .unwrap();
+                }
+                "wrong-end-reason" => {
+                    success(&mut stream, &cancel, json!({}));
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"completed",
+                        })
+                    )
+                    .unwrap();
+                }
+                "unknown-response-field" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"response",
+                            "id":cancel["id"],
+                            "ok":true,
+                            "result":{},
+                            "future":true,
+                        })
+                    )
+                    .unwrap();
+                }
+                "success-with-error" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"response",
+                            "id":cancel["id"],
+                            "ok":true,
+                            "result":{},
+                            "error":{
+                                "code":"operation.failed",
+                                "message":"fixture",
+                                "details":{},
+                                "retryable":false,
+                            },
+                        })
+                    )
+                    .unwrap();
+                }
+                "failure-with-result" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"response",
+                            "id":cancel["id"],
+                            "ok":false,
+                            "result":{},
+                            "error":{
+                                "code":"operation.failed",
+                                "message":"fixture",
+                                "details":{},
+                                "retryable":false,
+                            },
+                        })
+                    )
+                    .unwrap();
+                }
+                "unknown-response-error-field" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"response",
+                            "id":cancel["id"],
+                            "ok":false,
+                            "error":{
+                                "code":"operation.failed",
+                                "message":"fixture",
+                                "details":{},
+                                "retryable":false,
+                                "future":true,
+                            },
+                        })
+                    )
+                    .unwrap();
+                }
+                "malformed-known-pre-end-item" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_item",
+                            "stream_id":stream_id,
+                            "sequence":"0",
+                            "cursor":{"generation":"g","revision":"1"},
+                            "item":{
+                                "kind":"snapshot",
+                                "cursor":{"generation":"g","revision":"1"},
+                                "snapshot":resource_snapshot(),
+                                "future":true,
+                            },
+                        })
+                    )
+                    .unwrap();
+                    success(&mut stream, &cancel, json!({}));
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"canceled",
+                        })
+                    )
+                    .unwrap();
+                }
+                "valid-known-post-end-item" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"canceled",
+                        })
+                    )
+                    .unwrap();
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_item",
+                            "stream_id":stream_id,
+                            "sequence":"0",
+                            "cursor":{"generation":"g","revision":"1"},
+                            "item":{
+                                "kind":"snapshot",
+                                "cursor":{"generation":"g","revision":"1"},
+                                "reset_reason":"initial",
+                                "snapshot":resource_snapshot(),
+                            },
+                        })
+                    )
+                    .unwrap();
+                    success(&mut stream, &cancel, json!({}));
+                }
+                "malformed-known-stale-item" => {
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"canceled",
+                        })
+                    )
+                    .unwrap();
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_item",
+                            "stream_id":stream_id,
+                            "sequence":"0",
+                            "item":{
+                                "kind":"snapshot",
+                                "future":true,
+                            },
+                        })
+                    )
+                    .unwrap();
+                    success(&mut stream, &cancel, json!({}));
+                }
+                "unknown-end-field" => {
+                    success(&mut stream, &cancel, json!({}));
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"canceled",
+                            "future":true,
+                        })
+                    )
+                    .unwrap();
+                }
+                "unknown-error-field" => {
+                    success(&mut stream, &cancel, json!({}));
+                    writeln!(
+                        stream,
+                        "{}",
+                        json!({
+                            "protocol":"cmux.protocol/1",
+                            "type":"stream_end",
+                            "stream_id":stream_id,
+                            "reason":"error",
+                            "error":{
+                                "code":"operation.failed",
+                                "message":"fixture",
+                                "details":{},
+                                "retryable":false,
+                                "future":true,
+                            },
+                        })
+                    )
+                    .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_connection_closed_without_request(&mut reader, case);
+        });
+
+        let client = connect(&path);
+        let mut events = client.current_session().events(EventStreamOptions::default()).unwrap();
+        let detached = events.cancellation();
+        let first = events.cancel().unwrap_err();
+        assert!(matches!(&first, Error::UnexpectedEnvelope(_)), "{case}: {first:?}");
+        let first_debug = format!("{first:?}");
+        let repeated = events.cancel().unwrap_err();
+        assert_eq!(format!("{repeated:?}"), first_debug, "{case}");
+        detached.cancel().unwrap();
+        client.close().unwrap();
+        server.join().unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn live_stream_overflow_sends_one_cancel_and_prevents_reuse() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let _control = listener.accept().unwrap().0;
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = request(&mut reader);
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        success(&mut stream, &open, json!({"stream_id":stream_id}));
+
+        let resize = request(&mut reader);
+        assert_eq!(resize["operation"], "terminal.viewer.resize");
+        for sequence in 0..2 {
+            writeln!(
+                stream,
+                "{}",
+                json!({
+                    "protocol":"cmux.protocol/1",
+                    "type":"stream_item",
+                    "stream_id":stream_id,
+                    "sequence":sequence.to_string(),
+                    "item":{"kind":"future_terminal_item"},
+                })
+            )
+            .unwrap();
+        }
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "stream.cancel");
+        assert_eq!(cancel["params"]["stream"], stream_id);
+        assert_connection_closed_without_request(&mut reader, "overflowed stream");
+    });
+
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_stream_limits(1, 4 * 1024))
+            .unwrap();
+    let mut terminal = client
+        .current_session()
+        .terminal(TerminalId::parse(TERMINAL).unwrap())
+        .attach(TerminalAttachOptions::default())
+        .unwrap();
+    assert!(matches!(
+        terminal.resize(Size::new(100, 30).unwrap()),
+        Err(Error::StreamEnded { ref reason, .. }) if reason == "gap"
+    ));
+    terminal.cancel().unwrap();
+    drop(terminal);
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -1340,18 +1865,7 @@ fn dropping_completed_and_gap_streams_does_not_send_cancel() {
             }
             writeln!(stream, "{end}").unwrap();
 
-            stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
-            let mut possible_cancel = String::new();
-            match reader.read_line(&mut possible_cancel) {
-                Ok(0) => {}
-                Ok(_) => panic!("{reason} stream sent cancel after stream_end: {possible_cancel}"),
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) => {}
-                Err(error) => panic!("unexpected read error: {error}"),
-            }
+            assert_connection_closed_without_request(&mut reader, reason);
         });
 
         let client = connect(&path);

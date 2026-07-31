@@ -58,7 +58,9 @@ events. The shared conformance suite verifies their common wire behavior.
 ## Cutting a release
 
 1. Update TypeScript, Python, both Rust crate manifests, Java, C++, and Zig
-   package metadata to the same version. Go follows the shared Git tag.
+   package metadata to the same version. Zig's authoritative package version is
+   `zig/build.zig.zon`; keep the example executable version in `zig/build.zig`
+   identical. Go follows the shared Git tag.
 2. Verify synchronized versions:
 
    ```bash

@@ -3,6 +3,8 @@ package com.cmux;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -14,6 +16,8 @@ public final class ResourceStream<T> implements AutoCloseable {
     private final Client.StreamRoute route;
     private final Client.Decoder<T> decoder;
     private final AtomicBoolean finished = new AtomicBoolean();
+    private final AtomicBoolean cancellationStarted = new AtomicBoolean();
+    private final CompletableFuture<Void> cancellation = new CompletableFuture<>();
     private final AtomicReference<StreamEndError> end = new AtomicReference<>();
 
     ResourceStream(
@@ -89,6 +93,18 @@ public final class ResourceStream<T> implements AutoCloseable {
             end.set(terminal);
             throw terminal;
         }
+        Client.validateStreamItemEnvelope(message.envelope());
+        Ids.StreamId returned = new Ids.StreamId(
+            com.cmux.internal.Wire.string(
+                message.envelope().get("stream_id"),
+                "stream item stream_id"
+            )
+        );
+        if (!returned.equals(id)) {
+            throw new ProtocolError(
+                "stream item returned a different stream_id"
+            );
+        }
         Decimal sequence = WireAccess.decimal(message.envelope().get("sequence"), "sequence");
         boolean cursorPresent = message.envelope().containsKey("cursor");
         if (cursorPresent && message.envelope().get("cursor") == null) {
@@ -107,15 +123,37 @@ public final class ResourceStream<T> implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!finished.compareAndSet(false, true)) {
+        if (!cancellationStarted.compareAndSet(false, true)) {
+            awaitCancellation();
             return;
         }
-        client.cancelStream(id, route).ifPresent(end::set);
+        if (!finished.compareAndSet(false, true)) {
+            cancellation.complete(null);
+            return;
+        }
+        try {
+            client.cancelStream(id, route).ifPresent(end::set);
+            cancellation.complete(null);
+        } catch (RuntimeException failure) {
+            cancellation.completeExceptionally(failure);
+            throw failure;
+        }
     }
 
     /** Returns the observed server terminal envelope after next or close. */
     public Optional<StreamEndError> end() {
         return Optional.ofNullable(end.get());
+    }
+
+    private void awaitCancellation() {
+        try {
+            cancellation.join();
+        } catch (CompletionException completed) {
+            if (completed.getCause() instanceof RuntimeException failure) {
+                throw failure;
+            }
+            throw completed;
+        }
     }
 
     /** Avoid exposing the internal wire package from a public generic signature. */

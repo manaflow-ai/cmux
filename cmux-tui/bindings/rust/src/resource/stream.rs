@@ -6,10 +6,13 @@ use crate::{Error, Result};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::Write;
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+pub(crate) type StreamItemValidator = fn(&StreamItem) -> Result<()>;
 
 pub(crate) struct StreamParts {
     pub(crate) id: StreamId,
@@ -20,6 +23,8 @@ pub(crate) struct StreamParts {
     pub(crate) max_request_bytes: usize,
     pub(crate) max_stream_items: usize,
     pub(crate) max_stream_bytes: usize,
+    pub(crate) cleanup_timeout: Duration,
+    pub(crate) item_validator: StreamItemValidator,
     pub(crate) initial_envelopes: VecDeque<(Value, usize)>,
 }
 
@@ -67,23 +72,41 @@ impl StreamCancellation {
     }
 
     fn write_envelope(&self, envelope: &Value, context: &str) -> Result<()> {
-        let encoded =
-            serde_json::to_vec(envelope).map_err(|error| Error::Decode(error.to_string()))?;
+        let encoded = match serde_json::to_vec(envelope) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                self.close_transport();
+                return Err(Error::Decode(error.to_string()));
+            }
+        };
         if encoded.len() > self.inner.max_request_bytes {
+            self.close_transport();
             return Err(Error::FrameTooLarge {
                 size: encoded.len(),
                 limit: self.inner.max_request_bytes,
             });
         }
-        let mut writer = self
-            .inner
-            .writer
-            .lock()
-            .map_err(|_| Error::Connection("stream writer lock poisoned".to_string()))?;
-        writer
-            .write_all(&encoded)
-            .and_then(|()| writer.write_all(b"\n"))
-            .map_err(|error| Error::Connection(format!("{context} failed: {error}")))
+        let mut writer = match self.inner.writer.lock() {
+            Ok(writer) => writer,
+            Err(poisoned) => {
+                let writer = poisoned.into_inner();
+                let _ = writer.shutdown(Shutdown::Both);
+                return Err(Error::Connection("stream writer lock poisoned".to_string()));
+            }
+        };
+        if let Err(error) = writer.write_all(&encoded).and_then(|()| writer.write_all(b"\n")) {
+            let _ = writer.shutdown(Shutdown::Both);
+            return Err(Error::Connection(format!("{context} failed: {error}")));
+        }
+        Ok(())
+    }
+
+    fn close_transport(&self) {
+        let writer = match self.inner.writer.lock() {
+            Ok(writer) => writer,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let _ = writer.shutdown(Shutdown::Both);
     }
 }
 
@@ -98,8 +121,11 @@ pub struct ResourceStream {
     pending_bytes: usize,
     max_stream_items: usize,
     max_stream_bytes: usize,
+    cleanup_timeout: Duration,
+    item_validator: StreamItemValidator,
     last_sequence: Option<u64>,
     end: Option<StreamEnd>,
+    cancel_failure: Option<Error>,
     terminal_error_emitted: bool,
 }
 
@@ -125,8 +151,11 @@ impl ResourceStream {
             pending_bytes: 0,
             max_stream_items: parts.max_stream_items,
             max_stream_bytes: parts.max_stream_bytes,
+            cleanup_timeout: parts.cleanup_timeout,
+            item_validator: parts.item_validator,
             last_sequence: None,
             end: None,
+            cancel_failure: None,
             terminal_error_emitted: false,
         };
         for (envelope, size) in initial_envelopes {
@@ -156,27 +185,85 @@ impl ResourceStream {
     /// Cancels the stream and discards unread items until cancellation is
     /// confirmed by both the response and the matching canceled end envelope.
     pub fn cancel(&mut self) -> Result<()> {
+        if let Some(error) = &self.cancel_failure {
+            return Err(error.clone());
+        }
         if self.end.is_some() {
             return Ok(());
         }
+        match self.cancel_inner() {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.connection.close();
+                self.cancel_failure = Some(error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    fn cancel_inner(&mut self) -> Result<()> {
         let request_id = self.cancellation.request_id();
+        let deadline = Instant::now().checked_add(self.cleanup_timeout).ok_or_else(|| {
+            Error::InvalidArgument("stream cleanup timeout exceeds the supported range".into())
+        })?;
         self.cancellation.send()?;
+        while let Some((item, size)) = self.pending_items.pop_front() {
+            self.pending_bytes -= size;
+            (self.item_validator)(&item)?;
+        }
         let mut response_seen = false;
-        let mut end_seen = false;
-        while !response_seen || !end_seen {
-            let envelope = self.connection.recv()?;
+        let mut pending_end = None;
+        while !response_seen || pending_end.is_none() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(Error::Timeout(
+                    "stream cancel did not finish before the cleanup deadline".into(),
+                ));
+            }
+            let envelope = match self
+                .connection
+                .with_read_timeout(remaining, crate::codec::JsonLineConnection::recv)
+            {
+                Err(Error::Timeout(_)) => {
+                    return Err(Error::Timeout(
+                        "stream cancel did not finish before the cleanup deadline".into(),
+                    ));
+                }
+                result => result?,
+            };
             match envelope.get("type").and_then(Value::as_str) {
                 Some("response") => {
-                    super::client::decode_response(envelope, &request_id)?;
+                    if response_seen {
+                        return Err(Error::UnexpectedEnvelope(
+                            "stream cancel received more than one response".to_string(),
+                        ));
+                    }
+                    let result = super::client::decode_response(envelope, &request_id)?;
+                    if result.as_object().is_none_or(|result| !result.is_empty()) {
+                        return Err(Error::UnexpectedEnvelope(
+                            "stream cancel result must be an empty object".to_string(),
+                        ));
+                    }
                     response_seen = true;
                 }
                 Some("stream_item") => {
+                    if pending_end.is_some() {
+                        return Err(Error::UnexpectedEnvelope(
+                            "stream item received after stream end".to_string(),
+                        ));
+                    }
                     // Items already in flight before cancellation are stale.
-                    // Decode the envelope for protocol/sequence validation,
-                    // then intentionally discard the typed payload.
-                    self.decode_item(envelope)?;
+                    // Run the same known-payload decoder as ordinary typed
+                    // delivery before intentionally discarding the item.
+                    let item = self.decode_item(envelope)?;
+                    (self.item_validator)(&item)?;
                 }
                 Some("stream_end") => {
+                    if pending_end.is_some() {
+                        return Err(Error::UnexpectedEnvelope(
+                            "stream cancel received more than one end envelope".to_string(),
+                        ));
+                    }
                     let end = self.decode_end(envelope)?;
                     if end.reason != StreamEndReason::Canceled {
                         return Err(Error::UnexpectedEnvelope(format!(
@@ -184,8 +271,7 @@ impl ResourceStream {
                             end.reason
                         )));
                     }
-                    self.end = Some(end);
-                    end_seen = true;
+                    pending_end = Some(end);
                 }
                 _ => {
                     return Err(Error::UnexpectedEnvelope(
@@ -194,6 +280,7 @@ impl ResourceStream {
                 }
             }
         }
+        self.end = pending_end;
         Ok(())
     }
 
@@ -341,6 +428,7 @@ impl ResourceStream {
                 error: None,
             });
             let _ = self.cancellation.send();
+            self.connection.close();
             return Err(Error::StreamEnded {
                 reason: "gap".to_string(),
                 recovery: Some(recovery),
@@ -358,7 +446,29 @@ impl ResourceStream {
             Error::UnexpectedEnvelope("stream item must be an object".to_string())
         })?;
         validate_protocol(object)?;
+        if object.get("type").and_then(Value::as_str) != Some("stream_item") {
+            return Err(Error::UnexpectedEnvelope(
+                "stream item type must be stream_item".to_string(),
+            ));
+        }
         validate_stream_id(object, &self.id)?;
+        let mut unknown = object
+            .keys()
+            .filter(|field| {
+                !matches!(
+                    field.as_str(),
+                    "protocol" | "type" | "stream_id" | "sequence" | "cursor" | "item"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        unknown.sort();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "stream item contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let sequence = wire::parse_decimal(
             object.get("sequence").ok_or_else(|| {
                 Error::UnexpectedEnvelope("stream item sequence is required".to_string())
@@ -377,11 +487,11 @@ impl ResourceStream {
                 )));
             }
         }
-        self.last_sequence = Some(sequence);
         let cursor = object.get("cursor").map(wire::parse_cursor).transpose()?;
         let value = object.get("item").cloned().ok_or_else(|| {
             Error::UnexpectedEnvelope("stream item payload is required".to_string())
         })?;
+        self.last_sequence = Some(sequence);
         Ok(StreamItem { sequence, cursor, value })
     }
 
@@ -390,7 +500,29 @@ impl ResourceStream {
             .as_object()
             .ok_or_else(|| Error::UnexpectedEnvelope("stream end must be an object".to_string()))?;
         validate_protocol(object)?;
+        if object.get("type").and_then(Value::as_str) != Some("stream_end") {
+            return Err(Error::UnexpectedEnvelope(
+                "stream end type must be stream_end".to_string(),
+            ));
+        }
         validate_stream_id(object, &self.id)?;
+        let mut unknown = object
+            .keys()
+            .filter(|field| {
+                !matches!(
+                    field.as_str(),
+                    "protocol" | "type" | "stream_id" | "reason" | "cursor" | "error" | "recovery"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        unknown.sort();
+        if !unknown.is_empty() {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "stream end contains unknown fields: {}",
+                unknown.join(", ")
+            )));
+        }
         let reason = object
             .get("reason")
             .and_then(Value::as_str)
@@ -411,6 +543,20 @@ impl ResourceStream {
                 let object = error.as_object().ok_or_else(|| {
                     Error::UnexpectedEnvelope("stream error must be an object".to_string())
                 })?;
+                let mut unknown = object
+                    .keys()
+                    .filter(|field| {
+                        !matches!(field.as_str(), "code" | "message" | "details" | "retryable")
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                unknown.sort();
+                if !unknown.is_empty() {
+                    return Err(Error::UnexpectedEnvelope(format!(
+                        "stream error contains unknown fields: {}",
+                        unknown.join(", ")
+                    )));
+                }
                 Ok(super::model::ProtocolFailure {
                     code: object
                         .get("code")
@@ -506,4 +652,106 @@ fn validate_stream_id(object: &serde_json::Map<String, Value>, expected: &Stream
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::io::Read;
+
+    #[test]
+    fn failed_cancel_send_is_one_shot_and_closes_the_transport() {
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let connection =
+            crate::codec::JsonLineConnection::from_stream(client, Duration::from_millis(100), 1024)
+                .unwrap();
+        let writer = connection.shutdown_clone().unwrap();
+        let mut stream = ResourceStream::from_parts(StreamParts {
+            id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+            connection,
+            writer,
+            cancel_params: Params::new(),
+            control_params: Params::new(),
+            max_request_bytes: 1,
+            max_stream_items: 1,
+            max_stream_bytes: 1,
+            cleanup_timeout: Duration::from_millis(100),
+            item_validator: |_| Ok(()),
+            initial_envelopes: VecDeque::new(),
+        })
+        .unwrap();
+        let detached = stream.cancellation();
+
+        assert!(matches!(stream.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
+        detached.cancel().unwrap();
+
+        let mut received = Vec::new();
+        peer.read_to_end(&mut received).unwrap();
+        assert!(received.is_empty());
+    }
+
+    #[test]
+    fn stream_item_envelopes_are_exact() {
+        let (client, _peer) = UnixStream::pair().unwrap();
+        let connection =
+            crate::codec::JsonLineConnection::from_stream(client, Duration::from_millis(100), 1024)
+                .unwrap();
+        let writer = connection.shutdown_clone().unwrap();
+        let id = StreamId::parse("stream_00000000000000000000000000000001").unwrap();
+        let mut stream = ResourceStream::from_parts(StreamParts {
+            id: id.clone(),
+            connection,
+            writer,
+            cancel_params: Params::new(),
+            control_params: Params::new(),
+            max_request_bytes: 1024,
+            max_stream_items: 1,
+            max_stream_bytes: 1024,
+            cleanup_timeout: Duration::from_millis(100),
+            item_validator: |_| Ok(()),
+            initial_envelopes: VecDeque::new(),
+        })
+        .unwrap();
+        let base = json!({
+            "protocol": "cmux.protocol/1",
+            "type": "stream_item",
+            "stream_id": id.as_str(),
+            "sequence": "0",
+            "item": {"kind": "future"},
+        });
+
+        let mut wrong_type = base.clone();
+        wrong_type["type"] = json!("stream_end");
+        let mut unknown_field = base.clone();
+        unknown_field["future"] = json!(true);
+        let mut null_cursor = base.clone();
+        null_cursor["cursor"] = Value::Null;
+        let mut numeric_sequence = base.clone();
+        numeric_sequence["sequence"] = json!(0);
+        let mut noncanonical_sequence = base.clone();
+        noncanonical_sequence["sequence"] = json!("00");
+        let mut wrong_stream = base.clone();
+        wrong_stream["stream_id"] = json!("stream_ffffffffffffffffffffffffffffffff");
+        let mut missing_item = base.clone();
+        missing_item.as_object_mut().unwrap().remove("item");
+
+        for malformed in [
+            wrong_type,
+            unknown_field,
+            null_cursor,
+            numeric_sequence,
+            noncanonical_sequence,
+            wrong_stream,
+            missing_item,
+        ] {
+            assert!(matches!(stream.decode_item(malformed), Err(Error::UnexpectedEnvelope(_))));
+            assert!(stream.last_sequence.is_none());
+        }
+
+        let decoded = stream.decode_item(base).unwrap();
+        assert_eq!(decoded.sequence, 0);
+        assert_eq!(stream.last_sequence, Some(0));
+    }
 }

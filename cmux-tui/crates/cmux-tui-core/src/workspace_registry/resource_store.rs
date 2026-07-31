@@ -222,6 +222,26 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    pub(crate) fn terminal_resource_ids_in_workspace(
+        &self,
+        workspace_key: &str,
+    ) -> anyhow::Result<Vec<TerminalPublicId>> {
+        validate_workspace_key(workspace_key)?;
+        let mut statement = self.connection.prepare(
+            "SELECT rt.public_id
+             FROM terminal_placements tp
+             JOIN resource_terminals rt ON rt.terminal_id = tp.terminal_id
+             WHERE tp.workspace_key = ?1
+               AND tp.lifecycle != 'tombstoned'
+               AND rt.deleted_revision IS NULL
+             ORDER BY tp.created_revision ASC, tp.terminal_id ASC",
+        )?;
+        statement
+            .query_map([workspace_key], |row| row.get::<_, String>(0))?
+            .map(|public_id| TerminalPublicId::parse(public_id?).map_err(Into::into))
+            .collect()
+    }
+
     pub fn terminal_host_id(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
         self.connection
             .query_row(

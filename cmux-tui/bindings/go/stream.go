@@ -1,10 +1,13 @@
 package cmux
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
 )
@@ -30,7 +33,8 @@ func (e *StreamEndError) Error() string {
 }
 
 // Stream is a cancellable typed stream. Cancel is idempotent and waits for
-// the server's stream.cancel response. Recv never returns an item after end.
+// both the server's stream.cancel response and canceled stream end. Recv never
+// returns an item after end.
 // The context passed to the stream-opening method governs only the open
 // handshake. After acknowledgement, each Recv or Cancel context governs that
 // operation without imposing an idle stream deadline.
@@ -40,12 +44,13 @@ type Stream[T any] struct {
 	route  *streamRoute
 	decode func(json.RawMessage) (T, error)
 
-	mu           sync.Mutex
-	finished     bool
-	end          *StreamEndError
-	cancelParams map[string]any
-	cancelOnce   sync.Once
-	cancelErr    error
+	mu            sync.Mutex
+	finished      bool
+	end           *StreamEndError
+	cancelParams  map[string]any
+	cancelStarted bool
+	cancelDone    chan struct{}
+	cancelErr     error
 }
 
 func (s *Stream[T]) ID() StreamID { return s.id }
@@ -112,19 +117,63 @@ func (s *Stream[T]) Cancel(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
+	if s.cancelStarted {
+		done := s.cancelDone
+		s.mu.Unlock()
+		<-done
+		s.mu.Lock()
+		err := s.cancelErr
+		s.mu.Unlock()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.cancelStarted = true
+	s.cancelDone = make(chan struct{})
 	s.mu.Unlock()
-	s.cancelOnce.Do(func() {
-		s.cancelErr = s.client.cancelStream(ctx, s.cancelParams)
-		if s.cancelErr != nil {
-			return
-		}
-		s.client.mu.Lock()
+
+	cancelErr := s.cancel(ctx)
+	s.mu.Lock()
+	s.cancelErr = cancelErr
+	close(s.cancelDone)
+	s.mu.Unlock()
+	return cancelErr
+}
+
+func (s *Stream[T]) cancel(ctx context.Context) error {
+	s.client.mu.Lock()
+	ownsCleanup := s.route.beginExplicitCancel(func(raw json.RawMessage) error {
+		_, err := s.decode(raw)
+		return err
+	})
+	if !ownsCleanup {
 		delete(s.client.streams, s.id)
-		s.client.mu.Unlock()
+	}
+	s.client.mu.Unlock()
+	if !ownsCleanup {
 		end := s.route.cancelTerminal()
 		s.markFinished(end)
-	})
-	return s.cancelErr
+		return nil
+	}
+	deadline := time.Now().Add(s.client.timeout)
+	if contextDeadline, ok := ctx.Deadline(); ok &&
+		contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	cancelContext, finishCancel := context.WithDeadline(ctx, deadline)
+	defer finishCancel()
+	end, err := s.cancelAndAwait(cancelContext)
+	if err != nil {
+		s.client.fail(err)
+		return err
+	}
+	s.client.mu.Lock()
+	delete(s.client.streams, s.id)
+	s.client.mu.Unlock()
+	s.markFinished(end)
+	return nil
 }
 
 func (s *Stream[T]) Close(ctx context.Context) error { return s.Cancel(ctx) }
@@ -153,14 +202,150 @@ func (s *Stream[T]) isFinished() bool {
 }
 
 func (c *Client) cancelStream(ctx context.Context, params map[string]any) error {
-	_, err := readValue[EmptyResult](
+	var raw json.RawMessage
+	if err := c.do(
 		ctx,
-		c,
 		wirev1.StreamCancel,
 		copyParams(params),
-		"stream cancellation",
-	)
+		"",
+		&raw,
+	); err != nil {
+		return err
+	}
+	return decodeEmptyResult(raw, "stream cancellation")
+}
+
+func decodeEmptyResult(raw json.RawMessage, label string) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return &ProtocolError{Message: "cannot decode " + label + ": expected an empty object"}
+	}
+	_, err := decodeValue[EmptyResult](raw, label)
 	return err
+}
+
+func (s *Stream[T]) cancelAndAwait(
+	ctx context.Context,
+) (*StreamEndError, error) {
+	response := make(chan error, 1)
+	go func() {
+		response <- s.client.cancelStream(ctx, s.cancelParams)
+	}()
+	var responseReceived bool
+	var end *StreamEndError
+	var stateEndObserved bool
+	var transportErr error
+	recordMessage := func(message streamMessage) error {
+		candidate, done, err := s.consumeCancelMessage(message)
+		if err != nil {
+			if errors.Is(err, ErrTransport) {
+				transportErr = err
+				return nil
+			}
+			return err
+		}
+		if !done {
+			return nil
+		}
+		if end != nil {
+			return &ProtocolError{
+				Message: "stream cancellation received multiple stream ends",
+			}
+		}
+		end = candidate
+		return nil
+	}
+	refreshState := func() error {
+		stateEnd, stateErr := s.route.explicitCancelState()
+		if stateErr != nil {
+			return stateErr
+		}
+		if stateEnd == nil || stateEndObserved {
+			return nil
+		}
+		stateEndObserved = true
+		return recordMessage(streamMessage{envelope: *stateEnd})
+	}
+	for {
+		if err := refreshState(); err != nil {
+			return nil, err
+		}
+		if responseReceived && end != nil {
+			for {
+				select {
+				case message := <-s.route.messages:
+					if err := recordMessage(message); err != nil {
+						return nil, err
+					}
+				default:
+					if err := refreshState(); err != nil {
+						return nil, err
+					}
+					return end, nil
+				}
+			}
+		}
+		if responseReceived && transportErr != nil {
+			return nil, transportErr
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err := <-response:
+			if err != nil {
+				return nil, err
+			}
+			responseReceived = true
+			response = nil
+		case message := <-s.route.messages:
+			if err := recordMessage(message); err != nil {
+				return nil, err
+			}
+		case <-s.route.cancelSignal:
+		}
+	}
+}
+
+func (s *Stream[T]) consumeCancelMessage(
+	message streamMessage,
+) (*StreamEndError, bool, error) {
+	s.route.consumed(message.size)
+	if message.err != nil {
+		return nil, false, message.err
+	}
+	switch message.envelope.Type {
+	case "stream_item":
+		if message.envelope.StreamID != s.id {
+			return nil, false, &ProtocolError{
+				Message: "stream cancellation received a mismatched stream item",
+			}
+		}
+		if _, err := s.decode(message.envelope.Item); err != nil {
+			return nil, false, err
+		}
+		return nil, false, nil
+	case "stream_end":
+		if message.envelope.StreamID != s.id {
+			return nil, false, &ProtocolError{
+				Message: "stream cancellation received a mismatched stream end",
+			}
+		}
+		if message.envelope.Reason != "canceled" {
+			return nil, false, &ProtocolError{
+				Message: fmt.Sprintf(
+					"stream cancellation ended with %s, expected canceled",
+					message.envelope.Reason,
+				),
+			}
+		}
+		return streamEndFromEnvelope(message.envelope), true, nil
+	default:
+		return nil, false, &ProtocolError{
+			Message: "stream cancellation received an unexpected envelope",
+		}
+	}
 }
 
 func openStream[T any](
@@ -196,40 +381,124 @@ func openStream[T any](
 	cancelParams["stream"] = id
 	route.cancelParams = cancelParams
 	params[wirev1.FieldStreamID] = id
+	failOpen := func(openError error) (*Stream[T], error) {
+		client.cleanupFailedStreamOpen(id, route, openError)
+		return nil, openError
+	}
 	var raw json.RawMessage
-	if err := client.do(ctx, operation, params, "", &raw); err != nil {
-		client.mu.Lock()
-		delete(client.streams, id)
-		client.mu.Unlock()
-		route.finish(ErrClosed)
-		return nil, err
+	if err := client.doTracked(
+		ctx,
+		operation,
+		params,
+		"",
+		&raw,
+		func() {
+			route.markOpenDispatched()
+		},
+	); err != nil {
+		var rejected *ResourceError
+		if errors.As(err, &rejected) {
+			client.mu.Lock()
+			if client.streams[id] == route {
+				delete(client.streams, id)
+			}
+			client.mu.Unlock()
+			route.finish(err)
+			return nil, err
+		}
+		return failOpen(err)
 	}
 	opened, err := decodeValue[StreamOpened](raw, operation.Name+" result")
 	if err != nil {
-		client.mu.Lock()
-		delete(client.streams, id)
-		client.mu.Unlock()
-		route.finish(ErrClosed)
-		return nil, err
+		return failOpen(err)
 	}
 	if opened.StreamID != id {
-		client.mu.Lock()
-		delete(client.streams, id)
-		client.mu.Unlock()
-		route.finish(ErrClosed)
-		return nil, &ProtocolError{
+		return failOpen(&ProtocolError{
 			Message: fmt.Sprintf(
 				"%s returned stream %s for %s",
 				operation.Name,
 				opened.StreamID,
 				id,
 			),
-		}
+		})
 	}
+	client.mu.Lock()
+	if client.closed {
+		openError := client.err
+		if openError == nil {
+			openError = ErrClosed
+		}
+		client.mu.Unlock()
+		route.finish(openError)
+		return nil, openError
+	}
+	route.markOpenAcknowledged()
+	client.mu.Unlock()
 	return &Stream[T]{
 		client: client, id: id, route: route, decode: decode,
 		cancelParams: cancelParams,
 	}, nil
+}
+
+func (c *Client) cancelStreamBestEffort(params map[string]any) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		failedStreamOpenCleanupTimeout,
+	)
+	defer cancel()
+	if err := c.cancelStream(ctx, params); err != nil {
+		c.fail(err)
+	}
+}
+
+func (c *Client) cleanupFailedStreamOpen(
+	id StreamID,
+	route *streamRoute,
+	openError error,
+) {
+	c.mu.Lock()
+	route.finish(openError)
+	if c.closed || c.streams[id] != route {
+		c.mu.Unlock()
+		return
+	}
+	if !route.beginFailedOpenCleanup() {
+		delete(c.streams, id)
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		failedStreamOpenCleanupTimeout,
+	)
+	defer cancel()
+	var raw json.RawMessage
+	cleanupErr := c.do(
+		ctx,
+		wirev1.StreamCancel,
+		copyParams(route.cancelParams),
+		"",
+		&raw,
+	)
+	if cleanupErr == nil {
+		cleanupErr = decodeEmptyResult(
+			raw,
+			"failed stream-open cancellation",
+		)
+	}
+	c.mu.Lock()
+	if c.streams[id] == route {
+		delete(c.streams, id)
+	}
+	c.mu.Unlock()
+	if cleanupErr != nil {
+		c.fail(&TransportError{
+			Operation: wirev1.StreamCancel.Name,
+			Err:       cleanupErr,
+		})
+	}
 }
 
 func streamEndFromEnvelope(envelope streamEnvelope) *StreamEndError {

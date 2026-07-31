@@ -8,8 +8,6 @@ use crate::{Error, Result};
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::io::Write;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
@@ -327,6 +325,7 @@ impl Client {
             )));
         }
         let id = self.next_request_id();
+        let item_validator = super::typed_stream::stream_item_validator(operation)?;
         let budget = CallBudget::new(self.scoped_request_options(), self.shared.config.timeout)?;
         budget.check(operation)?;
         let stream_id = random_stream_id()?;
@@ -343,7 +342,6 @@ impl Client {
             self.shared.config.timeout,
             self.shared.config.max_response_bytes,
         )?;
-        let mut writer = connection.shutdown_clone()?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -356,12 +354,7 @@ impl Client {
             let envelope = match receive_envelope_with_budget(&mut connection, operation, &budget) {
                 Ok(envelope) => envelope,
                 Err(error) => {
-                    cancel_stream_best_effort(
-                        &mut writer,
-                        &stream_id,
-                        &cancel_params,
-                        self.shared.config.max_request_bytes,
-                    );
+                    connection.close();
                     return Err(error);
                 }
             };
@@ -370,12 +363,12 @@ impl Client {
                     break match decode_response(envelope, &id) {
                         Ok(response) => response,
                         Err(error) => {
-                            cancel_stream_best_effort(
-                                &mut writer,
-                                &stream_id,
-                                &cancel_params,
-                                self.shared.config.max_request_bytes,
-                            );
+                            // A valid `ok: false` means no stream lease exists,
+                            // while malformed responses leave ownership
+                            // ambiguous. Closing this dedicated transport is
+                            // correct cleanup for both without hiding the
+                            // server's original rejection.
+                            connection.close();
                             return Err(error);
                         }
                     };
@@ -385,28 +378,22 @@ impl Client {
                         || envelope.get("stream_id").and_then(Value::as_str)
                             != Some(stream_id.as_str())
                     {
-                        cancel_stream_best_effort(
-                            &mut writer,
-                            &stream_id,
-                            &cancel_params,
-                            self.shared.config.max_request_bytes,
-                        );
+                        connection.close();
                         return Err(Error::UnexpectedEnvelope(
                             "invalid pre-ack stream item".to_string(),
                         ));
                     }
-                    let size = serde_json::to_vec(&envelope)
-                        .map_err(|error| Error::Decode(error.to_string()))?
-                        .len();
+                    let size = match serde_json::to_vec(&envelope) {
+                        Ok(encoded) => encoded.len(),
+                        Err(error) => {
+                            connection.close();
+                            return Err(Error::Decode(error.to_string()));
+                        }
+                    };
                     if initial_items >= self.shared.config.max_stream_items
                         || size > self.shared.config.max_stream_bytes.saturating_sub(initial_bytes)
                     {
-                        cancel_stream_best_effort(
-                            &mut writer,
-                            &stream_id,
-                            &cancel_params,
-                            self.shared.config.max_request_bytes,
-                        );
+                        connection.close();
                         return Err(stream_overflow_error());
                     }
                     initial_items += 1;
@@ -422,26 +409,24 @@ impl Client {
                     initial_envelopes.push_back((envelope, 0));
                 }
                 _ => {
-                    cancel_stream_best_effort(
-                        &mut writer,
-                        &stream_id,
-                        &cancel_params,
-                        self.shared.config.max_request_bytes,
-                    );
+                    connection.close();
                     return Err(Error::UnexpectedEnvelope(
                         "expected stream response, stream_item, or stream_end".to_string(),
                     ));
                 }
             }
         };
-        if let Some(response_stream_id) =
-            response.as_object().and_then(|object| object.get("stream_id")).and_then(Value::as_str)
-            && response_stream_id != stream_id.as_str()
-        {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream response returned {response_stream_id}, expected {stream_id}"
-            )));
+        if let Err(error) = validate_stream_open_ack(&response, &stream_id) {
+            connection.close();
+            return Err(error);
         }
+        let writer = match connection.shutdown_clone() {
+            Ok(writer) => writer,
+            Err(error) => {
+                connection.close();
+                return Err(error);
+            }
+        };
         ResourceStream::from_parts(StreamParts {
             id: stream_id,
             connection,
@@ -451,6 +436,8 @@ impl Client {
             max_request_bytes: self.shared.config.max_request_bytes,
             max_stream_items: self.shared.config.max_stream_items,
             max_stream_bytes: self.shared.config.max_stream_bytes,
+            cleanup_timeout: self.shared.config.timeout,
+            item_validator,
             initial_envelopes,
         })
     }
@@ -697,31 +684,43 @@ fn receive_envelope_with_budget(
     }
 }
 
-fn cancel_stream_best_effort(
-    writer: &mut UnixStream,
-    stream_id: &StreamId,
-    cancel_params: &Params,
-    max_request_bytes: usize,
-) {
-    let envelope = request_envelope(
-        &format!("rust-cancel-{}", stream_id.as_str()),
-        ops::STREAM_CANCEL,
-        cancel_params.clone().into_value(),
-        None,
-    );
-    if let Ok(encoded) = serde_json::to_vec(&envelope)
-        && encoded.len() <= max_request_bytes
-    {
-        let _ = writer.write_all(&encoded).and_then(|()| writer.write_all(b"\n"));
-    }
-}
-
 fn stream_overflow_error() -> Error {
     Error::StreamEnded {
         reason: "gap".to_string(),
         recovery: Some("reopen the stream to obtain a fresh snapshot".to_string()),
         error: None,
     }
+}
+
+fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()> {
+    let object = response
+        .as_object()
+        .ok_or_else(|| Error::UnexpectedEnvelope("stream open result must be an object".into()))?;
+    let stream_id = object
+        .get("stream_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::UnexpectedEnvelope("stream open result requires stream_id".into()))?;
+    if stream_id != expected.as_str() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "stream response returned {stream_id}, expected {expected}"
+        )));
+    }
+    if let Some(cursor) = object.get("cursor") {
+        super::wire::parse_cursor(cursor)?;
+    }
+    let mut unknown = object
+        .keys()
+        .filter(|field| !matches!(field.as_str(), "stream_id" | "cursor"))
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "stream open result contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Value> {
@@ -738,21 +737,58 @@ pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Valu
     if object.get("id").and_then(Value::as_str) != Some(expected_id) {
         return Err(Error::UnexpectedEnvelope("response id does not match request".to_string()));
     }
-    match object.get("ok").and_then(Value::as_bool) {
-        Some(true) => object.get("result").cloned().ok_or_else(|| {
-            Error::UnexpectedEnvelope("successful response lacks result".to_string())
-        }),
-        Some(false) => Err(decode_protocol_error(object.get("error").ok_or_else(|| {
-            Error::UnexpectedEnvelope("failed response lacks error".to_string())
-        })?)?),
-        None => Err(Error::UnexpectedEnvelope("response ok must be a boolean".to_string())),
+    let ok = object
+        .get("ok")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| Error::UnexpectedEnvelope("response ok must be a boolean".to_string()))?;
+    let variant_field = if ok { "result" } else { "error" };
+    let forbidden_field = if ok { "error" } else { "result" };
+    if !object.contains_key(variant_field) {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "{} response lacks {variant_field}",
+            if ok { "successful" } else { "failed" }
+        )));
     }
+    if object.contains_key(forbidden_field) {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "{} response must not contain {forbidden_field}",
+            if ok { "successful" } else { "failed" }
+        )));
+    }
+    let mut unknown = object
+        .keys()
+        .filter(|field| {
+            !matches!(field.as_str(), "protocol" | "type" | "id" | "ok")
+                && field.as_str() != variant_field
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "response contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
+    if ok { Ok(object["result"].clone()) } else { Err(decode_protocol_error(&object["error"])?) }
 }
 
 pub(crate) fn decode_protocol_error(value: &Value) -> Result<Error> {
     let object = value
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("protocol error must be an object".to_string()))?;
+    let mut unknown = object
+        .keys()
+        .filter(|field| !matches!(field.as_str(), "code" | "message" | "details" | "retryable"))
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "protocol error contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
     let code = object
         .get("code")
         .and_then(Value::as_str)

@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import cmux
 import cmux._protocol as resource_protocol
@@ -85,6 +86,19 @@ def ok(connection, request, result):
             "id": request["id"],
             "ok": True,
             "result": result,
+        },
+    )
+
+
+def canceled_end(connection, stream_id, **fields):
+    send_frame(
+        connection,
+        {
+            "protocol": "cmux.protocol/1",
+            "type": "stream_end",
+            "stream_id": stream_id,
+            "reason": "canceled",
+            **fields,
         },
     )
 
@@ -320,6 +334,12 @@ class ResourceApiTests(unittest.TestCase):
                             "item": {"kind": "buffered"},
                         },
                     )
+                elif request["operation"] == "stream.cancel":
+                    canceled_end(
+                        connection,
+                        request["params"]["stream"],
+                    )
+                    ok(connection, request, {})
                 else:
                     ok(connection, request, {})
 
@@ -1233,6 +1253,7 @@ class ResourceApiTests(unittest.TestCase):
             )
             canceled = next(requests)
             ok(connection, canceled, {})
+            canceled_end(connection, stream_id)
 
         with UnixJsonServer(handler) as server:
             with Client(server.path, timeout=0.05) as client:
@@ -1242,6 +1263,1613 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertEqual(item.item.kind, "delayed")
                 self.assertTrue(session.ping().alive)
                 stream.cancel()
+
+    def test_stream_open_timeout_cancels_remote_route_and_recovers(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            first_open = next(requests)
+            observed.append(first_open)
+            first_stream_id = first_open["params"]["stream_id"]
+
+            first_cancel = next(requests)
+            observed.append(first_cancel)
+            ok(connection, first_open, {"stream_id": first_stream_id})
+            ok(connection, first_cancel, {})
+
+            second_open = next(requests)
+            observed.append(second_open)
+            second_stream_id = second_open["params"]["stream_id"]
+            ok(connection, second_open, {"stream_id": second_stream_id})
+
+            second_cancel = next(requests)
+            observed.append(second_cancel)
+            canceled_end(connection, second_stream_id)
+            ok(connection, second_cancel, {})
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                session = client.session(SESSION)
+                with self.assertRaises(cmux.TimeoutError) as raised:
+                    client.with_request_options(
+                        RequestOptions(timeout=0.02),
+                        session.events,
+                    )
+                self.assertIn(
+                    "session.events did not respond before the deadline",
+                    str(raised.exception),
+                )
+                self.assertEqual(client._connection._streams, {})
+
+                stream = session.events()
+                stream.cancel()
+                self.assertEqual(client._connection._streams, {})
+
+        first_open, first_cancel, second_open, second_cancel = observed
+        self.assertEqual(first_open["operation"], "session.events")
+        self.assertEqual(first_cancel["operation"], "stream.cancel")
+        self.assertEqual(
+            first_cancel["params"]["stream"],
+            first_open["params"]["stream_id"],
+        )
+        self.assertNotEqual(
+            first_open["params"]["stream_id"],
+            second_open["params"]["stream_id"],
+        )
+        self.assertEqual(second_cancel["operation"], "stream.cancel")
+
+    def test_failed_stream_open_ack_cancels_without_masking_error(self) -> None:
+        other_stream_id = f"stream_{HEX_B}"
+        cases = (
+            (
+                "mismatched",
+                lambda stream_id: {"stream_id": other_stream_id},
+                "returned a different stream_id",
+            ),
+            (
+                "malformed",
+                lambda stream_id: {
+                    "stream_id": stream_id,
+                    "unexpected": True,
+                },
+                "contains unknown field 'unexpected'",
+            ),
+        )
+
+        for label, response, expected in cases:
+            with self.subTest(case=label):
+                observed = []
+
+                def handler(connection, _index):
+                    requests = frames(connection)
+                    opened = next(requests)
+                    observed.append(opened)
+                    ok(
+                        connection,
+                        opened,
+                        response(opened["params"]["stream_id"]),
+                    )
+                    canceled = next(requests)
+                    observed.append(canceled)
+                    send_frame(
+                        connection,
+                        {
+                            "protocol": "cmux.protocol/1",
+                            "type": "response",
+                            "id": canceled["id"],
+                            "ok": False,
+                            "error": {
+                                "code": "operation.failed",
+                                "message": "cancel fixture failed",
+                                "details": {"reason": "fixture"},
+                                "retryable": False,
+                            },
+                        },
+                    )
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        with self.assertRaises(cmux.ProtocolError) as raised:
+                            client.session(SESSION).events()
+                        self.assertIn(expected, str(raised.exception))
+                        self.assertEqual(client._connection._streams, {})
+
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["session.events", "stream.cancel"],
+                )
+                self.assertEqual(
+                    observed[1]["params"]["stream"],
+                    observed[0]["params"]["stream_id"],
+                )
+
+    def test_failed_stream_open_cleanup_failure_closes_connection(self) -> None:
+        for failure_mode in ("send", "response_timeout"):
+            with self.subTest(failure_mode=failure_mode):
+                observed = []
+                disconnected = threading.Event()
+                original_error = cmux.ProtocolError(
+                    f"original {failure_mode} stream-open failure"
+                )
+                cleanup_send_error = CmuxConnectionError(
+                    "synthetic stream.cancel send failure"
+                )
+                cleanup_send_attempts = []
+
+                def handler(connection, _index):
+                    requests = frames(connection)
+                    opened = next(requests)
+                    observed.append(opened)
+                    ok(
+                        connection,
+                        opened,
+                        {"stream_id": opened["params"]["stream_id"]},
+                    )
+                    for request in requests:
+                        observed.append(request)
+                    disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.02) as client:
+                        session = client.session(SESSION)
+
+                        def fail_bounded_send(value, _timeout, _guard):
+                            cleanup_send_attempts.append(value)
+                            raise cleanup_send_error
+
+                        started = time.monotonic()
+                        with patch.object(
+                            resource_protocol,
+                            "_validate_stream_open_result",
+                            side_effect=original_error,
+                        ):
+                            if failure_mode == "send":
+                                with patch.object(
+                                    client._connection._wire,
+                                    "send_bounded_if",
+                                    side_effect=fail_bounded_send,
+                                ):
+                                    with self.assertRaises(
+                                        cmux.ProtocolError
+                                    ) as raised:
+                                        session.events()
+                            else:
+                                with self.assertRaises(
+                                    cmux.ProtocolError
+                                ) as raised:
+                                    session.events()
+                        self.assertIs(raised.exception, original_error)
+                        self.assertLess(time.monotonic() - started, 0.5)
+                        self.assertTrue(client.closed)
+                        self.assertTrue(client._connection._wire.closed)
+                        self.assertTrue(disconnected.wait(0.5))
+
+                        retry_started = time.monotonic()
+                        with self.assertRaises(CmuxConnectionError) as retry:
+                            session.ping()
+                        self.assertLess(time.monotonic() - retry_started, 0.1)
+                        self.assertIn(
+                            "failed-open cleanup was not confirmed",
+                            str(retry.exception),
+                        )
+
+                expected_operations = (
+                    ["session.events"]
+                    if failure_mode == "send"
+                    else ["session.events", "stream.cancel"]
+                )
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    expected_operations,
+                )
+                if failure_mode == "send":
+                    self.assertEqual(
+                        [
+                            request["operation"]
+                            for request in cleanup_send_attempts
+                        ],
+                        ["stream.cancel"],
+                    )
+
+    def test_stream_open_cancellation_only_cancels_after_dispatch(self) -> None:
+        opened = threading.Event()
+        observed = []
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            request = next(requests)
+            observed.append(request)
+            opened.set()
+            canceled = next(requests)
+            observed.append(canceled)
+            ok(connection, canceled, {})
+
+        cancellation = CancellationToken()
+
+        def cancel_after_open():
+            opened.wait(1)
+            cancellation.cancel()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                cancel_thread = threading.Thread(target=cancel_after_open)
+                cancel_thread.start()
+                with self.assertRaises(CancelledError) as raised:
+                    client.with_request_options(
+                        RequestOptions(cancellation=cancellation),
+                        client.session(SESSION).events,
+                    )
+                cancel_thread.join(timeout=1)
+                self.assertFalse(cancel_thread.is_alive())
+                self.assertTrue(opened.is_set())
+                self.assertTrue(raised.exception.dispatched)
+                self.assertEqual(client._connection._streams, {})
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"]["stream"],
+            observed[0]["params"]["stream_id"],
+        )
+
+        observed.clear()
+        cancellation = CancellationToken()
+        cancellation.cancel()
+
+        def before_handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        with UnixJsonServer(before_handler) as server:
+            with Client(server.path) as client:
+                with self.assertRaises(CancelledError) as raised:
+                    client.with_request_options(
+                        RequestOptions(cancellation=cancellation),
+                        client.session(SESSION).events,
+                    )
+                self.assertFalse(raised.exception.dispatched)
+                self.assertEqual(client._connection._streams, {})
+                self.assertTrue(client.session(SESSION).ping().alive)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.ping"],
+        )
+
+    def test_stream_open_transport_failures_clean_routes_without_false_cancel(
+        self,
+    ) -> None:
+        observed = []
+        cleanup_seen = threading.Event()
+
+        def reader_failure_handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/future",
+                    "type": "response",
+                    "id": opened["id"],
+                    "ok": True,
+                    "result": {
+                        "stream_id": opened["params"]["stream_id"],
+                    },
+                },
+            )
+            canceled = next(requests)
+            observed.append(canceled)
+            cleanup_seen.set()
+
+        with UnixJsonServer(reader_failure_handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                with self.assertRaises(cmux.ProtocolError) as raised:
+                    client.session(SESSION).events()
+                self.assertIn("wrong protocol", str(raised.exception))
+                self.assertTrue(cleanup_seen.wait(1))
+                self.assertEqual(client._connection._streams, {})
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"]["stream"],
+            observed[0]["params"]["stream_id"],
+        )
+
+        def handler(connection, _index):
+            next(frames(connection))
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                attempted = []
+                send_bounded = client._connection._wire.send_bounded_if
+
+                def track_bounded(value, timeout, should_send):
+                    def track_guard():
+                        result = should_send()
+                        attempted.append((value, result))
+                        return result
+
+                    return send_bounded(value, timeout, track_guard)
+
+                client._connection._wire.send_bounded_if = track_bounded
+                with self.assertRaises(CmuxConnectionError) as raised:
+                    client.session(SESSION).events()
+                self.assertIn("closed", str(raised.exception))
+                deadline = time.monotonic() + 1
+                while not attempted and time.monotonic() < deadline:
+                    time.sleep(0.001)
+                self.assertEqual(
+                    sum(1 for _value, guard in attempted if guard),
+                    1,
+                )
+                self.assertTrue(
+                    all(
+                        value["operation"] == "stream.cancel"
+                        for value, _guard in attempted
+                    )
+                )
+                self.assertEqual(client._connection._streams, {})
+
+        def idle_handler(connection, _index):
+            while connection.recv(1):
+                pass
+
+        with UnixJsonServer(idle_handler) as server:
+            with Client(server.path) as client:
+                cleanup_guards = []
+                expected = CmuxConnectionError("synthetic send failure")
+                send_bounded = client._connection._wire.send_bounded_if
+
+                def track_bounded(value, timeout, should_send):
+                    def track_guard():
+                        result = should_send()
+                        cleanup_guards.append(result)
+                        return result
+
+                    return send_bounded(value, timeout, track_guard)
+
+                client._connection._wire.send_bounded_if = track_bounded
+                with patch.object(
+                    client._connection._wire,
+                    "send",
+                    side_effect=expected,
+                ):
+                    with self.assertRaises(CmuxConnectionError) as raised:
+                        client.session(SESSION).events()
+                self.assertIs(raised.exception, expected)
+                self.assertEqual(cleanup_guards, [])
+                self.assertEqual(client._connection._streams, {})
+
+    def test_stream_open_send_error_after_delivery_closes_without_cancel(
+        self,
+    ) -> None:
+        observed = []
+        open_seen = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            for request in frames(connection):
+                observed.append(request)
+                open_seen.set()
+                ok(
+                    connection,
+                    request,
+                    {"stream_id": request["params"]["stream_id"]},
+                )
+            disconnected.set()
+
+        expected = CmuxConnectionError(
+            "synthetic failure after the complete frame was delivered"
+        )
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                session = client.session(SESSION)
+                send_encoded = client._connection._wire._send_encoded
+
+                def deliver_then_fail(encoded):
+                    send_encoded(encoded)
+                    if not open_seen.wait(1):
+                        raise AssertionError("server did not receive stream open")
+                    raise expected
+
+                with patch.object(
+                    client._connection._wire,
+                    "_send_encoded",
+                    side_effect=deliver_then_fail,
+                ):
+                    with self.assertRaises(CmuxConnectionError) as raised:
+                        session.events()
+                self.assertIs(raised.exception, expected)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+                started = time.monotonic()
+                with self.assertRaises(CmuxConnectionError):
+                    session.ping()
+                self.assertLess(time.monotonic() - started, 0.1)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events"],
+        )
+
+    def test_conclusive_stream_open_rejection_keeps_connection_reusable(
+        self,
+    ) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": opened["id"],
+                    "ok": False,
+                    "error": {
+                        "code": "selector.not_found",
+                        "message": "session is gone",
+                        "details": {"selector": str(SESSION)},
+                        "retryable": False,
+                    },
+                },
+            )
+
+            ping = next(requests)
+            observed.append(ping)
+            ok(
+                connection,
+                ping,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                session = client.session(SESSION)
+                with self.assertRaises(ResourceError) as raised:
+                    session.events()
+                self.assertEqual(raised.exception.code, "selector.not_found")
+                self.assertFalse(raised.exception.retryable)
+                self.assertFalse(client.closed)
+                self.assertEqual(client._connection._streams, {})
+                self.assertTrue(session.ping().alive)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "session.ping"],
+        )
+
+    def test_stream_open_cannot_return_after_acknowledged_protocol_failure(
+        self,
+    ) -> None:
+        observed = []
+        failure_sent = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            ok(
+                connection,
+                opened,
+                {"stream_id": opened["params"]["stream_id"]},
+            )
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/future",
+                    "type": "stream_item",
+                    "stream_id": opened["params"]["stream_id"],
+                    "sequence": "1",
+                    "item": {"kind": "future.event"},
+                },
+            )
+            failure_sent.set()
+            for request in requests:
+                observed.append(request)
+            disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                send_encoded = client._connection._wire._send_encoded
+
+                def wait_for_reader_failure(encoded):
+                    send_encoded(encoded)
+                    if not failure_sent.wait(1):
+                        raise AssertionError("server did not send protocol failure")
+                    deadline = time.monotonic() + 1
+                    while not client.closed and time.monotonic() < deadline:
+                        time.sleep(0.001)
+                    if not client.closed:
+                        raise AssertionError("reader did not fail the connection")
+
+                with patch.object(
+                    client._connection._wire,
+                    "_send_encoded",
+                    side_effect=wait_for_reader_failure,
+                ):
+                    with self.assertRaises(cmux.ProtocolError) as raised:
+                        client.session(SESSION).events()
+                self.assertIn("wrong protocol", str(raised.exception))
+                self.assertTrue(client.closed)
+                self.assertTrue(disconnected.wait(0.5))
+                self.assertTrue(client._connection._wire.closed)
+                self.assertEqual(client._connection._streams, {})
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"]["stream"],
+            observed[0]["params"]["stream_id"],
+        )
+
+    def test_public_stream_cancel_failure_closes_connection_once(self) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            ok(
+                connection,
+                opened,
+                {"stream_id": opened["params"]["stream_id"]},
+            )
+
+            canceled = next(requests)
+            observed.append(canceled)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": canceled["id"],
+                    "ok": False,
+                    "error": {
+                        "code": "operation.failed",
+                        "message": "cancel fixture failed",
+                        "details": {"reason": "fixture"},
+                        "retryable": False,
+                    },
+                },
+            )
+            for request in requests:
+                observed.append(request)
+            disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                stream = client.session(SESSION).events()
+                with self.assertRaises(ResourceError) as raised:
+                    stream.cancel()
+                self.assertEqual(raised.exception.code, "operation.failed")
+                with self.assertRaises(ResourceError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+                started = time.monotonic()
+                with self.assertRaises(CmuxConnectionError):
+                    client.session(SESSION).ping()
+                self.assertLess(time.monotonic() - started, 0.1)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_explicit_cancel_accepts_response_and_end_in_either_order(
+        self,
+    ) -> None:
+        for end_first in (False, True):
+            with self.subTest(end_first=end_first):
+                observed = []
+
+                def handler(connection, _index):
+                    requests = frames(connection)
+                    opened = next(requests)
+                    observed.append(opened)
+                    stream_id = opened["params"]["stream_id"]
+                    ok(connection, opened, {"stream_id": stream_id})
+
+                    canceled = next(requests)
+                    observed.append(canceled)
+                    send_frame(
+                        connection,
+                        {
+                            "protocol": "cmux.protocol/1",
+                            "type": "stream_item",
+                            "stream_id": stream_id,
+                            "sequence": "1",
+                            "item": {"kind": "future.event", "stale": 1},
+                        },
+                    )
+
+                    def send_end():
+                        canceled_end(
+                            connection,
+                            stream_id,
+                            cursor={
+                                "generation": "cancel-generation",
+                                "revision": "3",
+                            },
+                            recovery="released",
+                        )
+
+                    if end_first:
+                        send_end()
+                    else:
+                        ok(connection, canceled, {})
+                    time.sleep(0.02)
+                    if end_first:
+                        ok(connection, canceled, {})
+                    else:
+                        send_frame(
+                            connection,
+                            {
+                                "protocol": "cmux.protocol/1",
+                                "type": "stream_item",
+                                "stream_id": stream_id,
+                                "sequence": "2",
+                                "cursor": {
+                                    "generation": "cancel-generation",
+                                    "revision": "2",
+                                },
+                                "item": {
+                                    "kind": "future.event",
+                                    "stale": 2,
+                                },
+                            },
+                        )
+                        send_end()
+
+                    ping = next(requests)
+                    observed.append(ping)
+                    ok(
+                        connection,
+                        ping,
+                        {
+                            "alive": True,
+                            "cursor": {
+                                "generation": "cancel-generation",
+                                "revision": "4",
+                            },
+                        },
+                    )
+                    observed.extend(requests)
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        session = client.session(SESSION)
+                        stream = session.events()
+                        started = time.monotonic()
+                        stream.cancel()
+                        self.assertGreaterEqual(
+                            time.monotonic() - started,
+                            0.015,
+                        )
+                        self.assertIsNotNone(stream.end)
+                        assert stream.end is not None
+                        self.assertEqual(stream.end.reason, "canceled")
+                        self.assertEqual(
+                            stream.end.cursor,
+                            cmux.Cursor("cancel-generation", "3"),
+                        )
+                        self.assertEqual(stream.end.recovery, "released")
+                        with self.assertRaises(StopIteration):
+                            next(stream)
+                        stream.cancel()
+                        self.assertTrue(session.ping().alive)
+
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["session.events", "stream.cancel", "session.ping"],
+                )
+
+    def test_second_cancel_after_end_waits_for_shared_response(self) -> None:
+        observed = []
+        end_sent = threading.Event()
+        release_response = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            stream_id = opened["params"]["stream_id"]
+            ok(connection, opened, {"stream_id": stream_id})
+            canceled = next(requests)
+            observed.append(canceled)
+            canceled_end(connection, stream_id)
+            end_sent.set()
+            release_response.wait(1)
+            ok(connection, canceled, {})
+            ping = next(requests)
+            observed.append(ping)
+            ok(
+                connection,
+                ping,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "2",
+                    },
+                },
+            )
+            observed.extend(requests)
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                session = client.session(SESSION)
+                stream = session.events()
+                failures = []
+                first_done = threading.Event()
+                second_started = threading.Event()
+                second_done = threading.Event()
+
+                def first_cancel():
+                    try:
+                        stream.cancel()
+                    except BaseException as error:
+                        failures.append(error)
+                    finally:
+                        first_done.set()
+
+                def second_cancel():
+                    second_started.set()
+                    try:
+                        stream.cancel()
+                    except BaseException as error:
+                        failures.append(error)
+                    finally:
+                        second_done.set()
+
+                first = threading.Thread(target=first_cancel)
+                first.start()
+                self.assertTrue(end_sent.wait(1))
+                second = threading.Thread(target=second_cancel)
+                second.start()
+                self.assertTrue(second_started.wait(1))
+                self.assertFalse(second_done.wait(0.02))
+                release_response.set()
+                self.assertTrue(first_done.wait(1))
+                self.assertTrue(second_done.wait(1))
+                first.join(timeout=1)
+                second.join(timeout=1)
+                self.assertEqual(failures, [])
+                self.assertTrue(session.ping().alive)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel", "session.ping"],
+        )
+
+    def test_explicit_cancel_rejects_noncanonical_end_and_caches_failure(
+        self,
+    ) -> None:
+        exact_error = {
+            "code": "operation.failed",
+            "message": "stream failed",
+            "details": {"reason": "fixture"},
+            "retryable": False,
+        }
+        cases = (
+            ("wrong-reason", {"reason": "completed"}),
+            ("wrong-id", {"stream_id": f"stream_{HEX_B}"}),
+            ("extra", {"unexpected": True}),
+            ("null-cursor", {"cursor": None}),
+            (
+                "malformed-cursor",
+                {"cursor": {"generation": "generation-a"}},
+            ),
+            ("null-recovery", {"recovery": None}),
+            ("non-string-recovery", {"recovery": 7}),
+            ("null-error", {"reason": "error", "error": None}),
+            (
+                "malformed-error",
+                {
+                    "reason": "error",
+                    "error": {**exact_error, "unexpected": True},
+                },
+            ),
+            ("missing-error", {"reason": "error"}),
+            (
+                "unexpected-error",
+                {"reason": "canceled", "error": exact_error},
+            ),
+        )
+
+        for label, replacement in cases:
+            with self.subTest(case=label):
+                observed = []
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        opened = next(requests)
+                        observed.append(opened)
+                        stream_id = opened["params"]["stream_id"]
+                        ok(connection, opened, {"stream_id": stream_id})
+                        canceled = next(requests)
+                        observed.append(canceled)
+                        end = {
+                            "protocol": "cmux.protocol/1",
+                            "type": "stream_end",
+                            "stream_id": stream_id,
+                            "reason": "canceled",
+                        }
+                        end.update(replacement)
+                        send_frame(connection, end)
+                        ok(connection, canceled, {})
+                        observed.extend(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        stream = client.session(SESSION).events()
+                        with self.assertRaises(cmux.ProtocolError) as raised:
+                            stream.cancel()
+                        with self.assertRaises(cmux.ProtocolError) as repeated:
+                            stream.cancel()
+                        self.assertIs(repeated.exception, raised.exception)
+                        self.assertTrue(client.closed)
+                        self.assertTrue(client._connection._wire.closed)
+                        self.assertTrue(disconnected.wait(0.5))
+
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["session.events", "stream.cancel"],
+                )
+
+    def test_explicit_cancel_rejects_noncanonical_response_and_caches_failure(
+        self,
+    ) -> None:
+        exact_error = {
+            "code": "operation.failed",
+            "message": "cancel failed",
+            "details": {"reason": "fixture"},
+            "retryable": False,
+        }
+
+        def with_id(request, fields):
+            return {
+                "protocol": "cmux.protocol/1",
+                "type": "response",
+                "id": request["id"],
+                **fields,
+            }
+
+        cases = (
+            (
+                "nonempty-result",
+                lambda request: with_id(
+                    request,
+                    {"ok": True, "result": {"unexpected": True}},
+                ),
+            ),
+            (
+                "extra",
+                lambda request: with_id(
+                    request,
+                    {"ok": True, "result": {}, "unexpected": True},
+                ),
+            ),
+            (
+                "success-both",
+                lambda request: with_id(
+                    request,
+                    {"ok": True, "result": {}, "error": exact_error},
+                ),
+            ),
+            (
+                "success-missing-result",
+                lambda request: with_id(request, {"ok": True}),
+            ),
+            (
+                "non-boolean-ok",
+                lambda request: with_id(
+                    request,
+                    {"ok": "true", "result": {}},
+                ),
+            ),
+            (
+                "malformed-error",
+                lambda request: with_id(
+                    request,
+                    {
+                        "ok": False,
+                        "error": {**exact_error, "unexpected": True},
+                    },
+                ),
+            ),
+            (
+                "failure-both",
+                lambda request: with_id(
+                    request,
+                    {"ok": False, "result": {}, "error": exact_error},
+                ),
+            ),
+        )
+
+        for label, response in cases:
+            with self.subTest(case=label):
+                observed = []
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        opened = next(requests)
+                        observed.append(opened)
+                        stream_id = opened["params"]["stream_id"]
+                        ok(connection, opened, {"stream_id": stream_id})
+                        canceled = next(requests)
+                        observed.append(canceled)
+                        canceled_end(connection, stream_id)
+                        send_frame(connection, response(canceled))
+                        observed.extend(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        stream = client.session(SESSION).events()
+                        with self.assertRaises(cmux.ProtocolError) as raised:
+                            stream.cancel()
+                        with self.assertRaises(cmux.ProtocolError) as repeated:
+                            stream.cancel()
+                        self.assertIs(repeated.exception, raised.exception)
+                        self.assertTrue(client.closed)
+                        self.assertTrue(client._connection._wire.closed)
+                        self.assertTrue(disconnected.wait(0.5))
+
+                self.assertEqual(
+                    [request["operation"] for request in observed],
+                    ["session.events", "stream.cancel"],
+                )
+
+    def test_stream_items_require_exact_envelopes_and_non_null_cursor(
+        self,
+    ) -> None:
+        cases = (
+            ("extra", {"unexpected": True}),
+            ("null-cursor", {"cursor": None}),
+            ("missing-item", {"item": None}),
+            (
+                "malformed-cursor",
+                {"cursor": {"generation": "generation-a"}},
+            ),
+            ("noncanonical-sequence", {"sequence": "01"}),
+        )
+
+        for label, replacement in cases:
+            with self.subTest(case=label):
+                release_item = threading.Event()
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        opened = next(requests)
+                        stream_id = opened["params"]["stream_id"]
+                        ok(connection, opened, {"stream_id": stream_id})
+                        release_item.wait(1)
+                        item = {
+                            "protocol": "cmux.protocol/1",
+                            "type": "stream_item",
+                            "stream_id": stream_id,
+                            "sequence": "1",
+                            "item": {"kind": "future.event"},
+                        }
+                        item.update(replacement)
+                        if label == "missing-item":
+                            item.pop("item")
+                        send_frame(connection, item)
+                        list(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.2) as client:
+                        stream = client.session(SESSION).events()
+                        release_item.set()
+                        with self.assertRaises(cmux.ProtocolError):
+                            stream.next(timeout=1)
+                        self.assertTrue(client.closed)
+                        self.assertTrue(client._connection._wire.closed)
+                        self.assertTrue(disconnected.wait(0.5))
+
+    def test_explicit_cancel_validates_known_items_before_discarding_them(
+        self,
+    ) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                canceled = next(requests)
+                observed.append(canceled)
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "stream_item",
+                        "stream_id": stream_id,
+                        "sequence": "1",
+                        "item": {"kind": "snapshot"},
+                    },
+                )
+                ok(connection, canceled, {})
+                canceled_end(connection, stream_id)
+                observed.extend(requests)
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                stream = client.session(SESSION).events()
+                with self.assertRaises(cmux.ProtocolError) as raised:
+                    stream.cancel()
+                self.assertIsNotNone(stream.end)
+                assert stream.end is not None
+                self.assertIsInstance(stream.end.error, cmux.ProtocolError)
+                self.assertIn("invalid stream item", str(stream.end.error))
+                with self.assertRaises(cmux.ProtocolError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_end_first_cancel_keeps_typed_decoder_until_response(self) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                canceled = next(requests)
+                observed.append(canceled)
+                canceled_end(connection, stream_id)
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "stream_item",
+                        "stream_id": stream_id,
+                        "sequence": "1",
+                        "item": {"kind": "snapshot"},
+                    },
+                )
+                ok(connection, canceled, {})
+                observed.extend(requests)
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                stream = client.session(SESSION).events()
+                with self.assertRaises(cmux.ProtocolError) as raised:
+                    stream.cancel()
+                self.assertIn("invalid stream item", str(raised.exception))
+                self.assertIsNotNone(stream.end)
+                assert stream.end is not None
+                self.assertEqual(stream.end.reason, "canceled")
+                with self.assertRaises(cmux.ProtocolError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_end_first_cancel_rejects_valid_known_item_before_response(
+        self,
+    ) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                canceled = next(requests)
+                observed.append(canceled)
+                canceled_end(connection, stream_id)
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "stream_item",
+                        "stream_id": stream_id,
+                        "sequence": "1",
+                        "item": {
+                            "kind": "delta",
+                            "cursor": {
+                                "generation": "generation-a",
+                                "revision": "2",
+                            },
+                            "previous_revision": "1",
+                            "revision": "2",
+                            "changes": [],
+                        },
+                    },
+                )
+                ok(connection, canceled, {})
+                observed.extend(requests)
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                stream = client.session(SESSION).events()
+                with self.assertRaises(cmux.ProtocolError) as raised:
+                    stream.cancel()
+                self.assertIn("item arrived after stream end", str(raised.exception))
+                with self.assertRaises(cmux.ProtocolError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_explicit_cancel_uses_one_deadline_across_stale_item_drip(
+        self,
+    ) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                canceled = next(requests)
+                observed.append(canceled)
+                time.sleep(0.055)
+                ok(connection, canceled, {})
+                for sequence in range(1, 20):
+                    time.sleep(0.015)
+                    send_frame(
+                        connection,
+                        {
+                            "protocol": "cmux.protocol/1",
+                            "type": "stream_item",
+                            "stream_id": stream_id,
+                            "sequence": str(sequence),
+                            "item": {
+                                "kind": "future.event",
+                                "stale": sequence,
+                            },
+                        },
+                    )
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.05) as client:
+                stream = client.session(SESSION).events()
+                started = time.monotonic()
+                with self.assertRaises(cmux.TimeoutError) as raised:
+                    stream.cancel()
+                elapsed = time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 0.08)
+                self.assertLess(elapsed, 0.3)
+                with self.assertRaises(cmux.TimeoutError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_explicit_cancel_end_without_response_times_out_once(self) -> None:
+        observed = []
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                stream_id = opened["params"]["stream_id"]
+                ok(connection, opened, {"stream_id": stream_id})
+                canceled = next(requests)
+                observed.append(canceled)
+                canceled_end(connection, stream_id)
+                observed.extend(requests)
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.05) as client:
+                stream = client.session(SESSION).events()
+                started = time.monotonic()
+                with self.assertRaises(cmux.TimeoutError) as raised:
+                    stream.cancel()
+                elapsed = time.monotonic() - started
+                self.assertGreaterEqual(elapsed, 0.08)
+                self.assertLess(elapsed, 0.3)
+                with self.assertRaises(cmux.TimeoutError) as repeated:
+                    stream.cancel()
+                self.assertIs(repeated.exception, raised.exception)
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_concurrent_explicit_cancel_callers_share_one_bounded_failure(
+        self,
+    ) -> None:
+        observed = []
+        cancel_seen = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            try:
+                requests = frames(connection)
+                opened = next(requests)
+                observed.append(opened)
+                ok(
+                    connection,
+                    opened,
+                    {"stream_id": opened["params"]["stream_id"]},
+                )
+                canceled = next(requests)
+                observed.append(canceled)
+                cancel_seen.set()
+                list(requests)
+            finally:
+                disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.05) as client:
+                stream = client.session(SESSION).events()
+                barrier = threading.Barrier(3)
+                failures = []
+                elapsed = []
+
+                def cancel():
+                    barrier.wait()
+                    started = time.monotonic()
+                    try:
+                        stream.cancel()
+                    except BaseException as error:
+                        failures.append(error)
+                    elapsed.append(time.monotonic() - started)
+
+                callers = [threading.Thread(target=cancel) for _ in range(2)]
+                for caller in callers:
+                    caller.start()
+                barrier.wait()
+                self.assertTrue(cancel_seen.wait(1))
+                for caller in callers:
+                    caller.join(timeout=0.5)
+                    self.assertFalse(caller.is_alive())
+
+                self.assertEqual(len(failures), 2)
+                self.assertIs(failures[0], failures[1])
+                self.assertIsInstance(failures[0], cmux.TimeoutError)
+                self.assertTrue(all(duration < 0.3 for duration in elapsed))
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+
+    def test_overflow_and_public_cancel_share_one_failed_cancel_claim(
+        self,
+    ) -> None:
+        previous_messages = resource_protocol.MAX_STREAM_MESSAGES
+        observed = []
+        release_items = threading.Event()
+        cancel_seen = threading.Event()
+        release_cancel = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            stream_id = opened["params"]["stream_id"]
+            ok(connection, opened, {"stream_id": stream_id})
+            release_items.wait(1)
+            for sequence in (1, 2):
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/1",
+                        "type": "stream_item",
+                        "stream_id": stream_id,
+                        "sequence": str(sequence),
+                        "item": {"kind": "future.event"},
+                    },
+                )
+
+            canceled = next(requests)
+            observed.append(canceled)
+            cancel_seen.set()
+            release_cancel.wait(1)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/1",
+                    "type": "response",
+                    "id": canceled["id"],
+                    "ok": False,
+                    "error": {
+                        "code": "operation.failed",
+                        "message": "overflow cancel fixture failed",
+                        "details": {"reason": "fixture"},
+                        "retryable": False,
+                    },
+                },
+            )
+            for request in requests:
+                observed.append(request)
+            disconnected.set()
+
+        resource_protocol.MAX_STREAM_MESSAGES = 1
+        try:
+            with UnixJsonServer(handler) as server:
+                with Client(server.path, timeout=0.2) as client:
+                    stream = client.session(SESSION).events()
+                    release_items.set()
+                    self.assertTrue(cancel_seen.wait(1))
+                    stream.cancel()
+                    release_cancel.set()
+
+                    deadline = time.monotonic() + 1
+                    while not client.closed and time.monotonic() < deadline:
+                        time.sleep(0.001)
+                    self.assertTrue(client.closed)
+                    self.assertTrue(client._connection._wire.closed)
+                    self.assertTrue(disconnected.wait(0.5))
+                    with self.assertRaises(cmux.StreamError) as raised:
+                        next(stream)
+                    self.assertEqual(raised.exception.reason, "gap")
+        finally:
+            release_items.set()
+            release_cancel.set()
+            resource_protocol.MAX_STREAM_MESSAGES = previous_messages
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"]["stream"],
+            observed[0]["params"]["stream_id"],
+        )
+
+    def test_partial_sibling_write_closes_without_appended_cancel(self) -> None:
+        observed = []
+        open_seen = threading.Event()
+        disconnected = threading.Event()
+        remainder = []
+
+        def handler(connection, _index):
+            source = connection.makefile("rb")
+            line = source.readline()
+            if line:
+                observed.append(json.loads(line))
+                open_seen.set()
+            remainder.append(source.read())
+            disconnected.set()
+
+        partial_write_error = CmuxConnectionError(
+            "synthetic partial sibling write failure"
+        )
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=2) as client:
+                session = client.session(SESSION)
+                send_encoded = client._connection._wire._send_encoded
+                send_count = 0
+
+                def fail_second_write(encoded):
+                    nonlocal send_count
+                    send_count += 1
+                    if send_count == 1:
+                        send_encoded(encoded)
+                        return
+                    partial = encoded[: max(1, len(encoded) // 2)]
+                    client._connection._wire._socket.sendall(partial)
+                    raise partial_write_error
+
+                open_errors = []
+                open_done = threading.Event()
+
+                def open_stream():
+                    try:
+                        session.events()
+                    except BaseException as error:
+                        open_errors.append(error)
+                    finally:
+                        open_done.set()
+
+                with patch.object(
+                    client._connection._wire,
+                    "_send_encoded",
+                    side_effect=fail_second_write,
+                ):
+                    open_thread = threading.Thread(target=open_stream)
+                    open_thread.start()
+                    self.assertTrue(open_seen.wait(1))
+                    with client._connection._lock:
+                        open_state = next(
+                            iter(client._connection._streams.values())
+                        )
+                    with self.assertRaises(CmuxConnectionError) as raised:
+                        session.ping()
+                    self.assertIs(raised.exception, partial_write_error)
+                    self.assertTrue(open_done.wait(1))
+                    open_thread.join(timeout=1)
+                    self.assertFalse(open_thread.is_alive())
+
+                self.assertEqual(open_errors, [partial_write_error])
+                self.assertTrue(client.closed)
+                self.assertTrue(client._connection._wire.closed)
+                self.assertTrue(disconnected.wait(0.5))
+                self.assertFalse(open_state.cancel_dispatch_started)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events"],
+        )
+        self.assertEqual(len(remainder), 1)
+        self.assertTrue(remainder[0])
+        self.assertFalse(remainder[0].endswith(b"\n"))
+        self.assertNotIn(b'"operation":"stream.cancel"', remainder[0])
+
+    def test_failed_open_cleanup_and_reader_failure_share_cancel_dispatch(
+        self,
+    ) -> None:
+        observed = []
+        cleanup_claimed = threading.Event()
+        disconnected = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            observed.append(opened)
+            cleanup_claimed.wait(1)
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/future",
+                    "type": "response",
+                    "id": opened["id"],
+                    "ok": True,
+                    "result": {
+                        "stream_id": opened["params"]["stream_id"],
+                    },
+                },
+            )
+            for request in requests:
+                observed.append(request)
+            disconnected.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                request_cancel = client._connection._request_stream_cancel
+
+                def wait_for_reader_failure(
+                    state,
+                    *,
+                    failed_open,
+                    operation=None,
+                ):
+                    cleanup_claimed.set()
+                    deadline = time.monotonic() + 1
+                    while not client.closed and time.monotonic() < deadline:
+                        time.sleep(0.001)
+                    if not client.closed:
+                        raise AssertionError("reader did not fail the connection")
+                    return request_cancel(
+                        state,
+                        failed_open=failed_open,
+                        operation=operation,
+                    )
+
+                with patch.object(
+                    client._connection,
+                    "_request_stream_cancel",
+                    side_effect=wait_for_reader_failure,
+                ):
+                    with self.assertRaises(cmux.TimeoutError) as raised:
+                        client.with_request_options(
+                            RequestOptions(timeout=0.02),
+                            client.session(SESSION).events,
+                        )
+                self.assertIn("did not respond", str(raised.exception))
+                self.assertTrue(client.closed)
+                self.assertTrue(disconnected.wait(0.5))
+                self.assertTrue(client._connection._wire.closed)
+                self.assertEqual(client._connection._streams, {})
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.events", "stream.cancel"],
+        )
+        self.assertEqual(
+            observed[1]["params"]["stream"],
+            observed[0]["params"]["stream_id"],
+        )
 
     def test_cancellation_before_and_after_mutation_dispatch_is_typed(self) -> None:
         def before_handler(connection, _index):
@@ -1336,6 +2964,7 @@ class ResourceApiTests(unittest.TestCase):
                 },
             )
             canceled = next(requests)
+            canceled_end(connection, stream_id)
             ok(connection, canceled, {})
 
         async def exercise(path):
@@ -1412,6 +3041,7 @@ class ResourceApiTests(unittest.TestCase):
             )
             canceled = next(requests)
             ok(connection, canceled, {})
+            canceled_end(connection, stream_id)
 
         with UnixJsonServer(handler) as server:
             with Client(server.path) as client:
@@ -1524,6 +3154,7 @@ class ResourceApiTests(unittest.TestCase):
                 },
             )
             canceled = next(requests)
+            canceled_end(connection, stream_id)
             ok(connection, canceled, {})
 
         async def exercise(path):

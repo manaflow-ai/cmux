@@ -1319,6 +1319,29 @@ pub const Options = struct {
     stream_factory: ?ConnectionFactory = null,
 };
 
+const TimeoutDeadline = struct {
+    timer: ?std.time.Timer = null,
+    timeout_ns: u64 = 0,
+
+    fn start(timeout_ms: ?u32) !TimeoutDeadline {
+        const milliseconds = timeout_ms orelse return .{};
+        return .{
+            .timer = try std.time.Timer.start(),
+            .timeout_ns = @as(u64, milliseconds) * std.time.ns_per_ms,
+        };
+    }
+
+    fn remainingMs(self: *TimeoutDeadline) !?u32 {
+        const timer = if (self.timer) |*value| value else return null;
+        const elapsed_ns = timer.read();
+        if (elapsed_ns >= self.timeout_ns) return error.Timeout;
+        const remaining_ns = self.timeout_ns - elapsed_ns;
+        return @intCast(
+            (remaining_ns - 1) / std.time.ns_per_ms + 1,
+        );
+    }
+};
+
 fn isSecretField(key: []const u8) bool {
     return std.mem.eql(u8, key, "token") or
         std.mem.eql(u8, key, "specifier") or
@@ -2152,6 +2175,24 @@ pub const Client = struct {
         params: raw.wire.Value,
         mutation: ?MutationOptions,
     ) !void {
+        var deadline = try TimeoutDeadline.start(self.timeout_ms);
+        return self.sendRequestWithDeadline(
+            request_id,
+            operation,
+            params,
+            mutation,
+            &deadline,
+        );
+    }
+
+    fn sendRequestWithDeadline(
+        self: *Client,
+        request_id: []const u8,
+        operation: Operation,
+        params: raw.wire.Value,
+        mutation: ?MutationOptions,
+        deadline: *TimeoutDeadline,
+    ) !void {
         if (self.closed) return error.ConnectionClosed;
         if (mutation) |options| try options.validate();
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -2230,8 +2271,26 @@ pub const Client = struct {
         if (encoded.len > self.limits.max_request_bytes) {
             return error.RequestTooLarge;
         }
-        try self.connection.writeAll(encoded, self.timeout_ms);
-        try self.connection.writeAll("\n", self.timeout_ms);
+        const payload_timeout = deadline.remainingMs() catch |failure| {
+            self.close();
+            return failure;
+        };
+        self.connection.writeAll(encoded, payload_timeout) catch |failure| {
+            self.close();
+            return failure;
+        };
+        const newline_timeout = deadline.remainingMs() catch |failure| {
+            self.close();
+            return failure;
+        };
+        self.connection.writeAll("\n", newline_timeout) catch |failure| {
+            self.close();
+            return failure;
+        };
+        _ = deadline.remainingMs() catch |failure| {
+            self.close();
+            return failure;
+        };
     }
 
     fn takeFrame(self: *Client) !?[]u8 {
@@ -2271,7 +2330,16 @@ pub const Client = struct {
         self: *Client,
         timeout_ms: ?u32,
     ) !raw.wire.OwnedValue {
+        var deadline = try TimeoutDeadline.start(timeout_ms);
+        return self.readMessageWithDeadline(&deadline);
+    }
+
+    fn readMessageWithDeadline(
+        self: *Client,
+        deadline: *TimeoutDeadline,
+    ) !raw.wire.OwnedValue {
         while (true) {
+            const timeout_ms = try deadline.remainingMs();
             if (try self.takeFrame()) |frame| {
                 defer self.allocator.free(frame);
                 if (frame.len == 0) return error.EmptyFrame;
@@ -2342,21 +2410,16 @@ pub const Client = struct {
                 message.deinit();
                 continue;
             }
-            const ok = switch (object.get("ok") orelse
-                return error.MissingResponseStatus) {
-                .bool => |item| item,
-                else => return error.InvalidResponseStatus,
-            };
-            if (!ok) {
-                try self.setError(
-                    object.get("error") orelse
-                        return error.InvalidResourceError,
-                );
-                return error.RemoteError;
+            switch (try parseExactResponse(object)) {
+                .failure => |failure| {
+                    try self.setError(failure);
+                    return error.RemoteError;
+                },
+                .success => |result| return .{
+                    .owned = message,
+                    .value = result,
+                },
             }
-            const result = object.get("result") orelse
-                return error.MissingResponseResult;
-            return .{ .owned = message, .value = result };
         }
     }
 
@@ -2467,6 +2530,7 @@ pub const Client = struct {
         params: raw.wire.Value,
     ) !SessionEventStream {
         return .{ .raw_stream = try RawStream.open(
+            SessionEvent,
             self.allocator,
             connection,
             self.streamOptions(),
@@ -2481,6 +2545,7 @@ pub const Client = struct {
     ) !TerminalAttachmentStream {
         const connection = try self.streamConnection();
         return .{ .raw_stream = try RawStream.open(
+            TerminalAttachmentItem,
             self.allocator,
             connection,
             self.streamOptions(),
@@ -2495,6 +2560,7 @@ pub const Client = struct {
     ) !BrowserAttachmentStream {
         const connection = try self.streamConnection();
         return .{ .raw_stream = try RawStream.open(
+            BrowserAttachmentItem,
             self.allocator,
             connection,
             self.streamOptions(),
@@ -2509,6 +2575,7 @@ pub const Client = struct {
     ) !SidebarViewStream {
         const connection = try self.streamConnection();
         return .{ .raw_stream = try RawStream.open(
+            SidebarViewItem,
             self.allocator,
             connection,
             self.streamOptions(),
@@ -2924,6 +2991,65 @@ fn parseStrictCursor(value: raw.wire.Value) !Cursor {
         return error.InvalidCursorGeneration;
     }
     return cursor;
+}
+
+fn validateExactResourceError(value: raw.wire.Value) !void {
+    const object = switch (value) {
+        .object => |item| item,
+        else => return error.ExpectedObject,
+    };
+    try ensureOnlyFields(object, &.{
+        "code",
+        "message",
+        "details",
+        "retryable",
+    });
+    _ = try objectString(object, "code");
+    _ = try objectString(object, "message");
+    _ = object.get("details") orelse return error.MissingField;
+    _ = try objectBool(object, "retryable");
+}
+
+const ExactResponse = union(enum) {
+    success: raw.wire.Value,
+    failure: raw.wire.Value,
+};
+
+fn parseExactResponse(object: raw.wire.Object) !ExactResponse {
+    try ensureOnlyFields(object, &.{
+        "protocol",
+        "type",
+        "id",
+        "ok",
+        "result",
+        "error",
+    });
+    const protocol = try objectString(object, "protocol");
+    if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+        return error.InvalidProtocolEnvelope;
+    }
+    const envelope_type = try objectString(object, "type");
+    if (!std.mem.eql(u8, envelope_type, "response")) {
+        return error.UnexpectedStreamEnvelope;
+    }
+    _ = try objectString(object, "id");
+    const ok = switch (object.get("ok") orelse
+        return error.MissingResponseStatus) {
+        .bool => |item| item,
+        else => return error.InvalidResponseStatus,
+    };
+    if (ok) {
+        if (object.get("error") != null) return error.UnexpectedField;
+        return .{
+            .success = object.get("result") orelse
+                return error.MissingResponseResult,
+        };
+    }
+    if (object.get("result") != null) return error.UnexpectedField;
+    const failure = object.get("error") orelse
+        return error.InvalidResourceError;
+    try validateExactResourceError(failure);
+    return .{ .failure = failure };
 }
 
 fn validateEnvelopeCursor(
@@ -3405,10 +3531,10 @@ fn decodeTerminalAttachmentItem(
     } };
 }
 
-fn parseBrowserFrameMime(value: []const u8) BrowserFrameMime {
+fn parseBrowserFrameMime(value: []const u8) !BrowserFrameMime {
     if (std.mem.eql(u8, value, "image/png")) return .png;
     if (std.mem.eql(u8, value, "image/jpeg")) return .jpeg;
-    return .{ .unknown = value };
+    return error.InvalidBrowserFrameMime;
 }
 
 fn decodeBrowserAttachmentItem(
@@ -3445,7 +3571,7 @@ fn decodeBrowserAttachmentItem(
         );
         const encoded = try objectString(object, "data_base64");
         return .{ .frame = .{
-            .mime_type = parseBrowserFrameMime(
+            .mime_type = try parseBrowserFrameMime(
                 try objectString(object, "mime_type"),
             ),
             .data_base64 = encoded,
@@ -3567,6 +3693,24 @@ fn domainItem(
     @compileError("unsupported resource stream item");
 }
 
+const DomainItemValidator = *const fn (
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+    cursor: ?Cursor,
+) anyerror!void;
+
+fn domainItemValidator(comptime Item: type) DomainItemValidator {
+    return struct {
+        fn validate(
+            allocator: std.mem.Allocator,
+            value: raw.wire.Value,
+            cursor: ?Cursor,
+        ) !void {
+            _ = try domainItem(Item, allocator, value, cursor);
+        }
+    }.validate;
+}
+
 fn OwnedStreamItem(comptime Item: type) type {
     return struct {
         const Self = @This();
@@ -3660,6 +3804,12 @@ const RawStream = struct {
     pub const max_buffered_items: usize = 256;
     pub const max_buffered_bytes: usize = 16 * 1024 * 1024;
 
+    const ParsedItemEnvelope = struct {
+        sequence: u64,
+        cursor: ?Cursor,
+        item: raw.wire.Value,
+    };
+
     client: Client,
     stream_id: StreamId,
     machine_selector: []u8,
@@ -3672,20 +3822,25 @@ const RawStream = struct {
     end_error: ?OwnedResourceError = null,
     local_end_generation: ?[]u8 = null,
     stream_end: ?StreamEnd = null,
+    item_validator: DomainItemValidator,
+    cleanup_started: bool = false,
+    cleanup_finished: bool = false,
+    cancel_failure: ?anyerror = null,
     deinitialized: bool = false,
 
     fn open(
+        comptime Item: type,
         allocator: std.mem.Allocator,
         connection: raw.transport.Connection,
         options: Options,
         operation: Operation,
         params: raw.wire.Value,
     ) !RawStream {
+        var stream_client = Client.init(allocator, connection, options);
+        errdefer stream_client.deinit();
         if (operation.class() != .stream_open) {
             return error.WrongOperationClass;
         }
-        var stream_client = Client.init(allocator, connection, options);
-        errdefer stream_client.deinit();
         const id = streamId();
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -3742,13 +3897,33 @@ const RawStream = struct {
             .{ .object = object },
             null,
         );
-        opened.deinit();
+        defer opened.deinit();
+        const open_result = switch (opened.value) {
+            .object => |item| item,
+            else => return error.ExpectedObject,
+        };
+        try ensureOnlyFields(open_result, &.{ "stream_id", "cursor" });
+        const acknowledged_stream_id = try objectString(
+            open_result,
+            "stream_id",
+        );
+        if (!std.mem.eql(
+            u8,
+            acknowledged_stream_id,
+            id.slice(),
+        )) {
+            return error.StreamIdMismatch;
+        }
+        if (open_result.get("cursor")) |cursor| {
+            _ = try parseStrictCursor(cursor);
+        }
         return .{
             .client = stream_client,
             .stream_id = id,
             .machine_selector = owned_machine,
             .session_selector = owned_session,
             .attachment = attachment,
+            .item_validator = domainItemValidator(Item),
         };
     }
 
@@ -3787,9 +3962,63 @@ const RawStream = struct {
         return std.mem.eql(u8, encoded, self.stream_id.slice());
     }
 
+    fn parseItemEnvelope(
+        self: *const RawStream,
+        object: raw.wire.Object,
+    ) !ParsedItemEnvelope {
+        try ensureOnlyFields(object, &.{
+            "protocol",
+            "type",
+            "stream_id",
+            "sequence",
+            "cursor",
+            "item",
+        });
+        const protocol = try objectString(object, "protocol");
+        if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            return error.InvalidProtocolEnvelope;
+        }
+        const envelope_type = try objectString(object, "type");
+        if (!std.mem.eql(u8, envelope_type, "stream_item")) {
+            return error.UnexpectedStreamEnvelope;
+        }
+        const encoded_stream_id = try objectString(object, "stream_id");
+        if (!std.mem.eql(
+            u8,
+            encoded_stream_id,
+            self.stream_id.slice(),
+        )) {
+            return error.StreamIdMismatch;
+        }
+        return .{
+            .sequence = try decimalU64(
+                object.get("sequence") orelse return error.MissingField,
+            ),
+            .cursor = if (object.get("cursor")) |cursor|
+                try parseStrictCursor(cursor)
+            else
+                null,
+            .item = object.get("item") orelse return error.MissingField,
+        };
+    }
+
+    fn validateItemDomain(
+        self: *const RawStream,
+        envelope: ParsedItemEnvelope,
+    ) !void {
+        var decoded = std.heap.ArenaAllocator.init(self.client.allocator);
+        defer decoded.deinit();
+        try self.item_validator(
+            decoded.allocator(),
+            envelope.item,
+            envelope.cursor,
+        );
+    }
+
     fn storeEnd(
         self: *RawStream,
         message: raw.wire.OwnedValue,
+        expected_reason: ?StreamEndReason,
     ) !void {
         if (self.stream_end != null) {
             var duplicate = message;
@@ -3800,32 +4029,58 @@ const RawStream = struct {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
+        try ensureOnlyFields(object, &.{
+            "protocol",
+            "type",
+            "stream_id",
+            "reason",
+            "cursor",
+            "error",
+            "recovery",
+        });
+        const protocol = try objectString(object, "protocol");
+        if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            return error.InvalidProtocolEnvelope;
+        }
+        const envelope_type = try objectString(object, "type");
+        if (!std.mem.eql(u8, envelope_type, "stream_end")) {
+            return error.UnexpectedStreamEnvelope;
+        }
+        const encoded_stream_id = try objectString(object, "stream_id");
+        if (!std.mem.eql(
+            u8,
+            encoded_stream_id,
+            self.stream_id.slice(),
+        )) {
+            return error.StreamIdMismatch;
+        }
         const reason = try parseStreamEndReason(
             try objectString(object, "reason"),
         );
+        if (expected_reason) |expected| {
+            if (reason != expected) return error.UnexpectedStreamEndReason;
+        }
+        const error_value = object.get("error");
+        if ((reason == .@"error") != (error_value != null)) {
+            return error.InvalidStreamEndErrorPresence;
+        }
         const cursor = if (object.get("cursor")) |cursor_value|
-            switch (cursor_value) {
-                .null => null,
-                else => try parseCursor(cursor_value),
-            }
+            try parseStrictCursor(cursor_value)
         else
             null;
         const recovery = if (object.get("recovery")) |recovery_value|
             switch (recovery_value) {
-                .null => null,
                 .string => |item| item,
-                else => null,
+                else => return error.ExpectedString,
             }
         else
             null;
-        if (object.get("error")) |error_value| {
-            switch (error_value) {
-                .null => {},
-                else => self.end_error = try ownedErrorFromValue(
-                    self.client.allocator,
-                    error_value,
-                ),
-            }
+        if (error_value) |embedded_error| {
+            try validateExactResourceError(embedded_error);
+            self.end_error = try ownedErrorFromValue(
+                self.client.allocator,
+                embedded_error,
+            );
         }
         self.end_frame = message;
         self.stream_end = .{
@@ -3854,19 +4109,20 @@ const RawStream = struct {
                 .object => |item| item,
                 else => return error.ExpectedObject,
             };
+            const envelope_type = try objectString(object, "type");
+            if (std.mem.eql(u8, envelope_type, "stream_end")) {
+                try self.storeEnd(message, null);
+                return null;
+            }
+            if (std.mem.eql(u8, envelope_type, "stream_item")) {
+                _ = try self.parseItemEnvelope(object);
+                return message;
+            }
             if (!self.envelopeForThisStream(object)) {
                 message.deinit();
                 continue;
             }
-            const envelope_type = try objectString(object, "type");
-            if (std.mem.eql(u8, envelope_type, "stream_end")) {
-                try self.storeEnd(message);
-                return null;
-            }
-            if (!std.mem.eql(u8, envelope_type, "stream_item")) {
-                return error.UnexpectedStreamEnvelope;
-            }
-            return message;
+            return error.UnexpectedStreamEnvelope;
         }
     }
 
@@ -3909,28 +4165,28 @@ const RawStream = struct {
         envelope: raw.wire.Value,
     ) !void {
         if (self.stream_end != null) return;
+        if (self.cleanup_started) {
+            self.client.close();
+            return;
+        }
+        self.cleanup_started = true;
+        errdefer self.client.close();
         const object = switch (envelope) {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
-        const cursor = if (object.get("cursor")) |cursor_value|
-            switch (cursor_value) {
-                .null => null,
-                else => blk: {
-                    const parsed = try parseCursor(cursor_value);
-                    const generation = try self.client.allocator.dupe(
-                        u8,
-                        parsed.generation,
-                    );
-                    self.local_end_generation = generation;
-                    break :blk Cursor{
-                        .generation = generation,
-                        .revision = parsed.revision,
-                    };
-                },
-            }
-        else
-            null;
+        const cursor = if (object.get("cursor")) |cursor_value| blk: {
+            const parsed = try parseStrictCursor(cursor_value);
+            const generation = try self.client.allocator.dupe(
+                u8,
+                parsed.generation,
+            );
+            self.local_end_generation = generation;
+            break :blk Cursor{
+                .generation = generation,
+                .revision = parsed.revision,
+            };
+        } else null;
         self.stream_end = .{
             .reason = .gap,
             .cursor = cursor,
@@ -3940,6 +4196,7 @@ const RawStream = struct {
         // Every public stream owns a dedicated connection, so this cannot
         // interrupt the control client or a sibling stream.
         self.client.close();
+        self.cleanup_finished = true;
     }
 
     fn control(
@@ -3973,36 +4230,51 @@ const RawStream = struct {
                     message.deinit();
                     continue;
                 }
-                const ok = switch (object.get("ok") orelse
-                    return error.MissingResponseStatus) {
-                    .bool => |item| item,
-                    else => return error.InvalidResponseStatus,
-                };
-                if (!ok) {
-                    try self.client.setError(
-                        object.get("error") orelse
-                            return error.InvalidResourceError,
-                    );
-                    return error.RemoteError;
+                switch (try parseExactResponse(object)) {
+                    .failure => |failure| {
+                        try self.client.setError(failure);
+                        return error.RemoteError;
+                    },
+                    .success => |result| return .{
+                        .owned = message,
+                        .value = result,
+                    },
                 }
-                return .{
-                    .owned = message,
-                    .value = object.get("result") orelse
-                        return error.MissingResponseResult,
-                };
             }
-            if (self.envelopeForThisStream(object)) {
+            if (std.mem.eql(u8, envelope_type, "stream_item")) {
+                _ = try self.parseItemEnvelope(object);
                 try self.queuePending(message);
-            } else {
-                message.deinit();
+                continue;
             }
+            if (std.mem.eql(u8, envelope_type, "stream_end")) {
+                try self.storeEnd(message, null);
+                continue;
+            }
+            if (!self.envelopeForThisStream(object)) {
+                message.deinit();
+                continue;
+            }
+            return error.UnexpectedStreamEnvelope;
         }
     }
 
     fn cancel(self: *RawStream) !*const StreamEnd {
+        if (self.cleanup_started) {
+            if (self.cleanup_finished) {
+                if (self.stream_end) |_| return &self.stream_end.?;
+            }
+            if (self.cancel_failure) |failure| return failure;
+            return error.ConnectionClosed;
+        }
         if (self.stream_end) |_| return &self.stream_end.?;
+        self.cleanup_started = true;
+        errdefer |failure| {
+            self.cancel_failure = failure;
+            self.client.close();
+        }
         self.client.mutex.lock();
         defer self.client.mutex.unlock();
+        var deadline = try TimeoutDeadline.start(self.client.timeout_ms);
         self.client.clearError();
         const request_id = try self.client.requestId();
         defer self.client.allocator.free(request_id);
@@ -4030,60 +4302,76 @@ const RawStream = struct {
                 self.stream_id.slice(),
             ) },
         );
-        try self.client.sendRequest(
+        try self.client.sendRequestWithDeadline(
             request_id,
             .stream_cancel,
             .{ .object = params },
             null,
+            &deadline,
         );
         var response_seen = false;
         while (!response_seen or self.stream_end == null) {
+            _ = try deadline.remainingMs();
             var message = if (self.pending.items.len > 0) blk: {
                 const pending_size = self.pending_sizes.orderedRemove(0);
                 self.pending_bytes -= pending_size;
                 break :blk self.pending.orderedRemove(0);
-            } else try self.client.readMessage();
+            } else try self.client.readMessageWithDeadline(&deadline);
             errdefer message.deinit();
             const object = switch (message.value) {
                 .object => |item| item,
                 else => return error.ExpectedObject,
             };
-            const envelope_type = try objectString(object, "type");
+            const protocol = objectString(object, "protocol") catch
+                return error.InvalidProtocolEnvelope;
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+                return error.InvalidProtocolEnvelope;
+            }
+            const envelope_type = objectString(object, "type") catch
+                return error.InvalidProtocolEnvelope;
             if (std.mem.eql(u8, envelope_type, "response")) {
-                const id = objectString(object, "id") catch {
-                    message.deinit();
-                    continue;
-                };
+                if (response_seen) return error.DuplicateCancelResponse;
+                const id = objectString(object, "id") catch
+                    return error.InvalidProtocolEnvelope;
                 if (!std.mem.eql(u8, id, request_id)) {
                     message.deinit();
                     continue;
                 }
-                const ok = switch (object.get("ok") orelse
-                    return error.MissingResponseStatus) {
-                    .bool => |item| item,
-                    else => return error.InvalidResponseStatus,
+                const result = switch (try parseExactResponse(object)) {
+                    .failure => |failure| {
+                        try self.client.setError(failure);
+                        return error.RemoteError;
+                    },
+                    .success => |success| switch (success) {
+                        .object => |item| item,
+                        else => return error.ExpectedObject,
+                    },
                 };
-                if (!ok) {
-                    try self.client.setError(
-                        object.get("error") orelse
-                            return error.InvalidResourceError,
-                    );
-                    return error.RemoteError;
-                }
+                if (result.count() != 0) return error.UnexpectedField;
                 response_seen = true;
                 message.deinit();
                 continue;
             }
-            if (std.mem.eql(u8, envelope_type, "stream_end") and
-                self.envelopeForThisStream(object))
-            {
-                try self.storeEnd(message);
+            if (std.mem.eql(u8, envelope_type, "stream_end")) {
+                if (self.stream_end != null) return error.DuplicateStreamEnd;
+                try self.storeEnd(message, .canceled);
                 continue;
             }
-            // Items already queued before cancellation are discarded.
-            message.deinit();
+            if (std.mem.eql(u8, envelope_type, "stream_item")) {
+                if (self.stream_end != null) {
+                    return error.UnexpectedStreamEnvelope;
+                }
+                const envelope = try self.parseItemEnvelope(object);
+                try self.validateItemDomain(envelope);
+                // Items already queued before cancellation are discarded.
+                message.deinit();
+                continue;
+            }
+            return error.UnexpectedStreamEnvelope;
         }
+        _ = try deadline.remainingMs();
         self.client.close();
+        self.cleanup_finished = true;
         return &self.stream_end.?;
     }
 };
@@ -4102,28 +4390,17 @@ fn nextTypedStreamItem(
         .object => |value| value,
         else => return error.ExpectedObject,
     };
-    const sequence = try decimalU64(
-        object.get("sequence") orelse return error.MissingField,
-    );
-    const cursor = if (object.get("cursor")) |cursor_value|
-        switch (cursor_value) {
-            .null => null,
-            else => try parseCursor(cursor_value),
-        }
-    else
-        null;
-    const raw_item = object.get("item") orelse
-        return error.MissingField;
+    const envelope = try raw_stream.parseItemEnvelope(object);
     return .{
         .owned = message,
         .decoded = decoded,
-        .sequence = sequence,
-        .cursor = cursor,
+        .sequence = envelope.sequence,
+        .cursor = envelope.cursor,
         .value = try domainItem(
             Item,
             decoded.allocator(),
-            raw_item,
-            cursor,
+            envelope.item,
+            envelope.cursor,
         ),
     };
 }
@@ -12437,6 +12714,54 @@ const FakeMode = enum {
     dropped_mutation_disconnect,
 };
 
+const FakeStreamOpenAck = enum {
+    matching,
+    matching_with_cursor,
+    missing_result,
+    missing_stream_id,
+    mismatched_stream_id,
+    non_object,
+    unknown_field,
+    null_cursor,
+    malformed_cursor,
+    cursor_unknown_field,
+    empty_cursor_generation,
+    oversized_cursor_generation,
+};
+
+const FakeCancelResponse = enum {
+    empty,
+    non_empty,
+    invalid_protocol,
+    rejected,
+    extra_field,
+    success_with_error,
+    failure_with_result,
+    malformed_error,
+};
+
+const FakeCancelEnd = enum {
+    matching,
+    missing,
+    invalid_protocol,
+    missing_reason,
+    wrong_stream_id,
+    wrong_reason,
+    unknown_field,
+    null_cursor,
+    malformed_cursor,
+    null_recovery,
+    unexpected_error,
+};
+
+const FakeCancelDelivery = enum {
+    immediate,
+    stale_items,
+    fragmented,
+    valid_known_item_after_end,
+    malformed_known_item,
+};
+
 const fake_delayed_stream_wait_ms: u64 = 15;
 
 const fake_layout_json =
@@ -12533,6 +12858,17 @@ const FakeShared = struct {
     processed: usize = 0,
     mode: FakeMode,
     closed: bool = false,
+    stream_open_ack: FakeStreamOpenAck = .matching,
+    cancel_response: FakeCancelResponse = .empty,
+    cancel_end: FakeCancelEnd = .matching,
+    cancel_delivery: FakeCancelDelivery = .immediate,
+    cancel_delivery_active: bool = false,
+    cancel_read_delay_ms: u32 = 0,
+    cancel_read_calls: usize = 0,
+    cancel_first_read_timeout_ms: ?u32 = null,
+    cancel_last_read_timeout_ms: ?u32 = null,
+    write_calls: usize = 0,
+    fail_write_call: ?usize = null,
     delayed_stream_id: ?[]u8 = null,
     delayed_stream_item_emitted: bool = false,
     delayed_stream_open_read_observed: bool = false,
@@ -12570,6 +12906,269 @@ const FakeShared = struct {
         );
         defer self.allocator.free(item);
         try self.appendInput(item);
+    }
+
+    fn appendValidSessionDeltaItem(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        const item = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                "\"sequence\":\"2\",\"cursor\":{{\"generation\":" ++
+                "\"g\",\"revision\":\"2\"}},\"item\":{{\"kind\":" ++
+                "\"delta\",\"cursor\":{{\"generation\":\"g\"," ++
+                "\"revision\":\"2\"}},\"previous_revision\":\"1\"," ++
+                "\"revision\":\"2\",\"changes\":[]}}}}",
+            .{stream_id},
+        );
+        defer self.allocator.free(item);
+        try self.appendInput(item);
+    }
+
+    fn appendStreamOpenResponse(
+        self: *FakeShared,
+        request_id: []const u8,
+        stream_id: []const u8,
+    ) !void {
+        if (self.stream_open_ack == .missing_result) {
+            const response = try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true}}",
+                .{request_id},
+            );
+            defer self.allocator.free(response);
+            try self.appendInput(response);
+            return;
+        }
+        const oversized_generation = "g" ** 129;
+        const result = switch (self.stream_open_ack) {
+            .matching => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\"}}",
+                .{stream_id},
+            ),
+            .matching_with_cursor => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":\"2\"}}}}",
+                .{stream_id},
+            ),
+            .missing_stream_id => try self.allocator.dupe(u8, "{}"),
+            .mismatched_stream_id => try self.allocator.dupe(
+                u8,
+                "{\"stream_id\":" ++
+                    "\"stream_ffffffffffffffffffffffffffffffff\"}",
+            ),
+            .non_object => try self.allocator.dupe(u8, "[]"),
+            .unknown_field => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"future\":true}}",
+                .{stream_id},
+            ),
+            .null_cursor => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":null}}",
+                .{stream_id},
+            ),
+            .malformed_cursor => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":2}}}}",
+                .{stream_id},
+            ),
+            .cursor_unknown_field => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":\"2\"," ++
+                    "\"future\":true}}}}",
+                .{stream_id},
+            ),
+            .empty_cursor_generation => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
+                    "\"generation\":\"\",\"revision\":\"2\"}}}}",
+                .{stream_id},
+            ),
+            .oversized_cursor_generation => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
+                    "\"generation\":\"{s}\",\"revision\":\"2\"}}}}",
+                .{ stream_id, oversized_generation },
+            ),
+            .missing_result => unreachable,
+        };
+        defer self.allocator.free(result);
+        const response = try std.fmt.allocPrint(
+            self.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                "\"result\":{s}}}",
+            .{ request_id, result },
+        );
+        defer self.allocator.free(response);
+        try self.appendInput(response);
+    }
+
+    fn appendCancelResponse(
+        self: *FakeShared,
+        request_id: []const u8,
+    ) !void {
+        const response = switch (self.cancel_response) {
+            .empty => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                    "\"result\":{{}}}}",
+                .{request_id},
+            ),
+            .non_empty => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                    "\"result\":{{\"unexpected\":true}}}}",
+                .{request_id},
+            ),
+            .invalid_protocol => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/999\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                    "\"result\":{{}}}}",
+                .{request_id},
+            ),
+            .rejected => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":false," ++
+                    "\"error\":{{\"code\":\"stream.cancel_rejected\"," ++
+                    "\"message\":\"cancel rejected\",\"details\":{{}}," ++
+                    "\"retryable\":false}}}}",
+                .{request_id},
+            ),
+            .extra_field => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                    "\"result\":{{}},\"future\":true}}",
+                .{request_id},
+            ),
+            .success_with_error => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":true," ++
+                    "\"result\":{{}},\"error\":{{\"code\":\"failed\"," ++
+                    "\"message\":\"bad\",\"details\":{{}}," ++
+                    "\"retryable\":false}}}}",
+                .{request_id},
+            ),
+            .failure_with_result => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":false," ++
+                    "\"result\":{{}},\"error\":{{\"code\":\"failed\"," ++
+                    "\"message\":\"bad\",\"details\":{{}}," ++
+                    "\"retryable\":false}}}}",
+                .{request_id},
+            ),
+            .malformed_error => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"response\",\"id\":\"{s}\",\"ok\":false," ++
+                    "\"error\":{{\"code\":\"failed\"," ++
+                    "\"message\":\"bad\",\"details\":{{}}," ++
+                    "\"retryable\":false,\"future\":true}}}}",
+                .{request_id},
+            ),
+        };
+        defer self.allocator.free(response);
+        try self.appendInput(response);
+    }
+
+    fn appendCancelEnd(
+        self: *FakeShared,
+        stream_id: []const u8,
+    ) !void {
+        if (self.cancel_end == .missing) return;
+        const end = switch (self.cancel_end) {
+            .matching => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":\"3\"}}}}",
+                .{stream_id},
+            ),
+            .invalid_protocol => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/999\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\"}}",
+                .{stream_id},
+            ),
+            .missing_reason => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"}}",
+                .{stream_id},
+            ),
+            .wrong_stream_id => try self.allocator.dupe(
+                u8,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":" ++
+                    "\"stream_ffffffffffffffffffffffffffffffff\"," ++
+                    "\"reason\":\"canceled\"}",
+            ),
+            .wrong_reason => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"completed\"}}",
+                .{stream_id},
+            ),
+            .unknown_field => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"future\":true}}",
+                .{stream_id},
+            ),
+            .null_cursor => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"cursor\":null}}",
+                .{stream_id},
+            ),
+            .malformed_cursor => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":3}}}}",
+                .{stream_id},
+            ),
+            .null_recovery => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"recovery\":null}}",
+                .{stream_id},
+            ),
+            .unexpected_error => try std.fmt.allocPrint(
+                self.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_end\",\"stream_id\":\"{s}\"," ++
+                    "\"reason\":\"canceled\",\"error\":{{" ++
+                    "\"code\":\"failed\",\"message\":\"bad\"," ++
+                    "\"details\":{{}},\"retryable\":false}}}}",
+                .{stream_id},
+            ),
+            .missing => unreachable,
+        };
+        defer self.allocator.free(end);
+        try self.appendInput(end);
     }
 
     fn processRequests(self: *FakeShared) !void {
@@ -12946,15 +13545,14 @@ const FakeShared = struct {
                 std.mem.eql(u8, operation, "browser.attach") or
                 std.mem.eql(u8, operation, "sidebar_view.attach"))
             {
-                const response = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
-                        "\"response\",\"id\":\"{s}\",\"ok\":true," ++
-                        "\"result\":{{}}}}",
-                    .{id},
+                const params = switch (object.get("params").?) {
+                    .object => |item| item,
+                    else => return error.ExpectedObject,
+                };
+                try self.appendStreamOpenResponse(
+                    id,
+                    try objectString(params, "stream_id"),
                 );
-                defer self.allocator.free(response);
-                try self.appendInput(response);
                 continue;
             }
             if (std.mem.eql(u8, operation, "session.events")) {
@@ -12963,13 +13561,7 @@ const FakeShared = struct {
                     else => return error.ExpectedObject,
                 };
                 const stream_id = try objectString(params, "stream_id");
-                const response = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{}}}}",
-                    .{id},
-                );
-                defer self.allocator.free(response);
-                try self.appendInput(response);
+                try self.appendStreamOpenResponse(id, stream_id);
                 if (self.mode == .delayed_stream_item) {
                     self.delayed_stream_id = try self.allocator.dupe(
                         u8,
@@ -12986,20 +13578,35 @@ const FakeShared = struct {
                     else => return error.ExpectedObject,
                 };
                 const stream_id = try objectString(params, "stream");
-                const end = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"stream_end\",\"stream_id\":\"{s}\"," ++ "\"reason\":\"canceled\",\"cursor\":" ++ "{{\"generation\":\"g\",\"revision\":\"3\"}}}}",
-                    .{stream_id},
-                );
-                defer self.allocator.free(end);
-                try self.appendInput(end);
-                const response = try std.fmt.allocPrint(
-                    self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{}}}}",
-                    .{id},
-                );
-                defer self.allocator.free(response);
-                try self.appendInput(response);
+                self.cancel_delivery_active = true;
+                if (self.cancel_delivery == .stale_items) {
+                    for (0..8) |_| {
+                        try self.appendSessionStreamItem(stream_id);
+                    }
+                }
+                switch (self.cancel_delivery) {
+                    .valid_known_item_after_end => {
+                        try self.appendCancelEnd(stream_id);
+                        try self.appendValidSessionDeltaItem(stream_id);
+                    },
+                    .malformed_known_item => {
+                        try self.appendCancelEnd(stream_id);
+                        const malformed = try std.fmt.allocPrint(
+                            self.allocator,
+                            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                                "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                                "\"sequence\":\"2\",\"cursor\":{{" ++
+                                "\"generation\":\"g\",\"revision\":\"2\"}}," ++
+                                "\"item\":{{\"kind\":\"snapshot\"," ++
+                                "\"future\":true}}}}",
+                            .{stream_id},
+                        );
+                        defer self.allocator.free(malformed);
+                        try self.appendInput(malformed);
+                    },
+                    else => try self.appendCancelEnd(stream_id),
+                }
+                try self.appendCancelResponse(id);
                 continue;
             }
             const response = try std.fmt.allocPrint(
@@ -13024,6 +13631,18 @@ const FakeConnection = struct {
         const state = try allocator.create(FakeConnection);
         state.* = .{ .allocator = allocator, .shared = shared };
         return state;
+    }
+
+    fn noteCancelRead(
+        self: *FakeConnection,
+        timeout_ms: ?u32,
+    ) void {
+        if (!self.shared.cancel_delivery_active) return;
+        self.shared.cancel_read_calls += 1;
+        if (self.shared.cancel_first_read_timeout_ms == null) {
+            self.shared.cancel_first_read_timeout_ms = timeout_ms;
+        }
+        self.shared.cancel_last_read_timeout_ms = timeout_ms;
     }
 
     pub fn read(
@@ -13063,16 +13682,59 @@ const FakeConnection = struct {
                 self.shared.delayed_stream_item_emitted = true;
             }
             if (self.shared.read_cursor == self.shared.input.items.len) {
+                if (self.shared.cancel_delivery_active and
+                    self.shared.cancel_end == .missing)
+                {
+                    self.noteCancelRead(timeout_ms);
+                    if (timeout_ms) |milliseconds| {
+                        std.Thread.sleep(
+                            @as(u64, milliseconds) * std.time.ns_per_ms,
+                        );
+                        return error.Timeout;
+                    }
+                }
                 if (self.shared.mode == .dropped_mutation_timeout) {
                     return error.Timeout;
                 }
                 return error.ConnectionClosed;
             }
         }
-        const count = @min(
+        if (self.shared.cancel_delivery_active) {
+            self.noteCancelRead(timeout_ms);
+            const delay_ms = self.shared.cancel_read_delay_ms;
+            if (delay_ms > 0) {
+                if (timeout_ms) |remaining_ms| {
+                    if (remaining_ms <= delay_ms) {
+                        std.Thread.sleep(
+                            @as(u64, remaining_ms) * std.time.ns_per_ms,
+                        );
+                        return error.Timeout;
+                    }
+                }
+                std.Thread.sleep(
+                    @as(u64, delay_ms) * std.time.ns_per_ms,
+                );
+            }
+        }
+        var count = @min(
             buffer.len,
             self.shared.input.items.len - self.shared.read_cursor,
         );
+        if (self.shared.cancel_delivery_active) {
+            switch (self.shared.cancel_delivery) {
+                .immediate,
+                .valid_known_item_after_end,
+                .malformed_known_item,
+                => {},
+                .stale_items => {
+                    const remaining = self.shared.input.items[self.shared.read_cursor..];
+                    if (std.mem.indexOfScalar(u8, remaining, '\n')) |newline| {
+                        count = @min(count, newline + 1);
+                    }
+                },
+                .fragmented => count = @min(count, 16),
+            }
+        }
         @memcpy(
             buffer[0..count],
             self.shared.input.items[self.shared.read_cursor .. self.shared.read_cursor + count],
@@ -13087,6 +13749,11 @@ const FakeConnection = struct {
         timeout_ms: ?u32,
     ) !void {
         _ = timeout_ms;
+        if (self.shared.closed) return error.ConnectionClosed;
+        self.shared.write_calls += 1;
+        if (self.shared.fail_write_call == self.shared.write_calls) {
+            return error.InjectedWriteFailure;
+        }
         try self.shared.output.appendSlice(self.shared.allocator, bytes);
         try self.shared.processRequests();
     }
@@ -15163,6 +15830,12 @@ test "browser frames require a nullable canonical pointer token" {
                 "\"height_px\":1,\"pointer_frame_seq\":\"07\"}",
             .expected = error.InvalidDecimalString,
         },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/gif\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":null}",
+            .expected = error.InvalidBrowserFrameMime,
+        },
     };
     for (invalid_cases) |case| {
         var parsed = try raw.wire.parse(
@@ -15179,6 +15852,527 @@ test "browser frames require a nullable canonical pointer token" {
             ),
         );
     }
+}
+
+test "resource client closes after either framing write fails" {
+    for ([_]usize{ 1, 2 }) |fail_write_call| {
+        var shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .fail_write_call = fail_write_call,
+        };
+        defer shared.deinit();
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+        var params = raw.wire.Object.init(std.testing.allocator);
+        defer params.deinit();
+
+        try std.testing.expectError(
+            error.InjectedWriteFailure,
+            client.sendRequest(
+                "zig-write-failure",
+                .machine_list,
+                .{ .object = params },
+                null,
+            ),
+        );
+        try std.testing.expect(client.closed);
+        try std.testing.expect(shared.closed);
+        const bytes_after_failure = shared.output.items.len;
+        try std.testing.expectError(
+            error.ConnectionClosed,
+            client.sendRequest(
+                "zig-after-write-failure",
+                .machine_list,
+                .{ .object = params },
+                null,
+            ),
+        );
+        try std.testing.expectEqual(
+            bytes_after_failure,
+            shared.output.items.len,
+        );
+    }
+}
+
+test "stream open requires an exact result and valid optional cursor" {
+    const cases = [_]struct {
+        ack: FakeStreamOpenAck,
+        expected: anyerror,
+    }{
+        .{
+            .ack = .missing_result,
+            .expected = error.MissingResponseResult,
+        },
+        .{
+            .ack = .missing_stream_id,
+            .expected = error.MissingField,
+        },
+        .{
+            .ack = .mismatched_stream_id,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .ack = .non_object,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .ack = .unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .ack = .null_cursor,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .ack = .malformed_cursor,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .ack = .cursor_unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .ack = .empty_cursor_generation,
+            .expected = error.InvalidCursorGeneration,
+        },
+        .{
+            .ack = .oversized_cursor_generation,
+            .expected = error.InvalidCursorGeneration,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .stream_open_ack = case.ack,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            case.expected,
+            client.session(session_id).events(),
+        );
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "stream open accepts a valid optional cursor" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_ack = .matching_with_cursor,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    try std.testing.expect(!stream_shared.closed);
+}
+
+test "stream items require exact canonical envelopes and known payloads" {
+    const Case = enum {
+        unknown_field,
+        invalid_protocol,
+        wrong_type,
+        wrong_stream_id,
+        numeric_sequence,
+        non_canonical_sequence,
+        null_cursor,
+        cursor_unknown_field,
+        malformed_known_item,
+    };
+    const cases = [_]struct {
+        case: Case,
+        expected: anyerror,
+    }{
+        .{ .case = .unknown_field, .expected = error.UnexpectedField },
+        .{
+            .case = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{ .case = .wrong_type, .expected = error.UnexpectedStreamEnvelope },
+        .{ .case = .wrong_stream_id, .expected = error.StreamIdMismatch },
+        .{
+            .case = .numeric_sequence,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .case = .non_canonical_sequence,
+            .expected = error.InvalidDecimalString,
+        },
+        .{ .case = .null_cursor, .expected = error.ExpectedObject },
+        .{
+            .case = .cursor_unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .case = .malformed_known_item,
+            .expected = error.UnexpectedField,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+        var initial = (try stream.next()) orelse
+            return error.MissingInitialStreamItem;
+        initial.deinit();
+        const stream_id = stream.raw_stream.stream_id.slice();
+        const encoded = switch (case.case) {
+            .unknown_field => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}},\"future\":true}}",
+                .{stream_id},
+            ),
+            .invalid_protocol => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/999\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .wrong_type => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"future_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .wrong_stream_id => try std.testing.allocator.dupe(
+                u8,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":" ++
+                    "\"stream_ffffffffffffffffffffffffffffffff\"," ++
+                    "\"sequence\":\"2\",\"item\":{\"kind\":" ++
+                    "\"future.event\"}}",
+            ),
+            .numeric_sequence => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":2,\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .non_canonical_sequence => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"02\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .null_cursor => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"cursor\":null," ++
+                    "\"item\":{{\"kind\":\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .cursor_unknown_field => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":\"2\"," ++
+                    "\"future\":true}},\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .malformed_known_item => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"snapshot\",\"future\":true}}}}",
+                .{stream_id},
+            ),
+        };
+        defer std.testing.allocator.free(encoded);
+        try stream_shared.appendInput(encoded);
+
+        try std.testing.expectError(case.expected, stream.next());
+    }
+}
+
+test "known stream ends require exact canonical envelopes" {
+    const cases = [_]struct {
+        fields: []const u8,
+        expected: anyerror,
+    }{
+        .{
+            .fields = "\"reason\":\"completed\",\"future\":true",
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"cursor\":null",
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"recovery\":null",
+            .expected = error.ExpectedString,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":false}",
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+        .{
+            .fields = "\"reason\":\"error\"",
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+        .{
+            .fields = "\"reason\":\"error\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":false," ++
+                "\"future\":true}",
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .fields = "\"reason\":\"error\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":\"no\"}",
+            .expected = error.ExpectedBool,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+        var initial = (try stream.next()) orelse
+            return error.MissingInitialStreamItem;
+        initial.deinit();
+        const encoded = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "\"stream_end\",\"stream_id\":\"{s}\",{s}}}",
+            .{ stream.raw_stream.stream_id.slice(), case.fields },
+        );
+        defer std.testing.allocator.free(encoded);
+        try stream_shared.appendInput(encoded);
+
+        try std.testing.expectError(case.expected, stream.next());
+    }
+}
+
+test "known stream end accepts an exact embedded error" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    const encoded = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "\"stream_end\",\"stream_id\":\"{s}\"," ++
+            "\"reason\":\"error\",\"cursor\":{{\"generation\":" ++
+            "\"g\",\"revision\":\"4\"}},\"recovery\":" ++
+            "\"open a fresh stream\",\"error\":{{\"code\":" ++
+            "\"stream.failed\",\"message\":\"bad\"," ++
+            "\"details\":{{}},\"retryable\":true}}}}",
+        .{stream.raw_stream.stream_id.slice()},
+    );
+    defer std.testing.allocator.free(encoded);
+    try stream_shared.appendInput(encoded);
+
+    try std.testing.expect((try stream.next()) == null);
+    const end = stream.end() orelse return error.MissingStreamEnd;
+    try std.testing.expectEqual(StreamEndReason.@"error", end.reason);
+    try std.testing.expectEqualStrings(
+        "stream.failed",
+        end.resource_error.?.code,
+    );
+    try std.testing.expectEqualStrings(
+        "open a fresh stream",
+        end.recovery.?,
+    );
+}
+
+test "valid stream open rejection closes without cancellation" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .remote_error,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.RemoteError,
+        client.session(session_id).events(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
 }
 
 test "acknowledged public stream survives beyond request timeout" {
@@ -15326,6 +16520,495 @@ test "typed session stream preserves unknown payload and cancel end order" {
         try objectString(cancel_params, "stream"),
     );
     try std.testing.expect(cancel_params.get("stream_id") == null);
+    const repeated_end = try stream.cancel();
+    try std.testing.expectEqual(
+        StreamEndReason.canceled,
+        repeated_end.reason,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+    try std.testing.expect(stream_shared.closed);
+}
+
+test "cancel failures preserve their error fail closed and never resend" {
+    const cases = [_]struct {
+        response: FakeCancelResponse,
+        expected: anyerror,
+    }{
+        .{
+            .response = .non_empty,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{
+            .response = .rejected,
+            .expected = error.RemoteError,
+        },
+        .{
+            .response = .extra_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .success_with_error,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .failure_with_result,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .malformed_error,
+            .expected = error.UnexpectedField,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_response = case.response,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(case.expected, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        if (case.response == .rejected) {
+            try std.testing.expectEqualStrings(
+                "stream.cancel_rejected",
+                stream.raw_stream.client.lastResourceError().?.code,
+            );
+        }
+        try std.testing.expectError(
+            case.expected,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel rejects malformed terminal ends fail closed and never resend" {
+    const cases = [_]struct {
+        end: FakeCancelEnd,
+        expected: anyerror,
+    }{
+        .{
+            .end = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{
+            .end = .missing_reason,
+            .expected = error.MissingField,
+        },
+        .{
+            .end = .wrong_stream_id,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .end = .wrong_reason,
+            .expected = error.UnexpectedStreamEndReason,
+        },
+        .{
+            .end = .unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .end = .null_cursor,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .end = .malformed_cursor,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .end = .null_recovery,
+            .expected = error.ExpectedString,
+        },
+        .{
+            .end = .unexpected_error,
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_end = case.end,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(case.expected, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        try std.testing.expectError(
+            case.expected,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel missing terminal end expires once and fails closed" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .cancel_end = .missing,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 20,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    try std.testing.expectError(error.Timeout, stream.cancel());
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expect(stream_shared.cancel_read_calls >= 2);
+    try std.testing.expectError(error.Timeout, stream.cancel());
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+}
+
+test "cancel has one total deadline across stale and fragmented reads" {
+    for ([_]FakeCancelDelivery{ .stale_items, .fragmented }) |delivery| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_delivery = delivery,
+            .cancel_read_delay_ms = 12,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .timeout_ms = 40,
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(error.Timeout, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expect(stream_shared.cancel_read_calls >= 2);
+        const first_timeout = stream_shared.cancel_first_read_timeout_ms orelse
+            return error.MissingFirstCancelReadTimeout;
+        const last_timeout = stream_shared.cancel_last_read_timeout_ms orelse
+            return error.MissingLastCancelReadTimeout;
+        try std.testing.expect(first_timeout > last_timeout);
+        try std.testing.expect(
+            stream_shared.read_cursor < stream_shared.input.items.len,
+        );
+        try std.testing.expectError(
+            error.Timeout,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel rejects valid and malformed known items after end before response" {
+    for ([_]FakeCancelDelivery{
+        .valid_known_item_after_end,
+        .malformed_known_item,
+    }) |delivery| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_delivery = delivery,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{ .shared = &stream_shared };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(
+            error.UnexpectedStreamEnvelope,
+            stream.cancel(),
+        );
+        const received_end = stream.end() orelse
+            return error.MissingCanceledEndBeforePostEndItem;
+        try std.testing.expectEqual(
+            StreamEndReason.canceled,
+            received_end.reason,
+        );
+        try std.testing.expect(stream.raw_stream.cleanup_started);
+        try std.testing.expect(!stream.raw_stream.cleanup_finished);
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        try std.testing.expectError(
+            error.UnexpectedStreamEnvelope,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel preserves unknown stale typed items" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    const end = try stream.cancel();
+    try std.testing.expectEqual(StreamEndReason.canceled, end.reason);
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+}
+
+test "cancel framing failure closes once and preserves the send error" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .fail_write_call = 4,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    try std.testing.expectError(
+        error.InjectedWriteFailure,
+        stream.cancel(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+    const bytes_after_failure = stream_shared.output.items.len;
+    try std.testing.expectError(
+        error.InjectedWriteFailure,
+        stream.cancel(),
+    );
+    try std.testing.expectEqual(
+        bytes_after_failure,
+        stream_shared.output.items.len,
+    );
 }
 
 test "auxiliary resource facades are typed and fully routed" {
@@ -15524,6 +17207,8 @@ test "stream count overflow is local and cancel observes the gap" {
     );
     try std.testing.expect(stream_shared.closed);
     try std.testing.expect(!control_shared.closed);
+    try std.testing.expect(stream.raw_stream.cleanup_started);
+    try std.testing.expect(stream.raw_stream.cleanup_finished);
     const end = stream.end().?;
     try std.testing.expectEqual(StreamEndReason.gap, end.reason);
     try std.testing.expectEqual(
@@ -15542,6 +17227,72 @@ test "stream count overflow is local and cancel observes the gap" {
             stream_shared.output.items,
             "\"operation\":\"stream.cancel\"",
         ) == null,
+    );
+}
+
+test "overflow protocol failure closes once without later cancellation" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    const malformed_json = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "\"stream_item\",\"stream_id\":\"{s}\"," ++
+            "\"sequence\":\"2\",\"cursor\":{{\"generation\":\"g\"," ++
+            "\"revision\":2}},\"item\":{{}}}}",
+        .{stream.raw_stream.stream_id.slice()},
+    );
+    defer std.testing.allocator.free(malformed_json);
+    var malformed = try raw.wire.parse(
+        std.testing.allocator,
+        malformed_json,
+        .{},
+    );
+    defer malformed.deinit();
+
+    try std.testing.expectError(
+        error.ExpectedDecimalString,
+        stream.raw_stream.storeLocalOverflow(malformed.value),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expect(stream.raw_stream.cleanup_started);
+    try std.testing.expect(!stream.raw_stream.cleanup_finished);
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        stream.cancel(),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
     );
 }
 

@@ -918,6 +918,7 @@ pub(crate) struct TerminalStreamProgress {
 #[derive(Default)]
 struct TerminalStreamProgressState {
     revision: u64,
+    waiters: usize,
     clear_history_wait: Option<ClearHistoryWaitState>,
 }
 
@@ -1003,16 +1004,40 @@ impl TerminalStreamProgress {
     }
 
     pub(crate) fn wait_for_change(&self, observed: u64, deadline: Instant) -> Option<u64> {
+        self.wait_for_change_until(observed, Some(deadline))
+    }
+
+    fn wait_for_change_until(&self, observed: u64, deadline: Option<Instant>) -> Option<u64> {
         let mut state = self.state.lock().unwrap();
+        if state.revision != observed {
+            return Some(state.revision);
+        }
+        state.waiters += 1;
         while state.revision == observed {
-            let remaining = deadline.checked_duration_since(Instant::now())?;
-            let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
-            if timeout.timed_out() && state.revision == observed {
-                return None;
+            match deadline {
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        state.waiters -= 1;
+                        return None;
+                    };
+                    let (next, timeout) = self.changed.wait_timeout(state, remaining).unwrap();
+                    state = next;
+                    if timeout.timed_out() && state.revision == observed {
+                        state.waiters -= 1;
+                        return None;
+                    }
+                }
+                None => state = self.changed.wait(state).unwrap(),
             }
         }
-        Some(state.revision)
+        let revision = state.revision;
+        state.waiters -= 1;
+        Some(revision)
+    }
+
+    #[cfg(test)]
+    fn waiter_count(&self) -> usize {
+        self.state.lock().unwrap().waiters
     }
 }
 
@@ -1597,6 +1622,7 @@ impl Surface {
                                     }
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 };
+                                pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
@@ -1674,6 +1700,7 @@ impl Surface {
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 };
+                                pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit(MuxEvent::TitleChanged {
@@ -1897,6 +1924,7 @@ impl Surface {
                             });
                             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                         };
+                        pty.stream_progress.notify();
                         pty.request_frame(generation);
                         reader = replacement_reader;
                         control_responses = replacement_control_responses;
@@ -2260,8 +2288,32 @@ impl Surface {
         Some(result)
     }
 
+    /// Return the coalesced revision advanced after terminal output or another
+    /// viewport-text transition is applied. Callers can snapshot terminal
+    /// state after reading this value, then wait on the same revision without
+    /// losing an intervening update.
+    pub(crate) fn terminal_stream_revision(&self) -> ghostty_vt::Result<u64> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        Ok(pty.stream_progress.revision())
+    }
+
+    /// Wait until PTY output advances beyond `observed`, or until `deadline`.
+    /// Unlike an attach stream, this wakeup is coalesced and cannot overflow.
+    pub(crate) fn wait_for_terminal_stream_change(
+        &self,
+        observed: u64,
+        deadline: Option<Instant>,
+    ) -> ghostty_vt::Result<Option<u64>> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        Ok(pty.stream_progress.wait_for_change_until(observed, deadline))
+    }
+
     #[cfg(test)]
-    fn apply_stream_output_for_test(&self, bytes: &[u8]) -> Option<()> {
+    pub(crate) fn apply_stream_output_for_test(&self, bytes: &[u8]) -> Option<()> {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
@@ -2269,6 +2321,11 @@ impl Surface {
         drop(term);
         pty.stream_progress.notify();
         Some(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_stream_waiter_count_for_test(&self) -> Option<usize> {
+        Some(self.as_pty()?.stream_progress.waiter_count())
     }
 
     pub fn encode_mouse(
@@ -2638,6 +2695,7 @@ impl Surface {
                 ClearHistoryTransition::Cleared(clear) => {
                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                     pty.broadcast_attach_output(&clear);
+                    pty.stream_progress.notify();
                     let after = terminal_scroll_position(&term);
                     if before != after {
                         broadcast_render_scroll_locked(pty, after);
@@ -3675,6 +3733,7 @@ impl PtySurface {
         self.attach_colors_force_pending.store(false, Ordering::Release);
         *self.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
         self.broadcast_attach_frame(AttachFrame::ResizedWithColors { cols, rows, replay, colors });
+        self.stream_progress.notify();
         true
     }
 }

@@ -236,6 +236,12 @@ test("WebSocket resource streams outlive their acknowledged open deadline", asyn
     ok: true,
     result: {},
   }));
+  socket.message(JSON.stringify({
+    protocol: "cmux.protocol/1",
+    type: "stream_end",
+    stream_id: streamId,
+    reason: "canceled",
+  }));
   await canceling;
   client.close();
 });

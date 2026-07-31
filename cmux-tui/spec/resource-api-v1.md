@@ -207,8 +207,34 @@ snapshot. `stream.cancel` is connection-local and idempotent. It purges queued
 items, cleans up taps and sizing leases exactly once, queues one
 `stream_end(canceled)`, then returns its response. No item may follow an end.
 
-A request deadline covers connection, dispatch, and the stream-open
-acknowledgement only. After acknowledgement, ordinary stream idleness has no
+An SDK accepts a stream open only after validating its successful response and
+matching `stream_id`. If dispatch of a complete request was confirmed but no
+valid acknowledgement was accepted, the SDK must release the provisional
+route within a fresh bounded lifetime. A shared transport does so by sending
+`stream.cancel`, validating its response, and forbidding connection reuse
+until confirmation. A stream that owns a dedicated transport may instead
+explicitly close that transport within the same bounded lifetime. Cleanup
+failure closes the owning transport. The original open error remains the
+caller-visible error.
+
+A valid `ok: false` structured error conclusively rejects the open, so the SDK
+removes its provisional route without cancellation and may reuse a
+framing-safe transport. An open that was not dispatched sends no cancellation.
+If an outgoing frame may be partial or framing is otherwise uncertain, the SDK
+must append no cancellation and must close the transport. Failed-open cleanup,
+explicit cancellation, and overflow cleanup share one per-stream claim so at
+most one cancellation request is sent.
+
+Explicit cancellation succeeds only after both the exact empty
+`stream.cancel` response and the matching canonical
+`stream_end(canceled)` arrive within one absolute deadline. They may arrive in
+either order. Earlier queued items do not extend the deadline. A missing,
+malformed, or differently terminated end fails cancellation and closes the
+owning transport.
+
+A request deadline is one absolute deadline covering connection, writer
+admission, complete dispatch, and response, including a stream-open
+acknowledgement. After acknowledgement, ordinary stream idleness has no
 implicit deadline. A caller may use a bounded poll without closing the stream;
 only cancellation, a `stream_end`, transport failure, or an explicit
 application-owned lifetime ends it.
@@ -225,6 +251,15 @@ Stream items use decimal strings for sequences and cursors:
   "item": {"event": "terminal.output", "data": {}}
 }
 ```
+
+Response, `stream_item`, and `stream_end` envelopes use exact field sets.
+Responses require `protocol`, `type`, `id`, and `ok`, plus exactly one of
+`result` or the exact structured `error` according to `ok`. Stream items
+require `protocol`, `type`, `stream_id`, canonical decimal `sequence`, and an
+object `item`; optional `cursor` is non-null and strict when present. Stream
+ends require `protocol`, `type`, `stream_id`, and `reason`; optional `cursor`,
+`recovery`, and `error` are non-null and strict when present, and `error` is
+present exactly when reason is `error`.
 
 `session.events` accepts an optional generation plus last-applied revision
 cursor. With no cursor, it sends one snapshot then live batches. With a

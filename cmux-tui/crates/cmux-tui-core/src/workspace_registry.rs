@@ -634,6 +634,11 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Read the resource cursor without materializing the workspace graph.
+    pub(crate) fn resource_revision(&self) -> anyhow::Result<u64> {
+        current_resource_revision(&self.connection)
+    }
+
     /// Internal workspaces staged by an interrupted correlated creation.
     ///
     /// These rows are intentionally absent from the public resource tables

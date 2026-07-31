@@ -42,6 +42,7 @@ MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
 MAX_STREAM_BYTES = 16 * 1024 * 1024
+STREAM_CLEANUP_TIMEOUT = 1.0
 ItemT = TypeVar("ItemT")
 
 
@@ -91,6 +92,7 @@ def _validate_idempotency_key(value: object) -> str:
 
 
 _END = object()
+_REQUEST_NOT_DISPATCHED = object()
 
 
 class _CancellationSignal(Protocol):
@@ -119,6 +121,7 @@ class _Pending:
     event: threading.Event
     value: Optional[Mapping[str, Any]] = None
     error: Optional[BaseException] = None
+    on_resource_error: Optional[Callable[[], None]] = None
 
 
 @dataclass(frozen=True)
@@ -143,24 +146,145 @@ class _StreamState(Generic[ItemT]):
         self.lock = threading.Lock()
         self.queued_messages = 0
         self.queued_bytes = 0
+        self.open_dispatched = False
+        self.open_acknowledged = False
+        self.open_rejected = False
+        self.open_send_failed = False
+        self.open_send_error: Optional[BaseException] = None
+        self.cleanup_started = False
+        self.cancel_dispatch_started = False
+        self.explicit_cancel_started = False
+        self.explicit_cancel_deadline: Optional[float] = None
+        self.explicit_cancel_failure: Optional[BaseException] = None
+        self.explicit_cancel_done = threading.Event()
+        self.end_event = threading.Event()
 
-    def push(self, envelope: Mapping[str, Any]) -> bool:
+    def mark_open_dispatched(self) -> None:
+        with self.lock:
+            self.open_dispatched = True
+
+    def mark_open_acknowledged(self) -> None:
+        with self.lock:
+            self.open_acknowledged = True
+
+    def mark_open_rejected(self) -> None:
+        with self.lock:
+            self.open_rejected = True
+
+    def mark_open_send_failed(self, error: BaseException) -> None:
+        with self.lock:
+            self.open_send_failed = True
+            self.open_send_error = error
+
+    def begin_failed_open_cleanup(self) -> bool:
+        with self.lock:
+            if (
+                not self.open_dispatched
+                or self.open_acknowledged
+                or self.open_rejected
+                or self.cleanup_started
+            ):
+                return False
+            self.cleanup_started = True
+            return True
+
+    def begin_stream_cleanup(self) -> bool:
+        with self.lock:
+            if not self.open_dispatched or self.cleanup_started:
+                return False
+            self.cleanup_started = True
+            return True
+
+    def begin_cancel_dispatch(self, *, failed_open: bool) -> bool:
+        with self.lock:
+            if self.cancel_dispatch_started or not self.open_dispatched:
+                return False
+            if failed_open and (
+                self.open_acknowledged
+                or self.open_rejected
+                or self.open_send_failed
+            ):
+                return False
+            self.cancel_dispatch_started = True
+            return True
+
+    def begin_explicit_cancel(
+        self,
+        deadline: float,
+    ) -> tuple[str, Optional[BaseException], float]:
+        with self.lock:
+            if self.explicit_cancel_failure is not None:
+                return "failed", self.explicit_cancel_failure, deadline
+            if self.explicit_cancel_done.is_set():
+                return "completed", None, deadline
+            if self.explicit_cancel_started:
+                assert self.explicit_cancel_deadline is not None
+                return "waiting", None, self.explicit_cancel_deadline
+            if self.end is not None:
+                return "completed", None, deadline
+            if self.cleanup_started:
+                return "waiting", None, deadline
+            self.cleanup_started = True
+            self.explicit_cancel_started = True
+            self.explicit_cancel_deadline = deadline
+            while True:
+                try:
+                    self.values.get_nowait()
+                except queue.Empty:
+                    break
+            self.queued_messages = 0
+            self.queued_bytes = 0
+            return "started", None, deadline
+
+    def claim_explicit_cancel_failure(
+        self,
+        error: BaseException,
+    ) -> tuple[BaseException, bool]:
+        with self.lock:
+            if self.explicit_cancel_failure is None:
+                self.explicit_cancel_failure = error
+                return error, True
+            return self.explicit_cancel_failure, False
+
+    def complete_explicit_cancel(self) -> None:
+        with self.lock:
+            self.explicit_cancel_done.set()
+
+    def explicit_cancel_outcome(self) -> Optional[BaseException]:
+        with self.lock:
+            return self.explicit_cancel_failure
+
+    def explicit_cancel_in_progress(self) -> bool:
+        with self.lock:
+            return (
+                self.explicit_cancel_started
+                and not self.explicit_cancel_done.is_set()
+            )
+
+    def push(
+        self,
+        envelope: Mapping[str, Any],
+        sequence: str,
+        cursor: Optional[Cursor],
+        payload: Any,
+    ) -> bool:
         """Queues one item without blocking. Returns false after local overflow."""
         try:
-            sequence = _decimal(envelope["sequence"], "sequence")
-            cursor = _decode_cursor(envelope.get("cursor"))
             item = StreamItem(
                 self.stream_id,
                 sequence,
-                self.decode_item(envelope.get("item")),
+                self.decode_item(payload),
                 cursor,
             )
-        except (KeyError, TypeError, ValueError) as error:
+        except (KeyError, TypeError, ValueError, ProtocolError) as error:
+            failure = ProtocolError(f"invalid stream item: {error}")
+            if self.explicit_cancel_in_progress():
+                raise failure
             self.finish(
                 StreamEnd(
                     self.stream_id,
                     "error",
-                    error=ProtocolError(f"invalid stream item: {error}"),
+                    error=failure,
                 )
             )
             return True
@@ -174,6 +298,13 @@ class _StreamState(Generic[ItemT]):
         )
         with self.lock:
             if self.end is not None:
+                if (
+                    self.explicit_cancel_started
+                    and not self.explicit_cancel_done.is_set()
+                ):
+                    raise ProtocolError("stream item arrived after stream end")
+                return True
+            if self.explicit_cancel_started:
                 return True
             if (
                 self.queued_messages >= MAX_STREAM_MESSAGES
@@ -224,6 +355,7 @@ class _StreamState(Generic[ItemT]):
             self.queued_bytes = 0
         self.end = end
         self.values.put_nowait(_END)
+        self.end_event.set()
 
 
 class ProtocolConnection:
@@ -243,6 +375,7 @@ class ProtocolConnection:
         self._lock = threading.Lock()
         self._pending: Dict[str, _Pending] = {}
         self._streams: Dict[StreamId, _StreamState[Any]] = {}
+        self._failed_open_cleanups: Dict[StreamId, _StreamState[Any]] = {}
         self._closed = False
         self._failure: Optional[BaseException] = None
         self._reader = threading.Thread(
@@ -265,6 +398,11 @@ class ProtocolConnection:
         idempotency_key: Optional[str] = None,
         timeout: Optional[float] = None,
         cancel_event: Optional[_CancellationSignal] = None,
+        _on_dispatched: Optional[Callable[[], None]] = None,
+        _on_send_error: Optional[Callable[[BaseException], None]] = None,
+        _on_resource_error: Optional[Callable[[], None]] = None,
+        _bounded_dispatch: bool = False,
+        _dispatch_guard: Optional[Callable[[], bool]] = None,
     ) -> Any:
         if cancel_event is not None and cancel_event.is_set():
             raise CancelledError(operation, dispatched=False)
@@ -298,17 +436,40 @@ class ProtocolConnection:
             raise ProtocolError(
                 f"request exceeds {MAX_REQUEST_BYTES}-byte resource-protocol limit"
             )
-        pending = _Pending(threading.Event())
+        pending = _Pending(
+            threading.Event(),
+            on_resource_error=_on_resource_error,
+        )
         with self._lock:
             if self._closed:
                 raise self._closed_error()
             self._pending[request_id] = pending
         deadline = time.monotonic() + wait_for
         try:
-            self._wire.send(envelope)
-        except BaseException:
+            if _bounded_dispatch:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"{operation} did not dispatch before the deadline"
+                    )
+                if _dispatch_guard is None:
+                    self._wire.send_bounded(envelope, remaining)
+                elif not self._wire.send_bounded_if(
+                    envelope,
+                    remaining,
+                    _dispatch_guard,
+                ):
+                    with self._lock:
+                        self._pending.pop(request_id, None)
+                    return _REQUEST_NOT_DISPATCHED
+            else:
+                self._wire.send(envelope, on_sent=_on_dispatched)
+        except BaseException as error:
             with self._lock:
                 self._pending.pop(request_id, None)
+            if _on_send_error is not None:
+                _on_send_error(error)
+            self._fail(error, attempt_cleanup=False)
             raise
         while not pending.event.is_set():
             if cancel_event is not None and cancel_event.is_set():
@@ -359,39 +520,140 @@ class ProtocolConnection:
         stream_params = dict(params)
         stream_params["stream_id"] = str(stream_id)
         try:
-            self.request(
+            opened = self.request(
                 operation,
                 stream_params,
                 timeout=timeout,
                 cancel_event=cancel_event,
+                _on_dispatched=state.mark_open_dispatched,
+                _on_send_error=state.mark_open_send_failed,
+                _on_resource_error=state.mark_open_rejected,
             )
-        except BaseException:
+            if state.open_send_failed:
+                assert state.open_send_error is not None
+                raise state.open_send_error
+            _validate_stream_open_result(operation, stream_id, opened)
             with self._lock:
-                self._streams.pop(stream_id, None)
+                if self._closed:
+                    raise self._closed_error()
+                state.mark_open_acknowledged()
+        except BaseException as error:
+            if state.open_send_failed:
+                with self._lock:
+                    self._streams.pop(stream_id, None)
+            elif not state.open_rejected:
+                self._cleanup_failed_stream_open(state, operation)
+            else:
+                with self._lock:
+                    self._streams.pop(stream_id, None)
             raise
         return ResourceStream(self, state)
 
-    def cancel_stream(self, stream_id: StreamId) -> None:
-        with self._lock:
-            state = self._streams.get(stream_id)
-            if state is None:
-                return
-        state.finish(
-            StreamEnd(stream_id, "canceled"),
-            purge=True,
+    def cancel_stream(self, state: _StreamState[Any]) -> None:
+        cleanup_timeout = min(
+            max(self.timeout, 0.1),
+            STREAM_CLEANUP_TIMEOUT,
         )
-        self.forget_stream(stream_id)
+        action, cached_error, deadline = state.begin_explicit_cancel(
+            time.monotonic() + cleanup_timeout
+        )
+        if action == "failed":
+            assert cached_error is not None
+            raise cached_error
+        if action == "completed":
+            return
+        if action == "waiting":
+            try:
+                remaining = self._remaining_cancel_time(deadline)
+            except TimeoutError:
+                remaining = 0
+            if not state.explicit_cancel_done.wait(remaining):
+                error = TimeoutError(
+                    "stream cancellation did not finish before the deadline"
+                )
+                raise self._finalize_explicit_cancel_failure(
+                    state,
+                    error,
+                    deadline,
+                )
+            cached_error = state.explicit_cancel_outcome()
+            if cached_error is not None:
+                raise cached_error
+            return
+
         try:
-            self.request(
-                Operations.STREAM_CANCEL.wire_name,
-                {
-                    **state.cancel_route,
-                    "stream": str(stream_id),
-                },
-                timeout=min(max(self.timeout, 0.1), 1.0),
+            self._request_stream_cancel(
+                state,
+                failed_open=False,
+                timeout=self._remaining_cancel_time(deadline),
             )
-        except (CmuxConnectionError, TimeoutError):
-            pass
+            remaining = self._remaining_cancel_time(deadline)
+            if not state.end_event.wait(remaining):
+                raise TimeoutError(
+                    "stream cancellation did not finish before the deadline"
+                )
+            end = state.end
+            if end is None:
+                raise ProtocolError("stream cancellation omitted stream end")
+            if end.reason != "canceled":
+                raise ProtocolError(
+                    "stream cancellation requires a canceled stream end"
+                )
+        except BaseException as error:
+            raise self._finalize_explicit_cancel_failure(
+                state,
+                error,
+                deadline,
+            )
+        self.forget_stream(state.stream_id)
+        state.complete_explicit_cancel()
+
+    def _finalize_explicit_cancel_failure(
+        self,
+        state: _StreamState[Any],
+        error: BaseException,
+        deadline: float,
+    ) -> BaseException:
+        failure, owns_finalization = state.claim_explicit_cancel_failure(error)
+        if owns_finalization:
+            try:
+                self.forget_stream(state.stream_id)
+                if not self.closed:
+                    self._fail(
+                        CmuxConnectionError(
+                            "stream cancellation was not confirmed; connection "
+                            f"closed to release remote stream state: {failure}"
+                        )
+                    )
+                elif threading.current_thread() is not self._reader:
+                    self._reader.join(
+                        timeout=max(0.0, deadline - time.monotonic())
+                    )
+            finally:
+                state.complete_explicit_cancel()
+            return failure
+
+        finalization_wait = max(0.0, deadline - time.monotonic()) + 0.1
+        if not state.explicit_cancel_done.wait(finalization_wait):
+            self.forget_stream(state.stream_id)
+            if not self.closed:
+                self._fail(
+                    CmuxConnectionError(
+                        "stream cancellation was not confirmed; connection "
+                        f"closed to release remote stream state: {failure}"
+                    )
+                )
+            state.complete_explicit_cancel()
+        return failure
+
+    @staticmethod
+    def _remaining_cancel_time(deadline: float) -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "stream cancellation did not finish before the deadline"
+            )
+        return remaining
 
     def forget_stream(self, stream_id: StreamId) -> None:
         with self._lock:
@@ -406,8 +668,11 @@ class ProtocolConnection:
             self._failure = error
             pending = tuple(self._pending.values())
             self._pending.clear()
-            streams = tuple(self._streams.values())
+            streams = tuple(self._streams.values()) + tuple(
+                self._failed_open_cleanups.values()
+            )
             self._streams.clear()
+            self._failed_open_cleanups.clear()
         for item in pending:
             item.error = error
             item.event.set()
@@ -430,13 +695,22 @@ class ProtocolConnection:
             raise ProtocolError("server frame has the wrong protocol")
         envelope_type = envelope.get("type")
         if envelope_type == "response":
-            request_id = envelope.get("id")
-            if not isinstance(request_id, str):
-                raise ProtocolError("response id must be a string")
+            response_error: Optional[ResourceError] = None
+            try:
+                _decode_response(envelope)
+            except ResourceError as error:
+                response_error = error
+            request_id = envelope["id"]
+            assert isinstance(request_id, str)
             with self._lock:
                 pending = self._pending.pop(request_id, None)
             if pending is not None:
-                pending.value = envelope
+                if response_error is not None:
+                    if pending.on_resource_error is not None:
+                        pending.on_resource_error()
+                    pending.error = response_error
+                else:
+                    pending.value = envelope
                 pending.event.set()
             return
         if envelope_type in {"stream_item", "stream_end"}:
@@ -445,27 +719,53 @@ class ProtocolConnection:
                 stream_id = StreamId(raw_stream_id)
             except (TypeError, ValueError) as error:
                 raise ProtocolError(f"invalid stream_id: {error}") from error
+            decoded_item: Optional[tuple[str, Optional[Cursor], Any]] = None
+            decoded_end: Optional[StreamEnd] = None
+            if envelope_type == "stream_item":
+                decoded_item = _decode_stream_item_envelope(
+                    stream_id,
+                    envelope,
+                )
+            else:
+                decoded_end = _decode_stream_end(stream_id, envelope)
             with self._lock:
                 stream = self._streams.get(stream_id)
+                canceling = tuple(
+                    state
+                    for state in self._streams.values()
+                    if state.explicit_cancel_in_progress()
+                )
             if stream is None:
+                if envelope_type == "stream_end" and canceling:
+                    raise ProtocolError(
+                        "stream end ID does not match the canceling stream"
+                    )
                 return
             if envelope_type == "stream_item":
-                if not stream.push(envelope):
+                assert decoded_item is not None
+                if not stream.push(envelope, *decoded_item):
                     self.forget_stream(stream_id)
                     threading.Thread(
-                        target=self._cancel_stream_best_effort,
-                        args=(stream_id, stream.cancel_route),
+                        target=self._cancel_stream_confirmed,
+                        args=(stream,),
                         name=f"cmux-stream-cancel-{secrets.token_hex(4)}",
                         daemon=True,
                     ).start()
                 return
-            end = _decode_stream_end(stream_id, envelope)
-            stream.finish(end)
-            self.forget_stream(stream_id)
+            assert decoded_end is not None
+            keep_cancel_route = stream.explicit_cancel_in_progress()
+            stream.finish(decoded_end)
+            if not keep_cancel_route:
+                self.forget_stream(stream_id)
             return
         raise ProtocolError(f"unknown resource envelope type {envelope_type!r}")
 
-    def _fail(self, error: BaseException) -> None:
+    def _fail(
+        self,
+        error: BaseException,
+        *,
+        attempt_cleanup: bool = True,
+    ) -> None:
         if not isinstance(
             error,
             (CmuxConnectionError, ProtocolError, TimeoutError),
@@ -478,31 +778,160 @@ class ProtocolConnection:
             self._failure = error
             pending = tuple(self._pending.values())
             self._pending.clear()
-            streams = tuple(self._streams.values())
+            streams = tuple(self._streams.values()) + tuple(
+                self._failed_open_cleanups.values()
+            )
             self._streams.clear()
+            self._failed_open_cleanups.clear()
         for item in pending:
             item.error = error
             item.event.set()
+        if attempt_cleanup:
+            cleanup_deadline = time.monotonic() + STREAM_CLEANUP_TIMEOUT
+            for stream in streams:
+                remaining = cleanup_deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._cancel_stream_best_effort(
+                    stream,
+                    failed_open=True,
+                    timeout=remaining,
+                )
         for stream in streams:
             stream.finish(StreamEnd(stream.stream_id, "error", error=error))
         self._wire.close()
+        if threading.current_thread() is not self._reader:
+            self._reader.join(timeout=max(self.timeout, 0.1) + 0.5)
 
     def _closed_error(self) -> BaseException:
         return self._failure or CmuxConnectionError("resource connection is closed")
 
+    def _cleanup_failed_stream_open(
+        self,
+        state: _StreamState[Any],
+        operation: str,
+    ) -> None:
+        # Move the route and claim cleanup atomically with connection failure.
+        # Late stream frames are ignored, while a concurrent _fail still sees
+        # the cleanup route and races for the same one-shot wire dispatch.
+        with self._lock:
+            if self._closed:
+                return
+            self._streams.pop(state.stream_id, None)
+            if not state.begin_failed_open_cleanup():
+                return
+            self._failed_open_cleanups[state.stream_id] = state
+        try:
+            self._request_stream_cancel(
+                state,
+                failed_open=True,
+                operation=operation,
+            )
+        except BaseException as cleanup_error:
+            if not self.closed:
+                self._fail(
+                    CmuxConnectionError(
+                        f"{operation} failed-open cleanup was not confirmed: "
+                        f"{cleanup_error}"
+                    )
+                )
+        finally:
+            with self._lock:
+                self._failed_open_cleanups.pop(state.stream_id, None)
+
+    def _cancel_stream_confirmed(
+        self,
+        state: _StreamState[Any],
+        *,
+        propagate: bool = False,
+    ) -> None:
+        if not state.begin_stream_cleanup():
+            return
+        try:
+            self._request_stream_cancel(state, failed_open=False)
+        except BaseException as cancel_error:
+            if not self.closed:
+                self._fail(
+                    CmuxConnectionError(
+                        "stream.cancel was not confirmed; connection closed "
+                        f"to release remote stream state: {cancel_error}"
+                    )
+                )
+            if propagate:
+                raise
+
+    def _request_stream_cancel(
+        self,
+        state: _StreamState[Any],
+        *,
+        failed_open: bool,
+        operation: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        def fail_cancel_send(error: BaseException) -> None:
+            if failed_open and operation is not None:
+                message = (
+                    f"{operation} failed-open cleanup was not confirmed: "
+                    f"{error}"
+                )
+            else:
+                message = (
+                    "stream.cancel was not confirmed; connection closed "
+                    f"to release remote stream state: {error}"
+                )
+            self._fail(
+                CmuxConnectionError(message),
+                attempt_cleanup=False,
+            )
+
+        result = self.request(
+            Operations.STREAM_CANCEL.wire_name,
+            {
+                **state.cancel_route,
+                "stream": str(state.stream_id),
+            },
+            timeout=(
+                min(max(self.timeout, 0.1), STREAM_CLEANUP_TIMEOUT)
+                if timeout is None
+                else timeout
+            ),
+            _on_send_error=fail_cancel_send,
+            _bounded_dispatch=True,
+            _dispatch_guard=lambda: state.begin_cancel_dispatch(
+                failed_open=failed_open
+            ),
+        )
+        if result is _REQUEST_NOT_DISPATCHED:
+            return False
+        if not isinstance(result, Mapping) or result:
+            raise ProtocolError(
+                "stream.cancel cleanup result must be an empty object"
+            )
+        return True
+
     def _cancel_stream_best_effort(
         self,
-        stream_id: StreamId,
-        cancel_route: Mapping[str, str],
+        state: _StreamState[Any],
+        *,
+        failed_open: bool = False,
+        timeout: float = STREAM_CLEANUP_TIMEOUT,
     ) -> None:
         try:
-            self.request(
-                Operations.STREAM_CANCEL.wire_name,
+            self._wire.send_bounded_if(
                 {
-                    **cancel_route,
-                    "stream": str(stream_id),
+                    "protocol": PROTOCOL,
+                    "type": "request",
+                    "id": f"request-{secrets.token_hex(16)}",
+                    "operation": Operations.STREAM_CANCEL.wire_name,
+                    "params": {
+                        **state.cancel_route,
+                        "stream": str(state.stream_id),
+                    },
                 },
-                timeout=min(max(self.timeout, 0.1), 1.0),
+                timeout,
+                lambda: state.begin_cancel_dispatch(
+                    failed_open=failed_open
+                ),
             )
         except BaseException:
             pass
@@ -567,9 +996,7 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
         return queued.value
 
     def cancel(self) -> None:
-        if self._state.end is not None:
-            return
-        self._connection.cancel_stream(self.id)
+        self._connection.cancel_stream(self._state)
 
     def close(self) -> None:
         self.cancel()
@@ -582,14 +1009,72 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
 
 
 def _decode_response(envelope: Mapping[str, Any]) -> Any:
-    if envelope.get("ok") is True and "result" in envelope and "error" not in envelope:
+    allowed = {"protocol", "type", "id", "ok", "result", "error"}
+    unknown = set(envelope) - allowed
+    if unknown:
+        field = min(unknown)
+        raise ProtocolError(
+            f"response contains unknown field {field!r}"
+        )
+    required = {"protocol", "type", "id", "ok"}
+    missing = required - set(envelope)
+    if missing:
+        field = min(missing)
+        raise ProtocolError(f"response omitted required field {field!r}")
+    if envelope["protocol"] != PROTOCOL:
+        raise ProtocolError("response has the wrong protocol")
+    if envelope["type"] != "response":
+        raise ProtocolError("response type must be 'response'")
+    request_id = envelope["id"]
+    if (
+        not isinstance(request_id, str)
+        or not 1 <= len(request_id) <= 128
+    ):
+        raise ProtocolError("response id must contain 1 to 128 characters")
+    if not isinstance(envelope["ok"], bool):
+        raise ProtocolError("response ok must be a boolean")
+    if envelope["ok"] is True and "result" in envelope and "error" not in envelope:
         return envelope["result"]
-    if envelope.get("ok") is False and "error" in envelope and "result" not in envelope:
+    if envelope["ok"] is False and "error" in envelope and "result" not in envelope:
         error = envelope["error"]
         if not isinstance(error, Mapping):
             raise ProtocolError("error response must contain an error object")
         raise _decode_resource_error(error)
     raise ProtocolError("response must contain exactly one result or error")
+
+
+def _validate_stream_open_result(
+    operation: str,
+    expected_stream_id: StreamId,
+    value: Any,
+) -> None:
+    if not isinstance(value, Mapping):
+        raise ProtocolError(f"{operation} stream-open result must be an object")
+    unknown = set(value) - {"stream_id", "cursor"}
+    if unknown:
+        field = min(unknown)
+        raise ProtocolError(
+            f"{operation} stream-open result contains unknown field {field!r}"
+        )
+    if "stream_id" not in value:
+        raise ProtocolError(f"{operation} stream-open result omitted stream_id")
+    try:
+        returned_stream_id = StreamId(value["stream_id"])
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(
+            f"{operation} stream-open result has invalid stream_id: {error}"
+        ) from error
+    if returned_stream_id != expected_stream_id:
+        raise ProtocolError(f"{operation} returned a different stream_id")
+    if "cursor" in value:
+        if value["cursor"] is None:
+            raise ProtocolError(f"{operation} returned a null stream cursor")
+        try:
+            _decode_cursor(value["cursor"])
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(
+                f"{operation} returned an invalid stream cursor: {error}"
+            ) from error
 
 
 def _decode_cursor(value: Any) -> Optional[Cursor]:
@@ -610,6 +1095,11 @@ def _decode_cursor(value: Any) -> Optional[Cursor]:
 
 
 def _decode_resource_error(error: Mapping[str, Any]) -> ResourceError:
+    if set(error) != {"code", "message", "details", "retryable"}:
+        raise ProtocolError(
+            "error response must contain exactly code, message, details, "
+            "and retryable"
+        )
     code = error.get("code")
     message = error.get("message")
     retryable = error.get("retryable")
@@ -677,25 +1167,122 @@ def _decode_stream_end(
     stream_id: StreamId,
     envelope: Mapping[str, Any],
 ) -> StreamEnd:
-    reason = envelope.get("reason")
+    allowed = {
+        "protocol",
+        "type",
+        "stream_id",
+        "reason",
+        "cursor",
+        "error",
+        "recovery",
+    }
+    unknown = set(envelope) - allowed
+    if unknown:
+        field = min(unknown)
+        raise ProtocolError(
+            f"stream end contains unknown field {field!r}"
+        )
+    required = {"protocol", "type", "stream_id", "reason"}
+    missing = required - set(envelope)
+    if missing:
+        field = min(missing)
+        raise ProtocolError(
+            f"stream end omitted required field {field!r}"
+        )
+    if envelope["protocol"] != PROTOCOL:
+        raise ProtocolError("stream end has the wrong protocol")
+    if envelope["type"] != "stream_end":
+        raise ProtocolError("stream end type must be 'stream_end'")
+    try:
+        actual_stream_id = StreamId(envelope["stream_id"])
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"stream end has invalid stream_id: {error}") from error
+    if actual_stream_id != stream_id:
+        raise ProtocolError("stream end ID does not match its route")
+    reason = envelope["reason"]
     if reason not in {"completed", "canceled", "closed", "gap", "error"}:
         raise ProtocolError("stream end has invalid reason")
+    cursor: Optional[Cursor] = None
+    if "cursor" in envelope:
+        if envelope["cursor"] is None:
+            raise ProtocolError("stream end cursor must not be null")
+        try:
+            cursor = _decode_cursor(envelope["cursor"])
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(f"stream end has invalid cursor: {error}") from error
     error_value = envelope.get("error")
     error: Optional[BaseException] = None
-    if error_value is not None:
+    if "error" in envelope:
         if not isinstance(error_value, Mapping):
             raise ProtocolError("stream error must be an object")
         error = _decode_resource_error(error_value)
-    recovery = envelope.get("recovery")
-    if recovery is not None and not isinstance(recovery, str):
-        raise ProtocolError("stream recovery must be a string")
+    if (reason == "error") != ("error" in envelope):
+        raise ProtocolError(
+            "stream error is required exactly when reason is error"
+        )
+    recovery: Optional[str] = None
+    if "recovery" in envelope:
+        recovery_value = envelope["recovery"]
+        if not isinstance(recovery_value, str):
+            raise ProtocolError("stream recovery must be a string")
+        recovery = recovery_value
     return StreamEnd(
         stream_id,
         reason,
-        _decode_cursor(envelope.get("cursor")),
+        cursor,
         error,
         recovery,
     )
+
+
+def _decode_stream_item_envelope(
+    stream_id: StreamId,
+    envelope: Mapping[str, Any],
+) -> tuple[str, Optional[Cursor], Any]:
+    allowed = {
+        "protocol",
+        "type",
+        "stream_id",
+        "sequence",
+        "cursor",
+        "item",
+    }
+    unknown = set(envelope) - allowed
+    if unknown:
+        field = min(unknown)
+        raise ProtocolError(
+            f"stream item contains unknown field {field!r}"
+        )
+    required = {"protocol", "type", "stream_id", "sequence", "item"}
+    missing = required - set(envelope)
+    if missing:
+        field = min(missing)
+        raise ProtocolError(
+            f"stream item omitted required field {field!r}"
+        )
+    if envelope["protocol"] != PROTOCOL:
+        raise ProtocolError("stream item has the wrong protocol")
+    if envelope["type"] != "stream_item":
+        raise ProtocolError("stream item type must be 'stream_item'")
+    try:
+        actual_stream_id = StreamId(envelope["stream_id"])
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"stream item has invalid stream_id: {error}") from error
+    if actual_stream_id != stream_id:
+        raise ProtocolError("stream item ID does not match its route")
+    try:
+        sequence = _decimal(envelope["sequence"], "stream sequence")
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"stream item has invalid sequence: {error}") from error
+    cursor: Optional[Cursor] = None
+    if "cursor" in envelope:
+        if envelope["cursor"] is None:
+            raise ProtocolError("stream item cursor must not be null")
+        try:
+            cursor = _decode_cursor(envelope["cursor"])
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(f"stream item has invalid cursor: {error}") from error
+    return sequence, cursor, envelope["item"]
 
 
 __all__ = [

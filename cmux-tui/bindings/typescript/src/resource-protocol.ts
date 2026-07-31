@@ -28,6 +28,7 @@ import {
 const PROTOCOL = "cmux.protocol/1";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const STREAM_OPEN_CLEANUP_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 0x7fff_ffff;
 const TERMINAL_WAIT_CAPACITY = 8;
 // The server checks canceled/disconnected wait workers in 100 ms slices. Keep
@@ -41,6 +42,7 @@ export const MAX_STREAM_BYTES = 16 * 1024 * 1024;
 interface Pending {
   resolve(value: unknown): void;
   reject(error: unknown): void;
+  onResourceError?: () => void;
   timer?: ReturnType<typeof setTimeout>;
   removeAbort?: () => void;
 }
@@ -48,6 +50,15 @@ interface Pending {
 interface TerminalWaitLease {
   readonly expiresAt: number;
   readonly timer: ReturnType<typeof setTimeout>;
+}
+
+interface StreamCancellationConfirmation {
+  readonly promise: Promise<StreamEnd>;
+  readonly resolve: (end: StreamEnd) => void;
+  readonly reject: (error: unknown) => void;
+  responseConfirmed: boolean;
+  end?: StreamEnd;
+  settled: boolean;
 }
 
 interface StreamState<Value> {
@@ -68,6 +79,13 @@ interface StreamState<Value> {
     removeAbort?: () => void;
   }>;
   queuedBytes: number;
+  openDispatched: boolean;
+  openAcknowledged: boolean;
+  openRejected: boolean;
+  openSendFailed: boolean;
+  openSendError?: unknown;
+  cleanupStarted: boolean;
+  cancellation?: StreamCancellationConfirmation;
   end?: StreamEnd;
 }
 
@@ -100,6 +118,12 @@ export class ResourceProtocol {
   private nextRequest = 0;
   private closed = false;
   private failure: Error | undefined;
+  private failureAttemptCleanup = true;
+  private failureStreams: StreamState<unknown>[] | undefined;
+  private failureFinalized = false;
+  private failureFinalizeScheduled = false;
+  private activeTransportSends = 0;
+  private transportCloseStarted = false;
 
   constructor(options: ResourceProtocolOptions) {
     this.transport = options.transport;
@@ -205,6 +229,11 @@ export class ResourceProtocol {
       values: [],
       waiters: [],
       queuedBytes: 0,
+      openDispatched: false,
+      openAcknowledged: false,
+      openRejected: false,
+      openSendFailed: false,
+      cleanupStarted: false,
     };
     this.streams.set(id, state as StreamState<unknown>);
     try {
@@ -214,7 +243,21 @@ export class ResourceProtocol {
         undefined,
         options.signal,
         options.timeoutMs,
+        () => {
+          state.openDispatched = true;
+        },
+        (error) => {
+          state.openSendFailed = true;
+          state.openSendError = error;
+          this.fail(new CmuxConnectionError(
+            `${operation.name} transport send failed: ${String(error)}`,
+          ), false);
+        },
+        () => {
+          state.openRejected = true;
+        },
       );
+      if (state.openSendFailed) throw state.openSendError;
       if (!isRecord(opened)) {
         throw new CmuxProtocolError(`${operation.name} result must be an object`);
       }
@@ -231,17 +274,17 @@ export class ResourceProtocol {
         );
       }
       if (Object.hasOwn(opened, "cursor")) decodeCursor(opened.cursor);
+      if (this.closed) {
+        throw this.failure ?? new CmuxConnectionError("resource client closed");
+      }
+      state.openAcknowledged = true;
     } catch (error) {
       this.streams.delete(id);
-      if (options.signal?.aborted && !this.closed) {
-        void this.sendRequest(
-          operations.streamCancel.name,
-          { ...state.cancelRoute, stream: id },
-          undefined,
-          undefined,
-        ).then(decodeEmptyResult).catch(() => {});
+      const openError = state.openSendFailed ? state.openSendError : error;
+      if (!state.openSendFailed && !state.openRejected && !this.closed && state.openDispatched) {
+        await this.cleanupFailedStreamOpen(state, operation.name);
       }
-      throw error;
+      throw openError;
     }
     const stream = new ResourceStream(this, state);
     if (options.signal) {
@@ -258,19 +301,49 @@ export class ResourceProtocol {
   async cancelStream(id: StreamId, signal?: AbortSignal): Promise<void> {
     const state = this.streams.get(id);
     if (!state) return;
-    decodeEmptyResult(
-      await this.sendRequest(
-        operations.streamCancel.name,
-        { ...state.cancelRoute, stream: id },
-        undefined,
-        signal,
-      ),
+    if (signal?.aborted) throw abortError();
+    if (!this.beginStreamRouteCleanup(state)) return;
+    const timeoutMs = this.timeoutMs > 0
+      ? this.timeoutMs
+      : STREAM_OPEN_CLEANUP_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    const confirmation = createStreamCancellationConfirmation();
+    state.cancellation = confirmation;
+    const confirmed = waitUntilDeadline(
+      confirmation.promise,
+      deadline,
+      signal,
+      "stream cancellation timed out",
     );
-    this.finishStream(
-      state,
-      { streamId: id, reason: "canceled" },
-      true,
+    void this.sendRequest(
+      operations.streamCancel.name,
+      { ...state.cancelRoute, stream: id },
+      undefined,
+      signal,
+      0,
+    ).then(
+      (result) => {
+        try {
+          decodeEmptyResult(result);
+          confirmation.responseConfirmed = true;
+          this.completeStreamCancellation(state);
+        } catch (error) {
+          this.rejectStreamCancellation(state, error);
+        }
+      },
+      (error) => this.rejectStreamCancellation(state, error),
     );
+    try {
+      await confirmed;
+    } catch (error) {
+      this.rejectStreamCancellation(state, error);
+      state.values.length = 0;
+      state.queuedBytes = 0;
+      this.fail(new CmuxConnectionError(
+        `stream cancellation was not confirmed: ${String(error)}`,
+      ));
+      throw error;
+    }
   }
 
   forgetStream(id: StreamId): void {
@@ -278,9 +351,7 @@ export class ResourceProtocol {
   }
 
   close(): void {
-    if (this.closed) return;
     this.fail(new CmuxConnectionError("resource client closed"));
-    this.transport.close();
   }
 
   private sendRequest(
@@ -289,6 +360,9 @@ export class ResourceProtocol {
     idempotencyKey?: string,
     signal?: AbortSignal,
     timeoutMs?: number,
+    onDispatched?: () => void,
+    onSendError?: (error: unknown) => void,
+    onResourceError?: () => void,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
@@ -350,7 +424,7 @@ export class ResourceProtocol {
       );
     }
     return new Promise<unknown>((resolve, reject) => {
-      const pending: Pending = { resolve, reject };
+      const pending: Pending = { resolve, reject, onResourceError };
       if (effectiveTimeout > 0) {
         pending.timer = setTimeout(() => {
           if (this.pending.get(requestId) !== pending) return;
@@ -381,17 +455,30 @@ export class ResourceProtocol {
       }
       try {
         sent = true;
-        this.transport.send(json);
+        this.activeTransportSends += 1;
+        try {
+          this.transport.send(json);
+          onDispatched?.();
+        } finally {
+          this.activeTransportSends -= 1;
+        }
       } catch (error) {
         this.pending.delete(requestId);
         this.finishPending(pending);
         this.releaseTerminalWait(requestId);
+        onSendError?.(error);
+        if (!onSendError) {
+          this.fail(new CmuxConnectionError(
+            `${operation} transport send failed: ${String(error)}`,
+          ), false);
+        }
         reject(error);
       }
     });
   }
 
   private receive(json: string): void {
+    if (this.closed) return;
     let value: unknown;
     try {
       value = JSON.parse(json);
@@ -410,26 +497,40 @@ export class ResourceProtocol {
       }
       this.releaseTerminalWait(value.id);
       const pending = this.pending.get(value.id);
+      let decoded: DecodedResponse;
+      try {
+        decoded = decodeResponseEnvelope(value);
+      } catch (error) {
+        if (pending) {
+          this.pending.delete(value.id);
+          this.finishPending(pending);
+          pending.reject(error);
+        }
+        this.fail(
+          error instanceof Error
+            ? error
+            : new CmuxProtocolError(String(error)),
+        );
+        return;
+      }
       if (!pending) return;
       this.pending.delete(value.id);
       this.finishPending(pending);
-      if (value.ok === true && "result" in value && !("error" in value)) {
-        pending.resolve(value.result);
-      } else if (value.ok === false && "error" in value && !("result" in value)) {
-        try {
-          pending.reject(decodeResourceError(value.error));
-        } catch (error) {
-          pending.reject(error);
-        }
-      } else {
-        pending.reject(new CmuxProtocolError("invalid response result/error fields"));
+      if (decoded.ok) pending.resolve(decoded.result);
+      else {
+        pending.onResourceError?.();
+        pending.reject(decoded.error);
       }
       return;
     }
     if (value.type === "stream_item" || value.type === "stream_end") {
+      if (typeof value.stream_id !== "string") {
+        this.fail(new CmuxProtocolError("stream_id must be a string"));
+        return;
+      }
       let id: StreamId;
       try {
-        id = streamId(String(value.stream_id));
+        id = streamId(value.stream_id);
       } catch (error) {
         this.fail(new CmuxProtocolError(`invalid stream ID: ${String(error)}`));
         return;
@@ -439,14 +540,13 @@ export class ResourceProtocol {
       if (value.type === "stream_item") {
         if (state.end) return;
         try {
-          const item: StreamItem<unknown> = Object.freeze({
-            streamId: id,
-            sequence: decimalString(requireString(value.sequence, "sequence")),
-            ...("cursor" in value && value.cursor !== undefined
-              ? { cursor: decodeCursor(value.cursor) }
-              : {}),
-            value: state.decode(value.item),
-          });
+          const item = decodeStreamItemEnvelope(value, id, state.decode);
+          if (state.cancellation?.end) {
+            throw new CmuxProtocolError(
+              "stream item received after end envelope",
+            );
+          }
+          if (state.cancellation) return;
           const waiter = state.waiters.shift();
           if (waiter) {
             finishStreamWaiter(waiter);
@@ -474,36 +574,44 @@ export class ResourceProtocol {
             state.queuedBytes += bytes;
           }
         } catch (error) {
-          this.finishStream(state, {
-            streamId: id,
-            reason: "error",
-            error: error instanceof Error ? error : new CmuxProtocolError(String(error)),
-          });
+          const failure = error instanceof Error
+            ? error
+            : new CmuxProtocolError(String(error));
+          if (state.cancellation) {
+            this.rejectStreamCancellation(state, failure);
+          } else {
+            this.fail(failure);
+          }
         }
         return;
       }
       try {
-        const reason = value.reason;
-        if (!["completed", "canceled", "closed", "gap", "error"].includes(String(reason))) {
-          throw new CmuxProtocolError("invalid stream end reason");
+        const end = decodeStreamEndEnvelope(value, id);
+        if (state.cancellation) {
+          if (state.cancellation.end) {
+            throw new CmuxProtocolError(
+              "stream cancellation received more than one end envelope",
+            );
+          }
+          if (end.reason !== "canceled") {
+            throw new CmuxProtocolError(
+              `stream cancellation ended with ${end.reason}, expected canceled`,
+            );
+          }
+          state.cancellation.end = end;
+          this.completeStreamCancellation(state);
+        } else {
+          this.finishStream(state, end);
         }
-        this.finishStream(state, {
-          streamId: id,
-          reason: reason as StreamEnd["reason"],
-          ...("cursor" in value && value.cursor !== undefined
-            ? { cursor: decodeCursor(value.cursor) }
-            : {}),
-          ...("error" in value && value.error !== undefined
-            ? { error: decodeResourceError(value.error) }
-            : {}),
-          ...(typeof value.recovery === "string" ? { recovery: value.recovery } : {}),
-        });
       } catch (error) {
-        this.finishStream(state, {
-          streamId: id,
-          reason: "error",
-          error: error instanceof Error ? error : new CmuxProtocolError(String(error)),
-        });
+        const failure = error instanceof Error
+          ? error
+          : new CmuxProtocolError(String(error));
+        if (state.cancellation) {
+          this.rejectStreamCancellation(state, failure);
+        } else {
+          this.fail(failure);
+        }
       }
       return;
     }
@@ -546,12 +654,105 @@ export class ResourceProtocol {
   }
 
   private cancelStreamBestEffort(state: StreamState<unknown>): void {
+    if (!this.beginStreamRouteCleanup(state)) return;
+    if (this.closed) {
+      this.sendStreamCancelUntracked(state);
+      return;
+    }
     void this.sendRequest(
       operations.streamCancel.name,
       { ...state.cancelRoute, stream: state.id },
       undefined,
       undefined,
-    ).then(decodeEmptyResult).catch(() => {});
+      STREAM_OPEN_CLEANUP_TIMEOUT_MS,
+    ).then(decodeEmptyResult).catch((error) => {
+      this.fail(new CmuxConnectionError(
+        `stream cancellation was not confirmed: ${String(error)}`,
+      ));
+    });
+  }
+
+  private async cleanupFailedStreamOpen(
+    state: StreamState<unknown>,
+    operation: string,
+  ): Promise<void> {
+    if (!this.beginStreamRouteCleanup(state)) return;
+    try {
+      decodeEmptyResult(await this.sendRequest(
+        operations.streamCancel.name,
+        { ...state.cancelRoute, stream: state.id },
+        undefined,
+        undefined,
+        STREAM_OPEN_CLEANUP_TIMEOUT_MS,
+        undefined,
+        (error) => {
+          this.fail(new CmuxConnectionError(
+            `${operation} failed-open cleanup was not confirmed: ${String(error)}`,
+          ), false);
+        },
+      ));
+    } catch (error) {
+      this.fail(new CmuxConnectionError(
+        `${operation} failed-open cleanup was not confirmed: ${String(error)}`,
+      ));
+    }
+  }
+
+  private beginStreamRouteCleanup(state: StreamState<unknown>): boolean {
+    if (state.cleanupStarted) return false;
+    state.cleanupStarted = true;
+    return true;
+  }
+
+  private completeStreamCancellation(state: StreamState<unknown>): void {
+    const confirmation = state.cancellation;
+    if (
+      !confirmation
+      || confirmation.settled
+      || !confirmation.responseConfirmed
+      || !confirmation.end
+    ) {
+      return;
+    }
+    confirmation.settled = true;
+    const end = confirmation.end;
+    state.cancellation = undefined;
+    this.finishStream(state, end, true);
+    confirmation.resolve(end);
+  }
+
+  private rejectStreamCancellation(
+    state: StreamState<unknown>,
+    error: unknown,
+  ): void {
+    const confirmation = state.cancellation;
+    if (!confirmation || confirmation.settled) return;
+    confirmation.settled = true;
+    confirmation.reject(error);
+  }
+
+  private sendStreamCancelUntracked(state: StreamState<unknown>): void {
+    // A transport error closes the protocol before the rejected open resumes.
+    // The connection may still accept one last write, so attempt cancellation
+    // without registering a response that can no longer be observed.
+    let json: string;
+    try {
+      json = JSON.stringify({
+        protocol: PROTOCOL,
+        type: "request",
+        id: `ts-${++this.nextRequest}`,
+        operation: operations.streamCancel.name,
+        params: { ...state.cancelRoute, stream: state.id },
+      });
+    } catch {
+      return;
+    }
+    if (new TextEncoder().encode(json).byteLength > MAX_REQUEST_BYTES) return;
+    try {
+      this.transport.send(json);
+    } catch {
+      // Preserve the stream-open failure that initiated cleanup.
+    }
   }
 
   private finishPending(pending: Pending): void {
@@ -581,22 +782,78 @@ export class ResourceProtocol {
     clearTimeout(lease.timer);
   }
 
-  private fail(error: Error): void {
-    if (this.closed) return;
+  private fail(error: Error, attemptCleanup = true): void {
+    if (this.closed) {
+      if (!this.failureFinalized && !attemptCleanup) {
+        this.failureAttemptCleanup = false;
+      }
+      return;
+    }
     this.closed = true;
     this.failure = error;
-    for (const pending of this.pending.values()) {
-      this.finishPending(pending);
-      pending.reject(error);
+    this.failureAttemptCleanup = attemptCleanup;
+    this.failureStreams = [...this.streams.values()];
+    if (this.activeTransportSends > 0) {
+      if (!this.failureFinalizeScheduled) {
+        this.failureFinalizeScheduled = true;
+        queueMicrotask(() => this.finalizeFailure());
+      }
+      return;
     }
-    this.pending.clear();
-    for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
-    this.terminalWaitLeases.clear();
-    for (const state of this.streams.values()) {
-      this.finishStream(state, { streamId: state.id, reason: "error", error });
+    this.finalizeFailure();
+  }
+
+  private finalizeFailure(): void {
+    if (this.failureFinalized) return;
+    this.failureFinalized = true;
+    this.failureFinalizeScheduled = false;
+    const error = this.failure ?? new CmuxConnectionError("resource client closed");
+    const streams = this.failureStreams ?? [...this.streams.values()];
+    this.failureStreams = undefined;
+    try {
+      for (const pending of this.pending.values()) {
+        this.finishPending(pending);
+        pending.reject(error);
+      }
+      this.pending.clear();
+      for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
+      this.terminalWaitLeases.clear();
+      for (const state of streams) {
+        this.rejectStreamCancellation(state, error);
+        this.finishStream(state, { streamId: state.id, reason: "error", error });
+      }
+      this.streams.clear();
+      for (const unsubscribe of this.unsubscribers.splice(0)) {
+        try {
+          unsubscribe();
+        } catch {
+          // Continue cleanup so route cancellation and transport close still run.
+        }
+      }
+      if (this.failureAttemptCleanup) {
+        for (const state of streams) {
+          if (
+            state.openDispatched
+            && !state.openAcknowledged
+            && !state.openRejected
+          ) {
+            this.cancelStreamBestEffort(state);
+          }
+        }
+      }
+    } finally {
+      this.closeTransportOnce();
     }
-    this.streams.clear();
-    for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
+  }
+
+  private closeTransportOnce(): void {
+    if (this.transportCloseStarted) return;
+    this.transportCloseStarted = true;
+    try {
+      this.transport.close();
+    } catch {
+      // Failure cleanup already preserved the original connection error.
+    }
   }
 }
 
@@ -709,13 +966,13 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
   }
 
   async cancel(signal?: AbortSignal): Promise<void> {
+    if (this.canceling) return this.canceling;
     if (this.state.end) return;
-    if (!this.canceling) {
-      this.canceling = this.protocol.cancelStream(this.id, signal).finally(() => {
-        this.abortCleanup?.();
-        this.abortCleanup = undefined;
-      });
-    }
+    if (signal?.aborted) throw abortError();
+    this.canceling = this.protocol.cancelStream(this.id, signal).finally(() => {
+      this.abortCleanup?.();
+      this.abortCleanup = undefined;
+    });
     await this.canceling;
   }
 
@@ -756,6 +1013,183 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+type DecodedResponse =
+  | { readonly ok: true; readonly result: unknown }
+  | { readonly ok: false; readonly error: ResourceError };
+
+function decodeResponseEnvelope(value: Record<string, unknown>): DecodedResponse {
+  if (
+    value.protocol !== PROTOCOL
+    || value.type !== "response"
+    || typeof value.id !== "string"
+    || typeof value.ok !== "boolean"
+  ) {
+    throw new CmuxProtocolError("invalid response envelope");
+  }
+  if (value.ok) {
+    requireShape(
+      value,
+      ["protocol", "type", "id", "ok", "result"],
+      ["protocol", "type", "id", "ok", "result"],
+      "successful response",
+    );
+    return { ok: true, result: value.result };
+  }
+  requireShape(
+    value,
+    ["protocol", "type", "id", "ok", "error"],
+    ["protocol", "type", "id", "ok", "error"],
+    "failed response",
+  );
+  return { ok: false, error: decodeResourceError(value.error) };
+}
+
+function decodeStreamItemEnvelope<Value>(
+  value: Record<string, unknown>,
+  expectedId: StreamId,
+  decode: (value: unknown) => Value,
+): StreamItem<Value> {
+  requireShape(
+    value,
+    ["protocol", "type", "stream_id", "sequence", "item"],
+    ["protocol", "type", "stream_id", "sequence", "cursor", "item"],
+    "stream item",
+  );
+  if (
+    value.protocol !== PROTOCOL
+    || value.type !== "stream_item"
+    || value.stream_id !== expectedId
+  ) {
+    throw new CmuxProtocolError("invalid stream item envelope");
+  }
+  return Object.freeze({
+    streamId: expectedId,
+    sequence: decimalString(requireString(value.sequence, "sequence")),
+    ...(Object.hasOwn(value, "cursor")
+      ? { cursor: decodeCursor(value.cursor) }
+      : {}),
+    value: decode(value.item),
+  });
+}
+
+function decodeStreamEndEnvelope(
+  value: Record<string, unknown>,
+  expectedId: StreamId,
+): StreamEnd {
+  requireShape(
+    value,
+    ["protocol", "type", "stream_id", "reason"],
+    ["protocol", "type", "stream_id", "reason", "cursor", "error", "recovery"],
+    "stream end",
+  );
+  if (
+    value.protocol !== PROTOCOL
+    || value.type !== "stream_end"
+    || value.stream_id !== expectedId
+  ) {
+    throw new CmuxProtocolError("invalid stream end envelope");
+  }
+  const reason = requireString(value.reason, "stream end reason");
+  if (!["completed", "canceled", "closed", "gap", "error"].includes(reason)) {
+    throw new CmuxProtocolError("invalid stream end reason");
+  }
+  const hasError = Object.hasOwn(value, "error");
+  if ((reason === "error") !== hasError) {
+    throw new CmuxProtocolError(
+      "stream end error must be present exactly when reason is error",
+    );
+  }
+  const cursor = Object.hasOwn(value, "cursor")
+    ? decodeCursor(value.cursor)
+    : undefined;
+  const error = hasError ? decodeResourceError(value.error) : undefined;
+  const recovery = Object.hasOwn(value, "recovery")
+    ? requireString(value.recovery, "stream end recovery")
+    : undefined;
+  return Object.freeze({
+    streamId: expectedId,
+    reason: reason as StreamEnd["reason"],
+    ...(cursor ? { cursor } : {}),
+    ...(error ? { error } : {}),
+    ...(recovery !== undefined ? { recovery } : {}),
+  });
+}
+
+function requireShape(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  allowed: readonly string[],
+  context: string,
+): void {
+  const allowedFields = new Set(allowed);
+  const unknown = Object.keys(value).find((field) => !allowedFields.has(field));
+  if (unknown !== undefined) {
+    throw new CmuxProtocolError(
+      `${context} contains unknown field ${JSON.stringify(unknown)}`,
+    );
+  }
+  const missing = required.find((field) => !Object.hasOwn(value, field));
+  if (missing !== undefined) {
+    throw new CmuxProtocolError(
+      `${context} is missing field ${JSON.stringify(missing)}`,
+    );
+  }
+}
+
+function createStreamCancellationConfirmation(): StreamCancellationConfirmation {
+  let resolve!: (end: StreamEnd) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<StreamEnd>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return {
+    promise,
+    resolve,
+    reject,
+    responseConfirmed: false,
+    settled: false,
+  };
+}
+
+function waitUntilDeadline<Value>(
+  promise: Promise<Value>,
+  deadline: number,
+  signal: AbortSignal | undefined,
+  timeoutMessage: string,
+): Promise<Value> {
+  return new Promise<Value>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      callback();
+    };
+    const abort = () => finish(() => reject(abortError()));
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      finish(() => reject(new CmuxTimeoutError(timeoutMessage)));
+      return;
+    }
+    timer = setTimeout(
+      () => finish(() => reject(new CmuxTimeoutError(timeoutMessage))),
+      remaining,
+    );
+  });
+}
+
 function decodeEmptyResult(value: unknown): void {
   if (!isRecord(value) || Object.keys(value).length !== 0) {
     throw new CmuxProtocolError("empty result must be an object with no fields");
@@ -791,6 +1225,11 @@ function decodeCursor(value: unknown): Cursor {
 function decodeResourceError(value: unknown): ResourceError {
   if (
     !isRecord(value)
+    || Object.keys(value).length !== 4
+    || !Object.hasOwn(value, "code")
+    || !Object.hasOwn(value, "message")
+    || !Object.hasOwn(value, "details")
+    || !Object.hasOwn(value, "retryable")
     || typeof value.code !== "string"
     || typeof value.message !== "string"
     || typeof value.retryable !== "boolean"

@@ -2040,6 +2040,11 @@ impl Mux {
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
         let projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        let closed_public_ids = if let Some(workspace_key) = plan.closed_workspace_key.as_deref() {
+            registry.terminal_resource_ids_in_workspace(workspace_key)?
+        } else {
+            Self::terminal_public_ids_for_hosted(&registry, &plan.terminals)?
+        };
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2073,6 +2078,7 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
 
+        self.notify_terminal_exit_waiters(closed_public_ids);
         self.publish_resource_event();
         for surface in plan.removed {
             self.purge_surface_side_tables(surface.id);

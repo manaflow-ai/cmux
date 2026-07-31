@@ -1,11 +1,13 @@
 #include "test.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stop_token>
 #include <string>
@@ -25,6 +27,11 @@ struct FakeState {
     std::deque<std::string> incoming;
     std::vector<std::string> outgoing;
     std::size_t receive_timeouts = 0;
+    std::optional<cmux::Timeout> receive_delay;
+    std::size_t send_calls = 0;
+    std::optional<std::size_t> fail_send_call;
+    bool record_failed_send = false;
+    std::size_t close_calls = 0;
     bool closed = false;
 };
 
@@ -40,6 +47,16 @@ public:
         if (state_->closed) {
             return cmux::make_error(cmux::ErrorCode::closed, "fake closed");
         }
+        ++state_->send_calls;
+        if (state_->fail_send_call == state_->send_calls) {
+            if (state_->record_failed_send) {
+                state_->outgoing.emplace_back(message);
+            }
+            state_->changed.notify_all();
+            return cmux::make_error(
+                cmux::ErrorCode::connection,
+                "synthetic framing-uncertain send failure");
+        }
         state_->outgoing.emplace_back(message);
         state_->changed.notify_all();
         return {};
@@ -47,6 +64,19 @@ public:
 
     cmux::Result<std::string> receive(cmux::Timeout timeout) override {
         std::unique_lock lock(state_->mutex);
+        if (state_->receive_delay) {
+            const auto delay = std::min(timeout, *state_->receive_delay);
+            lock.unlock();
+            std::this_thread::sleep_for(delay);
+            lock.lock();
+            if (timeout <= *state_->receive_delay) {
+                ++state_->receive_timeouts;
+                state_->changed.notify_all();
+                return cmux::make_error(
+                    cmux::ErrorCode::timeout,
+                    "fake timeout");
+            }
+        }
         if (!state_->changed.wait_for(lock, timeout, [this] {
                 return state_->closed || !state_->incoming.empty();
             })) {
@@ -64,6 +94,7 @@ public:
 
     void close() noexcept override {
         std::lock_guard lock(state_->mutex);
+        ++state_->close_calls;
         state_->closed = true;
         state_->changed.notify_all();
     }
@@ -698,6 +729,40 @@ TEST("structured protocol errors retain code details and retryability") {
     CHECK(details.value().find("must-not-log") == std::string::npos);
     CHECK(details.value().find("[REDACTED]") != std::string::npos);
     CHECK(!result.error().retryable);
+}
+
+TEST("responses require exact v1 success and error variants") {
+    const auto run = [](std::string fields) {
+        auto state = std::make_shared<FakeState>();
+        auto client = client_for(state);
+        enqueue(
+            state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+            "\"id\":\"cpp-request-1\"," +
+                fields + "}");
+
+        auto result = client.read(cmux::Operation::session_ping);
+        CHECK(!result);
+        CHECK_EQ(result.error().code, cmux::ErrorCode::protocol);
+        std::lock_guard lock(state->mutex);
+        CHECK_EQ(state->outgoing.size(), 1U);
+    };
+
+    run("\"ok\":true");
+    run(
+        "\"ok\":true,\"result\":{},\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false}");
+    run(
+        "\"ok\":false,\"result\":{},\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false}");
+    run("\"ok\":true,\"result\":{},\"future\":true");
+    run(
+        "\"ok\":false,\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false,"
+        "\"future\":true}");
+    run(
+        "\"ok\":false,\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"retryable\":false}");
 }
 
 TEST("layout undo requires and carries typed confirmation details") {
@@ -1384,6 +1449,170 @@ TEST("acknowledged stream has no implicit idle deadline") {
     CHECK(stream_state->receive_timeouts >= idle_timeouts);
 }
 
+TEST("framing-uncertain control send failure closes the client") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    control->fail_send_call = 1U;
+    control->record_failed_send = true;
+    auto client = client_for(control, stream_state);
+
+    auto first = client.read(cmux::Operation::session_ping);
+    CHECK(!first);
+    CHECK_EQ(first.error().code, cmux::ErrorCode::connection);
+    CHECK_EQ(
+        first.error().message,
+        std::string("synthetic framing-uncertain send failure"));
+    CHECK(client.closed());
+    auto repeated = client.read(cmux::Operation::session_ping);
+    CHECK(!repeated);
+    CHECK_EQ(repeated.error().code, cmux::ErrorCode::closed);
+    std::lock_guard lock(control->mutex);
+    CHECK_EQ(control->outgoing.size(), 1U);
+    CHECK_EQ(control->close_calls, 1U);
+}
+
+TEST("failed stream opens close the dedicated transport without cancellation") {
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::stop_source stopped;
+        stopped.request_stop();
+        cmux::CallOptions call;
+        call.cancel = stopped.get_token();
+
+        auto opened = client.open_session_events({}, std::move(call));
+        CHECK(!opened);
+        CHECK_EQ(opened.error().code, cmux::ErrorCode::canceled);
+        std::lock_guard lock(stream_state->mutex);
+        CHECK(stream_state->closed);
+        CHECK_EQ(stream_state->close_calls, 1U);
+        CHECK(stream_state->outgoing.empty());
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        stream_state->fail_send_call = 1U;
+        stream_state->record_failed_send = true;
+        auto client = client_for(control, stream_state);
+
+        auto opened = client.open_session_events();
+        CHECK(!opened);
+        CHECK_EQ(opened.error().code, cmux::ErrorCode::connection);
+        CHECK_EQ(
+            opened.error().message,
+            std::string("synthetic framing-uncertain send failure"));
+        std::lock_guard lock(stream_state->mutex);
+        CHECK(stream_state->closed);
+        CHECK_EQ(stream_state->close_calls, 1U);
+        CHECK_EQ(stream_state->outgoing.size(), 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                error_response(request_id, "session.not_found"));
+        });
+
+        auto opened = client.open_session_events();
+        CHECK(!opened);
+        CHECK_EQ(opened.error().code, cmux::ErrorCode::command);
+        CHECK_EQ(
+            opened.error().protocol_code,
+            std::string("session.not_found"));
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK(stream_state->closed);
+        CHECK_EQ(stream_state->close_calls, 1U);
+        CHECK_EQ(stream_state->outgoing.size(), 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "\"id\":\"" +
+                    request_id +
+                    "\",\"ok\":true,\"result\":{\"stream_id\":\"" +
+                    stream_id + "\"},\"future\":true}");
+        });
+
+        auto opened = client.open_session_events();
+        CHECK(!opened);
+        CHECK_EQ(opened.error().code, cmux::ErrorCode::protocol);
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK(stream_state->closed);
+        CHECK_EQ(stream_state->close_calls, 1U);
+        CHECK_EQ(stream_state->outgoing.size(), 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(
+                    request_id,
+                    "stream_ffffffffffffffffffffffffffffffff"));
+        });
+
+        auto opened = client.open_session_events();
+        CHECK(!opened);
+        CHECK_EQ(opened.error().code, cmux::ErrorCode::protocol);
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK(stream_state->closed);
+        CHECK_EQ(stream_state->close_calls, 1U);
+        CHECK_EQ(stream_state->outgoing.size(), 1U);
+    }
+}
+
 TEST("typed streams preserve unknown items and cancel deterministically") {
     auto control = std::make_shared<FakeState>();
     auto stream_state = std::make_shared<FakeState>();
@@ -1472,6 +1701,704 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
     server.join();
     CHECK(open_route_ok.load(std::memory_order_acquire));
     CHECK(cancel_route_ok.load(std::memory_order_acquire));
+}
+
+TEST("stream cancellation is one-shot and fail-closes uncertain outcomes") {
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        stream_state->fail_send_call = 2U;
+        stream_state->record_failed_send = true;
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        server.join();
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::connection);
+        CHECK_EQ(
+            first.error().message,
+            std::string("synthetic framing-uncertain send failure"));
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                response(cancel_id, R"({"unexpected":true})"));
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::decode);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                error_response(cancel_id, "operation.failed"));
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::command);
+        CHECK_EQ(
+            first.error().protocol_code,
+            std::string("operation.failed"));
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(
+            repeated.error().protocol_code,
+            first.error().protocol_code);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+}
+
+TEST("stream cancellation rejects malformed response envelopes once") {
+    const auto run = [](std::string fields) {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state, fields = std::move(fields)] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "\"id\":\"" +
+                    cancel_id + "\"," + fields + "}");
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::protocol);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    };
+
+    run("\"ok\":true");
+    run(
+        "\"ok\":true,\"result\":{},\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false}");
+    run(
+        "\"ok\":false,\"result\":{},\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false}");
+    run("\"ok\":true,\"result\":{},\"future\":true");
+    run(
+        "\"ok\":false,\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false,"
+        "\"future\":true}");
+    run(
+        "\"ok\":false,\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"retryable\":false}");
+}
+
+TEST("stream cancellation validates typed stale items before discard") {
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "\"stream_id\":\"" +
+                    stream_id +
+                    "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
+                    "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
+                    "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
+                    "\"snapshot\":" +
+                    resource_snapshot(1) + ",\"future\":true}}");
+            enqueue(stream_state, response(cancel_id));
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "\"stream_id\":\"" +
+                    stream_id + "\",\"reason\":\"canceled\"}");
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::decode);
+        CHECK(
+            first.error().message.find("unknown field") !=
+            std::string::npos);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "\"stream_id\":\"" +
+                    stream_id + "\",\"reason\":\"canceled\"}");
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "\"stream_id\":\"" +
+                    stream_id +
+                    "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
+                    "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
+                    "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
+                    "\"snapshot\":" +
+                    resource_snapshot(1) + ",\"future\":true}}");
+            enqueue(stream_state, response(cancel_id));
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, cmux::ErrorCode::protocol);
+        CHECK(
+            first.error().message.find("after stream end") !=
+            std::string::npos);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+
+    {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([stream_state] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "\"stream_id\":\"" +
+                    stream_id + "\",\"reason\":\"canceled\"}");
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "\"stream_id\":\"" +
+                    stream_id +
+                    "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
+                    "\"revision\":\"1\"},\"item\":{\"kind\":\"snapshot\","
+                    "\"cursor\":{\"generation\":\"g\",\"revision\":\"1\"},"
+                    "\"reset_reason\":\"initial\",\"snapshot\":" +
+                    resource_snapshot(1) + "}}");
+            enqueue(stream_state, response(cancel_id));
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(
+            first.error().code,
+            cmux::ErrorCode::protocol);
+        CHECK(
+            first.error().message.find("after stream end") !=
+            std::string::npos);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    }
+}
+
+TEST("stream cancellation has one total deadline across stale item drip") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    constexpr auto cancel_timeout = std::chrono::milliseconds(80);
+    constexpr auto drip_delay = std::chrono::milliseconds(25);
+    auto client = client_for(control, stream_state, cancel_timeout);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open = cmux::Json::parse(
+                       stream_state->outgoing.front())
+                       .value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id = std::string(
+            params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+    });
+
+    auto stream = client.open_session_events();
+    CHECK(stream);
+    server.join();
+    std::string stream_id;
+    {
+        std::lock_guard lock(stream_state->mutex);
+        const auto open =
+            cmux::Json::parse(stream_state->outgoing.front()).value();
+        const auto* params = open.find("params")->as_object().value();
+        stream_id =
+            std::string(params->at("stream_id").as_string().value());
+        stream_state->receive_delay = drip_delay;
+    }
+    for (std::uint64_t sequence = 1; sequence <= 20; ++sequence) {
+        enqueue(
+            stream_state,
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "\"stream_id\":\"" +
+                stream_id + "\",\"sequence\":\"" +
+                std::to_string(sequence) +
+                "\",\"cursor\":{\"generation\":\"g\",\"revision\":\"" +
+                std::to_string(sequence) +
+                "\"},\"item\":{\"kind\":\"stale\"}}");
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    auto canceled = stream.value().cancel();
+    const auto elapsed =
+        std::chrono::steady_clock::now() - started;
+    CHECK(!canceled);
+    CHECK_EQ(canceled.error().code, cmux::ErrorCode::timeout);
+    CHECK(
+        elapsed < std::chrono::milliseconds(300));
+    auto repeated = stream.value().cancel();
+    CHECK(!repeated);
+    CHECK_EQ(repeated.error().code, cmux::ErrorCode::timeout);
+    CHECK_EQ(repeated.error().message, canceled.error().message);
+    CHECK(stream.value().closed());
+    std::lock_guard lock(stream_state->mutex);
+    CHECK_EQ(stream_state->outgoing.size(), 2U);
+    CHECK_EQ(stream_state->close_calls, 1U);
+    CHECK(!stream_state->incoming.empty());
+}
+
+TEST("stream cancellation rejects wrong or malformed terminal ends once") {
+    const auto run = [](
+                         std::string fields,
+                         cmux::ErrorCode expected,
+                         bool wrong_stream_id = false) {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([
+            stream_state,
+            fields = std::move(fields),
+            wrong_stream_id
+        ] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+
+            wait_for_writes(stream_state, 2);
+            cmux::Json cancel;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                cancel = cmux::Json::parse(
+                             stream_state->outgoing.at(1))
+                             .value();
+            }
+            const auto cancel_id =
+                std::string(cancel.find("id")->as_string().value());
+            enqueue(stream_state, response(cancel_id));
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "\"stream_id\":\"" +
+                    (wrong_stream_id
+                         ? "stream_ffffffffffffffffffffffffffffffff"
+                         : stream_id) +
+                    "\"," + fields + "}");
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().cancel();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, expected);
+        auto repeated = stream.value().cancel();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, first.error().code);
+        CHECK_EQ(repeated.error().message, first.error().message);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 2U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    };
+
+    run("\"reason\":\"completed\"", cmux::ErrorCode::protocol);
+    run(
+        "\"reason\":\"canceled\"",
+        cmux::ErrorCode::protocol,
+        true);
+    run(
+        "\"reason\":\"canceled\",\"future\":true",
+        cmux::ErrorCode::decode);
+    run(
+        "\"reason\":\"canceled\",\"cursor\":null",
+        cmux::ErrorCode::decode);
+    run(
+        "\"reason\":\"canceled\",\"cursor\":{\"generation\":\"g\","
+        "\"revision\":1}",
+        cmux::ErrorCode::decode);
+    run(
+        "\"reason\":\"canceled\",\"recovery\":null",
+        cmux::ErrorCode::decode);
+    run(
+        "\"reason\":\"canceled\",\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":\"no\"}",
+        cmux::ErrorCode::decode);
+    run(
+        "\"reason\":\"canceled\",\"error\":{\"code\":\"failed\","
+        "\"message\":\"bad\",\"details\":{},\"retryable\":false}",
+        cmux::ErrorCode::decode);
+    run("\"reason\":\"error\"", cmux::ErrorCode::decode);
+}
+
+TEST("stream items require exact canonical envelopes") {
+    const auto run = [](
+                         std::string fields,
+                         cmux::ErrorCode expected,
+                         std::string type = "stream_item",
+                         bool wrong_stream_id = false) {
+        auto control = std::make_shared<FakeState>();
+        auto stream_state = std::make_shared<FakeState>();
+        auto client = client_for(control, stream_state);
+        std::thread server([
+            stream_state,
+            fields = std::move(fields),
+            type = std::move(type),
+            wrong_stream_id
+        ] {
+            wait_for_writes(stream_state, 1);
+            cmux::Json open;
+            {
+                std::lock_guard lock(stream_state->mutex);
+                open = cmux::Json::parse(
+                           stream_state->outgoing.front())
+                           .value();
+            }
+            const auto request_id =
+                std::string(open.find("id")->as_string().value());
+            const auto* params =
+                open.find("params")->as_object().value();
+            const auto stream_id = std::string(
+                params->at("stream_id").as_string().value());
+            enqueue(
+                stream_state,
+                stream_open_response(request_id, stream_id));
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"" + type +
+                    "\",\"stream_id\":\"" +
+                    (wrong_stream_id
+                         ? "stream_ffffffffffffffffffffffffffffffff"
+                         : stream_id) +
+                    "\"," + fields + "}");
+        });
+
+        auto stream = client.open_session_events();
+        CHECK(stream);
+        auto first = stream.value().next();
+        CHECK(!first);
+        CHECK_EQ(first.error().code, expected);
+        auto repeated = stream.value().next();
+        CHECK(!repeated);
+        CHECK_EQ(repeated.error().code, cmux::ErrorCode::closed);
+        CHECK(stream.value().closed());
+        server.join();
+        std::lock_guard lock(stream_state->mutex);
+        CHECK_EQ(stream_state->outgoing.size(), 1U);
+        CHECK_EQ(stream_state->close_calls, 1U);
+    };
+
+    run(
+        "\"sequence\":\"0\",\"item\":{\"kind\":\"future\"},"
+        "\"future\":true",
+        cmux::ErrorCode::decode);
+    run(
+        "\"sequence\":\"0\",\"cursor\":null,"
+        "\"item\":{\"kind\":\"future\"}",
+        cmux::ErrorCode::decode);
+    run(
+        "\"sequence\":0,\"item\":{\"kind\":\"future\"}",
+        cmux::ErrorCode::decode);
+    run(
+        "\"sequence\":\"00\",\"item\":{\"kind\":\"future\"}",
+        cmux::ErrorCode::decode);
+    run("\"sequence\":\"0\"", cmux::ErrorCode::decode);
+    run(
+        "\"sequence\":\"0\",\"item\":{\"kind\":\"future\"}",
+        cmux::ErrorCode::protocol,
+        "future_item");
+    run(
+        "\"sequence\":\"0\",\"item\":{\"kind\":\"future\"}",
+        cmux::ErrorCode::protocol,
+        "stream_item",
+        true);
 }
 
 TEST("attachment resize and release stay on the dedicated stream connection") {
@@ -1569,6 +2496,112 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     CHECK(control->outgoing.empty());
 }
 
+TEST("connection-control send failure closes the dedicated stream") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    stream_state->fail_send_call = 2U;
+    stream_state->record_failed_send = true;
+    auto client = client_for(control, stream_state);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open = cmux::Json::parse(
+                       stream_state->outgoing.front())
+                       .value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id = std::string(
+            params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+    });
+
+    auto stream = client.open_session_events();
+    CHECK(stream);
+    server.join();
+    auto controlled = stream.value().connection_control(
+        cmux::Operation::client_cell_pixels_set,
+        {
+            {"width_px", cmux::Json(std::uint64_t{8})},
+            {"height_px", cmux::Json(std::uint64_t{16})},
+        });
+    CHECK(!controlled);
+    CHECK_EQ(controlled.error().code, cmux::ErrorCode::connection);
+    CHECK_EQ(
+        controlled.error().message,
+        std::string("synthetic framing-uncertain send failure"));
+    CHECK(stream.value().closed());
+    auto canceled = stream.value().cancel();
+    CHECK(!canceled);
+    CHECK_EQ(canceled.error().code, cmux::ErrorCode::closed);
+    std::lock_guard lock(stream_state->mutex);
+    CHECK_EQ(stream_state->outgoing.size(), 2U);
+    CHECK_EQ(stream_state->close_calls, 1U);
+}
+
+TEST("connection-control overflow closes the stream without a second cleanup") {
+    auto control = std::make_shared<FakeState>();
+    auto stream_state = std::make_shared<FakeState>();
+    auto client = client_for(control, stream_state);
+
+    std::thread server([stream_state] {
+        wait_for_writes(stream_state, 1);
+        cmux::Json open;
+        {
+            std::lock_guard lock(stream_state->mutex);
+            open = cmux::Json::parse(
+                       stream_state->outgoing.front())
+                       .value();
+        }
+        const auto request_id =
+            std::string(open.find("id")->as_string().value());
+        const auto* params = open.find("params")->as_object().value();
+        const auto stream_id = std::string(
+            params->at("stream_id").as_string().value());
+        enqueue(
+            stream_state,
+            stream_open_response(request_id, stream_id));
+
+        wait_for_writes(stream_state, 2);
+        for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
+            enqueue(
+                stream_state,
+                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "\"stream_id\":\"" +
+                    stream_id + "\",\"sequence\":\"" +
+                    std::to_string(sequence) +
+                    "\",\"item\":{\"kind\":\"future\"}}");
+        }
+    });
+
+    auto stream = client.open_session_events();
+    CHECK(stream);
+    auto controlled = stream.value().connection_control(
+        cmux::Operation::client_cell_pixels_set,
+        {
+            {"width_px", cmux::Json(std::uint64_t{8})},
+            {"height_px", cmux::Json(std::uint64_t{16})},
+        });
+    CHECK(!controlled);
+    CHECK_EQ(
+        controlled.error().code,
+        cmux::ErrorCode::stream_local_overflow);
+    CHECK(stream.value().closed());
+    auto canceled = stream.value().cancel();
+    CHECK(!canceled);
+    CHECK_EQ(canceled.error().code, cmux::ErrorCode::closed);
+    server.join();
+    std::lock_guard lock(stream_state->mutex);
+    CHECK_EQ(stream_state->outgoing.size(), 2U);
+    CHECK_EQ(stream_state->close_calls, 1U);
+}
+
 TEST("stream open rejects a locally overflowing pre-ack queue") {
     auto control = std::make_shared<FakeState>();
     auto stream_state = std::make_shared<FakeState>();
@@ -1612,6 +2645,10 @@ TEST("stream open rejects a locally overflowing pre-ack queue") {
         stream.error().code,
         cmux::ErrorCode::stream_local_overflow);
     server.join();
+    std::lock_guard lock(stream_state->mutex);
+    CHECK(stream_state->closed);
+    CHECK_EQ(stream_state->close_calls, 1U);
+    CHECK_EQ(stream_state->outgoing.size(), 1U);
 }
 
 TEST("session stream events discriminate snapshot and delta at compile time") {

@@ -940,6 +940,125 @@ impl ClientSizingState {
     }
 }
 
+/// One-shot wakeup shared by a terminal-exit subscription and any
+/// connection-owned cancellation sources. The durable terminal registry
+/// remains authoritative; this only decides when a waiter should query it.
+pub(crate) struct ResourceWaitWake {
+    notified: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl Default for ResourceWaitWake {
+    fn default() -> Self {
+        Self { notified: Mutex::new(false), changed: Condvar::new() }
+    }
+}
+
+impl ResourceWaitWake {
+    pub(crate) fn notify(&self) {
+        let mut notified = self.notified.lock().unwrap();
+        *notified = true;
+        self.changed.notify_all();
+    }
+
+    /// Returns true for an explicit wake and false when the deadline expires.
+    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
+        let mut notified = self.notified.lock().unwrap();
+        while !*notified {
+            match deadline {
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return false;
+                    };
+                    let (next, timeout) = self.changed.wait_timeout(notified, remaining).unwrap();
+                    notified = next;
+                    if timeout.timed_out() && !*notified {
+                        return false;
+                    }
+                }
+                None => notified = self.changed.wait(notified).unwrap(),
+            }
+        }
+        true
+    }
+}
+
+#[derive(Default)]
+struct TerminalExitWaiters {
+    next_id: AtomicU64,
+    waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
+}
+
+pub(crate) struct TerminalExitSubscription<'a> {
+    owner: &'a TerminalExitWaiters,
+    terminal_id: TerminalPublicId,
+    waiter_id: u64,
+    wake: Arc<ResourceWaitWake>,
+}
+
+impl TerminalExitWaiters {
+    fn subscribe(&self, terminal_id: &TerminalPublicId) -> TerminalExitSubscription<'_> {
+        let waiter_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let wake = Arc::new(ResourceWaitWake::default());
+        self.waiters
+            .lock()
+            .unwrap()
+            .entry(terminal_id.clone())
+            .or_default()
+            .insert(waiter_id, Arc::downgrade(&wake));
+        TerminalExitSubscription { owner: self, terminal_id: terminal_id.clone(), waiter_id, wake }
+    }
+
+    fn notify(&self, terminal_id: &TerminalPublicId) {
+        let waiters = self.waiters.lock().unwrap().remove(terminal_id).unwrap_or_default();
+        for waiter in waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
+            waiter.notify();
+        }
+    }
+
+    #[cfg(test)]
+    fn waiter_count(&self, terminal_id: &TerminalPublicId) -> usize {
+        self.waiters.lock().unwrap().get(terminal_id).map(HashMap::len).unwrap_or_default()
+    }
+}
+
+impl TerminalExitSubscription<'_> {
+    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
+        self.wake.clone()
+    }
+
+    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
+        self.wake.wait_until(deadline)
+    }
+}
+
+impl Drop for TerminalExitSubscription<'_> {
+    fn drop(&mut self) {
+        let mut waiters = self.owner.waiters.lock().unwrap();
+        let remove_terminal = waiters.get_mut(&self.terminal_id).is_some_and(|terminal_waiters| {
+            terminal_waiters.remove(&self.waiter_id);
+            terminal_waiters.is_empty()
+        });
+        if remove_terminal {
+            waiters.remove(&self.terminal_id);
+        }
+    }
+}
+
+#[cfg(test)]
+struct TerminalExitStateQueryGuard<'a>(&'a AtomicU64);
+
+#[cfg(test)]
+impl Drop for TerminalExitStateQueryGuard<'_> {
+    fn drop(&mut self) {
+        // Count completed queries. Tests use this release/acquire edge to
+        // distinguish a waiter blocked after its initial read from one that
+        // merely entered terminal_exit_state and is still behind the registry
+        // writer lock.
+        self.0.fetch_add(1, Ordering::Release);
+    }
+}
+
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     /// Serializes durable workspace commits and their in-memory/event
@@ -999,6 +1118,9 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     resource_event_epoch: Mutex<u64>,
     resource_event_changed: Condvar,
+    terminal_exit_waiters: TerminalExitWaiters,
+    #[cfg(test)]
+    terminal_exit_state_queries: AtomicU64,
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
     resource_creation_handoff: Mutex<()>,
@@ -1292,6 +1414,9 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             resource_event_epoch: Mutex::new(0),
             resource_event_changed: Condvar::new(),
+            terminal_exit_waiters: TerminalExitWaiters::default(),
+            #[cfg(test)]
+            terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
@@ -1926,13 +2051,10 @@ impl Mux {
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
         if surface.is_dead() {
-            self.transition_terminal_lifecycle(
-                "terminal-exited",
-                "terminal-died-during-adoption",
+            self.persist_terminal_exit(
                 terminal_id,
-                TerminalLifecycle::Exited,
                 Some(incarnation),
-                Some(serde_json::json!({"reason":"host-exited-during-adoption"})),
+                &TerminalExit::unknown("host-exited-during-adoption"),
             )?;
             anyhow::bail!("terminal host exited during adoption");
         }
@@ -3486,8 +3608,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<Value> {
+        #[cfg(test)]
+        let _query = TerminalExitStateQueryGuard(&self.terminal_exit_state_queries);
         let registry = self.workspace_registry.lock().unwrap();
-        let revision = registry.snapshot()?.resource_revision;
         let host_id = registry
             .terminal_host_id(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal {terminal_id} is not live"))?;
@@ -3516,6 +3639,7 @@ impl Mux {
                 "revision": exit_revision,
             }));
         }
+        let revision = registry.resource_revision()?;
         let lifecycle = match terminal.lifecycle {
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
             TerminalLifecycle::Running => "running",
@@ -3532,6 +3656,44 @@ impl Mux {
         }))
     }
 
+    pub(crate) fn subscribe_terminal_exit(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> TerminalExitSubscription<'_> {
+        self.terminal_exit_waiters.subscribe(terminal_id)
+    }
+
+    fn terminal_public_ids_for_hosted(
+        registry: &WorkspaceRegistry,
+        hosted: &[(String, Option<String>)],
+    ) -> anyhow::Result<Vec<TerminalPublicId>> {
+        let mut public_ids = Vec::with_capacity(hosted.len());
+        let mut unique = HashSet::with_capacity(hosted.len());
+        for (terminal_id, _) in hosted {
+            let is_tombstoned = registry
+                .terminal_record(terminal_id)?
+                .is_none_or(|terminal| terminal.lifecycle == TerminalLifecycle::Tombstoned);
+            if is_tombstoned {
+                continue;
+            }
+            if let Some(public_id) = registry.terminal_resource_id(terminal_id)?
+                && unique.insert(public_id.clone())
+            {
+                public_ids.push(public_id);
+            }
+        }
+        Ok(public_ids)
+    }
+
+    fn notify_terminal_exit_waiters(
+        &self,
+        terminal_ids: impl IntoIterator<Item = TerminalPublicId>,
+    ) {
+        for terminal_id in terminal_ids {
+            self.terminal_exit_waiters.notify(&terminal_id);
+        }
+    }
+
     pub(crate) fn wait_for_terminal_exit(
         &self,
         terminal_id: &TerminalPublicId,
@@ -3544,34 +3706,35 @@ impl Mux {
                     .ok_or_else(|| anyhow::anyhow!("terminal exit timeout exceeds deadline range"))
             })
             .transpose()?;
-        loop {
-            let state = self.terminal_exit_state(terminal_id)?;
-            if state["state"] == "exited" {
-                return Ok(state);
-            }
-            if timeout == Some(Duration::ZERO) {
-                return Ok(state);
-            }
-            let epoch = self.resource_event_epoch();
-            // Close the query/epoch race before sleeping.
-            let state = self.terminal_exit_state(terminal_id)?;
-            if state["state"] == "exited" {
-                return Ok(state);
-            }
-            let wait = match deadline {
-                Some(deadline) => {
-                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                        return Ok(state);
-                    };
-                    remaining.min(Duration::from_millis(250))
-                }
-                None => Duration::from_millis(250),
-            };
-            self.wait_for_resource_event(epoch, wait);
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                return self.terminal_exit_state(terminal_id);
-            }
+        // Register before the initial query. A concurrent durable exit either
+        // appears in that query or wakes this exact terminal subscription.
+        let subscription = self.subscribe_terminal_exit(terminal_id);
+        let state = self.terminal_exit_state(terminal_id)?;
+        if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+            return Ok(state);
         }
+        let _explicit_wake = subscription.wait_until(deadline);
+        // One targeted read closes either the exit-notification or deadline
+        // race. Idle waits perform no periodic registry work.
+        self.terminal_exit_state(terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_exit_waiter_count_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> usize {
+        self.terminal_exit_waiters.waiter_count(terminal_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_terminal_exit_state_query_count_for_test(&self) {
+        self.terminal_exit_state_queries.store(0, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_exit_state_query_count_for_test(&self) -> u64 {
+        self.terminal_exit_state_queries.load(Ordering::Acquire)
     }
 
     #[cfg(test)]
@@ -3892,6 +4055,10 @@ impl Mux {
         incarnation: Option<&str>,
         exit: Option<Value>,
     ) -> anyhow::Result<(RegistryTerminal, u64)> {
+        anyhow::ensure!(
+            lifecycle != TerminalLifecycle::Exited,
+            "terminal exits must use the durable public exit latch"
+        );
         let mut registry = self.workspace_registry.lock().unwrap();
         let result = commit_terminal_lifecycle(
             &mut registry,
@@ -4263,16 +4430,10 @@ impl Mux {
             ) {
                 Ok(surface) => surface,
                 Err(error) => {
-                    let _ = self.transition_terminal_lifecycle(
-                        "terminal-exited",
-                        "terminal-launch-failed",
+                    let _ = self.persist_terminal_exit(
                         &terminal_hex,
-                        TerminalLifecycle::Exited,
                         None,
-                        Some(serde_json::json!({
-                            "reason": "launch-failed",
-                            "error": error.to_string(),
-                        })),
+                        &TerminalExit::unknown(format!("launch-failed: {error}")),
                     );
                     return Err(error);
                 }
@@ -4281,13 +4442,10 @@ impl Mux {
                 .terminal_host_identity()
                 .ok_or_else(|| anyhow::anyhow!("reserved terminal did not return host identity"))?;
             if identity.terminal_id != terminal_hex {
-                let _ = self.transition_terminal_lifecycle(
-                    "terminal-exited",
-                    "terminal-identity-mismatch",
+                let _ = self.persist_terminal_exit(
                     &terminal_hex,
-                    TerminalLifecycle::Exited,
                     None,
-                    Some(serde_json::json!({"reason":"host-identity-mismatch"})),
+                    &TerminalExit::unknown("host-identity-mismatch"),
                 );
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
@@ -4314,17 +4472,12 @@ impl Mux {
                 if let Err(error) =
                     insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
                 {
-                    if let Ok((_, revision)) = commit_terminal_lifecycle(
-                        &mut registry,
-                        "terminal-exited",
-                        "terminal-surface-insert-failed",
+                    drop(registry);
+                    let _ = self.persist_terminal_exit(
                         &terminal_hex,
-                        TerminalLifecycle::Exited,
                         Some(&identity.incarnation),
-                        Some(serde_json::json!({"reason":"surface-insert-failed"})),
-                    ) {
-                        self.emit_terminal_registry_changed(&registry, revision);
-                    }
+                        &TerminalExit::unknown("surface-insert-failed"),
+                    );
                     surface.kill();
                     return Err(error);
                 }
@@ -4381,16 +4534,10 @@ impl Mux {
             let surface = match surface_result {
                 Ok(surface) => surface,
                 Err(error) => {
-                    let _ = self.transition_terminal_lifecycle(
-                        "terminal-exited",
-                        "terminal-launch-failed",
+                    let _ = self.persist_terminal_exit(
                         &terminal_hex,
-                        TerminalLifecycle::Exited,
                         None,
-                        Some(serde_json::json!({
-                            "reason":"launch-failed",
-                            "error":error.to_string(),
-                        })),
+                        &TerminalExit::unknown(format!("launch-failed: {error}")),
                     );
                     return Err(error);
                 }
@@ -4422,13 +4569,10 @@ impl Mux {
             if let Err(error) =
                 insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
             {
-                let _ = self.transition_terminal_lifecycle(
-                    "terminal-exited",
-                    "terminal-surface-insert-failed",
+                let _ = self.persist_terminal_exit(
                     &terminal_hex,
-                    TerminalLifecycle::Exited,
                     Some(&incarnation),
-                    Some(serde_json::json!({"reason":"surface-insert-failed"})),
+                    &TerminalExit::unknown("surface-insert-failed"),
                 );
                 surface.kill();
                 return Err(error);
@@ -5399,8 +5543,9 @@ impl Mux {
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
         }
-        let (commit, terminal_incarnation) = {
+        let (commit, terminal_incarnation, closed_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
+            let public_id = registry.terminal_resource_id(terminal_id)?;
             let commit = registry.close_terminal(
                 mutation,
                 expected_generation,
@@ -5408,13 +5553,16 @@ impl Mux {
                 terminal_id,
                 terminal_incarnation,
             )?;
-            if !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false) {
+            let newly_closed =
+                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            if newly_closed {
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
             let incarnation =
                 registry.terminal_record(terminal_id)?.and_then(|terminal| terminal.incarnation);
-            (commit, incarnation)
+            (commit, incarnation, newly_closed.then_some(public_id).flatten())
         };
+        self.notify_terminal_exit_waiters(closed_public_id);
         let notifications = self.surface_notifications();
         let (target, removed, changed_screens, empty_revision, delta, selection_resync) = {
             let mut state = self.state.lock().unwrap();
@@ -5482,6 +5630,7 @@ impl Mux {
             return Ok(());
         };
         let mut registry = self.workspace_registry.lock().unwrap();
+        let public_id = registry.terminal_resource_id(&identity.terminal_id)?;
         let commit = registry.close_terminal(
             &WorkspaceMutation::local("cmux-tui"),
             None,
@@ -5489,8 +5638,14 @@ impl Mux {
             &identity.terminal_id,
             Some(&identity.incarnation),
         )?;
-        if !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false) {
+        let newly_closed =
+            !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+        if newly_closed {
             self.emit_terminal_registry_changed(&registry, commit.revision);
+        }
+        drop(registry);
+        if newly_closed {
+            self.notify_terminal_exit_waiters(public_id);
         }
         Ok(())
     }
@@ -5501,7 +5656,7 @@ impl Mux {
     fn fail_hosted_terminal_attachment(
         &self,
         surface: &Arc<Surface>,
-        operation: &str,
+        _operation: &str,
         reason: &str,
     ) -> anyhow::Result<()> {
         let Some(identity) = self.resource_terminal_host_identity(surface) else {
@@ -5511,23 +5666,11 @@ impl Mux {
             }
             return Ok(());
         };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let terminal = registry.terminal_record(&identity.terminal_id)?.ok_or_else(|| {
-            anyhow::anyhow!("missing registry row for terminal {}", identity.terminal_id)
-        })?;
-        if !matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
-        {
-            let (_, revision) = commit_terminal_lifecycle(
-                &mut registry,
-                "terminal-exited",
-                operation,
-                &identity.terminal_id,
-                TerminalLifecycle::Exited,
-                Some(&identity.incarnation),
-                Some(serde_json::json!({"reason":reason})),
-            )?;
-            self.emit_terminal_registry_changed(&registry, revision);
-        }
+        self.persist_terminal_exit(
+            &identity.terminal_id,
+            Some(&identity.incarnation),
+            &TerminalExit::unknown(reason),
+        )?;
         let removed = {
             let mut state = self.state.lock().unwrap();
             let (removed, split_index_dirty) = remove_surface(self, &mut state, surface.id);
@@ -5536,7 +5679,6 @@ impl Mux {
             }
             removed.or_else(|| state.surfaces.remove(&surface.id))
         };
-        drop(registry);
         if removed.is_some() {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -7932,6 +8074,7 @@ impl Mux {
                     .filter_map(|surface| self.resource_terminal_host_identity(surface))
                     .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                     .collect::<Vec<_>>();
+                let closed_public_ids = Self::terminal_public_ids_for_hosted(&registry, &hosted)?;
                 let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
                 let changed_screens = unique_screen_ids(
                     tabs.iter().filter_map(|surface| surface_screen_id(&state, *surface)),
@@ -7968,10 +8111,11 @@ impl Mux {
                     tree_removed,
                     selection_resync,
                     batch,
+                    closed_public_ids,
                 )))
             })();
             let result = result?;
-            if let Some((_, _, _, _, _, _, batch)) = &result
+            if let Some((_, _, _, _, _, _, batch, _)) = &result
                 && batch.closed != 0
             {
                 self.emit_terminal_registry_changed(&registry, batch.revision);
@@ -7988,10 +8132,12 @@ impl Mux {
             tree_removed,
             selection_resync,
             _,
+            closed_public_ids,
         )) = result
         else {
             return Ok(false);
         };
+        self.notify_terminal_exit_waiters(closed_public_ids);
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -8273,7 +8419,15 @@ impl Mux {
             return Ok(result);
         }
         let terminal_revision_before = registry.terminal_snapshot()?.revision;
-        let (removed, delta, empty_revision, selection_resync, result, closed_workspace_key) = {
+        let (
+            removed,
+            delta,
+            empty_revision,
+            selection_resync,
+            result,
+            closed_workspace_key,
+            closed_public_ids,
+        ) = {
             let mut state = self.state.lock().unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
@@ -8283,6 +8437,7 @@ impl Mux {
             }
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
+            let closed_public_ids = registry.terminal_resource_ids_in_workspace(&key)?;
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
             let desired_active_workspace = if state.active_workspace == index {
@@ -8357,13 +8512,14 @@ impl Mux {
             let empty_revision = state.workspaces.is_empty().then_some(state.workspace_revision);
             let selection_resync = was_active && empty_revision.is_none();
             let result = workspace_mutation_result(&commit)?;
-            (removed, delta, empty_revision, selection_resync, result, key)
+            (removed, delta, empty_revision, selection_resync, result, key, closed_public_ids)
         };
         let terminal_revision_after = registry.terminal_snapshot()?.revision;
         if terminal_revision_after != terminal_revision_before {
             self.emit_terminal_registry_changed(&registry, terminal_revision_after);
         }
         drop(registry);
+        self.notify_terminal_exit_waiters(closed_public_ids);
         if project_resource {
             self.publish_resource_event();
         }
@@ -8795,13 +8951,14 @@ impl Mux {
         let terminal = registry
             .terminal_record(terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
+        let public_terminal_id = registry.terminal_resource_id(terminal_id)?;
         if !matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
-            && registry.terminal_resource_id(terminal_id)?.is_none()
+            && public_terminal_id.is_none()
         {
             // One-release compatibility for pre-resource terminal rows. They
             // have no public identity to emit, but still retain the exact
             // outcome in the terminal timeline and remain first-writer wins.
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             let (_, terminal_revision) = commit_terminal_lifecycle(
                 &mut registry,
                 "terminal-exited",
@@ -8836,6 +8993,9 @@ impl Mux {
         drop(state);
         drop(registry);
         if !replayed {
+            if let Some(public_terminal_id) = public_terminal_id.as_ref() {
+                self.terminal_exit_waiters.notify(public_terminal_id);
+            }
             self.publish_resource_event();
         }
         Ok(!replayed)
@@ -9628,7 +9788,15 @@ impl Mux {
         let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mutation = WorkspaceMutation::local("cmux-tui-layout-undo");
-        let (removed, deltas, selection_resync, terminal_revision, terminal_count, revision) = {
+        let (
+            removed,
+            deltas,
+            selection_resync,
+            terminal_revision,
+            terminal_count,
+            closed_public_ids,
+            revision,
+        ) = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 return Err(LayoutUndoError::Stale(
@@ -9723,6 +9891,7 @@ impl Mux {
                 .filter_map(|surface| self.resource_terminal_host_identity(surface))
                 .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                 .collect::<Vec<_>>();
+            let closed_public_ids = Self::terminal_public_ids_for_hosted(&registry, &hosted)?;
             let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
             let mut removed = Vec::new();
             for surface in tabs {
@@ -9751,10 +9920,19 @@ impl Mux {
             }
             Self::rebuild_split_screen_index(&mut state);
             let selection_resync = selection_before != active_tree_selection(&state);
-            (removed, deltas, selection_resync, batch.revision, batch.closed, revision)
+            (
+                removed,
+                deltas,
+                selection_resync,
+                batch.revision,
+                batch.closed,
+                closed_public_ids,
+                revision,
+            )
         };
         drop(registry);
 
+        self.notify_terminal_exit_waiters(closed_public_ids);
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
             surface.kill();
@@ -10032,11 +10210,18 @@ impl Mux {
             .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
             .collect::<Vec<_>>();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let batch = match registry.close_terminals_atomically(
-            &WorkspaceMutation::local("cmux-tui-layout-discard"),
-            &hosted,
-        ) {
-            Ok(batch) => batch,
+        let close = Self::terminal_public_ids_for_hosted(&registry, &hosted).and_then(
+            |closed_public_ids| {
+                registry
+                    .close_terminals_atomically(
+                        &WorkspaceMutation::local("cmux-tui-layout-discard"),
+                        &hosted,
+                    )
+                    .map(|batch| (batch, closed_public_ids))
+            },
+        );
+        let (batch, closed_public_ids) = match close {
+            Ok(result) => result,
             Err(error) => {
                 // The transaction rolled back, so killing or dropping these
                 // surfaces would leave durable Running rows unreachable. Put
@@ -10099,6 +10284,7 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, batch.revision);
         }
         drop(registry);
+        self.notify_terminal_exit_waiters(closed_public_ids);
         for surface in spawned {
             surface.kill();
         }
@@ -17998,6 +18184,63 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn dead_public_terminal_adoption_wakes_wait_exit() {
+        const TERMINAL: &str = "00000000000040008000000000000011";
+        const INCARNATION: &str = "10000000000040008000000000000011";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("adoption-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001011".into()),
+                None,
+            )
+            .unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        assert!(surface.is_dead(), "the adoption fixture must model an already-dead host");
+        let public_id = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id(TERMINAL)
+            .unwrap()
+            .expect("seeded terminal has a public identity");
+
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let waiting_mux = mux.clone();
+        let waiting_id = public_id.clone();
+        let waiter = std::thread::spawn(move || {
+            waiting_mux.wait_for_terminal_exit(&waiting_id, Some(Duration::from_secs(2)))
+        });
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&public_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        let error = mux
+            .finish_terminal_adoption(TERMINAL, INCARNATION, surface)
+            .expect_err("dead adoption must fail after persisting its exit");
+        assert!(error.to_string().contains("exited during adoption"));
+
+        let exited = waiter.join().unwrap().unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(
+            exited["outcome"],
+            serde_json::json!({
+                "kind":"unknown",
+                "reason":"host-exited-during-adoption",
+            })
+        );
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&public_id), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn restart_sidecar_restores_exact_wait_exit_and_emits_one_public_event() {
         use std::fs::{File, OpenOptions};
         use std::io::Write;
@@ -18401,15 +18644,8 @@ mod tests {
             .unwrap();
             commit_terminal_workspace(&mut registry, TERMINAL, &second.key).unwrap();
         }
-        mux.transition_terminal_lifecycle(
-            "terminal-exited",
-            "host-exited",
-            TERMINAL,
-            TerminalLifecycle::Exited,
-            Some(INCARNATION),
-            Some(serde_json::json!({"reason":"test"})),
-        )
-        .unwrap();
+        mux.persist_terminal_exit(TERMINAL, Some(INCARNATION), &TerminalExit::unknown("test"))
+            .unwrap();
         let terminal = mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal;
         assert_eq!(terminal.workspace_key, second.key);
         assert_eq!(terminal.lifecycle, TerminalLifecycle::Exited);

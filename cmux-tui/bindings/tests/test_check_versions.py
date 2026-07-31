@@ -23,6 +23,10 @@ class CheckVersionsTests(unittest.TestCase):
         release_version: str = "1.2.3",
         sidebar_version: str | None = None,
         sidebar_client_version: str | None = None,
+        zig_manifest_version: str | None = None,
+        zig_example_version: str | None = None,
+        zig_manifest_source: str | None = None,
+        zig_build_source: str | None = None,
     ) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             bindings = Path(temporary_directory)
@@ -31,6 +35,10 @@ class CheckVersionsTests(unittest.TestCase):
                 release_version=release_version,
                 sidebar_version=sidebar_version or release_version,
                 sidebar_client_version=sidebar_client_version or release_version,
+                zig_manifest_version=zig_manifest_version or release_version,
+                zig_example_version=zig_example_version or release_version,
+                zig_manifest_source=zig_manifest_source,
+                zig_build_source=zig_build_source,
             )
             stdout = io.StringIO()
             stderr = io.StringIO()
@@ -45,6 +53,10 @@ class CheckVersionsTests(unittest.TestCase):
         release_version: str,
         sidebar_version: str,
         sidebar_client_version: str,
+        zig_manifest_version: str,
+        zig_example_version: str,
+        zig_manifest_source: str | None,
+        zig_build_source: str | None,
     ) -> None:
         files = {
             "typescript/package.json": f'{{"version": "{release_version}"}}',
@@ -72,9 +84,23 @@ class CheckVersionsTests(unittest.TestCase):
                 "project(cmux_tui_sdk VERSION "
                 f"{release_version} LANGUAGES CXX)\n"
             ),
-            "zig/build.zig": (
-                'const version = std.SemanticVersion.parse("'
-                f'{release_version}") catch unreachable;\n'
+            "zig/build.zig.zon": zig_manifest_source
+            if zig_manifest_source is not None
+            else (
+                ".{\n"
+                "    .name = .cmux_tui,\n"
+                f'    .version = "{zig_manifest_version}",\n'
+                '    .minimum_zig_version = "0.15.2",\n'
+                "}\n"
+            ),
+            "zig/build.zig": zig_build_source
+            if zig_build_source is not None
+            else (
+                "const example = b.addExecutable(.{\n"
+                '    .name = "cmux-tui-watch",\n'
+                "    .version = std.SemanticVersion.parse(\""
+                f'{zig_example_version}") catch unreachable,\n'
+                "});\n"
             ),
         }
         for relative_path, contents in files.items():
@@ -107,6 +133,159 @@ class CheckVersionsTests(unittest.TestCase):
             stderr,
             "SDK version error: rust-sidebar cmux-client dependency "
             "must be 1.2.3, found ^1.2.3\n",
+        )
+
+    def test_uses_zig_manifest_as_authoritative_package_version(self) -> None:
+        result, stdout, stderr = self.run_guard(zig_manifest_version="1.2.4")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("zig: 1.2.4", stderr)
+        self.assertIn("SDK version error: package versions differ", stderr)
+
+    def test_rejects_drift_in_zig_example_executable_version(self) -> None:
+        result, stdout, stderr = self.run_guard(zig_example_version="1.2.4")
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig example executable version "
+            "must be 1.2.3, found 1.2.4\n",
+        )
+
+    def test_rejects_missing_zig_manifest_version(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_manifest_source=".{\n    .name = .cmux_tui,\n}\n"
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig.zon has no package version\n",
+        )
+
+    def test_rejects_duplicate_zig_manifest_versions(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_manifest_source=(
+                ".{\n"
+                '    .version = "1.2.3",\n'
+                '    .version = "1.2.4",\n'
+                "}\n"
+            )
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig.zon has duplicate package versions\n",
+        )
+
+    def test_rejects_malformed_zig_manifest_version(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_manifest_source=".{\n    .version = 1.2.3,\n}\n"
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig.zon has a malformed package version\n",
+        )
+
+    def test_rejects_zig_incompatible_numeric_versions(self) -> None:
+        invalid_versions = (
+            "01.2.3",
+            "1.02.3",
+            "1.2.03",
+            f"{check_versions.ZIG_USIZE_MAX + 1}.2.3",
+        )
+        for version in invalid_versions:
+            with self.subTest(source="manifest", version=version):
+                result, stdout, stderr = self.run_guard(
+                    zig_manifest_version=version
+                )
+                self.assertEqual(result, 1)
+                self.assertEqual(stdout, "")
+                self.assertEqual(
+                    stderr,
+                    "SDK version error: zig/build.zig.zon has a malformed "
+                    "package version\n",
+                )
+            with self.subTest(source="build", version=version):
+                result, stdout, stderr = self.run_guard(zig_example_version=version)
+                self.assertEqual(result, 1)
+                self.assertEqual(stdout, "")
+                self.assertEqual(
+                    stderr,
+                    "SDK version error: zig/build.zig has a malformed example "
+                    "executable version\n",
+                )
+
+    def test_accepts_zig_usize_boundary(self) -> None:
+        version = f"{check_versions.ZIG_USIZE_MAX}.2.3"
+        result, stdout, stderr = self.run_guard(release_version=version)
+
+        self.assertEqual(result, 0)
+        self.assertIn(f"SDK versions ok: {version}", stdout)
+        self.assertEqual(stderr, "")
+
+    def test_ignores_commented_zig_manifest_versions(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_manifest_source=(
+                ".{\n"
+                '    // .version = "9.9.9",\n'
+                '    .version = "1.2.3", // authoritative package version\n'
+                '    .paths = .{ "src", "https://example.test//asset" },\n'
+                "}\n"
+            )
+        )
+
+        self.assertEqual(result, 0)
+        self.assertIn("SDK versions ok: 1.2.3", stdout)
+        self.assertEqual(stderr, "")
+
+    def test_rejects_missing_zig_example_version(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_build_source='const name = "cmux-tui-watch";\n'
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig has no example executable version\n",
+        )
+
+    def test_rejects_duplicate_zig_example_versions(self) -> None:
+        declaration = (
+            '.version = std.SemanticVersion.parse("1.2.3") catch unreachable,\n'
+        )
+        result, stdout, stderr = self.run_guard(
+            zig_build_source=declaration + declaration
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig has duplicate example executable "
+            "versions\n",
+        )
+
+    def test_rejects_malformed_zig_example_version(self) -> None:
+        result, stdout, stderr = self.run_guard(
+            zig_build_source=".version = 1.2.3,\n"
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(
+            stderr,
+            "SDK version error: zig/build.zig has a malformed example executable "
+            "version\n",
         )
 
 

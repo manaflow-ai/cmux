@@ -94,10 +94,16 @@ impl JsonLineConnection {
     ) -> Result<T> {
         let timeout = socket_timeout(timeout);
         let previous = self.read_timeout;
-        self.reader
-            .get_ref()
-            .set_read_timeout(Some(timeout))
-            .map_err(|error| CmuxError::Connection(format!("set read timeout failed: {error}")))?;
+        if let Err(error) = self.reader.get_ref().set_read_timeout(Some(timeout)) {
+            if error.kind() == std::io::ErrorKind::InvalidInput {
+                // macOS may reject SO_RCVTIMEO after the peer has queued its
+                // final bytes and closed. Draining the buffered frame or EOF
+                // is nonblocking in that state, and the previous timeout
+                // remains installed if the socket is unexpectedly still live.
+                return operation(self);
+            }
+            return Err(CmuxError::Connection(format!("set read timeout failed: {error}")));
+        }
         self.read_timeout = timeout;
         let result = operation(self);
         if self.reader.get_ref().set_read_timeout(Some(previous)).is_ok() {

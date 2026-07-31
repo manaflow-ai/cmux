@@ -17,7 +17,7 @@ use std::time::Duration;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
     Command {

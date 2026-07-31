@@ -25,7 +25,7 @@ use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -48,7 +48,7 @@ use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
 use crate::model::{Screen, State, Workspace};
-use crate::mux::clamp_terminal_size;
+use crate::mux::{ResourceWaitWake, clamp_terminal_size};
 use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
@@ -1272,7 +1272,7 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
-const RESOURCE_WAIT_POLL: Duration = Duration::from_millis(100);
+const RESOURCE_WAIT_CANCEL_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
@@ -1524,6 +1524,7 @@ struct MessageWriter {
     sink: Arc<dyn MessageSink>,
     open: Arc<AtomicBool>,
     next_stream_id: Arc<AtomicU64>,
+    wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
 }
 
 impl MessageWriter {
@@ -1532,6 +1533,7 @@ impl MessageWriter {
             sink: Arc::new(sink),
             open: Arc::new(AtomicBool::new(true)),
             next_stream_id: Arc::new(AtomicU64::new(1)),
+            wait_wakeups: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -1594,8 +1596,23 @@ impl MessageWriter {
         self.sink.set_write_timeout(timeout)
     }
 
+    fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
+        let mut wakeups = self.wait_wakeups.lock().unwrap();
+        wakeups.retain(|registered| registered.strong_count() > 0);
+        if self.is_open() {
+            wakeups.push(Arc::downgrade(wake));
+        } else {
+            drop(wakeups);
+            wake.notify();
+        }
+    }
+
     fn close(&self) {
         if self.open.swap(false, Ordering::AcqRel) {
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+                wake.notify();
+            }
             self.sink.close();
         }
     }
@@ -2336,13 +2353,46 @@ impl Drop for ResourceClientStream {
 }
 
 struct ResourceClientWait {
-    canceled: Arc<AtomicBool>,
+    canceled: Arc<ResourceWaitCancellation>,
     _worker_permit: ResourceWorkerPermit,
 }
 
 impl Drop for ResourceClientWait {
     fn drop(&mut self) {
-        self.canceled.store(true, Ordering::Release);
+        self.canceled.cancel();
+    }
+}
+
+#[derive(Default)]
+struct ResourceWaitCancellation {
+    canceled: AtomicBool,
+    wakeups: Mutex<Vec<Weak<ResourceWaitWake>>>,
+}
+
+impl ResourceWaitCancellation {
+    fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+
+    fn register(&self, wake: &Arc<ResourceWaitWake>) {
+        let mut wakeups = self.wakeups.lock().unwrap();
+        wakeups.retain(|registered| registered.strong_count() > 0);
+        if self.is_canceled() {
+            drop(wakeups);
+            wake.notify();
+        } else {
+            wakeups.push(Arc::downgrade(wake));
+        }
+    }
+
+    fn cancel(&self) {
+        if self.canceled.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let wakeups = std::mem::take(&mut *self.wakeups.lock().unwrap());
+        for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
+            wake.notify();
+        }
     }
 }
 
@@ -2518,13 +2568,14 @@ impl ClientRegistry {
     fn install_resource_wait(
         &self,
         client: u64,
-    ) -> Result<(u64, Arc<AtomicBool>, ResourceWorkerPermit), ResourceWaitInstallError> {
+    ) -> Result<(u64, Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
+    {
         let mut state = self.state.lock().unwrap();
         let record =
             state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
         let worker_permit = self.resource_wait_admission.try_reserve(client)?;
         let wait_id = self.next_resource_wait_id.fetch_add(1, Ordering::Relaxed);
-        let canceled = Arc::new(AtomicBool::new(false));
+        let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             wait_id,
             ResourceClientWait {
@@ -3163,6 +3214,7 @@ fn handle_connection_with_permit(
         control: Some(SinkControl::Unix(control)),
     });
     let writer_outbound = outbound;
+    let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(text) = writer_outbound.recv() {
@@ -3174,6 +3226,7 @@ fn handle_connection_with_permit(
                     break;
                 }
             }
+            writer_close.close();
             let _ = write_half.shutdown(Shutdown::Both);
         })
     else {
@@ -3269,6 +3322,7 @@ fn handle_websocket_connection_with_permit(
         control: Some(SinkControl::WebSocket(control)),
     });
     let writer_outbound = outbound;
+    let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut websocket = WebSocket::from_raw_socket(writer_stream, Role::Server, None);
@@ -3278,6 +3332,7 @@ fn handle_websocket_connection_with_permit(
                     break;
                 }
             }
+            writer_close.close();
             let _ = websocket.close(None);
             let _ = websocket.flush();
             let _ = writer_shutdown.shutdown(Shutdown::Both);
@@ -3708,15 +3763,15 @@ fn resource_wait_timeout(
     })
 }
 
-fn resource_wait_stopped(canceled: &AtomicBool, writer: &MessageWriter) -> bool {
-    canceled.load(Ordering::Acquire) || !writer.is_open()
+fn resource_wait_stopped(canceled: &ResourceWaitCancellation, writer: &MessageWriter) -> bool {
+    canceled.is_canceled() || !writer.is_open()
 }
 
 fn run_terminal_resource_wait(
     mux: &Arc<Mux>,
     writer: &MessageWriter,
     request: &crate::resource_router::ParsedResourceRequest,
-    canceled: &AtomicBool,
+    canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let pattern = request.fields["pattern"].as_str().expect("catalog validates wait pattern");
@@ -3743,18 +3798,13 @@ fn run_terminal_resource_wait(
             .map_err(resource_wait_runtime_error)?
             .map_err(resource_wait_runtime_error)
     };
+    let mut observed = surface.terminal_stream_revision().map_err(resource_wait_runtime_error)?;
     let mut text = check()?;
     if regex.is_match(&text) {
         return Ok(Some(json!({"matched":true,"text":text})));
     }
     if timeout == Some(Duration::ZERO) {
         return Ok(Some(json!({"matched":false,"text":text})));
-    }
-
-    let attach = surface.attach_stream().map_err(resource_wait_runtime_error)?;
-    text = check()?;
-    if regex.is_match(&text) {
-        return Ok(Some(json!({"matched":true,"text":text})));
     }
 
     loop {
@@ -3766,29 +3816,37 @@ fn run_terminal_resource_wait(
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                     return Ok(Some(json!({"matched":false,"text":text})));
                 };
-                remaining.min(RESOURCE_WAIT_POLL)
+                remaining.min(RESOURCE_WAIT_CANCEL_POLL)
             }
-            None => RESOURCE_WAIT_POLL,
+            None => RESOURCE_WAIT_CANCEL_POLL,
         };
-        let received = attach.stream.recv_timeout(wait);
+        let wake_deadline = Instant::now()
+            .checked_add(wait)
+            .ok_or_else(|| resource_wait_runtime_error("terminal wait wake deadline overflowed"))?;
+        let progress = surface
+            .wait_for_terminal_stream_change(observed, Some(wake_deadline))
+            .map_err(resource_wait_runtime_error)?;
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);
         }
-        match received {
-            Ok(_) => {
+        match progress {
+            Some(revision) => {
+                observed = revision;
                 text = check()?;
                 if regex.is_match(&text) {
                     return Ok(Some(json!({"matched":true,"text":text})));
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            None => {
                 if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                    return Ok(Some(json!({"matched":false,"text":text})));
+                    // Close the output/deadline race with one final
+                    // authoritative snapshot.
+                    text = check()?;
+                    return Ok(Some(json!({
+                        "matched":regex.is_match(&text),
+                        "text":text,
+                    })));
                 }
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                text = check()?;
-                return Ok(Some(json!({"matched":regex.is_match(&text),"text":text})));
             }
         }
     }
@@ -3798,7 +3856,7 @@ fn run_terminal_resource_wait_exit(
     mux: &Arc<Mux>,
     writer: &MessageWriter,
     request: &crate::resource_router::ParsedResourceRequest,
-    canceled: &AtomicBool,
+    canceled: &ResourceWaitCancellation,
 ) -> Result<Option<Value>, ResourceError> {
     let path = mux.resolve_resource_path(crate::ResourceTarget::Terminal, &request.selectors)?;
     let terminal_id =
@@ -3811,51 +3869,37 @@ fn run_terminal_resource_wait_exit(
             })
         })
         .transpose()?;
-    loop {
-        if resource_wait_stopped(canceled, writer) {
-            return Ok(None);
-        }
-        let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
-        if state["state"] == "exited" {
-            return Ok(Some(state));
-        }
-        if timeout == Some(Duration::ZERO) {
-            return Ok(Some(state));
-        }
-        let epoch = mux.resource_event_epoch();
-        let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
-        if state["state"] == "exited" {
-            return Ok(Some(state));
-        }
-        let wait = match deadline {
-            Some(deadline) => {
-                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                    return Ok(Some(state));
-                };
-                remaining.min(RESOURCE_WAIT_POLL)
-            }
-            None => RESOURCE_WAIT_POLL,
-        };
-        mux.wait_for_resource_event(epoch, wait);
-        if resource_wait_stopped(canceled, writer) {
-            return Ok(None);
-        }
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return mux
-                .terminal_exit_state(&terminal_id)
-                .map(Some)
-                .map_err(resource_wait_runtime_error);
-        }
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
     }
+    // Register every wake source before the initial query. A concurrent exit,
+    // connection close, or client cleanup therefore cannot strand this wait.
+    let subscription = mux.subscribe_terminal_exit(&terminal_id);
+    let wake = subscription.wake();
+    canceled.register(&wake);
+    writer.register_wait_wakeup(&wake);
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
+    }
+    let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
+    if state["state"] == "exited" || timeout == Some(Duration::ZERO) {
+        return Ok(Some(state));
+    }
+
+    let _explicit_wake = subscription.wait_until(deadline);
+    if resource_wait_stopped(canceled, writer) {
+        return Ok(None);
+    }
+    mux.terminal_exit_state(&terminal_id).map(Some).map_err(resource_wait_runtime_error)
 }
 
 fn run_resource_wait(
     mux: &Arc<Mux>,
     writer: &MessageWriter,
     request: crate::resource_router::ParsedResourceRequest,
-    canceled: &AtomicBool,
+    canceled: &ResourceWaitCancellation,
 ) -> Option<Result<Value, ResourceError>> {
-    if canceled.load(Ordering::Acquire) || !writer.is_open() {
+    if canceled.is_canceled() || !writer.is_open() {
         return None;
     }
     let result = match request.envelope.operation {
@@ -3909,7 +3953,7 @@ fn start_resource_wait(
             let _worker_permit = worker_permit;
             if let Some(result) =
                 run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
-                && !worker_canceled.load(Ordering::Acquire)
+                && !worker_canceled.is_canceled()
                 && worker_writer.is_open()
             {
                 let _ = send_resource_response(&worker_writer, worker_id, operation, result);
@@ -9030,6 +9074,264 @@ mod tests {
     }
 
     #[test]
+    fn connection_terminal_wait_coalesces_more_than_attach_capacity() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-coalesced-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-coalesced-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        let surface = mux
+            .resource_surface_for_terminal(&terminal_id)
+            .and_then(|surface| mux.surface(surface))
+            .expect("created terminal surface");
+        let wait = resource_request(
+            "coalesced-wait",
+            "terminal.wait",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "pattern":"READY",
+                "timeout_ms":"2000",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while surface.terminal_stream_waiter_count_for_test() != Some(1) {
+            assert!(Instant::now() < waiting_deadline, "terminal wait did not subscribe");
+            std::thread::yield_now();
+        }
+        for _ in 0..300 {
+            surface.apply_stream_output_for_test(b"\r").unwrap();
+        }
+        surface.apply_stream_output_for_test(b"READY").unwrap();
+
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "coalesced-wait");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["matched"], true, "{response}");
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn idle_wait_exit_workers_do_not_poll_the_terminal_registry() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-idle-exit-waits",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-idle-exit-waits"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        for index in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+            let wait = resource_request(
+                &format!("idle-exit-wait-{index}"),
+                "terminal.wait_exit",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "terminal":terminal_id,
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        }
+        let admission_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id)
+            != RESOURCE_WAITS_PER_CLIENT_CAPACITY
+            || mux.terminal_exit_state_query_count_for_test()
+                != RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64
+        {
+            assert!(Instant::now() < admission_deadline, "exit waits did not become idle");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(350));
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
+            "idle wait_exit workers polled the registry"
+        );
+
+        assert!(disconnect_client(&mux, client, false));
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "canceled exit waits stayed blocked");
+            std::thread::yield_now();
+        }
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            RESOURCE_WAITS_PER_CLIENT_CAPACITY as u64,
+            "cancellation performed a redundant terminal query"
+        );
+    }
+
+    #[test]
+    fn wait_exit_deadline_performs_only_one_final_targeted_query() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-exit-deadline",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-exit-deadline"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id = created["result"]["value"]["terminal_id"].as_str().unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        let wait = resource_request(
+            "bounded-exit-wait",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "timeout_ms":"25",
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let response = pop_json(&outbound);
+        assert_eq!(response["id"], "bounded-exit-wait");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["result"]["state"], "pending", "{response}");
+        assert_eq!(response["result"]["lifecycle"], "running", "{response}");
+        assert_eq!(
+            mux.terminal_exit_state_query_count_for_test(),
+            2,
+            "a deadline should perform one initial and one final query"
+        );
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "bounded exit wait retained admission");
+            std::thread::yield_now();
+        }
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
+    fn concurrent_terminal_close_settles_unbounded_connection_wait_exit() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let create = resource_request(
+            "create-for-close-exit-wait",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "initial_content":"terminal",
+            }),
+            Some("create-for-close-exit-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &create, &writer, &scheduler));
+        let created = pop_json(&outbound);
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
+        mux.reset_terminal_exit_state_query_count_for_test();
+
+        let wait = resource_request(
+            "wait-until-concurrent-close",
+            "terminal.wait_exit",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 1
+        {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
+
+        let close = resource_request(
+            "close-terminal-during-exit-wait",
+            "terminal.close",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+            }),
+            Some("close-terminal-during-exit-wait"),
+        );
+        assert!(handle_connection_message(&mux, client, &close, &writer, &scheduler));
+        let responses = [pop_json(&outbound), pop_json(&outbound)];
+        let close_response =
+            responses.iter().find(|response| response["id"] == "close-terminal-during-exit-wait");
+        let wait_response =
+            responses.iter().find(|response| response["id"] == "wait-until-concurrent-close");
+        let close_response = close_response.expect("terminal close response");
+        let wait_response = wait_response.expect("terminal wait_exit response");
+        assert_eq!(close_response["ok"], true, "{close_response}");
+        assert_eq!(wait_response["ok"], false, "{wait_response}");
+        assert_eq!(wait_response["error"]["code"], "operation.failed");
+        assert!(
+            wait_response["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("is not live")),
+            "{wait_response}"
+        );
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 2);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&terminal_id), 0);
+
+        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.control_clients.resource_wait_admission.active() != 0 {
+            assert!(Instant::now() < cleanup_deadline, "settled exit wait retained admission");
+            std::thread::yield_now();
+        }
+        disconnect_client(&mux, client, false);
+    }
+
+    #[test]
     fn disconnect_cancels_unbounded_terminal_waits_and_releases_worker_capacity() {
         let mux = test_mux();
         let (writer, outbound) = captured_writer();
@@ -9125,17 +9427,22 @@ mod tests {
             created["result"]["value"]["terminal_id"].as_str().expect("created terminal ID");
         let wait = resource_request(
             "writer-close-wait",
-            "terminal.wait",
+            "terminal.wait_exit",
             json!({
                 "machine":"current",
                 "session":"current",
                 "terminal":terminal_id,
-                "pattern":"cmux-pattern-that-never-matches-writer-close",
             }),
             None,
         );
         assert!(handle_connection_message(&mux, client, &wait, &writer, &scheduler));
         assert_eq!(mux.control_clients.resource_wait_admission.active(), 1);
+        let terminal_id = TerminalPublicId::parse(terminal_id).unwrap();
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&terminal_id) != 1 {
+            assert!(Instant::now() < waiting_deadline, "exit wait did not subscribe");
+            std::thread::yield_now();
+        }
 
         writer.close();
         assert!(

@@ -236,8 +236,14 @@ pub const Client = struct {
         if (encoded.len > self.limits.max_request_bytes) {
             return error.RequestTooLarge;
         }
-        try self.connection.writeAll(encoded, self.timeout_ms);
-        try self.connection.writeAll("\n", self.timeout_ms);
+        self.connection.writeAll(encoded, self.timeout_ms) catch |failure| {
+            self.close();
+            return failure;
+        };
+        self.connection.writeAll("\n", self.timeout_ms) catch |failure| {
+            self.close();
+            return failure;
+        };
         return id;
     }
 
@@ -683,6 +689,8 @@ const ScriptedConnection = struct {
     chunk_size: usize,
     output: std.ArrayList(u8) = .empty,
     closed: bool = false,
+    write_calls: usize = 0,
+    fail_write_call: ?usize = null,
 
     fn create(input: []const u8, chunk_size: usize) !*ScriptedConnection {
         const state = try std.testing.allocator.create(ScriptedConnection);
@@ -718,6 +726,10 @@ const ScriptedConnection = struct {
     ) !void {
         _ = timeout_ms;
         if (self.closed) return error.ConnectionClosed;
+        self.write_calls += 1;
+        if (self.fail_write_call == self.write_calls) {
+            return error.InjectedWriteFailure;
+        }
         try self.output.appendSlice(self.allocator, bytes);
     }
 
@@ -1019,6 +1031,41 @@ test "request size is bounded before transport write" {
             .{ .name = "test", .authority = "control" },
             .{ .text = "larger than the configured request bound" },
         ),
+    );
+}
+
+test "framing write failure closes the raw client and preserves the error" {
+    const state = try ScriptedConnection.create("", 64);
+    state.fail_write_call = 2;
+    var client = Client.init(
+        std.testing.allocator,
+        Connection.from(state),
+        .{},
+    );
+    defer client.deinit();
+
+    try std.testing.expectError(
+        error.InjectedWriteFailure,
+        client.callUnchecked(
+            struct {},
+            .{ .name = "first", .authority = "control" },
+            .{},
+        ),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expect(state.closed);
+    const bytes_after_failure = state.output.items.len;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client.callUnchecked(
+            struct {},
+            .{ .name = "second", .authority = "control" },
+            .{},
+        ),
+    );
+    try std.testing.expectEqual(
+        bytes_after_failure,
+        state.output.items.len,
     );
 }
 

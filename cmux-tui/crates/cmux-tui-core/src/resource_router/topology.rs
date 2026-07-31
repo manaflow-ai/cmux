@@ -403,13 +403,13 @@ fn mutation(envelope: &RequestEnvelope) -> Result<WorkspaceMutation, ResourceErr
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Barrier, Mutex, mpsc};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::SurfaceOptions;
     use crate::resource::{
         EnvelopeType, MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId,
-        TabPublicId, WorkspacePublicId,
+        TabPublicId, TerminalPublicId, WorkspacePublicId,
     };
 
     fn mux() -> Arc<Mux> {
@@ -919,6 +919,109 @@ mod tests {
             assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal + 1);
             mux.shutdown();
         }
+    }
+
+    #[test]
+    fn pane_close_wakes_only_wait_exit_calls_for_its_tombstoned_terminals() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "pane-close-exit-waits");
+        let screen_id = created["value"]["screen_id"].as_str().unwrap();
+        let first_pane_id = created["value"]["pane_id"].as_str().unwrap();
+        let first_terminal =
+            TerminalPublicId::parse(created["value"]["terminal_id"].as_str().unwrap()).unwrap();
+        let second = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabCreateTerminal,
+                selectors(None, None, Some(first_pane_id), None),
+                json!({}),
+                Some("pane-close-second-terminal"),
+            ),
+        )
+        .unwrap();
+        let second_terminal =
+            TerminalPublicId::parse(second["value"]["terminal_id"].as_str().unwrap()).unwrap();
+        let unrelated = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneCreate,
+                selectors(None, Some(screen_id), None, None),
+                json!({}),
+                Some("pane-close-unrelated-terminal"),
+            ),
+        )
+        .unwrap();
+        let unrelated_pane_id = unrelated["value"]["pane_id"].as_str().unwrap().to_string();
+        let unrelated_terminal =
+            TerminalPublicId::parse(unrelated["value"]["terminal_id"].as_str().unwrap()).unwrap();
+
+        mux.reset_terminal_exit_state_query_count_for_test();
+        let (settled_tx, settled_rx) = mpsc::channel();
+        for terminal_id in
+            [first_terminal.clone(), second_terminal.clone(), unrelated_terminal.clone()]
+        {
+            let waiting_mux = mux.clone();
+            let settled_tx = settled_tx.clone();
+            std::thread::spawn(move || {
+                let result = waiting_mux.wait_for_terminal_exit(&terminal_id, None);
+                let _ = settled_tx.send((terminal_id, result));
+            });
+        }
+        drop(settled_tx);
+
+        let waiting_deadline = Instant::now() + Duration::from_secs(1);
+        while mux.terminal_exit_waiter_count_for_test(&first_terminal) != 1
+            || mux.terminal_exit_waiter_count_for_test(&second_terminal) != 1
+            || mux.terminal_exit_waiter_count_for_test(&unrelated_terminal) != 1
+            || mux.terminal_exit_state_query_count_for_test() != 3
+        {
+            assert!(Instant::now() < waiting_deadline, "exit waits did not subscribe");
+            std::thread::yield_now();
+        }
+
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneClose,
+                selectors(None, None, Some(first_pane_id), None),
+                json!({}),
+                Some("close-pane-with-exit-waits"),
+            ),
+        )
+        .unwrap();
+        let mut settled_ids = Vec::new();
+        for _ in 0..2 {
+            let (terminal_id, result) = settled_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("pane close stranded a terminal exit wait");
+            let error = result.unwrap_err();
+            assert!(error.to_string().contains("is not live"), "{error:#}");
+            settled_ids.push(terminal_id.to_string());
+        }
+        settled_ids.sort();
+        let mut expected_ids = vec![first_terminal.to_string(), second_terminal.to_string()];
+        expected_ids.sort();
+        assert_eq!(settled_ids, expected_ids);
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 5);
+        assert_eq!(mux.terminal_exit_waiter_count_for_test(&unrelated_terminal), 1);
+
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneClose,
+                selectors(None, None, Some(&unrelated_pane_id), None),
+                json!({}),
+                Some("close-unrelated-pane-after-wait-check"),
+            ),
+        )
+        .unwrap();
+        let (terminal_id, result) = settled_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cleanup pane close stranded its terminal exit wait");
+        assert_eq!(terminal_id, unrelated_terminal);
+        assert!(result.unwrap_err().to_string().contains("is not live"));
+        assert_eq!(mux.terminal_exit_state_query_count_for_test(), 6);
+        mux.shutdown();
     }
 
     #[test]

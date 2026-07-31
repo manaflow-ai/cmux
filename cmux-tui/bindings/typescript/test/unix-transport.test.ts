@@ -101,6 +101,12 @@ test("Unix resource streams outlive their acknowledged open deadline", async () 
           ok: true,
           result: {},
         })}\n`);
+        socket.write(`${JSON.stringify({
+          protocol: "cmux.protocol/1",
+          type: "stream_end",
+          stream_id: request.params.stream,
+          reason: "canceled",
+        })}\n`);
       }
     });
   });

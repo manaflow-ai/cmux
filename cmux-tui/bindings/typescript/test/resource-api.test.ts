@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   Client,
   CmuxAbortError,
+  CmuxConnectionError,
   CmuxProtocolError,
   CmuxTimeoutError,
   ConfirmationRequiredError,
@@ -17,6 +18,7 @@ import {
   projectionId,
   RendererGrant,
   ResourceError,
+  ResourceProtocol,
   sidebarViewId,
   StreamError,
   decimalString,
@@ -31,6 +33,7 @@ import {
   type Transport,
   type Unsubscribe,
 } from "../src/index.js";
+import { operations } from "../src/internal/operations.js";
 import { CmuxClient } from "../src/raw/index.js";
 
 const HEX_A = "a".repeat(32);
@@ -56,6 +59,7 @@ type Envelope = Record<string, unknown>;
 
 class FakeTransport implements Transport {
   readonly requests: Envelope[] = [];
+  readonly closeRequestCounts: number[] = [];
   private readonly messages = new Set<(json: string) => void>();
   private readonly closes = new Set<() => void>();
   private readonly errors = new Set<(error: Error) => void>();
@@ -88,11 +92,17 @@ class FakeTransport implements Transport {
     return () => this.errors.delete(handler);
   }
 
-  close(): void {}
+  close(): void {
+    this.closeRequestCounts.push(this.requests.length);
+  }
 
   emit(envelope: Envelope): void {
     const json = JSON.stringify(envelope);
     for (const handler of this.messages) handler(json);
+  }
+
+  error(error: Error): void {
+    for (const handler of this.errors) handler(error);
   }
 
   ok(request: Envelope, result: unknown): void {
@@ -103,6 +113,23 @@ class FakeTransport implements Transport {
       ok: true,
       result,
     });
+    if (
+      request.operation === "stream.cancel"
+      && result !== null
+      && typeof result === "object"
+      && !Array.isArray(result)
+      && Object.keys(result).length === 0
+    ) {
+      const stream = (request.params as Envelope | undefined)?.stream;
+      if (typeof stream === "string") {
+        this.emit({
+          protocol: "cmux.protocol/1",
+          type: "stream_end",
+          stream_id: stream,
+          reason: "canceled",
+        });
+      }
+    }
   }
 }
 
@@ -1727,6 +1754,1523 @@ test("stream cancellation uses the opened route and purges buffered items", asyn
     stream: openedStream,
   });
   client.close();
+});
+
+test("public cancel discards stale items and shares one route cleanup", async () => {
+  let openedStream = "";
+  let cancelRequest: Envelope | undefined;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      cancelRequest = request;
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const client = new Client({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+  const stream = await client.session(SESSION).events();
+  const canceling = stream.cancel();
+  assert.ok(cancelRequest);
+
+  for (let index = 0; index <= 256; index += 1) {
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: String(index),
+      item: { kind: "changed", data: { index } },
+    });
+  }
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    1,
+  );
+
+  transport.ok(cancelRequest, {});
+  await canceling;
+  assert.deepEqual(await stream.next(), { done: true, value: undefined });
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    1,
+  );
+  client.close();
+});
+
+test("stream-open timeout cancels the route and restores stream quota", async () => {
+  const openRequests: Envelope[] = [];
+  let activeStream: unknown;
+  let firstDecoded = 0;
+  let secondDecoded = 0;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      if (activeStream !== undefined) {
+        current.emit({
+          protocol: "cmux.protocol/1",
+          type: "response",
+          id: request.id,
+          ok: false,
+          error: {
+            code: "stream.quota_exhausted",
+            message: "one stream allowed",
+            details: {},
+            retryable: true,
+          },
+        });
+        return;
+      }
+      activeStream = (request.params as Envelope).stream_id;
+      openRequests.push(request);
+      if (openRequests.length === 2) {
+        current.ok(request, { stream_id: activeStream });
+      }
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      assert.equal((request.params as Envelope).stream, activeStream);
+      activeStream = undefined;
+      current.ok(request, {});
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const randomValues = [HEX_A, HEX_B];
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => randomValues.shift()!,
+  });
+
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => {
+        firstDecoded += 1;
+        return value;
+      },
+      { timeoutMs: 5 },
+    ),
+    CmuxTimeoutError,
+  );
+
+  const firstOpen = openRequests[0];
+  assert.ok(firstOpen);
+  const firstStream = (firstOpen.params as Envelope).stream_id;
+  const cancel = transport.requests.find(
+    (request) => request.operation === "stream.cancel",
+  );
+  assert.deepEqual(cancel?.params, {
+    machine: "current",
+    session: SESSION,
+    stream: firstStream,
+  });
+
+  const second = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => {
+      secondDecoded += 1;
+      return value;
+    },
+  );
+  const secondOpen = openRequests[1];
+  assert.ok(secondOpen);
+  const secondStream = (secondOpen.params as Envelope).stream_id;
+  assert.notEqual(secondStream, firstStream);
+
+  transport.ok(firstOpen, { stream_id: firstStream });
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: firstStream,
+    sequence: "0",
+    item: { kind: "late" },
+  });
+  assert.equal(firstDecoded, 0);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: secondStream,
+    sequence: "0",
+    item: { kind: "recovered" },
+  });
+  assert.equal((await second.next()).value?.value.kind, "recovered");
+  assert.equal(secondDecoded, 1);
+  await second.cancel();
+  protocol.close();
+});
+
+test("structured stream-open rejection is conclusive and keeps the connection reusable", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.emit({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: false,
+        error: {
+          code: "stream.quota_exhausted",
+          message: "one stream allowed",
+          details: { limit: 1 },
+          retryable: true,
+        },
+      });
+      return;
+    }
+    if (request.operation === "session.ping") {
+      current.ok(request, { alive: true });
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    ),
+    (error: unknown) => (
+      error instanceof ResourceError
+      && error.code === "stream.quota_exhausted"
+      && error.message === "one stream allowed"
+      && error.retryable
+    ),
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, []);
+  assert.deepEqual(
+    (await protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    )).value,
+    { alive: true },
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "session.ping"],
+  );
+  protocol.close();
+});
+
+test("post-dispatch stream-open abort uses an independent cancellation", async () => {
+  let openedStream: unknown;
+  let decoded = 0;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id;
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      current.ok(request, {});
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_B,
+  });
+  const controller = new AbortController();
+  const opening = protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => {
+      decoded += 1;
+      return value;
+    },
+    { signal: controller.signal },
+  );
+  assert.equal(transport.requests.length, 1);
+  controller.abort();
+  await assert.rejects(() => opening, CmuxAbortError);
+
+  assert.deepEqual(
+    transport.requests.find((request) => request.operation === "stream.cancel")?.params,
+    {
+      machine: "current",
+      session: SESSION,
+      stream: openedStream,
+    },
+  );
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: { kind: "late" },
+  });
+  assert.equal(decoded, 0);
+  protocol.close();
+});
+
+test("malformed stream-open ACKs cancel without masking the protocol error", async () => {
+  const cases = [
+    {
+      name: "non-object result",
+      result: [] as unknown,
+      message: /result must be an object/,
+    },
+    {
+      name: "mismatched stream",
+      result: { stream_id: `stream_${HEX_B}` },
+      message: /returned stream/,
+    },
+    {
+      name: "malformed cursor",
+      result: {
+        stream_id: `stream_${HEX_A}`,
+        cursor: { generation: "generation-a" },
+      },
+      message: /cursor/,
+    },
+  ] as const;
+
+  for (const fixture of cases) {
+    let decoded = 0;
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        current.ok(request, fixture.result);
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        current.ok(request, {});
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      randomHex128: () => HEX_A,
+    });
+    await assert.rejects(
+      () => protocol.openStream(
+        operations.sessionEvents,
+        { machine: "current", session: SESSION },
+        (value) => {
+          decoded += 1;
+          return value;
+        },
+      ),
+      fixture.message,
+      fixture.name,
+    );
+    assert.equal(
+      transport.requests.filter((request) => request.operation === "stream.cancel").length,
+      1,
+      fixture.name,
+    );
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: `stream_${HEX_A}`,
+      sequence: "0",
+      item: { kind: "late" },
+    });
+    assert.equal(decoded, 0, fixture.name);
+    assert.deepEqual(transport.closeRequestCounts, [], fixture.name);
+    protocol.close();
+  }
+});
+
+test("failed-open cleanup failure closes once without masking the open error", async () => {
+  const cases = ["send", "dropped", "malformed"] as const;
+  for (const failureMode of cases) {
+    const cleanupSendError = new Error("stream.cancel transport send failed");
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        current.ok(request, { stream_id: `stream_${HEX_B}` });
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        if (failureMode === "send") throw cleanupSendError;
+        if (failureMode === "malformed") {
+          current.ok(request, { unexpected: true });
+        }
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      randomHex128: () => HEX_A,
+    });
+    const started = Date.now();
+    await assert.rejects(
+      () => protocol.openStream(
+        operations.sessionEvents,
+        { machine: "current", session: SESSION },
+        (value) => value,
+      ),
+      (error: unknown) => (
+        error instanceof CmuxProtocolError
+        && /returned stream/.test(error.message)
+      ),
+      failureMode,
+    );
+    assert.ok(Date.now() - started < 2_000, failureMode);
+    assert.deepEqual(
+      transport.requests.map((request) => request.operation),
+      ["session.events", "stream.cancel"],
+      failureMode,
+    );
+    assert.deepEqual(transport.closeRequestCounts, [2], failureMode);
+
+    const requestCount = transport.requests.length;
+    await assert.rejects(
+      () => protocol.request(
+        operations.sessionPing,
+        { machine: "current", session: SESSION },
+      ),
+      (error: unknown) => (
+        error instanceof CmuxConnectionError
+        && /failed-open cleanup was not confirmed/.test(error.message)
+      ),
+      failureMode,
+    );
+    assert.equal(transport.requests.length, requestCount, failureMode);
+    protocol.close();
+    transport.error(new Error("late transport error"));
+    assert.deepEqual(transport.closeRequestCounts, [2], failureMode);
+  }
+});
+
+test("connection failure cancels every dispatched open before one close", async () => {
+  const failure = new CmuxConnectionError("stream-open response transport failed");
+  const openRequests: Envelope[] = [];
+  let decoded = 0;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openRequests.push(request);
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const randomValues = [HEX_A, HEX_B];
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => randomValues.shift()!,
+  });
+  const openings = [
+    protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => {
+        decoded += 1;
+        return value;
+      },
+    ),
+    protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => {
+        decoded += 1;
+        return value;
+      },
+    ),
+  ];
+  assert.equal(openRequests.length, 2);
+  transport.error(failure);
+  await Promise.all(
+    openings.map(async (opening) => {
+      await assert.rejects(
+        () => opening,
+        (error: unknown) => error === failure,
+      );
+    }),
+  );
+  const canceledStreams = transport.requests
+    .filter((request) => request.operation === "stream.cancel")
+    .map((request) => (request.params as Envelope).stream)
+    .sort();
+  assert.deepEqual(
+    canceledStreams,
+    openRequests
+      .map((request) => (request.params as Envelope).stream_id)
+      .sort(),
+  );
+  assert.deepEqual(transport.closeRequestCounts, [4]);
+
+  for (const request of openRequests) {
+    const id = (request.params as Envelope).stream_id;
+    transport.ok(request, { stream_id: id });
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: id,
+      sequence: "0",
+      item: { kind: "late" },
+    });
+  }
+  assert.equal(decoded, 0);
+  protocol.close();
+  transport.error(new Error("late transport error"));
+  assert.deepEqual(transport.closeRequestCounts, [4]);
+});
+
+test("reentrant transport failure waits for dispatch before cleanup and close", async () => {
+  const failure = new CmuxConnectionError("reentrant transport failure");
+  let openedStream: unknown;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id;
+      current.error(failure);
+      return;
+    }
+    if (request.operation === "stream.cancel") return;
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    ),
+    (error: unknown) => error === failure,
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.equal(
+    (transport.requests[1]?.params as Envelope).stream,
+    openedStream,
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+});
+
+test("valid stream-open ACK plus same-turn failure has one cleanup owner", async () => {
+  const failure = new CmuxConnectionError("failure after stream-open ACK");
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.ok(request, {
+        stream_id: (request.params as Envelope).stream_id,
+      });
+      current.error(failure);
+      return;
+    }
+    if (request.operation === "stream.cancel") return;
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_C,
+  });
+
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    ),
+    (error: unknown) => error === failure,
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+});
+
+test("transport send throw after delivery closes without a guessed cancellation", async () => {
+  const sendFailure = new Error("stream-open delivered then send threw");
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.ok(request, {
+        stream_id: (request.params as Envelope).stream_id,
+      });
+      throw sendFailure;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  const opening = protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  const immediatePing = protocol.request(
+    operations.sessionPing,
+    { machine: "current", session: SESSION },
+  );
+  await assert.rejects(
+    () => opening,
+    (error: unknown) => error === sendFailure,
+  );
+  await assert.rejects(() => immediatePing, CmuxConnectionError);
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [1]);
+  await assert.rejects(
+    () => protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    ),
+    CmuxConnectionError,
+  );
+  assert.equal(transport.requests.length, 1);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [1]);
+});
+
+test("send throw downgrades queued reentrant cleanup before close", async () => {
+  const connectionFailure = new Error("reentrant connection failure");
+  const sendFailure = new Error("send failed after reentrant failure");
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.error(connectionFailure);
+      throw sendFailure;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    ),
+    (error: unknown) => error === sendFailure,
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [1]);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [1]);
+});
+
+test("partial sibling send closes without appending stream cancellation", async () => {
+  const sendFailure = new Error("partial ping transport send failed");
+  const transport = new FakeTransport((request) => {
+    if (request.operation === "session.events") return;
+    if (request.operation === "session.ping") throw sendFailure;
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  const opening = protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  await assert.rejects(
+    () => protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    ),
+    (error: unknown) => error === sendFailure,
+  );
+  await assert.rejects(() => opening, CmuxConnectionError);
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "session.ping"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+});
+
+test("stream-open failures before transport dispatch never emit cancellation", async () => {
+  let sends = 0;
+  const transport = new FakeTransport((request, current) => {
+    sends += 1;
+    if (request.operation === "session.ping") {
+      current.ok(request, { alive: true });
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+      { signal: controller.signal },
+    ),
+    CmuxAbortError,
+  );
+  assert.equal(sends, 0);
+  assert.deepEqual(transport.closeRequestCounts, []);
+  assert.deepEqual(
+    (await protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    )).value,
+    { alive: true },
+  );
+  assert.equal(sends, 1);
+  protocol.close();
+});
+
+test("pre-aborted explicit cancellation can be retried", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.ok(request, {
+        stream_id: (request.params as Envelope).stream_id,
+      });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      current.ok(request, {});
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  const stream = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => stream.cancel(controller.signal),
+    CmuxAbortError,
+  );
+  assert.equal(
+    transport.requests.filter(
+      (request) => request.operation === "stream.cancel",
+    ).length,
+    0,
+  );
+  await stream.cancel();
+  assert.equal(
+    transport.requests.filter(
+      (request) => request.operation === "stream.cancel",
+    ).length,
+    1,
+  );
+  protocol.close();
+});
+
+test("explicit cancellation requires response and canceled end in either order", async () => {
+  for (const order of ["response-first", "end-first"] as const) {
+    let openedStream = "";
+    let cancelRequest: Envelope | undefined;
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        openedStream = (request.params as Envelope).stream_id as string;
+        current.ok(request, { stream_id: openedStream });
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        cancelRequest = request;
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      timeoutMs: 100,
+      randomHex128: () => HEX_A,
+    });
+    const stream = await protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    );
+    let settled = false;
+    const canceling = stream.cancel().then(() => {
+      settled = true;
+    });
+    assert.ok(cancelRequest);
+    const response = {
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: cancelRequest.id,
+      ok: true,
+      result: {},
+    };
+    const end = {
+      protocol: "cmux.protocol/1",
+      type: "stream_end",
+      stream_id: openedStream,
+      reason: "canceled",
+      cursor: { generation: "generation-a", revision: "4" },
+      recovery: "cancellation confirmed",
+    };
+    transport.emit(order === "response-first" ? response : end);
+    await Promise.resolve();
+    assert.equal(settled, false, order);
+    transport.emit(order === "response-first" ? end : response);
+    await canceling;
+    assert.equal(stream.end?.reason, "canceled");
+    assert.deepEqual(stream.end?.cursor, {
+      generation: "generation-a",
+      revision: "4",
+    });
+    assert.equal(stream.end?.recovery, "cancellation confirmed");
+    protocol.close();
+  }
+});
+
+test("explicit cancellation rejects noncanonical or wrong stream ends and caches failure", async () => {
+  const invalidEnds = [
+    {
+      name: "wrong reason",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "completed",
+      }),
+    },
+    {
+      name: "missing reason",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+      }),
+    },
+    {
+      name: "unknown field",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "canceled",
+        extra: true,
+      }),
+    },
+    {
+      name: "null cursor",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "canceled",
+        cursor: null,
+      }),
+    },
+    {
+      name: "null recovery",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "canceled",
+        recovery: null,
+      }),
+    },
+    {
+      name: "error on canceled end",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "canceled",
+        error: null,
+      }),
+    },
+    {
+      name: "missing required error",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "error",
+      }),
+    },
+    {
+      name: "noncanonical embedded error",
+      envelope: (stream: string) => ({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: stream,
+        reason: "error",
+        error: {
+          code: "operation.failed",
+          message: "failed",
+          details: {},
+          retryable: false,
+          extra: true,
+        },
+      }),
+    },
+  ] as const;
+
+  for (const fixture of invalidEnds) {
+    let openedStream = "";
+    let cancelRequest: Envelope | undefined;
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        openedStream = (request.params as Envelope).stream_id as string;
+        current.ok(request, { stream_id: openedStream });
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        cancelRequest = request;
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      timeoutMs: 100,
+      randomHex128: () => HEX_A,
+    });
+    const stream = await protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    );
+    const canceling = stream.cancel();
+    assert.ok(cancelRequest);
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "response",
+      id: cancelRequest.id,
+      ok: true,
+      result: {},
+    });
+    transport.emit(fixture.envelope(openedStream));
+    let firstError: unknown;
+    try {
+      await canceling;
+      assert.fail(`${fixture.name} unexpectedly confirmed cancellation`);
+    } catch (error) {
+      firstError = error;
+    }
+    assert.ok(firstError instanceof CmuxProtocolError, fixture.name);
+    await assert.rejects(
+      () => stream.cancel(),
+      (error: unknown) => error === firstError,
+      fixture.name,
+    );
+    assert.equal(
+      transport.requests.filter((request) => request.operation === "stream.cancel").length,
+      1,
+      fixture.name,
+    );
+    assert.deepEqual(transport.closeRequestCounts, [2], fixture.name);
+    protocol.close();
+  }
+});
+
+test("explicit cancellation rejects noncanonical responses and caches failure", async () => {
+  const invalidResponses = [
+    {
+      name: "unknown response field",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: true,
+        result: {},
+        extra: true,
+      }),
+    },
+    {
+      name: "result and error together",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: true,
+        result: {},
+        error: {
+          code: "operation.failed",
+          message: "failed",
+          details: {},
+          retryable: false,
+        },
+      }),
+    },
+    {
+      name: "nonempty result",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: true,
+        result: { unexpected: true },
+      }),
+    },
+    {
+      name: "noncanonical structured error",
+      envelope: (request: Envelope) => ({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: request.id,
+        ok: false,
+        error: {
+          code: "operation.failed",
+          message: "failed",
+          details: {},
+          retryable: false,
+          extra: true,
+        },
+      }),
+    },
+  ] as const;
+
+  for (const fixture of invalidResponses) {
+    let cancelRequest: Envelope | undefined;
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        current.ok(request, {
+          stream_id: (request.params as Envelope).stream_id,
+        });
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        cancelRequest = request;
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      timeoutMs: 100,
+      randomHex128: () => HEX_A,
+    });
+    const stream = await protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    );
+    const canceling = stream.cancel();
+    assert.ok(cancelRequest);
+    transport.emit(fixture.envelope(cancelRequest));
+    let firstError: unknown;
+    try {
+      await canceling;
+      assert.fail(`${fixture.name} unexpectedly confirmed cancellation`);
+    } catch (error) {
+      firstError = error;
+    }
+    assert.ok(firstError instanceof CmuxProtocolError, fixture.name);
+    await assert.rejects(
+      () => stream.cancel(),
+      (error: unknown) => error === firstError,
+      fixture.name,
+    );
+    assert.equal(
+      transport.requests.filter((request) => request.operation === "stream.cancel").length,
+      1,
+      fixture.name,
+    );
+    assert.deepEqual(transport.closeRequestCounts, [2], fixture.name);
+    protocol.close();
+  }
+});
+
+test("explicit cancellation deadline covers missing halves and a wrong stream end", async () => {
+  for (const caseName of ["missing-end", "missing-response", "wrong-stream"] as const) {
+    let openedStream = "";
+    let cancelRequest: Envelope | undefined;
+    const transport = new FakeTransport((request, current) => {
+      if (request.operation === "session.events") {
+        openedStream = (request.params as Envelope).stream_id as string;
+        current.ok(request, { stream_id: openedStream });
+        return;
+      }
+      if (request.operation === "stream.cancel") {
+        cancelRequest = request;
+        return;
+      }
+      assert.fail(`unexpected operation ${String(request.operation)}`);
+    });
+    const protocol = new ResourceProtocol({
+      transport,
+      timeoutMs: 20,
+      randomHex128: () => HEX_A,
+    });
+    const stream = await protocol.openStream(
+      operations.sessionEvents,
+      { machine: "current", session: SESSION },
+      (value) => value,
+    );
+    const canceling = stream.cancel();
+    assert.ok(cancelRequest);
+    if (caseName !== "missing-response") {
+      transport.emit({
+        protocol: "cmux.protocol/1",
+        type: "response",
+        id: cancelRequest.id,
+        ok: true,
+        result: {},
+      });
+    }
+    if (caseName !== "missing-end") {
+      transport.emit({
+        protocol: "cmux.protocol/1",
+        type: "stream_end",
+        stream_id: caseName === "wrong-stream"
+          ? `stream_${HEX_B}`
+          : openedStream,
+        reason: "canceled",
+      });
+    }
+    await assert.rejects(() => canceling, CmuxTimeoutError, caseName);
+    assert.deepEqual(transport.closeRequestCounts, [2], caseName);
+    protocol.close();
+  }
+});
+
+test("malformed stale item fails cancellation closed without a second request", async () => {
+  let openedStream = "";
+  let cancelRequest: Envelope | undefined;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      cancelRequest = request;
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    timeoutMs: 100,
+    randomHex128: () => HEX_A,
+  });
+  const stream = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  const canceling = stream.cancel();
+  assert.ok(cancelRequest);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: cancelRequest.id,
+    ok: true,
+    result: {},
+  });
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: { kind: "future" },
+    extra: true,
+  });
+  await assert.rejects(() => canceling, CmuxProtocolError);
+  await assert.rejects(() => stream.cancel(), CmuxProtocolError);
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    1,
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  protocol.close();
+});
+
+test("public cancellation validates typed stale events after end and before response", async () => {
+  let openedStream = "";
+  let cancelRequest: Envelope | undefined;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      cancelRequest = request;
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 100,
+    randomHex128: () => HEX_A,
+  });
+  const session = client.session(SESSION);
+  const stream = await session.events();
+  const canceling = stream.cancel();
+  assert.ok(cancelRequest);
+  let cancelSettled = false;
+  void canceling.then(
+    () => {
+      cancelSettled = true;
+    },
+    () => {
+      cancelSettled = true;
+    },
+  );
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_end",
+    stream_id: openedStream,
+    reason: "canceled",
+  });
+  await Promise.resolve();
+  assert.equal(cancelSettled, false);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: {
+      kind: "snapshot",
+      cursor: { generation: "generation-a", revision: "0" },
+      snapshot: null,
+    },
+  });
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: cancelRequest.id,
+    ok: true,
+    result: {},
+  });
+
+  let firstError: unknown;
+  try {
+    await canceling;
+    assert.fail("malformed typed stale item unexpectedly confirmed cancellation");
+  } catch (error) {
+    firstError = error;
+  }
+  assert.ok(firstError instanceof CmuxProtocolError);
+  assert.match(firstError.message, /resource snapshot must be an object/);
+  await assert.rejects(
+    () => stream.cancel(),
+    (error: unknown) => error === firstError,
+  );
+  await assert.rejects(
+    () => session.ping(),
+    (error: unknown) => {
+      assert.ok(error instanceof CmuxConnectionError);
+      assert.match(
+        error.message,
+        /stream cancellation was not confirmed: CmuxProtocolError: resource snapshot must be an object/,
+      );
+      return true;
+    },
+  );
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    1,
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  client.close();
+});
+
+test("public cancellation rejects valid typed events after end and before response", async () => {
+  let openedStream = "";
+  let cancelRequest: Envelope | undefined;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      cancelRequest = request;
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const client = new Client({
+    transport,
+    timeoutMs: 100,
+    randomHex128: () => HEX_A,
+  });
+  const session = client.session(SESSION);
+  const stream = await session.events();
+  const canceling = stream.cancel();
+  assert.ok(cancelRequest);
+  let cancelSettled = false;
+  void canceling.then(
+    () => {
+      cancelSettled = true;
+    },
+    () => {
+      cancelSettled = true;
+    },
+  );
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_end",
+    stream_id: openedStream,
+    reason: "canceled",
+  });
+  await Promise.resolve();
+  assert.equal(cancelSettled, false);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: {
+      kind: "delta",
+      cursor: { generation: "generation-a", revision: "1" },
+      previous_revision: "0",
+      revision: "1",
+      changes: [],
+    },
+  });
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: cancelRequest.id,
+    ok: true,
+    result: {},
+  });
+
+  let firstError: unknown;
+  try {
+    await canceling;
+    assert.fail("post-end typed item unexpectedly confirmed cancellation");
+  } catch (error) {
+    firstError = error;
+  }
+  assert.ok(firstError instanceof CmuxProtocolError);
+  assert.match(firstError.message, /stream item received after end envelope/);
+  await assert.rejects(
+    () => stream.cancel(),
+    (error: unknown) => error === firstError,
+  );
+  await assert.rejects(
+    () => session.ping(),
+    (error: unknown) => {
+      assert.ok(error instanceof CmuxConnectionError);
+      assert.match(
+        error.message,
+        /stream cancellation was not confirmed: CmuxProtocolError: stream item received after end envelope/,
+      );
+      return true;
+    },
+  );
+  assert.equal(
+    transport.requests.filter((request) => request.operation === "stream.cancel").length,
+    1,
+  );
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  client.close();
+});
+
+test("stream item envelopes reject unknown top-level fields and fail closed", async () => {
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    assert.equal(request.operation, "session.events");
+    openedStream = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: openedStream });
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  const stream = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  const next = stream.next();
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_item",
+    stream_id: openedStream,
+    sequence: "0",
+    item: { kind: "future" },
+    extra: true,
+  });
+  await assert.rejects(() => next, CmuxProtocolError);
+  assert.deepEqual(transport.closeRequestCounts, [1]);
+  await assert.rejects(
+    () => protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    ),
+    CmuxProtocolError,
+  );
+  protocol.close();
+});
+
+test("stale item drip cannot restart the explicit cancellation deadline", async () => {
+  let openedStream = "";
+  let cancelRequest: Envelope | undefined;
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") {
+      cancelRequest = request;
+      return;
+    }
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    timeoutMs: 50,
+    randomHex128: () => HEX_A,
+  });
+  const stream = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  const started = Date.now();
+  const canceling = stream.cancel();
+  assert.ok(cancelRequest);
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "response",
+    id: cancelRequest.id,
+    ok: true,
+    result: {},
+  });
+  let sequence = 0;
+  const drip = setInterval(() => {
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: String(sequence),
+      item: { kind: "future", sequence },
+    });
+    sequence += 1;
+  }, 5);
+  try {
+    await assert.rejects(() => canceling, CmuxTimeoutError);
+  } finally {
+    clearInterval(drip);
+  }
+  assert.ok(Date.now() - started < 150);
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  protocol.close();
+});
+
+test("explicit cancel timeout closes the owning connection", async () => {
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      current.ok(request, {
+        stream_id: (request.params as Envelope).stream_id,
+      });
+      return;
+    }
+    if (request.operation === "stream.cancel") return;
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    timeoutMs: 20,
+    randomHex128: () => HEX_A,
+  });
+  const stream = await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  await assert.rejects(() => stream.cancel(), CmuxTimeoutError);
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  const requestCount = transport.requests.length;
+  await assert.rejects(
+    () => protocol.request(
+      operations.sessionPing,
+      { machine: "current", session: SESSION },
+    ),
+    CmuxConnectionError,
+  );
+  assert.equal(transport.requests.length, requestCount);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+});
+
+test("overflow cancel failure closes the owning connection", async () => {
+  const cancelFailure = new Error("overflow cancel send failed");
+  let openedStream = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation === "session.events") {
+      openedStream = (request.params as Envelope).stream_id as string;
+      current.ok(request, { stream_id: openedStream });
+      return;
+    }
+    if (request.operation === "stream.cancel") throw cancelFailure;
+    assert.fail(`unexpected operation ${String(request.operation)}`);
+  });
+  const protocol = new ResourceProtocol({
+    transport,
+    randomHex128: () => HEX_A,
+  });
+  await protocol.openStream(
+    operations.sessionEvents,
+    { machine: "current", session: SESSION },
+    (value) => value,
+  );
+  for (let index = 0; index <= 256; index += 1) {
+    transport.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: openedStream,
+      sequence: String(index),
+      item: { kind: "changed", data: { index } },
+    });
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(
+    transport.requests.map((request) => request.operation),
+    ["session.events", "stream.cancel"],
+  );
+  assert.deepEqual(transport.closeRequestCounts, [2]);
+  protocol.close();
+  assert.deepEqual(transport.closeRequestCounts, [2]);
 });
 
 test("stream overflow is isolated and sends best-effort selector cancellation", async () => {
