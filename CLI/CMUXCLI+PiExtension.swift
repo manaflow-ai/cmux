@@ -26,6 +26,22 @@ extension CMUXCLI {
         }
     }
 
+    func refreshManagedPiExtensionIfNeeded(_ def: AgentHookDef) {
+        let extensionURL = piExtensionURL(for: def)
+        do {
+            let existing = try existingPiExtensionContents(at: extensionURL)
+            guard !existing.isEmpty,
+                  existing.contains(Self.piExtensionMarker),
+                  existing != Self.piExtensionSource
+            else {
+                return
+            }
+            try Self.piExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+        } catch {
+            // Hook delivery must continue when a managed extension cannot be refreshed.
+        }
+    }
+
     func installPiExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = piExtensionURL(for: def)
         let fileManager = FileManager.default
