@@ -14306,6 +14306,9 @@ const FullDispatchDeadlineConnection = struct {
 const PayloadBoundaryMode = enum {
     complete_then_deadline,
     partial_then_timeout,
+    complete_then_custom_newline_failure,
+    partial_then_custom_failure,
+    complete_then_custom_read_failure,
 };
 
 const PayloadBoundaryConnection = struct {
@@ -14332,9 +14335,11 @@ const PayloadBoundaryConnection = struct {
         buffer: []u8,
         timeout_ms: ?u32,
     ) !usize {
-        _ = self;
         _ = buffer;
         _ = timeout_ms;
+        if (self.mode == .complete_then_custom_read_failure) {
+            return error.InjectedTransportFailure;
+        }
         return error.UnexpectedRead;
     }
 
@@ -14344,7 +14349,9 @@ const PayloadBoundaryConnection = struct {
         timeout_ms: ?u32,
     ) !void {
         self.write_calls += 1;
-        self.attempted_payload_bytes = bytes.len;
+        if (self.write_calls == 1) {
+            self.attempted_payload_bytes = bytes.len;
+        }
         switch (self.mode) {
             .complete_then_deadline => {
                 try self.output.appendSlice(self.allocator, bytes);
@@ -14358,6 +14365,23 @@ const PayloadBoundaryConnection = struct {
                     bytes[0..partial_len],
                 );
                 return error.Timeout;
+            },
+            .complete_then_custom_newline_failure => {
+                if (self.write_calls == 2) {
+                    return error.InjectedTransportFailure;
+                }
+                try self.output.appendSlice(self.allocator, bytes);
+            },
+            .partial_then_custom_failure => {
+                const partial_len = @max(@as(usize, 1), bytes.len / 2);
+                try self.output.appendSlice(
+                    self.allocator,
+                    bytes[0..partial_len],
+                );
+                return error.InjectedTransportFailure;
+            },
+            .complete_then_custom_read_failure => {
+                try self.output.appendSlice(self.allocator, bytes);
             },
         }
     }
@@ -15487,6 +15511,99 @@ test "partial mutation payload timeout stays determinate" {
         !std.mem.endsWith(u8, payload.output.items, "\n"),
     );
     try std.testing.expect(payload.closed);
+}
+
+test "nonstandard failures after a complete mutation payload are uncertain" {
+    for ([_]PayloadBoundaryMode{
+        .complete_then_custom_newline_failure,
+        .complete_then_custom_read_failure,
+    }) |mode| {
+        const payload = try PayloadBoundaryConnection.create(mode);
+        var client = Client.init(
+            std.testing.allocator,
+            raw.transport.Connection.from(payload),
+            .{ .timeout_ms = 1_000 },
+        );
+        defer client.deinit();
+        const workspace_id = try WorkspaceId.parse(
+            "ws_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            error.MutationTransportUncertain,
+            client.workspace(workspace_id).rename(
+                "custom-transport-failure",
+                try MutationOptions.withKey("custom-transport-key"),
+            ),
+        );
+        const uncertainty = client.lastMutationTransportUncertain().?;
+        try std.testing.expectEqual(
+            Operation.workspace_rename,
+            uncertainty.operation,
+        );
+        try std.testing.expectEqualStrings(
+            "custom-transport-key",
+            uncertainty.idempotency_key,
+        );
+        try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
+        if (mode == .complete_then_custom_newline_failure) {
+            try std.testing.expect(payload.closed);
+        }
+    }
+}
+
+test "same nonstandard failure before a complete payload is determinate" {
+    const payload = try PayloadBoundaryConnection.create(
+        .partial_then_custom_failure,
+    );
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(payload),
+        .{ .timeout_ms = 1_000 },
+    );
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        client.workspace(workspace_id).rename(
+            "custom-transport-failure",
+            try MutationOptions.withKey("custom-transport-key"),
+        ),
+    );
+    try std.testing.expect(
+        client.lastMutationTransportUncertain() == null,
+    );
+    try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
+    try std.testing.expect(
+        payload.output.items.len < payload.attempted_payload_bytes,
+    );
+    try std.testing.expect(payload.closed);
+}
+
+test "non-mutation post-payload failure retains its original error" {
+    const payload = try PayloadBoundaryConnection.create(
+        .complete_then_custom_read_failure,
+    );
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(payload),
+        .{ .timeout_ms = 1_000 },
+    );
+    defer client.deinit();
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expect(
+        client.lastMutationTransportUncertain() == null,
+    );
+    try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
 }
 
 test "mutation framing failures before full dispatch stay determinate" {
