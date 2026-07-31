@@ -12,10 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `36a46414a`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
-reclamation and retry-deadline line through `4d6f0014f` with the resolved
-font-binding action callbacks originally ending at `80d7fb35a`.
+The submodule pinned by this branch is `da1ddcf41`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/176. It descends from the previously
+documented `36a46414a` renderer/font integration and adds terminal-owned
+semantic-prompt row lifecycle enforcement through `2d6e944e3`.
+The earlier integration combines the hidden-renderer reclamation and
+retry-deadline line through `4d6f0014f` with the resolved font-binding action
+callbacks originally ending at `80d7fb35a`.
 https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
 commits on current fork main and clarified the callback's non-reentrant
 contract. PR 172 then recorded the original font branch as ancestry without
@@ -38,6 +41,28 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### Semantic prompt row lifecycle
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/176
+- Commits:
+  - `afcda52a2` (terminal: test prompt mark cleared by output overwrite)
+  - `2d6e944e3` (terminal: clear stale prompt marks on output overwrite)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Clears a row's OSC 133 prompt or prompt-continuation mark when printable
+    output actually overwrites that row.
+  - Applies the same invariant to scalar printing and the batched narrow/wide
+    print path, including a wide-character spacer written before wrapping.
+  - Preserves historical prompt metadata unless output replaces content on
+    that row, so prompt navigation remains intact while prompt-aware clear
+    logic cannot mistake repainted TUI output for a live shell prompt.
+  - Conflict note: every printable-output path that writes cells directly must
+    clear stale row-level prompt metadata for each row it mutates. Do not move
+    this responsibility into CSI erase handling or a specific shell protocol
+    transition.
 
 ### Hidden macOS renderer reclamation
 
