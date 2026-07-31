@@ -26,7 +26,7 @@ IOS_PATHS = (
     ".github/workflows/ios-testflight.yml",
 )
 IOS_SCHEDULES = (
-    "7 * * * *",
+    "7,27,47 * * * *",
     "37 5,17 * * *",
 )
 RESOLVED_DEMO_VARIANT_GUARD = "needs.decide.outputs.variant == 'demo'"
@@ -189,12 +189,15 @@ def run_decision_scenario(
         ...,
     ] = (),
     prior_run_ids: tuple[int, ...] = (),
+    prior_artifact_minutes_ago: tuple[int, ...] = (),
+    completed_prior_run_count: int = 0,
     head_sha: str = "head-sha",
     changed_files: tuple[str, ...] = (),
     blocking_prior_run: bool = False,
     upload_job_starts_late: bool = False,
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
+    artifact_api_failure: bool = False,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
     decision_script = literal_block(decision_job, "script", indent=10)
@@ -224,8 +227,14 @@ def run_decision_scenario(
     assert not prior_run_ids or len(prior_run_ids) == len(
         upload_history
     ), "prior_run_ids must match the upload history"
+    assert not prior_artifact_minutes_ago or len(
+        prior_artifact_minutes_ago
+    ) == len(upload_history), "artifact ages must match the upload history"
     run_ids = prior_run_ids or tuple(
         50 - index for index in range(len(upload_history))
+    )
+    artifact_ages = prior_artifact_minutes_ago or tuple(
+        range(len(upload_history))
     )
     prior_run_pages = []
     run_index = 0
@@ -238,6 +247,7 @@ def run_decision_scenario(
                     "sha": sha,
                     "artifact": artifact,
                     "event": prior_event,
+                    "minutesAgo": artifact_ages[run_index],
                 }
             )
             run_index += 1
@@ -248,12 +258,14 @@ def run_decision_scenario(
         "inputVariant": input_variant,
         "marketingVersionOverride": marketing_version_override,
         "priorRunPages": prior_run_pages,
+        "completedPriorRunCount": completed_prior_run_count,
         "headSha": head_sha,
         "changedFiles": changed_files,
         "blockingPriorRun": blocking_prior_run,
         "uploadJobStartsLate": upload_job_starts_late,
         "orderingApiFailure": ordering_api_failure,
         "compareApiFailure": compare_api_failure,
+        "artifactApiFailure": artifact_api_failure,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -262,6 +274,7 @@ const compareCalls = [];
 const warnings = [];
 const waitCalls = [];
 const workflowRunRequests = [];
+const artifactRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 let workflowRunCalls = 0;
@@ -269,20 +282,35 @@ let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
 let orderingFailurePending = scenario.orderingApiFailure !== null;
+let artifactFailurePending = scenario.artifactApiFailure;
 const allPriorRuns = scenario.priorRunPages.flat();
 const firstPriorRunId = allPriorRuns[0]?.id;
 const priorRuns = (request) => {{
   const page = Number(request.page ?? 1);
   const pageRuns = scenario.priorRunPages[page - 1] ?? [];
-  return pageRuns.map((run) => ({{
-  id: run.id,
-  status:
-    scenario.blockingPriorRun && run.id === firstPriorRunId
-      ? 'in_progress'
-      : 'completed',
-  event: run.event,
-  head_sha: run.sha,
+  const runs = pageRuns.map((run) => ({{
+    id: run.id,
+    status:
+      scenario.blockingPriorRun && run.id === firstPriorRunId
+        ? 'in_progress'
+        : 'completed',
+    event: run.event,
+    head_sha: run.sha,
   }}));
+  const idleRunsBeforePage = (page - 1) * 100;
+  const idleRunsOnPage = Math.min(
+    Math.max(100 - runs.length, 0),
+    Math.max(scenario.completedPriorRunCount - idleRunsBeforePage, 0)
+  );
+  for (let index = 0; index < idleRunsOnPage; index += 1) {{
+    runs.push({{
+      id: -1 - idleRunsBeforePage - index,
+      status: 'completed',
+      event: 'schedule',
+      head_sha: `idle-sha-${{idleRunsBeforePage + index}}`,
+    }});
+  }}
+  return runs;
 }};
 const setTimeout = (resolve, milliseconds) => {{
   waitCalls.push(milliseconds);
@@ -359,13 +387,39 @@ const github = {{
           }},
         }};
       }},
-      listWorkflowRunArtifacts: async (request) => {{
-        const priorRun = allPriorRuns.find(
-          (run) => run.id === Number(request.run_id)
-        );
+      listArtifactsForRepo: async (request) => {{
+        artifactRequests.push(request);
+        if (artifactFailurePending) {{
+          artifactFailurePending = false;
+          throw new Error('transient artifact failure');
+        }}
+        const artifacts = allPriorRuns
+          .filter((run) => run.artifact === request.name)
+          .filter(
+            (run) =>
+              !scenario.blockingPriorRun ||
+              run.id !== firstPriorRunId ||
+              uploadPhase === 2
+          )
+          .map((run) => ({{
+            id: run.id,
+            name: run.artifact,
+            created_at: new Date(
+              Date.UTC(2026, 6, 31) - run.minutesAgo * 60_000
+            ).toISOString(),
+            workflow_run: {{
+              id: run.id,
+              head_branch: 'main',
+              head_sha: run.sha,
+            }},
+          }}));
+        const perPage = Number(request.per_page ?? 30);
+        const page = Number(request.page ?? 1);
+        const start = (page - 1) * perPage;
         return {{
           data: {{
-            artifacts: priorRun ? [{{ name: priorRun.artifact }}] : [],
+            total_count: artifacts.length,
+            artifacts: artifacts.slice(start, start + perPage),
           }},
         }};
       }},
@@ -421,6 +475,7 @@ process.stdout.write(JSON.stringify({{
   waitCalls,
   workflowRunCalls,
   workflowRunRequests,
+  artifactRequests,
   priorRunStatuses,
   uploadJobStatuses,
   producedArtifactName,
@@ -454,6 +509,22 @@ def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
         javascript_string_array(text, "iosRelevantPaths")
         == expected_workflow_paths
     )
+
+
+def test_internal_schedule_polls_every_twenty_minutes() -> None:
+    internal_minutes = tuple(
+        int(minute)
+        for minute in IOS_SCHEDULES[0].split()[0].split(",")
+    )
+
+    assert internal_minutes == (7, 27, 47)
+    assert tuple(
+        later - earlier
+        for earlier, later in zip(
+            internal_minutes,
+            internal_minutes[1:] + (internal_minutes[0] + 60,),
+        )
+    ) == (20, 20, 20)
 
 
 def test_schedule_decision_executes_ios_path_filter() -> None:
@@ -647,44 +718,95 @@ def test_demo_history_skips_newer_internal_artifact() -> None:
     ]
 
 
-def test_demo_history_paginates_to_matching_artifact() -> None:
-    first_page = tuple(
-        (
-            f"internal-sha-{index}",
-            "ios-testflight-build-metadata",
-        )
-        for index in range(100)
-    )
+def test_history_lookup_ignores_long_idle_workflow_run_history() -> None:
     result = run_decision_scenario(
         event_name="schedule",
-        schedule=IOS_SCHEDULES[1],
-        input_variant="",
-        prior_upload_pages=(
-            first_page,
-            (("demo-base-sha", "ios-testflight-build-metadata-demo"),),
-        ),
-        prior_run_ids=tuple(range(1_000, 899, -1)),
+        schedule=IOS_SCHEDULES[0],
+        prior_upload_pages=((),) * 22
+        + ((("base-sha", "ios-testflight-build-metadata"),),),
+        completed_prior_run_count=2_200,
         changed_files=("docs/cli-contract.md",),
     )
 
     assert result["outputs"] == {
         "should_build": "false",
-        "last_uploaded_sha": "demo-base-sha",
-        "variant": "demo",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
     }
-    assert [
-        request.get("page")
-        for request in result["workflowRunRequests"]
-        if "page" in request
-    ] == [1, 2]
+    assert result["workflowRunCalls"] == 1
+    assert result["uploadJobStatuses"] == []
+    assert result["artifactRequests"] == [
+        {
+            "owner": "manaflow-ai",
+            "repo": "cmux",
+            "name": "ios-testflight-build-metadata",
+            "per_page": 100,
+            "page": 1,
+        }
+    ]
+
+
+def test_history_lookup_paginates_artifacts_and_selects_newest() -> None:
+    older_uploads = tuple(
+        (f"older-sha-{index}", "ios-testflight-build-metadata")
+        for index in range(100)
+    )
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_upload_pages=(
+            older_uploads,
+            (("newest-sha", "ios-testflight-build-metadata"),),
+        ),
+        prior_artifact_minutes_ago=tuple(range(200, 100, -1)) + (0,),
+        changed_files=("docs/cli-contract.md",),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "newest-sha",
+        "variant": "internal",
+    }
+    assert [request["page"] for request in result["artifactRequests"]] == [1, 2]
     assert result["compareCalls"] == [
         {
             "owner": "manaflow-ai",
             "repo": "cmux",
-            "base": "demo-base-sha",
+            "base": "newest-sha",
             "head": "head-sha",
         }
     ]
+
+
+def test_scheduled_run_skips_when_upload_history_is_unavailable() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        artifact_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "false",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
+    assert result["warnings"] == [
+        "could not resolve last uploaded sha; skipping scheduled upload"
+    ]
+    assert result["compareCalls"] == []
+
+
+def test_manual_run_builds_when_upload_history_is_unavailable() -> None:
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        artifact_api_failure=True,
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "",
+        "variant": "internal",
+    }
 
 
 def test_manual_demo_dispatch_builds_even_when_head_already_uploaded() -> None:
@@ -739,7 +861,7 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
     )
 
     assert result["waitCalls"] == [60_000]
-    assert result["workflowRunCalls"] == 3
+    assert result["workflowRunCalls"] == 2
     assert result["workflowRunRequests"] == [
         {
             "owner": "manaflow-ai",
@@ -755,23 +877,13 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
             "branch": "main",
             "per_page": 100,
         },
-        {
-            "owner": "manaflow-ai",
-            "repo": "cmux",
-            "workflow_id": "ios-testflight.yml",
-            "branch": "main",
-            "per_page": 100,
-            "page": 1,
-        },
     ]
     assert result["priorRunStatuses"] == [
-        "in_progress",
         "in_progress",
         "in_progress",
     ]
     assert result["uploadJobStatuses"] == [
         "in_progress",
-        "completed",
         "completed",
     ]
     assert result["outputs"] == {
@@ -797,7 +909,6 @@ def test_scheduled_run_waits_before_upload_job_exists() -> None:
         None,
         "in_progress",
         "completed",
-        "completed",
     ]
     assert result["outputs"] == {
         "should_build": "true",
@@ -820,10 +931,9 @@ def test_ordering_retries_transient_api_failures() -> None:
         )
 
         assert result["waitCalls"] == [60_000, 60_000]
-        assert result["workflowRunCalls"] == 4
+        assert result["workflowRunCalls"] == 3
         assert result["uploadJobStatuses"] == [
             "in_progress",
-            "completed",
             "completed",
         ]
         assert result["warnings"] == [
@@ -856,10 +966,8 @@ def test_ordering_ignores_later_active_runs() -> None:
     assert result["priorRunStatuses"] == [
         "in_progress",
         "completed",
-        "in_progress",
-        "completed",
     ]
-    assert result["uploadJobStatuses"] == [None, "completed"]
+    assert result["uploadJobStatuses"] == []
     assert result["outputs"] == {
         "should_build": "false",
         "last_uploaded_sha": "base-sha",
@@ -887,7 +995,6 @@ def test_ordering_includes_manual_current_and_prior_runs() -> None:
         assert result["waitCalls"] == [60_000]
         assert result["uploadJobStatuses"] == [
             "in_progress",
-            "completed",
             "completed",
         ]
         assert result["outputs"] == {
@@ -1011,6 +1118,7 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
 if __name__ == "__main__":
     test_literal_block_accepts_whitespace_only_lines()
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
+    test_internal_schedule_polls_every_twenty_minutes()
     test_schedule_decision_executes_ios_path_filter()
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
@@ -1018,7 +1126,10 @@ if __name__ == "__main__":
     test_schedule_decision_routes_demo_cron_to_demo_history()
     test_schedule_decision_routes_internal_cron_to_internal_history()
     test_demo_history_skips_newer_internal_artifact()
-    test_demo_history_paginates_to_matching_artifact()
+    test_history_lookup_ignores_long_idle_workflow_run_history()
+    test_history_lookup_paginates_artifacts_and_selects_newest()
+    test_scheduled_run_skips_when_upload_history_is_unavailable()
+    test_manual_run_builds_when_upload_history_is_unavailable()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_manual_override_artifact_is_excluded_from_canonical_history()
     test_scheduled_run_waits_for_an_earlier_upload()
