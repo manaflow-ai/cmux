@@ -226,7 +226,7 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func rapidSwitchCancelsPreviousRendererProtection() {
+    func coalescedRoundTripCancelsIntermediateRendererProtection() {
         var protectedRequestIDs: [UUID] = []
         var releasedRequestIDs: [UUID] = []
         let coordinator = WorkspaceSwitchCoordinator(
@@ -237,28 +237,29 @@ struct WorkspaceSwitchCoordinatorTests {
                 releasedRequestIDs.append(requestID)
             }
         )
+        let mountedWorkspaceID = UUID(), intermediateWorkspaceID = UUID()
         let firstTargetSurfaceID = UUID()
-        let secondTargetSurfaceID = UUID()
+        coordinator.selectionDidReconcile(workspaceID: mountedWorkspaceID)
 
         coordinator.selectionWillCommit(
-            from: UUID(),
-            to: UUID(),
+            from: mountedWorkspaceID,
+            to: intermediateWorkspaceID,
             targetSurfaceID: firstTargetSurfaceID,
             targetTerminalView: nil,
             targetRendererPresented: true,
             targetRenderedFrameSequence: 1
         )
         coordinator.selectionWillCommit(
-            from: UUID(),
-            to: UUID(),
-            targetSurfaceID: secondTargetSurfaceID,
+            from: intermediateWorkspaceID,
+            to: mountedWorkspaceID,
+            targetSurfaceID: UUID(),
             targetTerminalView: nil,
             targetRendererPresented: true,
             targetRenderedFrameSequence: 1
         )
 
-        #expect(protectedRequestIDs.count == 2)
-        #expect(releasedRequestIDs == [protectedRequestIDs[0]])
+        #expect(protectedRequestIDs.count == 1)
+        #expect(releasedRequestIDs == protectedRequestIDs)
         coordinator.cancel()
         #expect(releasedRequestIDs == protectedRequestIDs)
     }
@@ -333,7 +334,7 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func sourceRetirementReleasesRendererProtectionBeforePresentationReadiness() {
+    func coldDestinationRetiresSourceBeforePresentationReadiness() {
         var protectedRequestIDs: [UUID] = []
         var releasedRequestIDs: [UUID] = []
         let selectionSourceWorkspaceID = UUID()
