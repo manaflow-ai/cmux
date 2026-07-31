@@ -100,7 +100,7 @@ extension CmxIrohClientRuntime {
             discovery = try await broker.discover()
         } catch {
             guard let registration,
-                  Self.recoversWithCachedPolicy(error),
+                  Self.isConnectivity(error),
                   let cached = try await offlineBootstrap(
                       expectation: offlineExpectation,
                       confirmedLocalBinding: registration.binding
