@@ -524,7 +524,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.totalItemCount, 2)
         XCTAssertEqual(snapshot.items.map(\.workspaceTitle), ["Newer Workspace"])
         XCTAssertTrue(FocusHistoryMenuFormatter.menuTitle(for: newer).contains("\n"))
-        XCTAssertTrue(FocusHistoryMenuFormatter.subtitle(for: newer).contains(String(localized: "menu.history.focusForward", defaultValue: "Forward")))
+        XCTAssertTrue(FocusHistoryMenuFormatter.subtitle(for: newer).contains(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
     }
 
     func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {

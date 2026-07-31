@@ -845,9 +845,9 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         case .cloudVM:
             return String(localized: "titlebar.cloudVM.accessibilityLabel", defaultValue: "Cloud VM")
         case .focusHistoryBack:
-            return String(localized: "menu.history.focusBack", defaultValue: "Back")
+            return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:
-            return String(localized: "menu.history.focusForward", defaultValue: "Forward")
+            return String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
         }
     }
 

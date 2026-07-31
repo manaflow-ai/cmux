@@ -390,8 +390,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Back")
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Forward")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Focus Back")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Focus Forward")
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.defaultsKey, "shortcut.focusHistoryBack")

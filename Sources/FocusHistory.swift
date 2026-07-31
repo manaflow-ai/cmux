@@ -29,9 +29,9 @@ enum FocusHistoryMenuFormatter {
         let direction: String
         switch item.position {
         case .older:
-            direction = String(localized: "menu.history.focusBack", defaultValue: "Back")
+            direction = String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .newer:
-            direction = String(localized: "menu.history.focusForward", defaultValue: "Forward")
+            direction = String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
         }
 
         let focused = String.localizedStringWithFormat(
