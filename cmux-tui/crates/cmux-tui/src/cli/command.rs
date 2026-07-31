@@ -3205,7 +3205,7 @@ mod tests {
 
         assert_eq!(cases.len(), 105);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 111);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 112);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -3264,6 +3264,7 @@ mod tests {
                     name.as_str(),
                     "browser.viewer.release"
                         | "browser.viewer.resize"
+                        | "request.cancel"
                         | "stream.cancel"
                         | "terminal.renderer_grant.create"
                         | "terminal.viewer.release"
