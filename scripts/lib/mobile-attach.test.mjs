@@ -620,14 +620,30 @@ test("simulator launch seeds a deterministic durable device id before app launch
   const seed = simulatorBranch.indexOf(
     'cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"',
   );
+  const seedEnvironment = simulatorBranch.indexOf(
+    'SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID"',
+  );
   const terminate = simulatorBranch.indexOf('xcrun simctl terminate');
   const launch = simulatorBranch.indexOf('xcrun simctl "${launch_args[@]}"');
 
   assert.notEqual(terminate, -1, "existing simulator app must terminate before seeding");
   assert.notEqual(seed, -1, "simulator launch must seed the durable identity mirror");
+  assert.notEqual(
+    seedEnvironment,
+    -1,
+    "simulator launch must pass the durable seed into the sandboxed app process",
+  );
   assert.notEqual(launch, -1, "simulator launch command is missing");
   assert.ok(terminate < seed, "existing app must terminate before its durable identity is seeded");
+  assert.ok(
+    seed < seedEnvironment,
+    "the seed must be resolved before the simulator child environment uses it",
+  );
   assert.ok(seed < launch, "durable identity must be seeded before the app starts");
+  assert.ok(
+    seedEnvironment < launch,
+    "the sandboxed app must receive its durable identity before launch",
+  );
 });
 
 test("release gate assigns each mode to its transport proof", () => {

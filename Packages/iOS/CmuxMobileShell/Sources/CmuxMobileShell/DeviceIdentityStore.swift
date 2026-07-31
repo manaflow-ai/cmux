@@ -50,6 +50,72 @@ protocol DeviceIdentityStoring: Sendable {
     func createOrAdopt(_ desired: String) -> String?
 }
 
+/// Authoritative device-id storage for an iOS Simulator process.
+///
+/// Unsigned simulator apps do not have an application identifier entitlement,
+/// so data-protection Keychain operations fail even after the simulated device
+/// is unlocked. Simulator identity therefore lives in the app's defaults
+/// domain. A launcher-provided deterministic seed survives app-container
+/// recreation by being adopted on the next launch, while an ordinary
+/// SpringBoard relaunch reads the value persisted by the first launch.
+///
+/// This type is compiled for tests on macOS, but production selection is
+/// guarded by `targetEnvironment(simulator)`. Physical devices continue to use
+/// ``KeychainDeviceIdentityStore`` and its fail-closed semantics.
+final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Sendable {
+    private static let processLock = NSLock()
+    private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
+
+    private let defaults: UserDefaults
+    private let seededDeviceID: String?
+
+    init(defaults: UserDefaults, seededDeviceID: String? = nil) {
+        self.defaults = defaults
+        self.seededDeviceID = Self.usable(seededDeviceID)
+    }
+
+    func read() -> DeviceIdentityReadResult {
+        Self.processLock.lock()
+        defer { Self.processLock.unlock() }
+        return readLocked()
+    }
+
+    func createOrAdopt(_ desired: String) -> String? {
+        Self.processLock.lock()
+        defer { Self.processLock.unlock() }
+
+        switch readLocked() {
+        case .found(let winner):
+            return winner
+        case .absent:
+            guard let candidate = Self.usable(desired) else { return nil }
+            defaults.set(candidate, forKey: Self.deviceIDKey)
+            return Self.usable(defaults.string(forKey: Self.deviceIDKey))
+        case .unavailable:
+            // UserDefaults has no temporarily-locked state.
+            return nil
+        }
+    }
+
+    private func readLocked() -> DeviceIdentityReadResult {
+        if let persisted = Self.usable(defaults.string(forKey: Self.deviceIDKey)) {
+            return .found(persisted)
+        }
+        if let seededDeviceID {
+            return .found(seededDeviceID)
+        }
+        return .absent
+    }
+
+    private static func usable(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 /// Device-only Keychain storage for the device-registry id.
 ///
 /// Uses a service name distinct from the iroh endpoint-identity store, so the
