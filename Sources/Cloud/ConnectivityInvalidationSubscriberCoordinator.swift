@@ -10,8 +10,6 @@ import Observation
 /// policy, and cancellation path.
 @MainActor
 final class ConnectivityInvalidationSubscriberCoordinator {
-    static let shared = ConnectivityInvalidationSubscriberCoordinator()
-
     private struct Scope {
         let key: String
         let baseURL: URL
@@ -23,8 +21,6 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     private var defaultsObserver: NSObjectProtocol?
     private var activeScopeKey: String?
 
-    private init() {}
-
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         if defaultsObserver == nil {
@@ -32,9 +28,9 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
                 queue: .main
-            ) { _ in
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    ConnectivityInvalidationSubscriberCoordinator.shared.evaluate()
+                    self?.evaluate()
                 }
             }
         }
@@ -47,10 +43,10 @@ final class ConnectivityInvalidationSubscriberCoordinator {
         withObservationTracking {
             _ = auth.isAuthenticated
             _ = auth.currentUser?.id
-        } onChange: {
-            Task { @MainActor in
-                ConnectivityInvalidationSubscriberCoordinator.shared.evaluate()
-                ConnectivityInvalidationSubscriberCoordinator.shared.armAuthScopeObservation()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.evaluate()
+                self?.armAuthScopeObservation()
             }
         }
     }
@@ -103,11 +99,14 @@ final class ConnectivityInvalidationSubscriberCoordinator {
 
     func appWillTerminate() {
         reconfigureTask?.cancel()
-        reconfigureTask = nil
         let subscriber = subscriber
         self.subscriber = nil
         activeScopeKey = nil
-        Task {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+            self.defaultsObserver = nil
+        }
+        reconfigureTask = Task {
             await subscriber?.stop()
         }
     }

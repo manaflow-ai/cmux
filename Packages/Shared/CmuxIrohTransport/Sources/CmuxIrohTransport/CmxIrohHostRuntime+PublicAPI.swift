@@ -84,7 +84,7 @@ extension CmxIrohHostRuntime {
         guard lifecyclePhase == .active,
               let connectivityEngine,
               let admissionController,
-              let localBinding else {
+              localBinding != nil else {
             return .failed(.endpointUnavailable)
         }
         while let refresh = registrationRefreshTask {
@@ -113,6 +113,9 @@ extension CmxIrohHostRuntime {
             guard Set(discovery.relayFleet) == managedRelayURLs,
                   discovery.relayFleet.count == managedRelayURLs.count else {
                 throw CmxIrohHostRuntimeError.relayFleetMismatch
+            }
+            guard let localBinding = self.localBinding else {
+                throw CmxIrohHostRuntimeError.localBindingMissingFromDiscovery
             }
             guard let discovered = discovery.bindings.first(where: {
                 $0.bindingID == localBinding.bindingID

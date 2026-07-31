@@ -314,18 +314,27 @@ public actor CmxIrohClientRuntime {
             guard let localBinding else {
                 return .failed(.endpointUnavailable)
             }
+            let liveEndpointIdentity = try await connectivityEngine
+                .localEndpointIdentity()
+            guard localBinding.endpointID == liveEndpointIdentity else {
+                throw CmxIrohClientRuntimeError.invalidLocalBinding
+            }
             let expectation = try CmxIrohLocalBindingExpectation(
                 deviceID: configuration.deviceID,
                 appInstanceID: configuration.appInstanceID,
                 tag: configuration.tag,
                 platform: .ios,
-                endpointID: localBinding.endpointID,
+                endpointID: liveEndpointIdentity,
                 identityGeneration: configuration.identity.generation,
                 pairingEnabled: false,
                 capabilities: configuration.capabilities
             )
             let discovery = try await discoverAuthoritatively()
             try requireCurrent(revision)
+            guard self.localBinding?.bindingID == localBinding.bindingID,
+                  self.localBinding?.endpointID == liveEndpointIdentity else {
+                throw CmxIrohClientRuntimeError.invalidLocalBinding
+            }
             guard let discoveredRevision = discovery.revision,
                   discoveredRevision >= hintedRevision else {
                 throw CmxIrohTrustBrokerClientError.invalidResponse

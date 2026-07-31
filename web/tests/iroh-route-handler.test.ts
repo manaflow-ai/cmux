@@ -104,6 +104,49 @@ describe("Iroh route boundary", () => {
     expect(await response.json()).toEqual({ revision: 9 });
   });
 
+  test("returns a committed mutation before deferred invalidation delivery settles", async () => {
+    let releasePublication: (() => void) | undefined;
+    let scheduledPublication:
+      | (() => Promise<void>)
+      | undefined;
+    const publicationGate = new Promise<void>((resolve) => {
+      releasePublication = () => resolve();
+    });
+    let responseSettled = false;
+    const responsePromise = handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => USER,
+        broker: broker({ register: () => Effect.succeed({ revision: 10 }) }),
+        publishConnectivityInvalidation: async () => {
+          await publicationGate;
+        },
+        scheduleAfterResponse: (operation: () => Promise<void>) => {
+          scheduledPublication = operation;
+        },
+      },
+    ).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+
+    const responseBeforeTimeout = await Promise.race([
+      responsePromise,
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 100);
+      }),
+    ]);
+    const settledBeforePublication = responseSettled
+      && responseBeforeTimeout !== null;
+    releasePublication?.();
+    await scheduledPublication?.();
+    const response = responseBeforeTimeout ?? await responsePromise;
+
+    expect(settledBeforePublication).toBe(true);
+    expect(response.status).toBe(201);
+  });
+
   test("never publishes reads or failed mutations", async () => {
     let published = 0;
     const publishConnectivityInvalidation = async () => {

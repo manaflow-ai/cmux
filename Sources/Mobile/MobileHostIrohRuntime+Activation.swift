@@ -512,7 +512,10 @@ extension MobileHostIrohRuntime {
         tag: String,
         revision: UInt64
     ) {
-        guard revision == lifecycleRevision else { return }
+        guard allowsPersistence(
+            accountID: accountID,
+            revision: revision
+        ) else { return }
         lastKnownBindingID = binding.bindingID
         lastKnownAccountID = accountID
         lastKnownTag = tag

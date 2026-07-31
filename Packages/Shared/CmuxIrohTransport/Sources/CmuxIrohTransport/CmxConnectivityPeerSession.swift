@@ -330,6 +330,9 @@ actor CmxConnectivityPeerSession {
     ) async {
         guard let activeConnection, activeConnection.id == id else { return }
         self.activeConnection = nil
+        let removedOwner = controlOwner
+        let closurePurpose = removedOwner?.purpose
+            ?? activeConnection.initialPurpose
         activeConnection.closureTask.cancel()
         activeConnection.pathObservationTask.cancel()
         activeConnection.pathEventObservationTask?.cancel()
@@ -337,9 +340,12 @@ actor CmxConnectivityPeerSession {
         await recordSessionClosure(
             .remoteClosed,
             active: activeConnection,
-            failure: failure
+            failure: failure,
+            purpose: closurePurpose
         )
-        if let owner = controlOwner {
+        guard self.activeConnection == nil,
+              pendingConnection == nil else { return }
+        if let owner = removedOwner {
             releaseControlOwner(ownerID: owner.id)
         }
         self.failure = failure
@@ -355,6 +361,9 @@ actor CmxConnectivityPeerSession {
         guard let activeConnection,
               id == nil || activeConnection.id == id else { return }
         self.activeConnection = nil
+        let removedOwner = controlOwner
+        let closurePurpose = removedOwner?.purpose
+            ?? activeConnection.initialPurpose
         activeConnection.closureTask.cancel()
         activeConnection.pathObservationTask.cancel()
         activeConnection.pathEventObservationTask?.cancel()
@@ -363,9 +372,12 @@ actor CmxConnectivityPeerSession {
         await recordSessionClosure(
             reason,
             active: activeConnection,
-            failure: failure
+            failure: failure,
+            purpose: closurePurpose
         )
-        if releasesControlOwner, let owner = controlOwner {
+        guard self.activeConnection == nil,
+              pendingConnection == nil else { return }
+        if releasesControlOwner, let owner = removedOwner {
             releaseControlOwner(ownerID: owner.id)
         }
         self.failure = failure
@@ -426,7 +438,7 @@ actor CmxConnectivityPeerSession {
         let timeout = Task { [weak self] in
             try? await clock.sleep(until: deadline)
             guard !Task.isCancelled else { return }
-            await self?.resumeRetiredDialWaiter(id: waiterID)
+            await self?.expireRetiredDialWait(id: waiterID)
         }
         defer { timeout.cancel() }
         await withTaskCancellationHandler {
@@ -446,6 +458,16 @@ actor CmxConnectivityPeerSession {
 
     private func resumeRetiredDialWaiter(id: UUID) {
         retiredDialWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func expireRetiredDialWait(id: UUID) {
+        guard retiredDialWaiters[id] != nil else { return }
+        retiredDialDrains.removeAll()
+        let waiters = retiredDialWaiters.values
+        retiredDialWaiters.removeAll()
+        for continuation in waiters {
+            continuation.resume()
+        }
     }
 
     private func reserveControlOwner(
@@ -567,7 +589,8 @@ actor CmxConnectivityPeerSession {
     private func recordSessionClosure(
         _ kind: DiagnosticSessionLifecycleKind,
         active: ActiveConnection,
-        failure: DiagnosticFailureKind
+        failure: DiagnosticFailureKind,
+        purpose: CmxTransportSessionPurpose
     ) async {
         if let diagnosticLog {
             let recorder = CmxIrohConnectionDiagnosticRecorder(
@@ -579,7 +602,7 @@ actor CmxConnectivityPeerSession {
         recordSessionLifecycle(
             kind,
             sessionID: active.diagnosticID,
-            purpose: controlOwner?.purpose ?? active.initialPurpose
+            purpose: purpose
         )
         diagnosticLog?.record(DiagnosticEvent(
             .sessionClosed,

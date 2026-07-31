@@ -63,15 +63,18 @@ protocol DeviceIdentityStoring: Sendable {
 /// guarded by `targetEnvironment(simulator)`. Physical devices continue to use
 /// ``KeychainDeviceIdentityStore`` and its fail-closed semantics.
 final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Sendable {
+    // This synchronous compare-and-set spans callers that cannot share an
+    // actor boundary. The lock protects only one UserDefaults read/write pair.
     private static let processLock = NSLock()
     private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
 
     private let defaults: UserDefaults
-    private let seededDeviceID: String?
 
     init(defaults: UserDefaults, seededDeviceID: String? = nil) {
         self.defaults = defaults
-        self.seededDeviceID = Self.usable(seededDeviceID)
+        if let seededDeviceID = Self.usable(seededDeviceID) {
+            _ = createOrAdopt(seededDeviceID)
+        }
     }
 
     func read() -> DeviceIdentityReadResult {
@@ -100,9 +103,6 @@ final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Send
     private func readLocked() -> DeviceIdentityReadResult {
         if let persisted = Self.usable(defaults.string(forKey: Self.deviceIDKey)) {
             return .found(persisted)
-        }
-        if let seededDeviceID {
-            return .found(seededDeviceID)
         }
         return .absent
     }

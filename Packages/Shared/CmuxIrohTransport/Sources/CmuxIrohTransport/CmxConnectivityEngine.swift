@@ -29,6 +29,7 @@ public actor CmxConnectivityEngine {
     private var routeSyncOperation: RouteSyncOperation?
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
     private var peerSnapshots: [CmxConnectivityPeerID: CmxConnectivityPeerSnapshot] = [:]
+    private var orderedPeerIDs: [CmxConnectivityPeerID] = []
     private var observers: [UUID: AsyncStream<CmxConnectivityEngineSnapshot>.Continuation] = [:]
     private var networkObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var phase = CmxConnectivityEngineSnapshot.Phase.stopped
@@ -225,6 +226,11 @@ public actor CmxConnectivityEngine {
         endpointEventTask = nil
         routeSyncOperation?.task.cancel()
         routeSyncOperation = nil
+        let stoppedNetworkObservers = networkObservers.values
+        networkObservers.removeAll()
+        for continuation in stoppedNetworkObservers {
+            continuation.finish()
+        }
         await invalidateAllPeers(failure: .cancelled)
         await supervisor.deactivate()
         endpointGeneration = nil
@@ -525,6 +531,8 @@ public actor CmxConnectivityEngine {
             clock: clock
         )
         peers[peerID] = peer
+        orderedPeerIDs.append(peerID)
+        orderedPeerIDs.sort(by: Self.peerIDPrecedes)
         let initial = CmxConnectivityPeerSnapshot(
             peerID: peerID,
             phase: .disconnected,
@@ -548,6 +556,9 @@ public actor CmxConnectivityEngine {
         let endpoint = try await supervisor.ensureHealthy()
         guard desiredActive, lifecycleRevision == revision else {
             throw CmxConnectivityEngineError.superseded
+        }
+        guard endpoint.runtimeGeneration != expectedGeneration else {
+            return endpoint
         }
         try await installEndpoint(endpoint)
         try await reconcileRoutes()
@@ -607,7 +618,15 @@ public actor CmxConnectivityEngine {
         case .active:
             do {
                 try await installEndpoint(endpoint)
-                try await reconcileRoutes()
+                do {
+                    try await reconcileRoutes()
+                } catch {
+                    guard routeRevision != nil,
+                          CmxIrohTrustBrokerClientError
+                            .preservesVerifiedPolicyDuringRefresh(error) else {
+                        throw error
+                    }
+                }
                 guard desiredActive else { return }
                 phase = .active
                 publishSnapshot()
@@ -697,12 +716,7 @@ public actor CmxConnectivityEngine {
             endpointGeneration: endpointGeneration,
             localIdentity: localIdentity,
             routeRevision: routeRevision,
-            peers: peerSnapshots.values.sorted {
-                if $0.peerID.deviceID == $1.peerID.deviceID {
-                    return $0.peerID.identity.endpointID < $1.peerID.identity.endpointID
-                }
-                return $0.peerID.deviceID < $1.peerID.deviceID
-            }
+            peers: orderedPeerIDs.compactMap { peerSnapshots[$0] }
         )
     }
 
@@ -728,6 +742,16 @@ public actor CmxConnectivityEngine {
         if snapshot?.controlLaneOwned == true { return 1 }
         if snapshot?.phase == .connected { return 2 }
         return 3
+    }
+
+    private static func peerIDPrecedes(
+        _ lhs: CmxConnectivityPeerID,
+        _ rhs: CmxConnectivityPeerID
+    ) -> Bool {
+        if lhs.deviceID == rhs.deviceID {
+            return lhs.identity.endpointID < rhs.identity.endpointID
+        }
+        return lhs.deviceID < rhs.deviceID
     }
 }
 

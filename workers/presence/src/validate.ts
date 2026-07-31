@@ -133,22 +133,37 @@ export interface ConnectivityInvalidationInput {
 }
 
 /** Constant-work comparison for the server-only invalidation capability. */
-export function isConnectivityPublisherAuthorized(
+export async function isConnectivityPublisherAuthorized(
   request: Request,
   configuredSecret: string | undefined,
-): boolean {
+): Promise<boolean> {
   const expected = configuredSecret?.trim() ?? "";
   const actual = request.headers.get(
     "x-cmux-connectivity-publisher-secret",
   )?.trim() ?? "";
   if (expected.length < 32 || expected.length > 512) return false;
-  const width = Math.max(expected.length, actual.length);
-  let difference = expected.length ^ actual.length;
-  for (let index = 0; index < width; index += 1) {
-    difference |= (expected.charCodeAt(index) || 0)
-      ^ (actual.charCodeAt(index) || 0);
-  }
-  return difference === 0;
+  const encoder = new TextEncoder();
+  const expectedBytes = encoder.encode(expected);
+  const actualBytes = encoder.encode(actual);
+  if (actualBytes.byteLength === 0 || actualBytes.byteLength > 512) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    expectedBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const candidateSignature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    actualBytes,
+  );
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    candidateSignature,
+    expectedBytes,
+  );
 }
 
 export type ConnectivityInvalidationParse =

@@ -592,6 +592,22 @@ import Testing
         #expect(store.read() == .found(seeded))
     }
 
+    @Test func simulatorSeedIsAdoptedIntoTheDurableDefaultsStore() {
+        let suite = "test.deviceRegistry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let seeded = "simulator-device-id-\(UUID().uuidString.lowercased())"
+        let firstLaunch = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: seeded
+        )
+
+        #expect(firstLaunch.read() == .found(seeded))
+
+        let springboardRelaunch = SimulatorDeviceIdentityStore(defaults: defaults)
+        #expect(springboardRelaunch.read() == .found(seeded))
+    }
+
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
         let suite = "test.deviceRegistry.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

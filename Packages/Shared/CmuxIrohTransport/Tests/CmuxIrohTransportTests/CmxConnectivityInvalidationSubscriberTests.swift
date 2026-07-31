@@ -33,6 +33,13 @@ struct CmxConnectivityInvalidationSubscriberTests {
         }
     }
 
+    @Test("normalizes malformed JSON to the bounded invalid-frame error")
+    func normalizesMalformedJSON() {
+        #expect(throws: CmxConnectivityInvalidationError.invalidFrame) {
+            try CmxConnectivityInvalidation.parse(Data(#"{"revision":"#.utf8))
+        }
+    }
+
     @Test("resolves the dedicated account WebSocket route")
     func resolvesSubscribeURL() throws {
         let base = try #require(URL(string: "https://presence.example.test/dev/"))
