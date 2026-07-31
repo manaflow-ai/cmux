@@ -460,7 +460,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func missingProcessIdentityCannotCarryComposerStateAcrossAgents() throws {
+    @Test func temporaryProcessIdentityGapPreservesComposerState() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
         let panel = try #require(
@@ -488,7 +488,7 @@ struct AgentPromptSubmissionTests {
 
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
         #expect(panel.surface.currentPromptInputAgentScope == nil)
-        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
 
         panel.surface.releaseSurfaceForTesting()
         let result = panel.sendPromptSubmissionResult(

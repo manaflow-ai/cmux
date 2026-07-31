@@ -227,6 +227,46 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
+    @Test func temporaryScopeUnavailabilityPreservesDraftOnSameProcessRebind() {
+        var ledger = TerminalPromptInputLedger()
+        let scope = "agentPIDKey:codex.session"
+        ledger.synchronizeAgentScope(scope)
+        ledger.recordHumanInput(.unknown)
+        ledger.recordHumanInput(.submissionBoundary)
+
+        ledger.synchronizeAgentScope(nil)
+
+        #expect(ledger.currentAgentScope == nil)
+        #expect(ledger.hasUnconfirmedHumanInput)
+
+        ledger.synchronizeAgentScope(scope)
+
+        #expect(ledger.currentAgentScope == scope)
+        #expect(ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "preserved draft") == .human
+        )
+        #expect(!ledger.hasUnconfirmedHumanInput)
+    }
+
+    @Test func differentProcessAfterScopeUnavailabilityStartsFreshEpoch() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agentPIDKey:first.session")
+        ledger.recordHumanInput(.unknown)
+        ledger.recordProgrammaticSubmission(
+            message: "old prompt",
+            source: "workspace.agent_submit"
+        )
+
+        ledger.synchronizeAgentScope(nil)
+        ledger.synchronizeAgentScope("agentPIDKey:second.session")
+
+        #expect(!ledger.hasUnconfirmedHumanInput)
+        #expect(
+            ledger.confirmSubmission(message: "old prompt") == .unmatched
+        )
+    }
+
     @Test func queuedConfirmationFromAPreviousScopeCannotClearCurrentInput() {
         var ledger = TerminalPromptInputLedger()
         ledger.synchronizeAgentScope("agentPIDKey:first.session")

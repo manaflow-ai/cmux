@@ -7,6 +7,7 @@ public struct TerminalPromptInputLedger: Sendable {
     private static let maximumPendingBoundaries = 64
 
     private var agentScope: String?
+    private var lastBoundAgentScope: String?
     private var humanInputEpoch: UInt64 = 0
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
@@ -19,18 +20,31 @@ public struct TerminalPromptInputLedger: Sendable {
     ///
     /// Human input can reach the terminal before the process identity becomes
     /// available. The initial binding adopts that human evidence while
-    /// discarding unowned app submissions. Replacing or removing an already
-    /// bound process starts a fresh epoch so one agent cannot inherit another
-    /// agent's composer state.
+    /// discarding unowned app submissions. Temporary scope unavailability
+    /// preserves the last process's evidence but reports no current scope, so
+    /// guarded automation remains unavailable. Binding a different process
+    /// starts a fresh epoch so one agent cannot inherit another agent's
+    /// composer state.
     public mutating func synchronizeAgentScope(_ scope: String?) {
         guard agentScope != scope else { return }
-        if agentScope == nil, scope != nil {
-            agentScope = scope
+
+        agentScope = scope
+        guard let scope else {
+            return
+        }
+
+        let previousBoundScope = lastBoundAgentScope
+        lastBoundAgentScope = scope
+        guard previousBoundScope != scope else {
+            return
+        }
+
+        if previousBoundScope == nil {
             humanInputEpoch &+= 1
             removeNonHumanBoundaries()
             return
         }
-        agentScope = scope
+
         humanInputEpoch &+= 1
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
