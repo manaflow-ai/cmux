@@ -10,6 +10,14 @@ import { inArray, eq, and } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
+import { stackServerApp } from "../../app/lib/stack";
+import type { AccountDeletionUserMutationLease } from
+  "../account/deletionLock";
+import {
+  type AccountMetadataUserLoader,
+  withFreshAccountMetadataUser,
+} from
+  "../account/metadataMutation";
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
@@ -41,6 +49,7 @@ export type ProMetadataCustomer = {
 export async function syncProPlanMetadata(
   user: ProMetadataCustomer,
   isPro: boolean,
+  lease: AccountDeletionUserMutationLease,
 ): Promise<ProMetadataJson> {
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
@@ -60,6 +69,7 @@ export async function syncProPlanMetadata(
     delete metadata.cmuxPlan;
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
+  await lease.refresh();
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
   return metadata as ProMetadataJson;
 }
@@ -69,6 +79,13 @@ export type ProReconcileUser = ProMetadataCustomer & {
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type FreshProMetadataUserMutation = <Result>(
+  userId: string,
+  operation: (
+    user: ProReconcileUser,
+    lease: AccountDeletionUserMutationLease,
+  ) => Promise<Result>,
+) => Promise<Result>;
 export type BillingManagementKind = "stripe" | "none";
 
 export type ProPlanStatus = {
@@ -88,7 +105,10 @@ export type ProPlanStatus = {
  */
 export async function reconcileProPlanMetadata(
   user: ProReconcileUser,
-  options: { hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery } = {},
+  options: {
+    hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    withFreshMetadataUser?: FreshProMetadataUserMutation;
+  } = {},
 ): Promise<boolean> {
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
@@ -102,13 +122,19 @@ export async function reconcileProPlanMetadata(
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
     : false;
   if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
-  await syncProPlanMetadata(user, isPro);
-  return true;
+  if (!user.id) return false;
+  return await (options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser)(
+    user.id,
+    (freshUser, lease) => reconcileFreshProMetadata(freshUser, isPro, lease),
+  );
 }
 
 export async function resolveProPlanStatus(
   user: ProReconcileUser,
-  options: { hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery } = {},
+  options: {
+    hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    withFreshMetadataUser?: FreshProMetadataUserMutation;
+  } = {},
 ): Promise<ProPlanStatus> {
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
@@ -118,9 +144,17 @@ export async function resolveProPlanStatus(
     : false;
   let metadataChanged = false;
 
-  if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
-    await syncProPlanMetadata(user, isPro);
-    metadataChanged = true;
+  if (
+    user.id &&
+    !hasManualVmPlanOverride &&
+    isPro !== (metadataPlanId === PRO_PLAN_ID)
+  ) {
+    metadataChanged = await (
+      options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser
+    )(
+      user.id,
+      (freshUser, lease) => reconcileFreshProMetadata(freshUser, isPro, lease),
+    );
   }
 
   return {
@@ -132,6 +166,46 @@ export async function resolveProPlanStatus(
     metadataChanged,
   };
 }
+
+async function reconcileFreshProMetadata(
+  user: ProReconcileUser,
+  isPro: boolean,
+  lease: AccountDeletionUserMutationLease,
+): Promise<boolean> {
+  const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
+  if (
+    metadata.cmuxAccountDeleting === true ||
+    hasManualVmOverride(metadata) ||
+    isPro === (metadata.cmuxPlan === PRO_PLAN_ID)
+  ) {
+    return false;
+  }
+  await syncProPlanMetadata(user, isPro, lease);
+  return true;
+}
+
+const withDefaultFreshProMetadataUser: FreshProMetadataUserMutation = async (
+  userId,
+  operation,
+) => {
+  const app = stackServerApp;
+  if (!app) {
+    throw new Error("Stack Auth is required for account metadata mutation");
+  }
+  type FreshStackProMetadataUser = ProReconcileUser & {
+    readonly id: string;
+  };
+  const loader: AccountMetadataUserLoader<FreshStackProMetadataUser> = {
+    getUser: (requestedUserId) => app.getUser(requestedUserId),
+  };
+  return await withFreshAccountMetadataUser({
+    db: cloudDb(),
+    userId,
+    loader,
+    operation: async (freshUser, lease) =>
+      await operation(freshUser, lease),
+  });
+};
 
 export async function hasActiveStripeProSubscription(
   stackUserId: string,

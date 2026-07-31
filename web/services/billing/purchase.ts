@@ -14,8 +14,8 @@ import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   isBlockingAccountDeletionTombstone,
-  withAccountDeletionUserMutation,
 } from "../account/deletionLock";
+import { withFreshAccountMetadataUser } from "../account/metadataMutation";
 import {
   PRO_PLAN_ID,
   type ProMetadataJson,
@@ -245,8 +245,7 @@ async function syncUserCheckoutAfterCommit(
           stackApp: input.stackApp,
         }, mutationLease);
       }
-      await mutationLease.refresh();
-      await syncProPlanMetadata(user, true);
+      await syncProPlanMetadata(user, true, mutationLease);
     },
   });
 }
@@ -437,8 +436,11 @@ export async function applySubscriptionUpdate(
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
     sync: async (freshUser, mutationLease) => {
-      await mutationLease.refresh();
-      const currentMetadata = await syncProPlanMetadata(freshUser, isActive);
+      const currentMetadata = await syncProPlanMetadata(
+        freshUser,
+        isActive,
+        mutationLease,
+      );
       if (!isActive) {
         await removeUserFromTestflightOnLapse(
           freshUser,
@@ -501,19 +503,18 @@ async function syncStackUserMetadataWithAccountDeletionGuard(input: {
     mutationLease: AccountDeletionUserMutationLease,
   ) => Promise<void>;
 }): Promise<boolean> {
-  return await withAccountDeletionUserMutation(
-    input.db,
-    input.stackUserId,
-    async (mutationLease) => {
-      const freshUser = await loadOptionalStackUser(
-        input.stackUserId,
-        input.stackApp,
-      );
+  const stackApp = input.stackApp ?? stackServerApp;
+  if (!stackApp) throw new Error("Stack Auth is not configured");
+  return await withFreshAccountMetadataUser({
+    db: input.db,
+    userId: input.stackUserId,
+    loader: stackApp,
+    operation: async (freshUser, mutationLease) => {
       if (!freshUser || isAccountDeletionInProgress(freshUser)) return false;
       await input.sync(freshUser, mutationLease);
       return true;
     },
-  );
+  });
 }
 
 function teamSubscriptionOwnerStackUserId(

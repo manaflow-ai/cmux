@@ -3,11 +3,103 @@ import CmuxBrowser
 import Foundation
 import WebKit
 
+enum BrowserAppSessionCallbackWaitOutcome: Equatable {
+    case completed
+    case cancelled
+    case timedOut
+}
+
+private final class BrowserAppSessionCallbackWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation:
+        CheckedContinuation<BrowserAppSessionCallbackWaitOutcome, Never>?
+    private var outcome: BrowserAppSessionCallbackWaitOutcome?
+    private var timeoutTask: Task<Void, Never>?
+
+    deinit {
+        finish(.cancelled)
+    }
+
+    func start(
+        _ continuation:
+            CheckedContinuation<BrowserAppSessionCallbackWaitOutcome, Never>
+    ) -> Bool {
+        let resolved: BrowserAppSessionCallbackWaitOutcome?
+        lock.lock()
+        resolved = outcome
+        if resolved == nil {
+            self.continuation = continuation
+        }
+        lock.unlock()
+
+        if let resolved {
+            continuation.resume(returning: resolved)
+            return false
+        }
+        return true
+    }
+
+    func installTimeoutTask(_ task: Task<Void, Never>) {
+        lock.lock()
+        guard outcome == nil else {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        timeoutTask = task
+        lock.unlock()
+    }
+
+    func finish(_ resolved: BrowserAppSessionCallbackWaitOutcome) {
+        let pending:
+            (CheckedContinuation<BrowserAppSessionCallbackWaitOutcome, Never>?, Task<Void, Never>?)?
+        lock.lock()
+        if outcome == nil {
+            outcome = resolved
+            pending = (continuation, timeoutTask)
+            continuation = nil
+            timeoutTask = nil
+        } else {
+            pending = nil
+        }
+        lock.unlock()
+
+        guard let (continuation, timeoutTask) = pending else { return }
+        timeoutTask?.cancel()
+        continuation?.resume(returning: resolved)
+    }
+}
+
+func awaitBrowserAppSessionCallback(
+    timeout: Duration,
+    start: (@escaping @Sendable () -> Void) -> Void
+) async -> BrowserAppSessionCallbackWaitOutcome {
+    let waiter = BrowserAppSessionCallbackWaiter()
+    return await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+            guard waiter.start(continuation) else { return }
+            start { waiter.finish(.completed) }
+            let timeoutTask = Task {
+                do {
+                    try await Task.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                waiter.finish(.timedOut)
+            }
+            waiter.installTimeoutTask(timeoutTask)
+        }
+    } onCancel: {
+        waiter.finish(.cancelled)
+    }
+}
+
 /// Exchanges the native Stack session for browser cookies without allowing
 /// WebKit navigation to own the exchange lifecycle.
 @MainActor
 final class BrowserAppSessionController {
     static let appSessionWebsiteDataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+    private static let webKitCallbackTimeout: Duration = .seconds(5)
 
     private let coordinator: AuthCoordinator
     private let handoff: BrowserAppSessionHandoff
@@ -77,7 +169,11 @@ final class BrowserAppSessionController {
             )
         }
         activeTasks[operationID] = task
-        let outcome = await task.value
+        let outcome = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         activeTasks.removeValue(forKey: operationID)
         return outcome
     }
@@ -180,7 +276,7 @@ final class BrowserAppSessionController {
 
         let targets = storeRegistry.allEnvironmentStoresForCleanup()
         for target in targets {
-            await clearCmuxWebSession(in: target.store)
+            _ = await clearCmuxWebSession(in: target.store)
         }
         storeRegistry.removeAllOwnership()
     }
@@ -190,9 +286,9 @@ final class BrowserAppSessionController {
         websiteDataStore: WKWebsiteDataStore,
         requestGeneration: UInt64
     ) async -> BrowserAppSessionRequestOutcome {
-        let snapshot: AuthenticatedRefreshTokenSnapshot
+        let snapshot: AuthenticatedSessionSnapshot
         do {
-            snapshot = try await coordinator.authenticatedRefreshTokenSnapshot()
+            snapshot = try await coordinator.authenticatedSessionSnapshot()
         } catch {
             guard localHandoffIsCurrent(requestGeneration) else { return .cancelled }
             return BrowserAppSessionRequestOutcome.tokenFailure(error)
@@ -205,6 +301,7 @@ final class BrowserAppSessionController {
         guard let exchangeRequest = handoff.request(
             destinationURL: destinationURL,
             tokens: BrowserAppSessionTokens(
+                accessToken: snapshot.accessToken,
                 refreshToken: snapshot.refreshToken
             )
         ) else { return .failed }
@@ -235,13 +332,22 @@ final class BrowserAppSessionController {
         }
 
         storeRegistry.register(websiteDataStore)
-        await clearCmuxWebSession(in: websiteDataStore)
+        let clearOutcome = await clearCmuxWebSession(in: websiteDataStore)
+        guard clearOutcome == .completed else {
+            return clearOutcome == .cancelled ? .cancelled : .transientFailure
+        }
         guard handoffIsCurrent(
             requestGeneration,
             authSessionGeneration: snapshot.generation
         ) else { return .cancelled }
         for cookie in cookies {
-            await set(cookie, in: websiteDataStore.httpCookieStore)
+            let setOutcome = await set(
+                cookie,
+                in: websiteDataStore.httpCookieStore
+            )
+            guard setOutcome == .completed else {
+                return setOutcome == .cancelled ? .cancelled : .transientFailure
+            }
             guard handoffIsCurrent(
                 requestGeneration,
                 authSessionGeneration: snapshot.generation
@@ -271,13 +377,17 @@ final class BrowserAppSessionController {
             && authSessionGeneration == coordinator.authSessionGeneration
     }
 
-    private func clearCmuxWebSession(in store: WKWebsiteDataStore) async {
-        await withCheckedContinuation { continuation in
+    private func clearCmuxWebSession(
+        in store: WKWebsiteDataStore
+    ) async -> BrowserAppSessionCallbackWaitOutcome {
+        await awaitBrowserAppSessionCallback(
+            timeout: Self.webKitCallbackTimeout
+        ) { completion in
             store.removeData(
                 ofTypes: Self.appSessionWebsiteDataTypes,
                 modifiedSince: .distantPast
             ) {
-                continuation.resume()
+                completion()
             }
         }
     }
@@ -285,9 +395,11 @@ final class BrowserAppSessionController {
     private func set(
         _ cookie: HTTPCookie,
         in store: WKHTTPCookieStore
-    ) async {
-        await withCheckedContinuation { continuation in
-            store.setCookie(cookie) { continuation.resume() }
+    ) async -> BrowserAppSessionCallbackWaitOutcome {
+        await awaitBrowserAppSessionCallback(
+            timeout: Self.webKitCallbackTimeout
+        ) { completion in
+            store.setCookie(cookie) { completion() }
         }
     }
 }

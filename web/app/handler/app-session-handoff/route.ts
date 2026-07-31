@@ -2,39 +2,21 @@ import { checkRateLimit } from "@vercel/firewall";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
+import {
+  createStackBrowserSessionHandoffAdapter,
+  type StackBrowserSessionHandoffAdapter,
+} from "../../../services/auth/stackBrowserSessionHandoff";
 
 export const dynamic = "force-dynamic";
 
-const SESSION_EXPIRES_IN_MS = 30 * 24 * 60 * 60 * 1000;
-const ACCESS_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
 const APP_HANDOFF_HEADER = "x-cmux-app-session-handoff";
 const APP_HANDOFF_RESPONSE_HEADER = "x-cmux-app-session-response";
 
-type StackAuthSessionLike = {
-  getTokens: () => Promise<{
-    refreshToken?: string | null;
-    accessToken?: string | null;
-  }>;
-};
-
-type StackAuthUserLike = {
-  currentSession: StackAuthSessionLike;
-};
-
-type StackServerAppLike = {
-  getUser: (options: {
-    tokenStore: {
-      refreshToken: string;
-    };
-  }) => Promise<StackAuthUserLike | null>;
-} | null;
-
 type AppSessionHandoffDependencies = {
-  projectId: string | undefined;
-  stackServerApp: StackServerAppLike;
+  sessionAdapter: StackBrowserSessionHandoffAdapter | null;
   now?: () => number;
   checkRateLimit?: typeof checkRateLimit;
   isVercel?: () => boolean;
@@ -150,60 +132,6 @@ function isVercelRuntime(
   return dependencies.isVercel?.() ?? process.env.VERCEL === "1";
 }
 
-function secureCookiesFor(request: NextRequest): boolean {
-  return request.nextUrl.protocol === "https:"
-    || request.headers.get("x-forwarded-proto") === "https";
-}
-
-function setCookie(
-  response: NextResponse,
-  name: string,
-  value: string,
-  request: NextRequest,
-  maxAge: number,
-): void {
-  response.cookies.set(name, value, {
-    maxAge,
-    path: "/",
-    sameSite: "lax",
-    secure: secureCookiesFor(request),
-  });
-}
-
-function setStackSessionCookies(
-  response: NextResponse,
-  request: NextRequest,
-  projectId: string,
-  tokens: { refreshToken: string; accessToken: string },
-  now: number,
-): void {
-  const accessCookieValue = JSON.stringify([tokens.refreshToken, tokens.accessToken]);
-  const refreshCookieValue = JSON.stringify({
-    refresh_token: tokens.refreshToken,
-    updated_at_millis: now,
-  });
-  const securePrefix = secureCookiesFor(request) ? "__Host-" : "";
-  const refreshName =
-    `${securePrefix}hexclave-refresh-${projectId}--default`;
-
-  // Stack's browser token store intentionally reads these cookies from
-  // document.cookie. Match its current names, values, and browser visibility.
-  setCookie(
-    response,
-    "hexclave-access",
-    accessCookieValue,
-    request,
-    ACCESS_COOKIE_MAX_AGE_SECONDS,
-  );
-  setCookie(
-    response,
-    refreshName,
-    refreshCookieValue,
-    request,
-    SESSION_EXPIRES_IN_MS / 1000,
-  );
-}
-
 async function parseHandoffBody(request: NextRequest): Promise<URLSearchParams | null> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/x-www-form-urlencoded")) return null;
@@ -259,9 +187,8 @@ export function makeAppSessionHandoffHandler(
       return NextResponse.redirect(new URL("/", request.url), 303);
     }
 
-    const app = dependencies.stackServerApp;
-    const projectId = dependencies.projectId;
-    if (!app || !projectId) return handoffFailure(request, "/", 503);
+    const sessionAdapter = dependencies.sessionAdapter;
+    if (!sessionAdapter) return handoffFailure(request, "/", 503);
     if (!isVercelRuntime(dependencies)) {
       // Production token exchange requires the durable Vercel firewall. The
       // process-local budget exists only for `next dev` and tests, where one
@@ -289,26 +216,12 @@ export function makeAppSessionHandoffHandler(
     }
 
     const refreshToken = form.get("refresh_token")?.trim();
-    if (!refreshToken) return handoffFailure(request, afterPath);
+    const accessToken = form.get("access_token")?.trim();
+    if (!refreshToken || !accessToken) {
+      return handoffFailure(request, afterPath);
+    }
 
     try {
-      const user = await app.getUser({
-        // Authenticate through the refresh grant even when the native access
-        // token is still valid. Otherwise a valid access token plus an
-        // unrelated string could mint a new long-lived browser session.
-        tokenStore: { refreshToken },
-      });
-      if (!user) return handoffFailure(request, afterPath);
-
-      // Stack's browser client requires its refresh cookie to remain readable
-      // by JavaScript. Reusing the validated native session intentionally
-      // couples revocation, while the dedicated non-persistent WebKit store
-      // prevents that credential from entering a shared browser profile.
-      const tokens = await user.currentSession.getTokens();
-      if (!tokens.refreshToken || !tokens.accessToken) {
-        return handoffFailure(request, afterPath, 502);
-      }
-
       const cookieExchange = requestsCookieExchange(request);
       const response = cookieExchange
         ? new NextResponse(null, { status: 204 })
@@ -316,10 +229,13 @@ export function makeAppSessionHandoffHandler(
           new URL(afterPath, request.nextUrl.origin),
           303,
         );
-      setStackSessionCookies(response, request, projectId, {
-        refreshToken: tokens.refreshToken,
-        accessToken: tokens.accessToken,
-      }, dependencies.now?.() ?? Date.now());
+      const established = await sessionAdapter.establish({
+        request,
+        response,
+        tokens: { refreshToken, accessToken },
+        now: dependencies.now?.() ?? Date.now(),
+      });
+      if (!established) return handoffFailure(request, afterPath);
       response.headers.set("Cache-Control", "no-store");
       response.headers.set("Referrer-Policy", "no-referrer");
       if (cookieExchange) {
@@ -333,6 +249,10 @@ export function makeAppSessionHandoffHandler(
 }
 
 export const POST = makeAppSessionHandoffHandler({
-  projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
-  stackServerApp: stackServerApp as unknown as StackServerAppLike,
+  sessionAdapter: stackServerApp && env.NEXT_PUBLIC_STACK_PROJECT_ID
+    ? createStackBrowserSessionHandoffAdapter(
+        stackServerApp,
+        env.NEXT_PUBLIC_STACK_PROJECT_ID,
+      )
+    : null,
 });

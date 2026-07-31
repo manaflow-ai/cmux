@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type { StackServerApp } from "@stackframe/stack";
 import { NextRequest } from "next/server";
 
 process.env.SKIP_ENV_VALIDATION = "1";
@@ -26,10 +27,19 @@ mock.module("@vercel/firewall", () => ({ checkRateLimit }));
 const { makeAppSessionHandoffHandler } = await import(
   "../app/handler/app-session-handoff/route"
 );
+const { createStackBrowserSessionHandoffAdapter } = await import(
+  "../services/auth/stackBrowserSessionHandoff"
+);
+
+function testSessionAdapter() {
+  return createStackBrowserSessionHandoffAdapter(
+    { getUser } as unknown as StackServerApp<true>,
+    "12345678-1234-4123-8123-123456789abc",
+  );
+}
 
 const POST = makeAppSessionHandoffHandler({
-  projectId: "12345678-1234-4123-8123-123456789abc",
-  stackServerApp: { getUser },
+  sessionAdapter: testSessionAdapter(),
   now: () => 1_721_955_600_000,
   rateLimitId: "app-session-handoff",
 });
@@ -297,8 +307,7 @@ describe("app session handoff", () => {
 
   test("does not let spoofed forwarding headers bypass the local safety limit", async () => {
     const localPost = makeAppSessionHandoffHandler({
-      projectId: "12345678-1234-4123-8123-123456789abc",
-      stackServerApp: { getUser },
+      sessionAdapter: testSessionAdapter(),
       now: () => 1_721_955_600_000,
       isVercel: () => false,
     });
@@ -306,6 +315,7 @@ describe("app session handoff", () => {
     for (let index = 0; index < 60; index += 1) {
       const response = await localPost(handoffRequest({
         refresh_token: "native-refresh",
+        access_token: "native-access",
         after: "/dashboard/testflight",
       }, {
         "x-forwarded-for": `203.0.113.${index}`,
@@ -317,6 +327,7 @@ describe("app session handoff", () => {
 
     const blocked = await localPost(handoffRequest({
       refresh_token: "native-refresh",
+      access_token: "native-access",
       after: "/dashboard/testflight",
     }, {
       "x-forwarded-for": "198.51.100.200",
@@ -331,8 +342,7 @@ describe("app session handoff", () => {
   test("uses the injected clock to reset the local safety limit", async () => {
     let now = 1_721_955_600_000;
     const timedPost = makeAppSessionHandoffHandler({
-      projectId: "12345678-1234-4123-8123-123456789abc",
-      stackServerApp: { getUser },
+      sessionAdapter: testSessionAdapter(),
       now: () => now,
       isVercel: () => false,
     });
@@ -341,12 +351,14 @@ describe("app session handoff", () => {
     for (let index = 0; index < 60; index += 1) {
       const response = await timedPost(handoffRequest({
         refresh_token: "native-refresh",
+        access_token: "native-access",
         after: "/dashboard/testflight",
       }, headers));
       expect(response.status).toBe(303);
     }
     const blocked = await timedPost(handoffRequest({
       refresh_token: "native-refresh",
+      access_token: "native-access",
       after: "/dashboard/testflight",
     }, headers));
     expect(blocked.status).toBe(303);
@@ -357,6 +369,7 @@ describe("app session handoff", () => {
     now += 60_001;
     const reset = await timedPost(handoffRequest({
       refresh_token: "native-refresh",
+      access_token: "native-access",
       after: "/dashboard/testflight",
     }, headers));
 
@@ -371,8 +384,7 @@ describe("app session handoff", () => {
     mutableEnvironment.NODE_ENV = "production";
     try {
       const selfHostedPost = makeAppSessionHandoffHandler({
-        projectId: "12345678-1234-4123-8123-123456789abc",
-        stackServerApp: { getUser },
+        sessionAdapter: testSessionAdapter(),
         isVercel: () => false,
       });
 

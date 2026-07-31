@@ -1,5 +1,11 @@
 import { StackServerApp } from "@stackframe/stack";
 
+import { cloudDb } from "../../db/client";
+import {
+  type AccountMetadataUserLoader,
+  withFreshAccountMetadataUser,
+} from
+  "../../services/account/metadataMutation";
 import {
   proOwnedLegacyTestflightEmails,
   proOwnedLegacyTestflightGroupIDs,
@@ -36,25 +42,43 @@ const stack = new StackServerApp({
   tokenStore: null,
   noAutomaticPrefetch: true,
 });
+type BackfillStackUser = ProTestflightOwnershipUser & { readonly id: string };
+const stackUserLoader: AccountMetadataUserLoader<BackfillStackUser> = {
+  getUser: (userId) => stack.getUser(userId),
+};
+const db = apply ? cloudDb() : null;
 
-const candidates: { user: ProTestflightOwnershipUser; email: string }[] = [];
+const candidates: {
+  stackUserId: string;
+  user: ProTestflightOwnershipUser;
+  email: string;
+}[] = [];
 for (const entry of manifest.users) {
   const user = await stack.getUser(entry.stackUserId);
   if (!user) throw new Error("Backfill manifest references a missing Stack user");
-  candidates.push({ user, email: entry.email });
+  candidates.push({ stackUserId: entry.stackUserId, user, email: entry.email });
 }
 
 let alreadyRecorded = 0;
 let updated = 0;
-for (const { user, email } of candidates) {
+for (const { stackUserId, user, email } of candidates) {
+  if (apply && db) {
+    const changed = await withFreshAccountMetadataUser({
+      db,
+      userId: stackUserId,
+      loader: stackUserLoader,
+      operation: (freshUser, lease) =>
+        recordProOwnedLegacyTestflightGroup(freshUser, email, lease),
+    });
+    if (changed) updated += 1;
+    else alreadyRecorded += 1;
+    continue;
+  }
+
   const metadata = user.clientReadOnlyMetadata;
   const hasGroup = proOwnedLegacyTestflightGroupIDs(metadata).length > 0;
   const hasEmail = proOwnedLegacyTestflightEmails(metadata).includes(email);
-  if (hasGroup && hasEmail) {
-    alreadyRecorded += 1;
-  } else if (apply) {
-    if (await recordProOwnedLegacyTestflightGroup(user, email)) updated += 1;
-  }
+  if (hasGroup && hasEmail) alreadyRecorded += 1;
 }
 
 console.log(JSON.stringify({

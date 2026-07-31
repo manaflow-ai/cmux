@@ -302,7 +302,11 @@ describe("TestFlight ASC service", () => {
     };
 
     await expect(
-      recordProOwnedLegacyTestflightGroup(user, "Legacy@Example.com"),
+      recordProOwnedLegacyTestflightGroup(
+        user,
+        "Legacy@Example.com",
+        { refresh: async () => undefined },
+      ),
     ).resolves.toBe(true);
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: {
@@ -327,7 +331,11 @@ describe("TestFlight ASC service", () => {
     };
 
     await expect(
-      recordProTestflightEnrollmentEmail(user, "Second@Example.com"),
+      recordProTestflightEnrollmentEmail(
+        user,
+        "Second@Example.com",
+        { refresh: async () => undefined },
+      ),
     ).resolves.toBe(true);
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: {
@@ -423,7 +431,11 @@ describe("TestFlight ASC service", () => {
     };
 
     await expect(
-      recordProOwnedLegacyTestflightGroup(user, "legacy@example.com"),
+      recordProOwnedLegacyTestflightGroup(
+        user,
+        "legacy@example.com",
+        { refresh: async () => undefined },
+      ),
     ).resolves.toBe(false);
     expect(update).not.toHaveBeenCalled();
   });

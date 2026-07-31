@@ -15,7 +15,8 @@ public struct BrowserAppSessionHandoff: Sendable {
         destinationURL: URL,
         tokens: BrowserAppSessionTokens
     ) -> URLRequest? {
-        guard !tokens.refreshToken.isEmpty,
+        guard !tokens.accessToken.isEmpty,
+              !tokens.refreshToken.isEmpty,
               shouldHandoff(to: destinationURL),
               let handoffURL = URL(
                   string: "/handler/app-session-handoff",
@@ -25,6 +26,7 @@ public struct BrowserAppSessionHandoff: Sendable {
         }
 
         let pairs: [(String, String)] = [
+            ("access_token", tokens.accessToken),
             ("refresh_token", tokens.refreshToken),
             ("after", relativePath(destinationURL)),
         ]

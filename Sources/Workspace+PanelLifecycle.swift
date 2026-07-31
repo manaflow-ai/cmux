@@ -425,6 +425,7 @@ extension Workspace {
         cleanupControllerSurfaceState: Bool = false,
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        appLinkHandoffRegistry.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }

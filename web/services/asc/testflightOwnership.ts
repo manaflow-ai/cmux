@@ -1,3 +1,6 @@
+import type { AccountDeletionUserMutationLease } from
+  "../account/deletionLock";
+
 export const FOUNDER_TESTFLIGHT_GROUP_ID =
   "3ee84bfa-10ad-4f23-a45c-f9a3b037373e";
 
@@ -114,6 +117,7 @@ export function proTestflightRemovalTargets(
 export async function recordProTestflightEnrollmentEmail(
   user: ProTestflightOwnershipUser,
   enrollmentEmail: string,
+  lease: AccountDeletionUserMutationLease,
 ): Promise<boolean> {
   const normalizedEmail = requiredEmail(
     enrollmentEmail,
@@ -141,6 +145,7 @@ export async function recordProTestflightEnrollmentEmail(
 
   metadata[PRO_TESTFLIGHT_ENROLLMENT_EMAILS_METADATA_KEY] = nextEmails;
   metadata[PRO_TESTFLIGHT_GRANTS_METADATA_KEY] = nextGrants;
+  await lease.refresh();
   await user.update({
     clientReadOnlyMetadata: metadata as TestflightOwnershipMetadata,
   });
@@ -189,6 +194,7 @@ export function metadataAfterProTestflightRemoval(
 export async function recordProOwnedLegacyTestflightGroup(
   user: ProTestflightOwnershipUser,
   legacyEmail: string,
+  lease: AccountDeletionUserMutationLease,
 ): Promise<boolean> {
   const normalizedLegacyEmail = requiredEmail(
     legacyEmail,
@@ -208,6 +214,7 @@ export async function recordProOwnedLegacyTestflightGroup(
     ...ownedEmails,
     ...(hasEmail ? [] : [normalizedLegacyEmail]),
   ];
+  await lease.refresh();
   await user.update({
     clientReadOnlyMetadata: metadata as TestflightOwnershipMetadata,
   });

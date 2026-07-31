@@ -76,8 +76,11 @@ export async function POST(request: NextRequest) {
           // Persist the exact address before the ASC mutation. If ASC fails, a
           // retry is harmless; if it succeeds, future email changes cannot
           // orphan this Pro-group enrollment.
-          await mutationLease.refresh();
-          await recordProTestflightEnrollmentEmail(freshUser, freshEmail);
+          await recordProTestflightEnrollmentEmail(
+            freshUser,
+            freshEmail,
+            mutationLease,
+          );
           const name = splitDisplayName(freshUser.displayName);
           await mutationLease.refresh();
           await enrollTester(freshEmail, name.firstName, name.lastName);
