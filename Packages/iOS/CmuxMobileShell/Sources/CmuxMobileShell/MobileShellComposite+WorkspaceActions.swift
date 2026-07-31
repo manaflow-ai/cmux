@@ -372,7 +372,7 @@ extension MobileShellComposite {
                 hostAuthorizesByAccount: hostAuthorizesAccountScopedMutations
             )
         }
-        let subscription = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0] }
+        let subscription = target.ownerKey.flatMap { secondaryMacSubscriptions[$0] }
         let ticket = subscription?.ticket ?? client.attachTicket
         return policy.allowsMacScopedWorkspaceMutations(
             ticket,
@@ -516,7 +516,8 @@ extension MobileShellComposite {
             return .rejected(hostDisplayName: hostDisplayName)
         }
         switch connectionError {
-        case .connectionClosed, .transportWriteTimedOut:
+        case .connectionClosed, .transportWriteTimedOut,
+             .routeCleanupBlocked:
             return .notConnected(hostDisplayName: hostDisplayName)
         case .requestTimedOut:
             return .requestTimedOut(hostDisplayName: hostDisplayName)
@@ -544,8 +545,10 @@ extension MobileShellComposite {
         target: WorkspaceMutationTarget,
         fallback: String?
     ) -> String? {
-        if let macDeviceID = target.macDeviceID,
-           let displayName = workspacesByMac[macDeviceID]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let ownerKey = target.ownerKey ?? target.macDeviceID.map({
+               MacPairingKey(macDeviceID: $0, instanceTag: nil)
+           }),
+           let displayName = workspacesByMac[ownerKey]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !displayName.isEmpty {
             return displayName
         }

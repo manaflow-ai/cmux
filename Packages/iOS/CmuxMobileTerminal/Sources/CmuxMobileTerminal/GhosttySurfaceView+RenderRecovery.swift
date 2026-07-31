@@ -44,6 +44,21 @@ extension GhosttySurfaceView {
             pending.continuation.resume(returning: nil)
         }
 
+        // Viewport anchoring is best-effort; a timeout must not replace an
+        // otherwise healthy surface or turn replay into another recovery loop.
+        if let pending = pendingVerifiedReplayViewportAnchorCapture,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorCapture = nil
+            pending.continuation.resume(returning: nil)
+        }
+
+        if let pending = pendingVerifiedReplayViewportAnchorRestore,
+           now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingVerifiedReplayViewportAnchorRestore = nil
+            viewportRestoreGate.withLock { $0.activeRestoreTicket = nil }
+            pending.continuation.resume(returning: false)
+        }
+
         if let pending = pendingCopyableTextRead,
            now - pending.startedAt >= Self.copyableTextTimeout {
             pendingCopyableTextRead = nil
@@ -237,6 +252,7 @@ extension GhosttySurfaceView {
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
+        resetScrollStateForSurfaceReplacement()
         scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
         bridge.attach(to: self)

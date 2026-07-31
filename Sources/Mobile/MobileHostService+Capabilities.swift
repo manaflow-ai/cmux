@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
@@ -35,6 +36,9 @@ extension MobileHostService {
         includingWorkspaceChanges: Bool
     ) -> [String] {
         var capabilities = [
+            MobileBrowserStreamCapability.identifier,
+            MobileBrowserStreamCapability.viewportIdentifier,
+            MobileBrowserStreamCapability.dialogIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",

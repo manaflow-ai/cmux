@@ -113,7 +113,6 @@ extension WorkspaceListView {
                 joinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,

@@ -379,10 +379,10 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("ProxyCommand destinations cannot be probed directly")
-    func proxyCommandResolvesToNil() {
+    func proxyCommandResolvesToNil() async {
         // sshConfigFile pins resolution to an empty config so the test stays
         // hermetic against the developer/CI user's ~/.ssh/config.
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 22,
             identityFile: nil,
@@ -393,8 +393,8 @@ struct RemoteHostReachabilityProbeTests {
     }
 
     @Test("Resolves a direct destination's endpoint via ssh -G")
-    func resolvesDirectEndpoint() throws {
-        let endpoint = RemoteHostReachabilityProbe.resolveEndpoint(
+    func resolvesDirectEndpoint() async throws {
+        let endpoint = await RemoteHostReachabilityProbe.resolveEndpoint(
             destination: "nobody@127.0.0.1",
             port: 2222,
             identityFile: nil,

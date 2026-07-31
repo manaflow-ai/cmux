@@ -365,10 +365,34 @@ extension ControlWorkspaceContext {
         sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution { .notFound }
 
+    nonisolated func controlCurrentRemotePTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> ControlRemotePTYLifecycleOwner? { nil }
+
+    func controlWorkspaceRemoteTerminalSessionLaunching(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
+
+    func controlWorkspaceRemoteTerminalSessionConnected(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        authority: ControlWorkspaceRemoteTerminalAuthority,
+        attemptID: UUID,
+        commitLease: (any ControlRemotePTYLifecycleCommitLease)?
+    ) -> ControlWorkspaceRemoteTerminalSessionConnectedResolution { .notFound }
+
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+        relayPort: Int?,
+        terminalLifecycleID: UUID?,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 
