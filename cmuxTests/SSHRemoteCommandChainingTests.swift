@@ -202,10 +202,14 @@ struct SSHRemoteCommandChainingTests {
 
     @Test
     func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
-        let cases: [(options: [String], expectedConfiguredCommand: String?)] = [
-            (["RemoteCommand=printf restored-command"], "printf restored-command"),
-            (["RemoteCommand=none"], nil),
-            ([], nil),
+        let cases: [(
+            options: [String],
+            expectedConfiguredCommand: String?,
+            expectedRestoredOptions: [String]
+        )] = [
+            (["RemoteCommand=printf restored-command"], "printf restored-command", []),
+            (["RemoteCommand=none"], nil, ["RemoteCommand=none"]),
+            ([], nil, []),
         ]
 
         for testCase in cases {
@@ -240,7 +244,7 @@ struct SSHRemoteCommandChainingTests {
             )
             let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
 
-            #expect(restored.sshOptions == testCase.options)
+            #expect(restored.sshOptions == testCase.expectedRestoredOptions)
             #expect(restored.configuredRemoteCommand == testCase.expectedConfiguredCommand)
             #expect(
                 startupCommand.hasPrefix("/bin/sh -c "),

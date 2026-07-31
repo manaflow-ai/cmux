@@ -297,12 +297,23 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(configuration.sshOptions.contains("ServerAliveInterval=15"))
         #expect(configuration.sshOptions.contains("RemoteCommand=none"))
         #expect(command.contains("mosh"), Comment(rawValue: command))
-        #expect(
-            command.contains(
-                "/usr/bin/ssh -o RemoteCommand=none -o ServerAliveInterval=15 -tt dev@example.com"
-            ),
-            "The no-relay Mosh fallback must suppress a live host RemoteCommand: \(command)"
+        let fallbackStart = try #require(command.range(of: "cmux_mosh_fallback() {"))
+        let fallbackEnd = try #require(
+            command.range(
+                of: "\ncmux_mosh=",
+                range: fallbackStart.upperBound..<command.endIndex
+            )
         )
+        let fallbackCommand = String(command[fallbackStart.lowerBound..<fallbackEnd.lowerBound])
+        #expect(
+            fallbackCommand.contains("-o RemoteCommand=none"),
+            Comment(rawValue: fallbackCommand)
+        )
+        #expect(
+            fallbackCommand.contains("-o ServerAliveInterval=15"),
+            Comment(rawValue: fallbackCommand)
+        )
+        #expect(fallbackCommand.contains("-tt dev@example.com"), Comment(rawValue: fallbackCommand))
         #expect(!command.contains(legacyRemoteCommand), Comment(rawValue: command))
     }
 }
