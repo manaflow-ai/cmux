@@ -5,6 +5,12 @@ public enum CmxTransportAuthorizationMode: Equatable, Sendable {
     /// A pairing established before Iroh may send a Stack bearer only to the
     /// exact Tailscale peer captured by this persisted compatibility grant.
     case legacyTailscaleBearer(CmxLegacyTailscaleAuthorizationEvidence)
+    /// A user-entered compatibility code may send a Stack bearer only to the
+    /// exact Tailscale peer address it named. The device identity a code may
+    /// claim is self-reported and adds no authority; the entry of the code in
+    /// the pairing UI is the authorization event, and the value never outlives
+    /// that pairing dial.
+    case userAuthorizedTailscalePairing(CmxUserTailscalePairingAuthorization)
     /// The transport handshake admitted this exact peer and account binding.
     case transportAdmission
 }
