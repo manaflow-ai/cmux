@@ -1259,7 +1259,7 @@ final class FileExplorerStore: ObservableObject {
         outlineChange(for: gitStatusDiff(previous: previous, current: current))
     }
 
-    static func gitStatusDiff(
+    nonisolated static func gitStatusDiff(
         previous: [String: GitFileStatus],
         current: [String: GitFileStatus]
     ) -> FileExplorerGitStatusDiff {
