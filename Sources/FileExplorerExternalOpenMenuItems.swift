@@ -14,45 +14,49 @@ struct FileExplorerExternalOpenMenuItems {
         }
 
         if let primaryApplication {
-            let openItem = NSMenuItem(
+            menu.addItem(menuItem(
                 title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-                action: action,
-                keyEquivalent: ""
-            )
-            openItem.target = target
-            openItem.representedObject = FileExplorerExternalOpenRequest(
-                fileURL: fileURL,
                 applicationURL: primaryApplication.url
-            )
-            menu.addItem(openItem)
-
-            guard !otherApplications.isEmpty else { return }
-            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-            for application in otherApplications {
-                let appItem = NSMenuItem(
-                    title: application.displayName,
-                    action: action,
-                    keyEquivalent: ""
-                )
-                appItem.target = target
-                appItem.representedObject = FileExplorerExternalOpenRequest(
-                    fileURL: fileURL,
-                    applicationURL: application.url
-                )
-                openWithMenu.addItem(appItem)
-            }
-            let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
-            openWithItem.submenu = openWithMenu
-            menu.addItem(openWithItem)
+            ))
         } else {
-            let openItem = NSMenuItem(
-                title: FileExternalOpenText.openExternally,
-                action: action,
-                keyEquivalent: ""
-            )
-            openItem.target = target
-            openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
-            menu.addItem(openItem)
+            menu.addItem(menuItem(title: FileExternalOpenText.openExternally, applicationURL: nil))
         }
+
+        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        for application in otherApplications {
+            openWithMenu.addItem(menuItem(
+                title: application.displayName,
+                applicationURL: application.url
+            ))
+        }
+        if !otherApplications.isEmpty {
+            openWithMenu.addItem(.separator())
+        }
+        // Always offered, so a file can reach an application Launch Services
+        // does not associate with it.
+        openWithMenu.addItem(menuItem(
+            title: FileExternalOpenText.openWithOther,
+            applicationURL: nil,
+            picksApplication: true
+        ))
+
+        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
+        openWithItem.submenu = openWithMenu
+        menu.addItem(openWithItem)
+    }
+
+    private func menuItem(
+        title: String,
+        applicationURL: URL?,
+        picksApplication: Bool = false
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = target
+        item.representedObject = FileExplorerExternalOpenRequest(
+            fileURL: fileURL,
+            applicationURL: applicationURL,
+            picksApplication: picksApplication
+        )
+        return item
     }
 }

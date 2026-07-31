@@ -3459,11 +3459,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ])
 
         let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
-        let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
-        XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
+        let openWithTitles = try XCTUnwrap(
+            openWithItem.submenu?.items.filter { !$0.isSeparatorItem }.map(\.title)
+        )
+        XCTAssertEqual(openWithTitles, ["Pixelmator Pro", FileExternalOpenText.openWithOther])
     }
 
-    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
+    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() throws {
         let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
 
         let menu = FileExternalOpenMenuFactory.makeMenu(
@@ -3476,7 +3478,75 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(topLevelTitles, [
             FileExternalOpenText.openExternally,
             FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
         ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(
+            openWithItem.submenu?.items.filter { !$0.isSeparatorItem }.map(\.title)
+        )
+        XCTAssertEqual(openWithTitles, [FileExternalOpenText.openWithOther])
+    }
+
+    func testOpenWithOtherOpensTheFileWithTheChosenApplication() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.env")
+        let chosenURL = URL(fileURLWithPath: "/Applications/Zed.app")
+        var pickedFor: [URL] = []
+        var opened: [(URL, URL)] = []
+        let picker = FileExternalOpenApplicationPicker { url in
+            pickedFor.append(url)
+            return chosenURL
+        }
+
+        let didOpen = FileExternalOpenAction.openWithPickedApplication(
+            fileURL: fileURL,
+            picker: picker,
+            openFile: { file, application in
+                opened.append((file, application))
+                return true
+            }
+        )
+
+        XCTAssertTrue(didOpen)
+        XCTAssertEqual(pickedFor, [fileURL])
+        XCTAssertEqual(opened.map(\.0), [fileURL])
+        XCTAssertEqual(opened.map(\.1), [chosenURL])
+    }
+
+    func testOpenWithOtherOpensNothingWhenTheChooserIsCancelled() {
+        var opened: [URL] = []
+        let picker = FileExternalOpenApplicationPicker { _ in nil }
+
+        let didOpen = FileExternalOpenAction.openWithPickedApplication(
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-sample.env"),
+            picker: picker,
+            openFile: { file, _ in
+                opened.append(file)
+                return true
+            }
+        )
+
+        XCTAssertFalse(didOpen)
+        XCTAssertTrue(opened.isEmpty)
+    }
+
+    func testFileExplorerOpenRequestRoutesTheOtherApplicationChoiceThroughTheChooser() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.log")
+        let menu = NSMenu()
+        // The selector is never fired here; the test asserts what the menu carries.
+        FileExplorerExternalOpenMenuItems(
+            fileURL: fileURL,
+            target: self,
+            action: Selector(("cmuxTestOpenExternally:"))
+        ).add(to: menu)
+
+        let openWithItem = menu.items.first { $0.title == FileExternalOpenText.openWithMenu }
+        let otherItem = openWithItem?.submenu?.items.first { $0.title == FileExternalOpenText.openWithOther }
+        let request = otherItem?.representedObject as? FileExplorerExternalOpenRequest
+
+        XCTAssertEqual(request?.fileURL, fileURL)
+        XCTAssertNil(request?.applicationURL)
+        XCTAssertEqual(request?.picksApplication, true)
     }
 
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {

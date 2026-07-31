@@ -112969,6 +112969,40 @@
         }
       }
     },
+    "filePreview.openWith.chooseMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose an application to open “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を開くアプリケーションを選択してください。"
+          }
+        }
+      }
+    },
+    "filePreview.openWith.choosePrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
     "filePreview.openWith.menu": {
       "extractionState": "manual",
       "localizations": {
@@ -112982,6 +113016,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
+    "filePreview.openWith.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他…"
           }
         }
       }
