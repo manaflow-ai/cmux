@@ -2,17 +2,31 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 process.env.SKIP_ENV_VALIDATION = "1";
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "test-project";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-publishable-key";
 process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
 const HANDOFF_COOKIE = "cmux-native-auth-handoff";
+type TestStackAuthSession = {
+  getTokens: () => Promise<{ refreshToken?: string; accessToken?: string }>;
+};
+type TestStackAuthUser = {
+  createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
+};
+
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-const getUser = mock(async () => null);
+let getUserResponses: Array<TestStackAuthUser | null> = [];
+const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
+const signOut = mock((options?: unknown) => {
+  void options;
+  return Promise.resolve();
+});
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
+const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
+const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
 
 const GET = makeAfterSignInHandler({
   projectId: "test-project",
@@ -43,7 +57,13 @@ function signInRequest(nativeReturnTo: string, handoffNonce: string): NextReques
 }
 
 function returnHref(html: string): string {
-  const match = html.match(/<a href="([^"]+)">Return to cmux<\/a>/);
+  const match = html.match(/<a class="primary" href="([^"]+)">Return to cmux<\/a>/);
+  expect(match).toBeTruthy();
+  return match![1].replaceAll("&amp;", "&");
+}
+
+function switchAccountHref(html: string): string {
+  const match = html.match(/<a class="secondary" href="([^"]+)">Use a different account<\/a>/);
   expect(match).toBeTruthy();
   return match![1].replaceAll("&amp;", "&");
 }
@@ -53,23 +73,62 @@ describe("after sign-in native handoff", () => {
     handoffCookie = undefined;
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
+    getUserResponses = [];
+    getUser.mockClear();
+    signOut.mockClear();
   });
 
-  test("keeps a fallback page for verified native auto-open handoffs", async () => {
+  test("issues and clears the handoff nonce with one cookie contract", async () => {
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+    const afterSignIn = new URL("/handler/after-sign-in", "https://cmux.test");
+    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+    const startURL = new URL("/handler/native-sign-in", "https://cmux.test");
+    startURL.searchParams.set(
+      "after_auth_return_to",
+      `${afterSignIn.pathname}${afterSignIn.search}`
+    );
+
+    const startResponse = startNativeSignIn(
+      new NextRequest(startURL, {
+        headers: { "sec-fetch-site": "none" },
+      })
+    );
+    const issuedCookie = startResponse.headers.get("set-cookie");
+    expect(issuedCookie).toBeTruthy();
+
+    const signInURL = new URL(startResponse.headers.get("location")!);
+    const callbackURL = new URL(signInURL.searchParams.get("after_auth_return_to")!);
+    const handoffNonce = callbackURL.searchParams.get("cmux_auth_handoff");
+    expect(handoffNonce).toBeTruthy();
+    handoffCookie = handoffNonce!;
+
+    const finishResponse = await GET(signInRequest(nativeReturnTo, handoffNonce!));
+    const clearedCookie = finishResponse.headers.get("set-cookie");
+    expect(clearedCookie).toBeTruthy();
+
+    for (const cookie of [issuedCookie!, clearedCookie!]) {
+      expect(cookie).toContain(`${HANDOFF_COOKIE}=`);
+      expect(cookie).toContain("Path=/handler/after-sign-in");
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=lax");
+      expect(cookie).toContain("Secure");
+    }
+    expect(issuedCookie).toContain("Max-Age=600");
+    expect(clearedCookie).toContain("Max-Age=0");
+  });
+
+  test("redirects verified native handoffs directly to the native callback", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(307);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const html = await response.text();
-    expect(html).toContain("Signed in to cmux");
-    expect(html).toContain("Return to cmux");
-    expect(html).toContain("window.location.replace");
-    expect(html).not.toContain("http-equiv=\"refresh\"");
 
-    const callbackURL = new URL(returnHref(html));
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
     expect(callbackURL.protocol).toBe("cmux:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-123");
@@ -95,6 +154,36 @@ describe("after sign-in native handoff", () => {
     expect(html).toContain("Return to cmux");
     expect(html).not.toContain("window.location.replace");
     expect(returnHref(html)).toContain("cmux://auth-callback");
+
+    const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
+    expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
+    const nativeSignInTarget = new URL(
+      switchURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test"
+    );
+    expect(nativeSignInTarget.pathname).toBe("/handler/native-sign-in");
+    const afterSignInTarget = new URL(
+      nativeSignInTarget.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test"
+    );
+    expect(afterSignInTarget.pathname).toBe("/handler/after-sign-in");
+    expect(afterSignInTarget.searchParams.get("native_app_return_to")).toBe(nativeReturnTo);
+    expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
+  });
+
+  test("omits account switching when there is no native return target to preserve", async () => {
+    const response = await GET(
+      new NextRequest("https://cmux.test/handler/after-sign-in", {
+        headers: {
+          "accept-language": "en",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Return to cmux");
+    expect(html).not.toContain("Use a different account");
   });
 
   test("does not crash on malformed percent-encoded stack cookies", async () => {
@@ -105,6 +194,164 @@ describe("after sign-in native handoff", () => {
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("mints native handoff tokens for an existing anonymous purchaser session", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "anon-refresh",
+        accessToken: "anon-access",
+      }),
+    }));
+    getUserResponses = [null, { createSession }];
+    const nativeReturnTo = "cmux://auth-callback";
+
+    const response = await GET(signInRequest(nativeReturnTo, "unused"));
+
+    expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
+    expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous-if-exists[deprecated]" });
+    expect(createSession).toHaveBeenCalledWith({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
+    expect(response.status).toBe(200);
+    const callbackURL = new URL(returnHref(await response.text()));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("anon-refresh");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["anon-refresh", "anon-access"]),
+    );
+  });
+});
+
+describe("sign out and sign back in", () => {
+  const GET = makeSignOutAndSignInHandler({
+    projectId: "test-project",
+    signOut: async (options) => {
+      await signOut(options);
+    },
+  });
+
+  beforeEach(() => {
+    signOut.mockClear();
+  });
+
+  function switchRequest(
+    afterAuthReturnTo: string,
+    headers: Record<string, string> = {},
+    includeDefaultFetchSite = true
+  ): NextRequest {
+    return new NextRequest(
+      `https://cmux.test/handler/sign-out-and-sign-in?after_auth_return_to=${encodeURIComponent(afterAuthReturnTo)}`,
+      {
+        headers: {
+          ...(includeDefaultFetchSite ? { "sec-fetch-site": "same-origin" } : {}),
+          cookie:
+            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=custom-refresh-token; __Secure-stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=secure-custom-refresh-token; unrelated=value",
+          ...headers,
+        },
+      }
+    );
+  }
+
+  test("signs out and redirects back to the native sign-in flow", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn));
+
+    expect(signOut).toHaveBeenCalledWith({
+      redirectUrl: `https://cmux.test${nativeSignIn}`,
+    });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${nativeSignIn}`);
+
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("__Host-stack-access=;");
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+    expect(setCookie).toContain("__Host-stack-refresh-test-project=;");
+    expect(setCookie).toContain("__Secure-stack-refresh-test-project=;");
+    expect(setCookie).toContain("stack-refresh-test-project--default=;");
+    expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
+    expect(setCookie).toMatch(
+      /stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;[^,]*Domain=example\.com/
+    );
+    expect(setCookie).toMatch(
+      /__Secure-stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;[^,]*Domain=example\.com/
+    );
+    expect(setCookie).not.toContain("unrelated=;");
+  });
+
+  test("still clears cookies and redirects when Stack sign-out throws", async () => {
+    const GET = makeSignOutAndSignInHandler({
+      projectId: "test-project",
+      signOut: async () => {
+        throw new Error("stack unavailable");
+      },
+    });
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${nativeSignIn}`);
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("__Host-stack-access=;");
+  });
+
+  test("rejects non-native sign-in redirect targets", async () => {
+    const response = await GET(switchRequest("/docs"));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects nested after-sign-in redirect targets", async () => {
+    const afterSignIn =
+      "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123&after_auth_return_to=%2Fdocs";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects cross-site attempts to force sign-out", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, { "sec-fetch-site": "cross-site" }));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects same-site attempts to force sign-out", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, { "sec-fetch-site": "same-site" }));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects sign-out attempts without a fetch metadata signal", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, {}, false));
+
+    expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });

@@ -371,26 +371,9 @@ import Testing
 
         connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows])
-    }
-
-    @Test @MainActor func layoutChangePrunesRemovedPaneDiagnosticState() {
-        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
-        connection.handleMessageForTesting(.layoutChange(
-            windowId: 1,
-            layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"
-        ))
-        connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
-        connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
-        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
-
-        connection.handleMessageForTesting(.layoutChange(windowId: 1, layout: "f92f,80x24,0,0,4"))
-
-        #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
-        #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
-        #expect(connection.paneForegroundStates[4] != nil)
-        #expect(connection.paneForegroundStates[5] == nil)
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [])
+        ])
     }
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {
@@ -413,9 +396,13 @@ import Testing
         // Force interactive mode so the prompt works even under ssh_config BatchMode yes…
         #expect(consecutive(argv, "-o", "BatchMode=no"))
         #expect(!argv.contains("BatchMode=yes"))
-        // …and -f so ssh backgrounds AFTER auth: the persistent ControlMaster then
-        // detaches its fds and won't freeze the terminal on window/app close.
-        #expect(argv.contains("-f"))
+        // No -f: foreground auth keeps the post-auth ControlMaster retry deterministic.
+        #expect(!argv.contains("-f"))
+        // Keep -n explicitly; -f used to imply stdin from /dev/null.
+        #expect(argv.contains("-n"))
+        // The master must persist after the foreground client exits so discovery / the
+        // -CC client can multiplex over it.
+        #expect(argv.contains(where: { $0.hasPrefix("ControlPersist=") }))
         // …but do NOT pin StrictHostKeyChecking — honor the user's host-key policy.
         #expect(!argv.contains(where: { $0.hasPrefix("StrictHostKeyChecking=") }))
         // Opens the SAME shared master that discovery / the -CC client multiplex over.

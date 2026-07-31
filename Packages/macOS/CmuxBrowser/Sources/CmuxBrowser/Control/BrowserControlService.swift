@@ -6,10 +6,11 @@ import Foundation
 /// pure pieces of `browser` RPC handling that touch neither workspace/pane/surface
 /// lifecycle nor any AppKit/WebKit object. Specifically it builds the JavaScript
 /// strings for the semantic element locators (`find.role`, `find.text`, and the
-/// other `find.*` actions), the not-found diagnostics probe, and the
-/// `find.first`/`find.last`/`find.nth` selector scripts; it normalizes raw
-/// JavaScript results into JSON-serializable values; it classifies JavaScript
-/// failures; and it composes the human-readable element-not-found message.
+/// other `find.*` actions), canonical keyboard events, the not-found diagnostics
+/// probe, and the `find.first`/`find.last`/`find.nth` selector scripts; it
+/// normalizes raw JavaScript results into JSON-serializable values; it classifies
+/// JavaScript failures; and it composes the human-readable element-not-found
+/// message.
 ///
 /// The owning `@MainActor` controller keeps the per-surface mutable state
 /// (element-ref table, dialog queue, init scripts) and the WebKit evaluation seam;

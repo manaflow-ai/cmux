@@ -22,6 +22,7 @@ let package = Package(
         .testTarget(
             name: "CmuxAgentChatTests",
             dependencies: ["CmuxAgentChat"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

@@ -4,6 +4,7 @@
 // presence layer.
 
 import type { HeartbeatInput, PresenceRoute } from "./core";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
@@ -89,9 +90,9 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   // rejected rather than coerced like the registry route does, because under
   // presence semantics a silent coercion would either wipe pushed routes
   // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
-  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES;
-  // semantic `CmxAttachRoute` validation stays client-owned so new route kinds
-  // flow through without a worker ship.
+  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES.
+  // Legacy route semantics stay client-owned. Iroh routes are then reduced to
+  // EndpointID plus an approved managed relay URL.
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
@@ -109,6 +110,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
       routes.push(entry as PresenceRoute);
     }
+    routes = sanitizePublishedRoutes(routes);
   }
 
   return {
@@ -124,6 +126,51 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       routes,
     },
   };
+}
+
+/** Directed wake-up kinds a nudge may carry. A bounded allowlist so the wire
+ * stays enumerable; extend deliberately, never pass a client string through. */
+export const NUDGE_KINDS: ReadonlySet<string> = new Set(["iroh-binding-changed"]);
+
+export interface NudgeInput {
+  deviceId: string;
+  /** Restrict the wake-up to one app instance (build tag). Absent = whole device. */
+  tag?: string;
+  kind: string;
+}
+
+export type NudgeParse =
+  | { ok: true; nudge: NudgeInput }
+  | { ok: false; error: string };
+
+/** Parse and bound a nudge body that has already been JSON-decoded. Pure for
+ * tests. */
+export function parseNudge(body: Record<string, unknown>): NudgeParse {
+  const deviceId = trimmedString(body.deviceId).toLowerCase();
+  if (!UUID_RE.test(deviceId)) return { ok: false, error: "invalid_device_id" };
+
+  const kind = trimmedString(body.kind);
+  if (!NUDGE_KINDS.has(kind)) return { ok: false, error: "invalid_kind" };
+
+  const tag = trimmedString(body.tag);
+  if (tag.length > MAX_TAG_LENGTH) return { ok: false, error: "invalid_tag" };
+
+  return { ok: true, nudge: { deviceId, tag: tag || undefined, kind } };
+}
+
+export type DeviceScopeParse =
+  | { scope: "none" }
+  | { scope: "invalid" }
+  | { scope: "device"; deviceId: string };
+
+/** Parse the `?deviceScope=` subscribe query parameter: a device UUID that
+ * turns the stream into a directed nudge channel for that device. Pure for
+ * tests. */
+export function parseDeviceScope(raw: string | null): DeviceScopeParse {
+  const value = raw?.trim() ?? "";
+  if (!value) return { scope: "none" };
+  const deviceId = value.toLowerCase();
+  return UUID_RE.test(deviceId) ? { scope: "device", deviceId } : { scope: "invalid" };
 }
 
 /** Bounded JSON body reader. Unlike the registry route's post-hoc length

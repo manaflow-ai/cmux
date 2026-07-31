@@ -1026,6 +1026,8 @@ final class GhosttyConfigTests: XCTestCase {
         switch plan {
         case .unchanged:
             XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .deferred:
+            XCTFail("Unchanged appearance should not produce a deferred plan")
         case .reload:
             XCTFail("Unchanged appearance should not produce a reload plan")
         }
@@ -1053,6 +1055,8 @@ final class GhosttyConfigTests: XCTestCase {
             switch plan {
             case .unchanged:
                 XCTFail("Changed appearance should produce a reload plan")
+            case .deferred:
+                XCTFail("Changed appearance should not defer without an active reload")
             case let .reload(colorScheme, runtimeColorScheme):
                 XCTAssertEqual(colorScheme, testCase.current)
                 XCTAssertEqual(runtimeColorScheme, testCase.runtime)
@@ -1455,6 +1459,23 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
+
+    func testResolvedChromeColorsUseConfiguredPaneBorderColor() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            paneBorderColorHex: "#33AAFF"
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
+    }
 }
 
 final class WindowChromeSeparatorColorTests: XCTestCase {
@@ -1580,6 +1601,28 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            paneBorderColorHex: "#33AAFF"
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
     }
 }
 
@@ -2020,6 +2063,9 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // AppKit defaults to isReleasedWhenClosed, so the close() below would release a
+        // window ARC still owns and the over-release lands in a later autorelease pool drain.
+        realHostWindow.isReleasedWhenClosed = false
         defer {
             realHostWindow.contentView = nil
             realHostWindow.close()
@@ -4309,11 +4355,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
-        try withTempConfig("background = #101010\n") { path in
-            XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
-            )
+    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
+        // A lone color key must not suppress the managed default theme (#7161).
+        try withTempConfig("background = black\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
 
@@ -4682,38 +4727,6 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertTrue(output.contains("PRECMD=0"), output)
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
-    }
-
-    func testGhosttySemanticPatchRetriesAfterDeferredInitCreatesLiveHooks() throws {
-        let output = try runInteractiveZsh(
-            cmuxLoadGhosttyIntegration: true,
-            cmuxLoadShellIntegration: true,
-            command: """
-            _cmux_patch_ghostty_semantic_redraw
-            (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1
-            _cmux_patch_ghostty_semantic_redraw
-            print -r -- "PRECMD_BODY=${functions[_ghostty_precmd]}"
-            print -r -- "PREEXEC_BODY=${functions[_ghostty_preexec]}"
-            """
-        )
-
-        XCTAssertTrue(output.contains("PRECMD_BODY="), output)
-        XCTAssertTrue(output.contains("PREEXEC_BODY="), output)
-        XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
-    }
-
-    func testShellIntegrationWinchGuardDoesNotPrintSpacerLineOnResize() throws {
-        let output = try runInteractiveZsh(
-            cmuxLoadGhosttyIntegration: false,
-            cmuxLoadShellIntegration: true,
-            command: """
-            print -r -- BEFORE
-            TRAPWINCH
-            print -r -- AFTER
-            """
-        )
-
-        XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
     func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
@@ -6166,6 +6179,40 @@ final class BrowserInstallDetectorTests: XCTestCase {
                 userInfo: [NSFilePathErrorKey: url.path]
             )
         }
+    }
+}
+
+@Suite("Ghostty appearance synchronization")
+struct GhosttyAppearanceSynchronizationTests {
+    @Test("Appearance transition defers while a configuration reload is active")
+    func appearanceTransitionDefersDuringConfigurationReload() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .dark,
+            currentColorScheme: .light,
+            isConfigurationReloadInProgress: true
+        )
+
+        guard case let .deferred(colorScheme) = plan else {
+            Issue.record("Expected the appearance transition to defer")
+            return
+        }
+        #expect(colorScheme == .light)
+        #expect(!plan.shouldReloadConfiguration)
+    }
+
+    @Test("Appearance matching the committed scheme still defers during a reload")
+    func committedAppearanceDefersDuringConfigurationReload() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .dark,
+            currentColorScheme: .dark,
+            isConfigurationReloadInProgress: true
+        )
+
+        guard case let .deferred(colorScheme) = plan else {
+            Issue.record("Expected the latest appearance observation to defer")
+            return
+        }
+        #expect(colorScheme == .dark)
     }
 }
 

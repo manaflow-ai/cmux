@@ -1,0 +1,3 @@
+import CmuxAgentChat
+
+typealias AgentChatArtifactGalleryBuilder = ChatArtifactGalleryBuilder

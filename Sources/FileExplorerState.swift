@@ -28,6 +28,14 @@ final class FileExplorerState: ObservableObject {
     @Published private var storedMode: RightSidebarMode
     @Published private var storedCustomSidebarName: String?
 
+    /// Whether the right sidebar (Files / Find / Dock / …) currently owns
+    /// keyboard/input focus in this window. Driven by `MainWindowFocusController`
+    /// from its exclusive focus `intent`. Used to make main-pane focus and
+    /// right-sidebar (Dock) focus mutually exclusive — the main pane dims its
+    /// focus ring when the sidebar owns focus, and vice versa. Runtime-only (not
+    /// persisted).
+    @Published var rightSidebarOwnsInputFocus: Bool = false
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }

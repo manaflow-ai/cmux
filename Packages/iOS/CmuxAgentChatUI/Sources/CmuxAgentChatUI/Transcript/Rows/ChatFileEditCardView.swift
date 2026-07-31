@@ -6,94 +6,107 @@ import SwiftUI
 public struct ChatFileEditCardView: View {
     private let edit: ChatFileEdit
     private let rowID: String
-    private let isExpanded: Bool
-    private let actions: ChatRowActions
+    private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
 
     private static let collapsedLineCap = 8
-    private static let expandedLineCap = 400
 
     /// Creates a file-edit card.
     ///
     /// - Parameters:
     ///   - edit: The file modification payload.
-    ///   - rowID: The row's stable identity, for expansion toggling.
-    ///   - isExpanded: Whether the full diff is showing.
-    ///   - actions: Row action bundle.
-    public init(edit: ChatFileEdit, rowID: String, isExpanded: Bool, actions: ChatRowActions) {
+    ///   - rowID: The row's stable identity, for cached diff rendering.
+    ///   - onShowDetail: Opens the full diff in a stable detail sheet.
+    public init(edit: ChatFileEdit, rowID: String, onShowDetail: @escaping () -> Void = {}) {
         self.edit = edit
         self.rowID = rowID
-        self.isExpanded = isExpanded
-        self.actions = actions
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            header
-            if let diff = edit.unifiedDiff, !diff.isEmpty {
-                Rectangle()
-                    .fill(theme.hairline)
-                    .frame(height: 0.5)
-                diffBlock(diff: diff)
+        Button(action: onShowDetail) {
+            VStack(spacing: 0) {
+                header
+                if let diff = edit.unifiedDiff, !diff.isEmpty {
+                    Rectangle()
+                        .fill(theme.hairline)
+                        .frame(height: 0.5)
+                    diffBlock(diff: diff)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(theme.hairline, lineWidth: 0.5)
+            )
+            .contentShape(.rect)
         }
-        .frame(maxWidth: .infinity)
-        .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.hairline, lineWidth: 0.5)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatFileEditDetail-\(rowID)")
+        .accessibilityLabel(fileEditAccessibilityLabel)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
         )
     }
 
     private var header: some View {
-        Button {
-            actions.toggleExpanded(rowID)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: operationSymbolName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(edit.filePath)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                counts
-            }
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .contentShape(.rect)
+        HStack(spacing: 6) {
+            Image(systemName: operationSymbolName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(edit.filePath)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(theme.terminalCardText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 6)
+            counts
+            detailGlyph
         }
-        .buttonStyle(.plain)
-        .accessibilityValue(
-            isExpanded
-                ? String(
-                    localized: "chat.row.expanded.accessibility",
-                    defaultValue: "Expanded",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.collapsed.accessibility",
-                    defaultValue: "Collapsed",
-                    bundle: .module
-                )
-        )
-        .accessibilityHint(
-            isExpanded
-                ? String(
-                    localized: "chat.row.collapse.hint",
-                    defaultValue: "Double tap to collapse",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.expand.hint",
-                    defaultValue: "Double tap to expand",
-                    bundle: .module
-                )
-        )
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+    }
+
+    private var fileEditAccessibilityLabel: String {
+        let title = String(localized: "chat.file_edit.accessibility", defaultValue: "File edit", bundle: .module)
+        var parts = [
+            "\(title): \(operationAccessibilityLabel) \(edit.filePath)",
+        ]
+        if let additions = edit.additions {
+            let additionsLabel = String(
+                localized: "chat.file_edit.additions.accessibility",
+                defaultValue: "additions",
+                bundle: .module
+            )
+            parts.append("\(additions) \(additionsLabel)")
+        }
+        if let deletions = edit.deletions {
+            let deletionsLabel = String(
+                localized: "chat.file_edit.deletions.accessibility",
+                defaultValue: "deletions",
+                bundle: .module
+            )
+            parts.append("\(deletions) \(deletionsLabel)")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private var operationAccessibilityLabel: String {
+        switch edit.operation {
+        case .edit:
+            return String(localized: "chat.detail.operation.edit", defaultValue: "Edit", bundle: .module)
+        case .write:
+            return String(localized: "chat.detail.operation.write", defaultValue: "Write", bundle: .module)
+        case .delete:
+            return String(localized: "chat.detail.operation.delete", defaultValue: "Delete", bundle: .module)
+        }
     }
 
     /// SF symbol for the edit operation.
@@ -120,10 +133,17 @@ public struct ChatFileEditCardView: View {
         .font(.system(.caption, design: .monospaced))
     }
 
+    private var detailGlyph: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
+    }
+
     private func diffBlock(diff: String) -> some View {
         let lines = contentCache?.diffLines(messageID: rowID, diff: diff)
             ?? diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let cap = isExpanded ? Self.expandedLineCap : Self.collapsedLineCap
+        let cap = Self.collapsedLineCap
         let visible = Array(lines.prefix(cap))
         return ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
@@ -154,7 +174,6 @@ public struct ChatFileEditCardView: View {
             .foregroundStyle(foregroundColor(for: line))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .textSelection(.enabled)
             .padding(.horizontal, 8)
             .padding(.vertical, 1)
             .frame(maxWidth: .infinity, alignment: .leading)

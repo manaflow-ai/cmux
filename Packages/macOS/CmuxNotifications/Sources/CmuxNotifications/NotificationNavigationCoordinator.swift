@@ -153,7 +153,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         let didOpen = openRouting.openInActiveWindowFallback(
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            panelId: nil,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -168,7 +172,11 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             windowId: target.windowId,
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            panelId: nil,
+            notificationId: nil,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -201,7 +209,43 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         return open(
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
-            notificationId: notification.id
+            panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            notificationId: notification.id,
+            scrollRow: notification.scrollRow,
+            scrollTotalRows: notification.scrollTotalRows,
+            scrollRowSpaceRevision: notification.scrollRowSpaceRevision
+        )
+    }
+
+    /// Opens a notification response from the OS notification center by first
+    /// resolving the stored notification snapshot. This preserves panel and
+    /// scroll context that is app-local and not serialized into `userInfo`.
+    ///
+    /// - Parameters:
+    ///   - id: Stable notification id used to find the stored snapshot.
+    ///   - fallbackTabId: Workspace id from the delivered OS notification.
+    ///   - fallbackSurfaceId: Surface id from the delivered OS notification.
+    ///   - fallbackRetargetsToLiveSurfaceOwner: Whether a missing stored
+    ///     notification may follow its surface into another workspace.
+    @discardableResult
+    public func openNotification(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool = true
+    ) -> Bool {
+        if let notification = store.orderedNotifications.first(where: { $0.id == id }) {
+            return openNotification(notification)
+        }
+        return open(
+            tabId: fallbackTabId,
+            surfaceId: fallbackSurfaceId,
+            panelId: nil,
+            retargetsToLiveSurfaceOwner: fallbackRetargetsToLiveSurfaceOwner,
+            notificationId: id,
+            scrollRow: nil,
+            scrollTotalRows: nil
         )
     }
 
@@ -220,7 +264,54 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// (the routing decision and its `#if DEBUG` recorders live behind the seam).
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openRouting.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        open(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: nil,
+            notificationId: notificationId,
+            scrollRow: nil,
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
+        )
+    }
+
+    /// Focuses `tabId`/`surfaceId`, marks `notificationId` read on success, and
+    /// optionally restores terminal scrollback context.
+    ///
+    /// - Parameters:
+    ///   - tabId: Workspace id that owns the notification.
+    ///   - surfaceId: Surface id to focus when the notification is surface-scoped.
+    ///   - panelId: App-target terminal panel id used only to restore scroll
+    ///     context when it differs from, or is more precise than, `surfaceId`.
+    ///   - retargetsToLiveSurfaceOwner: Whether the app-side route may follow a
+    ///     moved surface into its current owning workspace.
+    ///   - notificationId: Notification id to mark read after focus succeeds.
+    ///   - scrollRow: Bottom-relative terminal scrollback row captured when the
+    ///     notification was recorded.
+    ///   - scrollTotalRows: Total terminal scrollback rows at capture time. The
+    ///     app-side router uses this to adjust `scrollRow` for output appended
+    ///     after the notification was recorded.
+    @discardableResult
+    public func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool = true,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64? = nil
+    ) -> Bool {
+        openRouting.openRouted(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
+        )
     }
 
     /// Performs a terminal notification click action through the injected click

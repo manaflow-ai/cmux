@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobileSupport"),
         .package(path: "../CmuxMobileTerminalKit"),
@@ -30,6 +31,7 @@ let package = Package(
             name: "CmuxMobileTerminal",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAgentChat",
                 "CmuxMobileDiagnostics",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminalKit",
@@ -37,6 +39,18 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileTerminalTests",
+            dependencies: ["CmuxMobileTerminal"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ],
+            // GhosttyKit's static lib carries C++ objects (glslang); the
+            // standalone xctest bundle must link the C++ runtime itself.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
     ]

@@ -273,6 +273,7 @@ struct SleepyFaceView: View {
         add(counts.codex, Color(red: 0.62, green: 0.86, blue: 0.97))
         add(counts.opencode, Color(red: 0.45, green: 0.86, blue: 0.55))
         add(counts.pi, Color(red: 0.70, green: 0.52, blue: 0.97))
+        add(counts.ollama, Color(red: 0.93, green: 0.89, blue: 0.80))
         add(counts.other, Color(red: 1.0, green: 0.70, blue: 0.80))
 
         let petW = CGFloat(petWidthCells) * cell

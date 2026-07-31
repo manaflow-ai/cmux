@@ -124,16 +124,17 @@ import Testing
         }
     }
 
-    @Test func oauthAppleAndGoogleRouteToProviders() async throws {
+    @Test func oauthProvidersRouteToStackProviderIDs() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(client: client)
 
         try await coordinator.signInWithApple()
         try await coordinator.signInWithGoogle()
+        try await coordinator.signInWithGitHub()
 
         let providers = await client.oauthProviders
-        #expect(providers == ["apple", "google"])
+        #expect(providers == ["apple", "google", "github"])
     }
 
     @Test func signOutClearsStateAndRunsHook() async throws {
@@ -381,6 +382,20 @@ import Testing
         #expect(coordinator.availableTeams.isEmpty)
     }
 
+    @Test func persistedTeamSelectionRemainsEffectiveWhileTeamRefreshIsUnavailable() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setThrowOnListTeams(AuthError.networkError)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.selectedTeamID = "team_b"
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.resolvedTeamID == "team_b")
+    }
+
     @Test func signOutClearsTeamsAndSelection() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
@@ -430,6 +445,17 @@ import Testing
         let client = FakeAuthClient(access: "access-only")
         let (coordinator, _) = makeCoordinator(client: client)
         await #expect(throws: AuthError.unauthorized) {
+            _ = try await coordinator.currentTokens()
+        }
+    }
+
+    @Test func currentTokensThrowsNetworkErrorOnTransientRefreshFailure() async {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        await client.setThrowOnCurrentUser(AuthError.networkError)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+
+        await #expect(throws: AuthError.networkError) {
             _ = try await coordinator.currentTokens()
         }
     }

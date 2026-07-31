@@ -48,25 +48,27 @@ struct RenderableSystemSymbolTests {
         #expect(image.size == NSSize(width: 1, height: 1))
     }
 
-    @Test @MainActor func configuredAppKitImagePreservesNonSquareSymbolAspectRatio() throws {
+    @Test @MainActor func configuredAppKitImagePreservesConfiguredSizeForNonSquareSymbols() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let baseImage = try #require(NSImage(systemSymbolName: "arrow.left.and.right", accessibilityDescription: nil))
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let configuredImage = try #require(baseImage.withSymbolConfiguration(configuration))
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "arrow.right",
+            systemName: "arrow.left.and.right",
             pointSize: 16,
             weight: .regular
         ))
-        #expect(abs(image.size.width - 16) < 0.001)
-        #expect(image.size.height < 16)
+        #expect(image.size == configuredImage.size)
     }
 
-    @Test func fittedSymbolSizeScalesLongerDimensionToRasterSize() {
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+    @Test func symbolImageSizePreservesValidConfiguredDimensions() {
+        #expect(RenderableSystemSymbol.symbolImageSize(
             NSSize(width: 20, height: 10),
-            maximumDimension: 16
-        ) == NSSize(width: 16, height: 8))
-        #expect(RenderableSystemSymbol.fittedSymbolSize(
+            fallbackDimension: 16
+        ) == NSSize(width: 20, height: 10))
+        #expect(RenderableSystemSymbol.symbolImageSize(
             NSSize(width: 0, height: 10),
-            maximumDimension: 16
+            fallbackDimension: 16
         ) == NSSize(width: 16, height: 16))
     }
 
@@ -93,5 +95,28 @@ struct RenderableSystemSymbolTests {
             weight: .regular
         ) == nil)
         #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
+    }
+
+    @Test func failedSymbolLookupRetriesAfterNegativeCacheExpires() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        var resolveCount = 0
+        var cache = RenderableSystemSymbol.RenderabilityCache(
+            limit: 8,
+            negativeRetryInterval: 60,
+            now: { now },
+            resolve: { _ in
+                resolveCount += 1
+                return false
+            }
+        )
+
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 1)
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 1)
+
+        now = now.addingTimeInterval(61)
+        #expect(cache.isRenderable("not.an.sf.symbol") == false)
+        #expect(resolveCount == 2)
     }
 }

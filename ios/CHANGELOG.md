@@ -9,10 +9,11 @@ build is no longer an opaque timestamp on install or auto-update.
 
 TestFlight shows each build as `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, for
 example `1.0.3 (20260613120501)`. `MARKETING_VERSION` is the human version
-(`ios/Config/Shared.xcconfig`, semver `X.Y.Z`); the number in parens is the build
-id, a 14-digit UTC timestamp stamped at upload time (unique and monotonic, but not
-meant to be read). Testers should track the marketing version; the timestamp only
-distinguishes rapid internal iterations of the same version.
+(`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`, semver
+`X.Y.Z`); the number in parens is the build id, a 14-digit UTC timestamp stamped
+at upload time (unique and monotonic, but not meant to be read). Testers should
+track the marketing version; the timestamp only distinguishes rapid internal
+iterations of the same version.
 
 Two audiences, two notes per entry:
 
@@ -35,17 +36,46 @@ sheet on first launch after an update, sourced from the External block. Spec in
 Keep entries short. No fluff, no AI rhetorical patterns, no em dashes (repo rule).
 Newest version on top.
 
-The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
-`ios/Config/Shared.xcconfig`. `upload-testflight.sh` enforces this before upload
-(it refuses to attach notes for a different version), so bump the version with
+The top entry's version MUST equal the checked-in
+`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`.
+`upload-testflight.sh` enforces this before upload (it refuses to attach notes
+for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
 ---
+
+## [1.0.4] - 2026-07-09
+
+### Internal
+
+- Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
+- Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
+- Add iOS account deletion and legal links (#7645).
+- iOS: terminal connection/render resilience, fail-open delivery gates, route iteration, persistent terminal surface (#7675).
+- Add iOS crash telemetry via Sentry + MetricKit (#7649).
+- iOS: dismissable alt-screen sizing notice in terminal toolbar (#7669).
+- iOS: render exactly one workspace-list connection surface (#7659).
+- iOS: persist debug log to a file and capture crashes in it (#7652).
+- Treat unreadable token storage as transient during iOS session restore, fixing spurious sign-outs on update (#7667).
+- iOS: native drag & drop in workspace list + create workspace in group (#7384).
+- iOS: enable multi-Mac workspace aggregation by default; re-aggregate on network recovery.
+- Workspaces as todos: inferred status lifecycle + per-workspace checklist (#7216) — merged but not yet dogfood-confirmed on this version; hold out of External until confirmed.
+- Dogfood focus: confirm the app launches straight to current UI (not the old stale build), sign-in survives an app relaunch, terminal connections recover after backgrounding, and multi-Mac workspaces list correctly.
+
+### External
+
+- Fixed an issue where the app could freeze or crash in the background.
+- Fixed an issue that could sign you out unexpectedly after updating.
+- Terminal connections recover more reliably after switching apps or losing network.
+- Added account deletion in Settings.
+- See workspaces from all your paired Macs in one list, with automatic recovery after network drops.
+- Drag and drop to reorder workspaces, and create new workspaces inside a group.
 
 ## [1.0.3] - 2026-06-13
 
 ### Internal
 
+- Disconnected "Your Computers" screen rebuilt: coalesced one-row-per-Mac list (no more duplicate dev-build pills), online/last-seen status, tap to reconnect with spinner and failure alert, swipe to remove.
 - Composer: iMessage-style terminal composer, open by default, inline send, drafts saved per terminal (#5876).
 - View as Text sheet for copy-pasting raw terminal output (#5875).
 - Pairing QR is now minimal and full-width (routes-only payload, Copy IP/Port, no expiry); scans faster (#5872, #5727).
@@ -53,10 +83,13 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Sign-out is local-first and works offline; revocation is best-effort and bounded (#5776).
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
-- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
+- Terminal fills its full height again after closing the keyboard: viewport reports are now serialized and stale echoes dropped, so a late keyboard-up reply can no longer pin the grid small and leave permanent empty space above a TUI (opencode top-gap bug).
+- Terminal stretches to fill the phone when the Mac window is the row constraint: the rendered font auto-fits to the granted grid (never below your chosen size), and reports keep advertising base-font capacity so the grid recovers when the Mac window grows.
+- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on. Also open a full-screen TUI, open/close the keyboard rapidly a few times, and confirm no dead band stays above the content.
 
 ### External
 
+- The reconnect screen now shows each of your computers once, with online status and last-seen time. Tap to reconnect, swipe to remove.
 - New terminal composer: type and send like a message, with drafts saved per terminal.
 - View as Text: copy raw terminal output from a clean sheet.
 - Faster, simpler Mac pairing QR, with Copy IP/Port if scanning is awkward.

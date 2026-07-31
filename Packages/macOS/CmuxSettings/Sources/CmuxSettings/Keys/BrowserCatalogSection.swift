@@ -44,6 +44,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
     )
 
+    /// Shows a save panel for each browser download instead of saving directly
+    /// to the user's Downloads folder.
+    public let askWhereToSaveDownloads = DefaultsKey<Bool>(
+        id: "browser.askWhereToSaveDownloads",
+        defaultValue: false,
+        userDefaultsKey: "browserAskWhereToSaveDownloads"
+    )
+
     public let openTerminalLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.openTerminalLinksInCmuxBrowser",
         defaultValue: true,

@@ -22,7 +22,11 @@ import Speech
 /// callback mutate the store on the main actor. Speech / AVFoundation deliver
 /// their recognition callbacks on an arbitrary queue, so the result handler hops
 /// back to the main actor before touching any state, and captures `self` weakly
-/// to avoid a retain cycle through the recognition task.
+/// to avoid a retain cycle through the recognition task. The blocking audio
+/// session/engine activation and teardown are delegated to
+/// ``ComposerDictationAudioEngine`` (its own serial queue), so this main-actor
+/// controller never blocks on the audio hardware (issue #6284); a monotonic
+/// ``startToken`` lets a late engine-ready callback detect a superseded start.
 @MainActor
 @Observable
 public final class ComposerDictationController {
@@ -37,10 +41,11 @@ public final class ComposerDictationController {
     /// Pure merger that combines the captured base text with speech partials.
     private let textMerger: ComposerDictationTextMerger
 
-    /// The audio engine capturing microphone buffers. Built lazily on first
-    /// start and reused; its input-node tap is installed on start and removed on
-    /// every teardown.
-    private let audioEngine = AVAudioEngine()
+    /// Owns the `AVAudioEngine` + shared `AVAudioSession` lifecycle on its own
+    /// serial queue so the synchronous `setActive`/`engine.start`/`engine.stop`
+    /// hardware calls (each ~100-300ms) never block this `@MainActor` controller
+    /// and freeze the mic button animation (issue #6284).
+    private let audioEngine = ComposerDictationAudioEngine()
 
     /// The in-flight recognition request, fed audio buffers from the engine tap.
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -52,10 +57,15 @@ public final class ComposerDictationController {
     /// so partials append rather than overwrite.
     private var baseText: String = ""
 
-    /// Whether THIS controller activated the shared `AVAudioSession` (`setActive`
-    /// in `beginRecognition()`). Gates teardown so a send/blur/cancel with no
-    /// dictation in flight never pokes the audio system. See ``stopEngineAndSession()``.
-    private var didActivateSession = false
+    /// Monotonic token identifying the current start attempt. The engine activates
+    /// off-main (see ``audioEngine``), so its "ready" callback lands ~100-300ms
+    /// after the tap; in that window a second tap, send, or navigation can abandon
+    /// the start. Every new start AND every teardown bumps this token, so a late
+    /// engine-ready callback detects it was superseded
+    /// (``ComposerDictationState/startDisposition(callbackToken:currentToken:)``)
+    /// and discards its result. (Replaces the old `didActivateSession` gate, now
+    /// internal to ``ComposerDictationAudioEngine``.)
+    private var startToken = 0
 
     /// The callback that writes merged text back into the composer. Held while
     /// listening AND through a graceful stop (so the final result can refine the
@@ -89,12 +99,12 @@ public final class ComposerDictationController {
     public var isAvailable: Bool { state != .unavailable }
 
     /// Whether dictation currently owns the composer text, so the field must be
-    /// locked (non-editable) until dictation settles to idle. True while
-    /// `.listening` (partials streaming in) and `.stopping` (final result
-    /// pending); see ``ComposerDictationState/locksComposerField``. The view binds
-    /// the field's `.disabled(...)` to this so a user edit made mid-dictation can
-    /// never be clobbered by a later partial/final callback. The mic toggle and
-    /// send remain usable while locked.
+    /// locked (non-editable) until dictation settles to idle. True from
+    /// `.requestingPermission` (the engine spins up off-main; locking here closes
+    /// the async edit-loss window) through `.listening` and `.stopping`; see
+    /// ``ComposerDictationState/locksComposerField``. The view binds the field's
+    /// `.disabled(...)` to this so a mid-dictation edit can never be clobbered by a
+    /// later partial/final callback. The mic toggle and send remain usable.
     public var locksComposerField: Bool { state.locksComposerField }
 
     /// Toggle dictation: start if idle, stop if already listening, or cancel a
@@ -121,13 +131,15 @@ public final class ComposerDictationController {
         }
     }
 
-    /// Abort a start whose authorization has not resolved yet. Drops the captured
-    /// callback and returns to idle without touching the engine (none is running),
-    /// so the in-flight permission callback sees a non-`requestingPermission` state
-    /// and refuses to start. Safe to call only from `requestingPermission`.
+    /// Abort a start that is still settling and return to idle. Safe to call only
+    /// from `requestingPermission`, which now covers both authorization resolving
+    /// (no engine yet) and the engine spinning up off-main. ``teardown()`` handles
+    /// both: it bumps the start token (discarding a late engine-ready callback) and
+    /// enqueues an engine stop (a no-op if nothing activated, a real teardown
+    /// otherwise). The permission callback guards on `requestingPermission`, so
+    /// once this lands in idle it refuses to start.
     private func cancelPendingStart() {
-        onText = nil
-        baseText = ""
+        teardown()
         state = .idle
     }
 
@@ -217,9 +229,11 @@ public final class ComposerDictationController {
         }
         state = .stopping
         // Flush buffered audio so a late FINAL result can include the tail, then
-        // stop capturing. The task and `onText` stay alive to receive that result.
+        // stop capturing OFF the main actor: `engine.stop()` + `setActive(false)`
+        // block ~100-300ms and froze the button animation when run inline (issue
+        // #6284). The task and `onText` stay alive for the final result.
         request?.endAudio()
-        stopEngineAndSession()
+        audioEngine.stop()
         // Watchdog: if no final result (or error) lands, force cleanup so the
         // controller returns to idle instead of hanging in `.stopping`.
         finalizeTimeout?.cancel()
@@ -318,9 +332,11 @@ public final class ComposerDictationController {
 
     // MARK: - Recognition
 
-    /// Configure the audio session, install the engine tap, and start the
-    /// recognition task. On any setup failure this tears down and lands in
-    /// `unavailable` so the mic does not appear hot after a failed start.
+    /// Begin dictation by handing the audio session + engine activation to the
+    /// off-main ``ComposerDictationAudioEngine``, then create the recognition task
+    /// when it reports ready — the blocking `setActive`/`engine.start` run on the
+    /// owner's serial queue, NOT here, so the mic button never hitches (issue
+    /// #6284). The state stays `.requestingPermission` until ``handleEngineReady``.
     private func beginRecognition() {
         guard let recognizer, recognizer.isAvailable else {
             failStart()
@@ -336,53 +352,52 @@ public final class ComposerDictationController {
         }
         self.request = request
 
-        do {
-            let session = AVAudioSession.sharedInstance()
-            // Record-only category for speech-to-text. `.duckOthers` is NOT valid
-            // for `.record`, and `.notifyOthersOnDeactivation` is only valid on
-            // deactivation, so both are omitted here; passing them throws on OSes
-            // that enforce the documented restrictions.
-            try session.setCategory(.record, mode: .measurement)
-            try session.setActive(true)
-            // Set before later setup so a failure still deactivates on failStart.
-            didActivateSession = true
-        } catch {
+        // Stamp this start attempt: the off-main activation calls back ~100-300ms
+        // later, by when a second tap, send, or navigation may have superseded it.
+        // Each supersede bumps the token, so a stale callback is discarded.
+        startToken &+= 1
+        let token = startToken
+
+        // Hand the blocking audio-hardware work to the owner's serial queue; the
+        // state stays `.requestingPermission` until it reports ready, then
+        // `handleEngineReady` creates the recognition task on the main actor (so
+        // the non-Sendable request/recognizer never leave it).
+        audioEngine.start(tapBlock: makeTapBlock(request: request)) { [weak self] started in
+            // Hop to the main actor before touching actor-isolated state.
+            Task { @MainActor in self?.handleEngineReady(started, token: token) }
+        }
+    }
+
+    /// Apply the off-main engine owner's start result on the main actor. Discards
+    /// the result when a newer start / cancel / teardown superseded this attempt
+    /// (that path already enqueued the engine teardown, serialized before any later
+    /// start, so a second stop here could instead tear down that later start);
+    /// otherwise creates the recognition task and moves to `.listening` (or
+    /// `.unavailable` if the engine failed to start).
+    private func handleEngineReady(_ started: Bool, token: Int) {
+        guard state.startDisposition(
+            callbackToken: token, currentToken: startToken
+        ) == .apply else { return }
+        guard started, let recognizer, let request else {
             failStart()
             return
         }
-
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        // Validate the input format; an invalid one makes `installTap` raise an
-        // uncatchable Obj-C exception.
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            failStart()
-            return
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.makeTapBlock(request: request))
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-        } catch {
-            failStart()
-            return
-        }
-
         task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler())
-
         state = .listening
     }
 
-    /// Build the audio-tap block. `nonisolated` so the returned closure is NOT
-    /// main-actor-isolated: `installTap` invokes it on the realtime audio render
-    /// thread, where a main-actor closure traps in `swift_task_isCurrentExecutor`.
-    /// `append` is thread-safe on the request; no main-actor state is touched.
-    private nonisolated static func makeTapBlock(
+    /// Build the audio-tap block handed to the off-main ``audioEngine`` owner.
+    /// `@Sendable` + `nonisolated` so it crosses into the owner's queue and runs
+    /// off-main (a main-actor closure would trap in `swift_task_isCurrentExecutor`
+    /// on the realtime render thread). The request is captured `nonisolated(unsafe)`
+    /// (justified inline) because it is not `Sendable`. `nonisolated` (uses no `self`).
+    private nonisolated func makeTapBlock(
         request: SFSpeechAudioBufferRecognitionRequest
-    ) -> (AVAudioPCMBuffer, AVAudioTime) -> Void {
-        return { [weak request] buffer, _ in
-            request?.append(buffer)
+    ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        // `nonisolated(unsafe)`-safe: `append(_:)` is thread-safe, weak, never outlives the request.
+        nonisolated(unsafe) weak let weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
+        return { buffer, _ in
+            weakRequest?.append(buffer)
         }
     }
 
@@ -459,39 +474,24 @@ public final class ComposerDictationController {
         state = .idle
     }
 
-    /// Stop the audio engine, remove the input tap, and deactivate the audio
-    /// session. Shared by the graceful stop (which keeps the recognition task and
-    /// callback alive) and the hard `teardown()`. Safe to call repeatedly.
-    private func stopEngineAndSession() {
-        // No-op unless we activated the session. Otherwise this would touch the
-        // audio system on every send/blur/cancel: accessing `audioEngine.inputNode`
-        // powers up the mic route and `setActive(false, .notifyOthersOnDeactivation)`
-        // interrupts other apps' playback (music pausing/resuming on every submit).
-        guard didActivateSession else { return }
-        didActivateSession = false
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        // The tap must be removed whether or not the engine was running, so a
-        // failed start that installed the tap before `start()` threw does not
-        // leak it onto the input node.
-        audioEngine.inputNode.removeTap(onBus: 0)
-        // Deactivate the audio session so other audio (and the system) reclaim it.
-        // Failure here is non-fatal: the engine is already stopped.
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    /// Cancel the recognition task, end and drop the request, remove the audio
-    /// tap, stop the engine, deactivate the audio session, and clear the
+    /// Cancel the recognition task, end and drop the request, stop the engine and
+    /// deactivate the session (off-main, via ``audioEngine``), and clear the
     /// callback. Safe to call repeatedly; every reference is nil-checked.
     private func teardown() {
         finalizeTimeout?.cancel()
         finalizeTimeout = nil
+        // Bump the start token so an in-flight engine-start callback sees it was
+        // superseded and discards its result. The `audioEngine.stop()` below is
+        // serialized after that start's activation and before any later start, so
+        // the engine is reliably torn down and never double-started.
+        startToken &+= 1
         task?.cancel()
         task = nil
         request?.endAudio()
         request = nil
-        stopEngineAndSession()
+        // Off the main actor; a no-op if nothing was activated (so a send/blur/
+        // cancel with no dictation in flight never pokes the audio system).
+        audioEngine.stop()
         onText = nil
         baseText = ""
     }

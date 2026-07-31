@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileToast
 import SwiftUI
 
 #if canImport(UIKit)
@@ -11,18 +12,22 @@ import UIKit
 ///
 /// The host creates the ``ChatConversationStore`` (with its platform event
 /// source) and hands it over; this screen owns presentation state only
-/// (expansion, drafts, attachments).
+/// (drafts, attachments).
 public struct ChatScreen: View {
+    @Environment(ToastCenter.self) private var toasts
     @State private var store: ChatConversationStore
-    @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
+    @State private var selectedBlockSelection: ChatBlockSelection?
+    @State private var selectedArtifact: ChatArtifactPathSelection?
 
+    private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
     private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
+    private let runsStoreTask: Bool
 
     /// Creates the screen.
     ///
@@ -41,12 +46,16 @@ public struct ChatScreen: View {
     ///     Open-Terminal button. Pass `false` when embedded in a host that
     ///     supplies its own navigation chrome (the in-place workspace
     ///     toggle), so the two don't fight and drop the header.
+    ///   - runsStoreTask: Whether this screen should run the conversation
+    ///     subscription. Pass `false` when a parent keeps the store warm while
+    ///     the chat UI is not mounted.
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
         accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
+        runsStoreTask: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -54,41 +63,19 @@ public struct ChatScreen: View {
         self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
+        self.runsStoreTask = runsStoreTask
         self.onOpenTerminal = onOpenTerminal
     }
 
     public var body: some View {
-        chatLayout
-        .overlay(alignment: .top) {
-            if let error = store.lastErrorDescription {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.red.opacity(0.92), in: .capsule)
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .accessibilityIdentifier("ChatErrorBanner")
-                    .onTapGesture { store.dismissError() }
-                    // Swipe the toast up to dismiss (it animates out via the
-                    // move(edge: .top) transition), in addition to tap and the
-                    // bounded auto-dismiss below.
-                    .gesture(
-                        DragGesture(minimumDistance: 8)
-                            .onEnded { value in
-                                if value.translation.height < -8 { store.dismissError() }
-                            }
-                    )
-                    // Bounded auto-dismiss: the task is keyed on the error
-                    // text, so a new error restarts the window, and SwiftUI
-                    // cancels the sleep when the banner leaves.
-                    .task(id: error) {
-                        try? await Task.sleep(for: .seconds(8))
-                        guard !Task.isCancelled else { return }
-                        store.dismissError()
-                    }
+        ZStack(alignment: .top) {
+            chatLayout
+            // Legacy fallback while the Toasts beta flag is off: the inline
+            // error banner below the navigation bar (see errorBanner for the
+            // layering rationale). With the flag on, errors surface through
+            // the app-wide toast layer instead.
+            if !toasts.isEnabled {
+                errorBanner
             }
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
@@ -98,11 +85,84 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
-        .task { await store.run() }
+        .sheet(item: $selectedBlockSelection) { selection in
+            if let detail = blockDetail(for: selection) {
+                ChatBlockDetailSheetView(
+                    detail: detail,
+                    onOpenTerminal: openTerminalAction(for: selection)
+                )
+            }
+        }
+        .navigationDestination(isPresented: artifactIsPresented) {
+            if let selectedArtifact {
+                ChatArtifactViewerDestination(path: selectedArtifact.path) {
+                    self.selectedArtifact = nil
+                }
+            }
+        }
+        .task {
+            guard runsStoreTask else { return }
+            await store.run()
+        }
+        // With the Toasts beta flag on, errors surface through the app-wide
+        // toast layer. Presenting hands display ownership to the ToastCenter,
+        // and clearing the store state immediately lets an identical
+        // follow-up error re-fire this bridge. One coalescing key per
+        // conversation store: a newer error replaces and re-bumps the visible
+        // one instead of queueing stale errors. With the flag off, the store
+        // state stays put and drives the legacy inline banner.
+        .onChange(of: store.lastErrorDescription, initial: true) { _, error in
+            guard toasts.isEnabled, let error else { return }
+            toasts.present(.failure(
+                error,
+                coalescingKey: "chat.conversation.error.\(ObjectIdentifier(store))"
+            ))
+            store.dismissError()
+        }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let error = store.lastErrorDescription {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.red.opacity(0.92), in: .capsule)
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("ChatErrorBanner")
+                .onTapGesture { store.dismissError() }
+                // Swipe the banner up to dismiss, in addition to tap and the
+                // bounded auto-dismiss below.
+                .gesture(
+                    DragGesture(minimumDistance: 8)
+                        .onEnded { value in
+                            if value.translation.height < -8 { store.dismissError() }
+                        }
+                )
+                // Bounded auto-dismiss: the view is keyed on the error text,
+                // so a new error restarts the timer subscription.
+                .id(error)
+                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
+                    store.dismissError()
+                }
+        }
+    }
+
+    private var artifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedArtifact = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -114,6 +174,7 @@ public struct ChatScreen: View {
             showsComposer: store.agentState != .ended
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .chatTopBarUnderlapContainer()
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #else
         VStack(spacing: 0) {
@@ -126,7 +187,6 @@ public struct ChatScreen: View {
     private var transcriptContent: some View {
         ChatTranscriptListView(
             rows: store.rows,
-            expandedIDs: expandedIDs,
             agentState: store.agentState,
             hasMoreHistory: store.hasMoreHistory,
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
@@ -182,24 +242,84 @@ public struct ChatScreen: View {
         AccessibilityNotification.Announcement(prose.text).post()
     }
 
-    /// Speaks the error banner's text when an error surfaces.
+    /// Speaks the legacy error banner's text when an error surfaces while the
+    /// Toasts beta flag is off (the toast layer announces its own toasts).
     private func announceLastError() {
-        guard UIAccessibility.isVoiceOverRunning,
+        guard !toasts.isEnabled,
+              UIAccessibility.isVoiceOverRunning,
               let error = store.lastErrorDescription
         else { return }
         AccessibilityNotification.Announcement(error).post()
     }
     #endif
 
+    private func blockDetail(for selection: ChatBlockSelection) -> ChatBlockDetail? {
+        switch selection {
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return nil }
+            return detailBuilder.detail(message: message)
+        case .terminalCommand(let id):
+            guard let block = currentTerminalBlock(id: id) else { return nil }
+            return detailBuilder.detail(block: block)
+        case .codeBlock(let messageID, let segmentIndex):
+            guard let message = currentMessage(id: messageID),
+                  case .prose(let prose) = message.kind,
+                  let segment = contentCache
+                      .proseSegments(messageID: messageID, text: prose.text)
+                      .first(where: { $0.index == segmentIndex }),
+                  case .code(let language) = segment.kind
+            else { return nil }
+            return detailBuilder.codeBlock(
+                id: "code-\(messageID)-\(segmentIndex)",
+                code: segment.content,
+                language: language
+            )
+        }
+    }
+
+    private func currentMessage(id: String) -> ChatMessage? {
+        for row in store.rows {
+            if case .message(let snapshot) = row,
+               snapshot.message.id == id {
+                return snapshot.message
+            }
+        }
+        return nil
+    }
+
+    private func currentTerminalBlock(id: Int) -> TerminalCommandBlock? {
+        for row in store.rows {
+            if case .terminalCommand(let block) = row,
+               block.id == id {
+                return block
+            }
+        }
+        return nil
+    }
+
+    private func openTerminalAction(for selection: ChatBlockSelection) -> (() -> Void)? {
+        guard selectionCanOpenTerminal(selection) else { return nil }
+        return {
+            selectedBlockSelection = nil
+            onOpenTerminal()
+        }
+    }
+
+    private func selectionCanOpenTerminal(_ selection: ChatBlockSelection) -> Bool {
+        switch selection {
+        case .terminalCommand:
+            return true
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return false }
+            if case .terminal = message.kind { return true }
+            return false
+        case .codeBlock:
+            return false
+        }
+    }
+
     private var rowActions: ChatRowActions {
         ChatRowActions(
-            toggleExpanded: { id in
-                if expandedIDs.contains(id) {
-                    expandedIDs.remove(id)
-                } else {
-                    expandedIDs.insert(id)
-                }
-            },
             answerOption: { index in
                 Task { await store.answer(optionIndex: index) }
             },
@@ -209,10 +329,36 @@ public struct ChatScreen: View {
             discardPending: { id in
                 store.discard(pendingID: id)
             },
-            openTerminal: onOpenTerminal
+            openTerminal: onOpenTerminal,
+            openArtifact: { path in
+                selectedArtifact = ChatArtifactPathSelection(path: path)
+            },
+            showMessageDetail: { message in
+                selectedBlockSelection = .message(id: message.id)
+            },
+            showTerminalCommandDetail: { block in
+                selectedBlockSelection = .terminalCommand(id: block.id)
+            },
+            showCodeBlockDetail: { messageID, segmentIndex in
+                selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
+            },
+            notifyCopied: { toasts.present(.copied()) }
         )
     }
 }
+
+#if os(iOS)
+private extension View {
+    @ViewBuilder
+    func chatTopBarUnderlapContainer() -> some View {
+        if #available(iOS 26.0, *) {
+            ignoresSafeArea(.container, edges: .top)
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 /// Standalone navigation chrome for ``ChatScreen``: title, session-state
 /// header, and the Open-Terminal button. Suppressed when the host supplies

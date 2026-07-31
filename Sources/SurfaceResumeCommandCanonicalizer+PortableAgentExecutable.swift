@@ -20,10 +20,20 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    func inlineStartupInput(repairPortableAgentExecutable: Bool) -> String? {
-        let trimmed = resolvedStartupCommand(
+    func inlineStartupInput(
+        repairPortableAgentExecutable: Bool,
+        includeWorkingDirectoryPrefix: Bool = true
+    ) -> String? {
+        let resolvedCommand = resolvedStartupCommand(
             repairPortableAgentExecutable: repairPortableAgentExecutable
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let command = includeWorkingDirectoryPrefix
+            ? resolvedCommand
+            : TerminalStartupWorkingDirectoryPrefix.removingRequiredChangeDirectoryPrefix(
+                from: resolvedCommand,
+                workingDirectory: cwd
+            )
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
@@ -40,25 +50,28 @@ extension SurfaceResumeBindingSnapshot {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
+        restoringWorkingDirectory: String? = nil,
         repairPortableAgentExecutable: Bool
     ) -> String? {
-        guard let inlineInput = inlineStartupInput(
-            repairPortableAgentExecutable: repairPortableAgentExecutable
-        ) else { return nil }
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
+        if !allowLauncherScript {
+            return inlineStartupInput(
+                repairPortableAgentExecutable: repairPortableAgentExecutable
+            )
         }
-        guard allowLauncherScript else { return inlineInput }
-        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-            inlineInput: inlineInput,
-            binding: self,
+        guard let inlineInput = inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable,
+            includeWorkingDirectoryPrefix: false
+        ) else { return nil }
+        guard let scriptInput = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        ).writeInvocationInput(
+            command: inlineInput,
+            workingDirectory: restoringWorkingDirectory ?? cwd
         ) else {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 
@@ -69,31 +82,60 @@ extension SurfaceResumeBindingSnapshot {
         )
     }
 
-    func startupCommandWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        repairPortableAgentExecutable: Bool
-    ) -> String? {
-        guard let inlineInput = inlineStartupInput(repairPortableAgentExecutable: repairPortableAgentExecutable),
-              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
-                  inlineInput: inlineInput,
-                  binding: self,
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
-              ) else {
-            return nil
-        }
-        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
-    }
-
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        guard repairPortableAgentExecutable, isAgentHookBinding else {
+        guard isAgentHookBinding else {
             return startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+        let suppressed = SurfaceResumeCommandCanonicalizer.insertingCodexUpdateCheckSuppression(
             in: startupCommand,
             kind: kind
+        )
+        let repaired: String
+        if repairPortableAgentExecutable {
+            repaired = SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: suppressed,
+                kind: kind
+            )
+        } else {
+            repaired = suppressed
+        }
+        guard let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: checkpointId) else { return repaired }
+        return restoreLaunch.applying(toStoredCommand: repaired)
+    }
+}
+
+extension AgentRestoreLaunch {
+    func applying(toStoredCommand command: String) -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let executableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
+            in: words,
+            command: command
+        ) else { return command }
+        let wrapperToken = wrapperShellExecutableToken
+        let executable = words[executableIndex].value
+        guard command.contains(wrapperToken) || (executable as NSString).lastPathComponent == executableName else {
+            return command
+        }
+        let routed = command.contains(wrapperToken) ? command : SurfaceResumeCommandCanonicalizer.replacingExecutableWithWrapperShellCommand(
+            in: command,
+            words: words,
+            commandStartIndex: SurfaceResumeCommandCanonicalizer.commandStartWordIndex(in: words),
+            executableIndex: executableIndex,
+            wrapperToken: wrapperToken,
+            customExecutableEnvironment: executable == executableName
+                ? nil
+                : (customExecutablePathEnvironmentKey, executable),
+            wrapInPortableShell: { portableWrapperShellCommand(posixCommand: $0) }
+        )
+        let routedWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(routed)
+        guard let routedExecutableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
+            in: routedWords,
+            command: routed
+        ) else { return command }
+        let executableStart = routedWords[routedExecutableIndex].range.lowerBound
+        return authorizing(
+            leadingShell: String(routed[..<executableStart]),
+            routedCommand: String(routed[executableStart...])
         )
     }
 }
@@ -113,15 +155,27 @@ extension SurfaceResumeCommandCanonicalizer {
               isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
             return command
         }
-        guard !isExecutableFile(atPath: executable) else {
-            return command
-        }
+        guard !isExecutableFile(atPath: executable) else { return command }
 
         if executableName == "claude" {
-            return replacingStaleClaudeExecutable(
+            return replacingStaleWrapperRoutedExecutable(
                 in: command,
                 words: words,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                executableName: "claude",
+                wrapperToken: AgentResumeArgv.claudeWrapperShellExecutableToken,
+                renderPortable: { AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: $0, quote: $1) },
+                wrapInPortableShell: { AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: $0) }
+            )
+        } else if executableName == "codex" {
+            return replacingStaleWrapperRoutedExecutable(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: "codex",
+                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken,
+                renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
+                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
             )
         } else {
             return replacingExecutableOnly(
@@ -140,18 +194,13 @@ extension SurfaceResumeCommandCanonicalizer {
         }
         return portableAgentExecutableName(forExecutableBasename: executableBasename)
     }
-
     private static func portableAgentExecutableName(for kind: String?) -> String? {
         switch kind?.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "claude":
-            return "claude"
-        case "codex":
-            return "codex"
-        default:
-            return nil
+        case "claude": return "claude"
+        case "codex": return "codex"
+        default: return nil
         }
     }
-
     private static func portableAgentExecutableName(forExecutableBasename basename: String) -> String? {
         portableAgentExecutableName(for: basename)
     }
@@ -207,15 +256,18 @@ extension SurfaceResumeCommandCanonicalizer {
             standardizedPath == root || standardizedPath.hasPrefix(root + "/")
         }
     }
-
     private static func isExecutableFile(atPath path: String) -> Bool {
         path.withCString { access($0, X_OK) == 0 }
     }
 
-    private static func replacingStaleClaudeExecutable(
+    private static func replacingStaleWrapperRoutedExecutable(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
-        executableIndex: Int
+        executableIndex: Int,
+        executableName: String,
+        wrapperToken: String,
+        renderPortable: ([String], (String) -> String) -> String,
+        wrapInPortableShell: (String) -> String
     ) -> String {
         let commandStartIndex = commandStartWordIndex(in: words)
         guard commandStartIndex < words.count,
@@ -228,50 +280,55 @@ extension SurfaceResumeCommandCanonicalizer {
             command: command,
             commandStartIndex: commandStartIndex
         ) else {
-            return replacingStaleClaudeExecutableWithWrapperShellCommand(
+            return replacingExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                wrapperToken: wrapperToken,
+                wrapInPortableShell: wrapInPortableShell
             )
         }
-        guard canRenderStaleClaudeCommandAsPortableArgv(
+        guard canRenderStaleCommandAsPortableArgv(
             words: words,
             command: command,
             commandStartIndex: commandStartIndex,
             executableIndex: executableIndex
         ) else {
-            return replacingStaleClaudeExecutableWithWrapperShellCommand(
+            return replacingExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                wrapperToken: wrapperToken,
+                wrapInPortableShell: wrapInPortableShell
             )
         }
-        parts[executableIndex - commandStartIndex] = "claude"
-        let renderedCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
-            parts: parts,
-            quote: shellQuoted
-        )
+        parts[executableIndex - commandStartIndex] = executableName
+        let renderedCommand = renderPortable(parts, shellQuoted)
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
     }
 
-    private static func replacingStaleClaudeExecutableWithWrapperShellCommand(
+    fileprivate static func replacingExecutableWithWrapperShellCommand(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         commandStartIndex: Int,
-        executableIndex: Int
+        executableIndex: Int,
+        wrapperToken: String,
+        customExecutableEnvironment: (key: String, value: String)? = nil,
+        wrapInPortableShell: (String) -> String
     ) -> String {
         let renderedParts = words[commandStartIndex...].indices.map { index in
             if index == executableIndex {
-                return AgentResumeArgv.claudeWrapperShellExecutableToken
+                let customPath = customExecutableEnvironment.map {
+                    "\($0.key)=\(shellQuoted($0.value)) "
+                } ?? ""
+                return customPath + wrapperToken
             }
             return renderedPortableShellWord(words[index], in: command)
         }
-        let renderedCommand = AgentResumeArgv.portableClaudeResumeShellCommand(
-            posixCommand: renderedParts.joined(separator: " ")
-        )
+        let renderedCommand = wrapInPortableShell(renderedParts.joined(separator: " "))
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
     }
@@ -303,7 +360,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return "\(name)=\(shellQuoted(String(word.value[valueStart...])))"
     }
 
-    private static func canRenderStaleClaudeCommandAsPortableArgv(
+    private static func canRenderStaleCommandAsPortableArgv(
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String,
         commandStartIndex: Int,
@@ -379,7 +436,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return false
     }
 
-    private static func commandExecutableWordIndex(
+    static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String
     ) -> Int? {
@@ -398,7 +455,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return index < words.count ? index : nil
     }
 
-    private static func commandStartWordIndex(
+    fileprivate static func commandStartWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
     ) -> Int {
         if let guardEndIndex = leadingWorkingDirectoryGuardEndIndex(in: words) {

@@ -85,6 +85,84 @@ import Testing
         #expect(filter.filter(keyInput) == keyInput)
     }
 
+    @Test func deadlineFlushesPendingAndStopsStripping() {
+        var expired = false
+        let filter = SSHPTYAttachReconnectInputFilter(
+            enabled: true,
+            deadlineReached: { expired }
+        )
+        let escape = Data([0x1B])
+        #expect(filter.filter(escape) == Data())
+        expired = true
+
+        let probeReply = Data("\u{1B}[1;1R".utf8)
+        #expect(filter.filter(probeReply) == escape + probeReply)
+        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8))
+    }
+
+    @Test func seededSplitFuzzPreservesNonProbeBytes() {
+        var seed: UInt64 = 0x7708
+        let probes = [
+            Data("\u{1B}[1;1R".utf8),
+            Data("\u{1B}[?1;2c".utf8),
+            Data("\u{1B}[?0u".utf8),
+            Data("\u{1B}[4$y".utf8),
+            Data("\u{1B}]10;rgb:ffff/ffff/ffff\u{07}".utf8),
+            Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{1B}\\".utf8),
+        ]
+        let keys = [
+            Data("plain text\n".utf8),
+            Data("\u{1B}[A".utf8),
+            Data("\u{1B}x".utf8),
+            Data("\u{1B}[13;2u".utf8),
+            Data("\u{1B}[200~paste\u{1B}[201~".utf8),
+            Data([0x1B]),
+        ]
+
+        // Keys are inserted before, between, and after probe replies. The
+        // oracle mirrors the prefix-safety contract: probes are stripped only
+        // while every byte seen so far belonged to a probe reply; the first
+        // key byte ends stripping and everything after it (probes included)
+        // must reach the output verbatim, in order.
+        for index in 0..<128 {
+            let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+            var segments: [(data: Data, isKey: Bool)] = []
+            for _ in 0..<(1 + Int(nextRandom(&seed) % 4)) {
+                segments.append((probes[Int(nextRandom(&seed) % UInt64(probes.count))], false))
+            }
+            for _ in 0..<(1 + Int(nextRandom(&seed) % 2)) {
+                let key = keys[Int(nextRandom(&seed) % UInt64(keys.count))]
+                let position = Int(nextRandom(&seed) % UInt64(segments.count + 1))
+                segments.insert((key, true), at: position)
+            }
+
+            var input = Data()
+            var expected = Data()
+            var stripping = true
+            for segment in segments {
+                input.append(segment.data)
+                if segment.isKey {
+                    stripping = false
+                }
+                if !segment.isKey && stripping {
+                    continue
+                }
+                expected.append(segment.data)
+            }
+
+            var output = Data()
+            var cursor = 0
+            while cursor < input.count {
+                let remaining = input.count - cursor
+                let step = 1 + Int(nextRandom(&seed) % UInt64(min(7, remaining)))
+                output.append(filter.filter(Data(input[cursor..<(cursor + step)])))
+                cursor += step
+            }
+            output.append(filter.finish())
+            #expect(output == expected, "seed 0x7708 case \(index)")
+        }
+    }
+
     @Test func stdinPumpKeepsFilteringLateProbeRepliesAfterInitialDrain() throws {
         var inputPipe = [Int32](repeating: -1, count: 2)
         try makePipe(&inputPipe)
@@ -271,5 +349,10 @@ import Testing
             return
         }
         Darwin.close(fd)
+    }
+
+    private func nextRandom(_ seed: inout UInt64) -> UInt64 {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        return seed
     }
 }

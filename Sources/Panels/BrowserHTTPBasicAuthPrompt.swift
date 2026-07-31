@@ -1,96 +1,21 @@
 import AppKit
+import CMUXMobileCore
 import Foundation
 import WebKit
 
-private let browserHTTPBasicAuthPromptTextMaxLength = 240
-
-private let browserHTTPBasicAuthPromptDangerousScalars: Set<Unicode.Scalar> = [
-    "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-    "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-    "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-    "\u{FEFF}",
-]
-
-private func browserFilteredHTTPBasicAuthPromptText(_ text: String) -> String {
-    let filtered = String(text.unicodeScalars.filter { scalar in
-        !browserHTTPBasicAuthPromptDangerousScalars.contains(scalar)
-            && !CharacterSet.controlCharacters.contains(scalar)
-    })
-    return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-private func browserSanitizedHTTPBasicAuthPromptText(_ text: String) -> String {
-    let trimmed = browserFilteredHTTPBasicAuthPromptText(text)
-    guard trimmed.count > browserHTTPBasicAuthPromptTextMaxLength else {
-        return trimmed
-    }
-    return String(trimmed.prefix(browserHTTPBasicAuthPromptTextMaxLength))
-}
-
-private func browserMiddleElidedHTTPBasicAuthPromptText(_ text: String) -> String {
-    let trimmed = browserFilteredHTTPBasicAuthPromptText(text)
-    guard trimmed.count > browserHTTPBasicAuthPromptTextMaxLength else {
-        return trimmed
-    }
-
-    let marker = "..."
-    let keptCharacterCount = browserHTTPBasicAuthPromptTextMaxLength - marker.count
-    let prefixCount = min(48, max(16, keptCharacterCount / 3))
-    let suffixCount = max(0, keptCharacterCount - prefixCount)
-    return String(trimmed.prefix(prefixCount)) + marker + String(trimmed.suffix(suffixCount))
-}
-
-private func browserDefaultPort(forHTTPBasicAuthProtocol protocolName: String?) -> Int? {
-    switch protocolName?.lowercased() {
-    case "http":
-        return 80
-    case "https":
-        return 443
-    default:
-        return nil
-    }
-}
-
-private func browserHTTPBasicAuthPromptOrigin(
-    protectionSpace: URLProtectionSpace
+private func browserHTTPBasicAuthPromptMessage(
+    challenge: URLAuthenticationChallenge,
+    textFormatter: BrowserAuthPromptTextFormatter
 ) -> String {
-    let host = browserFilteredHTTPBasicAuthPromptText(protectionSpace.host)
-    guard !host.isEmpty else {
-        return String(
+    let origin = textFormatter.origin(
+        protectionSpace: challenge.protectionSpace,
+        unknownHost: String(
             localized: "browser.dialog.auth.basic.unknownHost",
             defaultValue: "this site"
         )
-    }
-
-    let rawProtocol = protectionSpace.`protocol` ?? ""
-    let protocolName = browserFilteredHTTPBasicAuthPromptText(rawProtocol).lowercased()
-    let defaultPort = browserDefaultPort(forHTTPBasicAuthProtocol: protocolName)
-
-    let displayHost: String
-    if host.contains(":") && !host.hasPrefix("[") && !host.hasSuffix("]") {
-        displayHost = "[\(host)]"
-    } else {
-        displayHost = host
-    }
-
-    let port = protectionSpace.port
-    let authority: String
-    if port > 0, port != defaultPort {
-        authority = "\(displayHost):\(port)"
-    } else {
-        authority = displayHost
-    }
-
-    let origin = protocolName.isEmpty ? authority : "\(protocolName)://\(authority)"
-    return browserMiddleElidedHTTPBasicAuthPromptText(origin)
-}
-
-private func browserHTTPBasicAuthPromptMessage(
-    challenge: URLAuthenticationChallenge
-) -> String {
-    let origin = browserHTTPBasicAuthPromptOrigin(protectionSpace: challenge.protectionSpace)
+    )
     if let rawRealm = challenge.protectionSpace.realm {
-        let realm = browserSanitizedHTTPBasicAuthPromptText(rawRealm)
+        let realm = textFormatter.sanitizedText(rawRealm)
         guard !realm.isEmpty else {
             let format = String(
                 localized: "browser.dialog.auth.basic.messageHost",
@@ -129,6 +54,7 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     alertFactory: @escaping @MainActor () -> NSAlert = { NSAlert() },
     windowProvider: (() -> NSWindow?)? = nil,
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
+    browserPanel: BrowserPanel? = nil,
     registerCancelPrompt: ((@escaping () -> Void) -> Void)? = nil,
     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 ) -> Bool {
@@ -137,13 +63,17 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     }
 
     let presentPrompt = {
+        let textFormatter = BrowserAuthPromptTextFormatter()
         let alert = alertFactory()
         alert.alertStyle = .informational
         alert.messageText = String(
             localized: "browser.dialog.auth.basic.title",
             defaultValue: "Authentication Required"
         )
-        let promptMessage = browserHTTPBasicAuthPromptMessage(challenge: challenge)
+        let promptMessage = browserHTTPBasicAuthPromptMessage(
+            challenge: challenge,
+            textFormatter: textFormatter
+        )
         let accessoryMessage: String
         if challenge.previousFailureCount > 0 {
             let failureMessage = String(
@@ -227,18 +157,71 @@ func browserHandleHTTPBasicAuthenticationChallenge(
             completeOnce(.cancelAuthenticationChallenge, nil)
         }
 
-        registerCancelPrompt? {
-            browserDismissHTTPBasicAuthPrompt(alert)
-            handleCancel()
-        }
-
-        if let windowProvider {
+        if let browserPanel {
+            let signInLabel = alert.buttons[0].title
+            let cancelLabel = alert.buttons[1].title
+            let dialog = browserPanel.presentMobileBrowserDialog(
+                kind: .httpBasicAuthentication,
+                title: alert.messageText,
+                message: accessoryMessage,
+                host: challenge.protectionSpace.host,
+                buttons: [
+                    MobileBrowserDialogButton(id: "sign_in", label: signInLabel, role: .default),
+                    MobileBrowserDialogButton(id: "cancel", label: cancelLabel, role: .cancel),
+                ],
+                textField: MobileBrowserDialogTextField(
+                    placeholder: passwordField.placeholderString,
+                    initial: usernameField.stringValue,
+                    secure: true
+                ),
+                informational: false,
+                alert: alert,
+                response: { buttonID, text in
+                    guard buttonID == "sign_in" else {
+                        completeOnce(.cancelAuthenticationChallenge, nil)
+                        return
+                    }
+                    let components = (text ?? "").split(
+                        separator: "\0",
+                        maxSplits: 1,
+                        omittingEmptySubsequences: false
+                    )
+                    let user = components.count == 2 ? String(components[0]) : usernameField.stringValue
+                    let password = components.count == 2 ? String(components[1]) : (text ?? "")
+                    completeOnce(
+                        .useCredential,
+                        URLCredential(user: user, password: password, persistence: .forSession)
+                    )
+                },
+                macResponse: { response in
+                    let credentials = usernameField.stringValue + "\0" + passwordField.stringValue
+                    return (response == .alertFirstButtonReturn ? "sign_in" : "cancel", credentials)
+                },
+                cancelButtonID: "cancel"
+            )
+            registerCancelPrompt? {
+                _ = browserPanel.mobileBrowserDialogBroker.respond(MobileBrowserDialogRespondParameters(
+                    panelID: dialog.panelID,
+                    dialogID: dialog.dialogID,
+                    buttonID: "cancel",
+                    text: nil
+                ))
+            }
+        } else if let windowProvider {
+            registerCancelPrompt? {
+                browserDismissHTTPBasicAuthPrompt(alert)
+                handleCancel()
+            }
             if let window = windowProvider() {
                 alert.beginSheetModal(for: window, completionHandler: handleResponse)
             } else {
                 handleResponse(alert.runModal())
             }
         } else {
+            registerCancelPrompt? {
+                browserDismissHTTPBasicAuthPrompt(alert)
+                handleCancel()
+            }
             presentAlert(alert, webView, handleResponse, handleCancel)
         }
     }

@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 @Suite struct RemoteTmuxSessionSnapshotTests {
-    @Test func sessionSnapshotSkipsDedicatedRemoteTmuxWindowWithOnlyMirrorWorkspaces() throws {
+    @Test func sessionSnapshotSkipsWindowWithOnlyRemoteTmuxMirrorWorkspaces() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -16,10 +16,7 @@ import Testing
         let workspace = try #require(manager.selectedWorkspace)
         workspace.isRemoteTmuxMirror = true
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let host = RemoteTmuxHost(destination: "user@example.test")
-        appDelegate.remoteTmuxController.bindDedicatedWindowForTesting(host: host, windowId: windowId)
         defer {
-            appDelegate.remoteTmuxController.unbindDedicatedWindowForTesting(windowId: windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             AppDelegate.shared = originalAppDelegate
         }
@@ -27,7 +24,7 @@ import Testing
         #expect(appDelegate.sessionSnapshotForTesting() == nil)
     }
 
-    @Test func sessionSnapshotPreservesLocalWorkspaceInDedicatedRemoteTmuxWindow() throws {
+    @Test func sessionSnapshotPreservesLocalWorkspaceInWindowWithRemoteTmuxMirror() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -41,10 +38,7 @@ import Testing
         )
         remoteWorkspace.isRemoteTmuxMirror = true
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let host = RemoteTmuxHost(destination: "user@example.test")
-        appDelegate.remoteTmuxController.bindDedicatedWindowForTesting(host: host, windowId: windowId)
         defer {
-            appDelegate.remoteTmuxController.unbindDedicatedWindowForTesting(windowId: windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             AppDelegate.shared = originalAppDelegate
         }

@@ -144,27 +144,30 @@ import Testing
 
     // MARK: - Field lock (dictation owns the text)
 
-    @Test func dictationLocksFieldWhileListeningAndStopping() {
-        // While dictation owns the composer text the field must be locked so a
-        // user edit cannot be silently clobbered by the next partial/final
-        // callback. Both the live capture and the finalize-wait own the text.
+    @Test func dictationLocksFieldFromRequestingPermissionThroughStopping() {
+        // The field must lock the moment dictation commits to starting — including
+        // `.requestingPermission`, where the engine spins up off-main (~100-300ms,
+        // issue #6284). Locking that window closes the edit-loss race: any text
+        // typed during spin-up would not be in the captured base, so the first
+        // partial (base + transcript) would clobber it. `.listening` (partials
+        // streaming) and `.stopping` (final pending) keep the lock held.
+        #expect(ComposerDictationState.requestingPermission.locksComposerField)
         #expect(ComposerDictationState.listening.locksComposerField)
         #expect(ComposerDictationState.stopping.locksComposerField)
     }
 
     @Test func dictationLeavesFieldEditableWhenNotActive() {
-        // Idle (no session), requestingPermission (engine not started, the field
-        // still holds only what the user typed), and unavailable all leave the
+        // Idle (no session) and unavailable (denied/unsupported) both leave the
         // field editable: no callback will overwrite the user's text.
         #expect(!ComposerDictationState.idle.locksComposerField)
-        #expect(!ComposerDictationState.requestingPermission.locksComposerField)
         #expect(!ComposerDictationState.unavailable.locksComposerField)
     }
 
-    @Test func fieldLockMatchesEngineOwnership() {
+    @Test func fieldLockMatchesDictationOwnership() {
         // The lock holds for exactly the states where a recognition callback can
-        // rewrite the field (listening streams partials, stopping awaits the
-        // final), and for no other state.
+        // (or is imminently about to) rewrite the field: requestingPermission
+        // (engine spinning up), listening (streaming partials), stopping (awaiting
+        // the final). Idle and unavailable leave the field free.
         for state in [
             ComposerDictationState.idle,
             .requestingPermission,
@@ -172,8 +175,8 @@ import Testing
             .stopping,
             .unavailable,
         ] {
-            let ownsText = state == .listening || state == .stopping
-            #expect(state.locksComposerField == ownsText)
+            let locks = state == .requestingPermission || state == .listening || state == .stopping
+            #expect(state.locksComposerField == locks)
         }
     }
 
@@ -207,6 +210,84 @@ import Testing
         ] {
             let takesGracefulPath = state.canFinalize
             #expect(takesGracefulPath == (state == .listening))
+        }
+    }
+
+    // MARK: - Async engine-start supersession (issue #6284)
+
+    @Test func startDispositionAppliesForCurrentAttemptWhileRequestingPermission() {
+        // The engine-ready callback for the in-flight attempt, still awaiting the
+        // engine in `.requestingPermission`, applies: create the recognition task
+        // and move to `.listening`.
+        #expect(
+            ComposerDictationState.requestingPermission.startDisposition(
+                callbackToken: 7,
+                currentToken: 7
+            ) == .apply
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenTokenSuperseded() {
+        // A second mic tap, a send, or a navigation during the ~100-300ms off-main
+        // engine spin-up bumps the token. The stale callback must be discarded so
+        // it cannot drive the UI into `.listening` for an abandoned session — and
+        // so it does not double-start the engine.
+        #expect(
+            ComposerDictationState.requestingPermission.startDisposition(
+                callbackToken: 7,
+                currentToken: 8
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenNoLongerRequestingPermission() {
+        // Even with a matching token, a state that already left
+        // `.requestingPermission` means the callback is stale: the controller
+        // already moved on (listening, or torn down to idle/unavailable/stopping)
+        // and must not re-apply.
+        for state in [
+            ComposerDictationState.idle,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(
+                state.startDisposition(callbackToken: 3, currentToken: 3) == .discardStale
+            )
+        }
+    }
+
+    @Test func startDispositionDiscardsWhenBothTokenAndStateMoved() {
+        // The common abandon case: the token advanced AND the state settled back to
+        // idle. Still stale; the superseding teardown owns the engine cleanup.
+        #expect(
+            ComposerDictationState.idle.startDisposition(
+                callbackToken: 1,
+                currentToken: 2
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionAppliesOnlyForTheSingleCurrentRequestingAttempt() {
+        // Exhaustive partition: across a small token window and every state, the
+        // callback applies for EXACTLY one combination — token matches AND state is
+        // `.requestingPermission` — and is discarded for all others. This is what
+        // guarantees at most one engine-ready callback ever transitions to
+        // listening, no matter how the user taps during spin-up.
+        let allStates: [ComposerDictationState] = [
+            .idle, .requestingPermission, .listening, .stopping, .unavailable,
+        ]
+        for callbackToken in 0...3 {
+            for currentToken in 0...3 {
+                for state in allStates {
+                    let disposition = state.startDisposition(
+                        callbackToken: callbackToken,
+                        currentToken: currentToken
+                    )
+                    let shouldApply = callbackToken == currentToken && state == .requestingPermission
+                    #expect(disposition == (shouldApply ? .apply : .discardStale))
+                }
+            }
         }
     }
 }

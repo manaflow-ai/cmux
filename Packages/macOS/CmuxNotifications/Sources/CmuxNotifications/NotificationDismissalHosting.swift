@@ -27,10 +27,29 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// Whether the notification store exists yet (legacy
     /// `AppDelegate.shared?.notificationStore` nil check).
     var hasNotificationStore: Bool { get }
+    /// O(1) aggregate gate for any unread/visible state in a workspace.
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool
+    /// O(1) aggregate for panel-local indicators that intentionally do not
+    /// contribute to the notification store's workspace badge.
+    func workspaceHasDismissiblePanelState(workspaceId: UUID) -> Bool
     /// The workspace's focused panel id, if any.
     func focusedPanelId(in workspaceId: UUID) -> UUID?
+    /// The workspace's focused surface id, if any. Mirrors the delivery gate's
+    /// `focusedSurfaceId(for:)` so the dismissal gate can compare a dismissal's
+    /// target against the exact focused surface when
+    /// ``suppressOnlyFocusedSurface`` is enabled.
+    func focusedSurfaceId(in workspaceId: UUID) -> UUID?
     /// Resolves a surface-or-panel id to the workspace's panel id.
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID?
+
+    // MARK: Policy reads
+
+    /// Opt-in `notifications.suppressOnlyFocusedSurface`: when `true`, the
+    /// implicit notification auto-withdraw fires only for the exact focused
+    /// surface, leaving a non-focused surface's banner up until that surface is
+    /// focused (or the notification is clicked/dismissed). When `false` (the
+    /// default) the legacy workspace-visibility withdraw is preserved.
+    var suppressOnlyFocusedSurface: Bool { get }
 
     // MARK: Workspace indicator reads
 
@@ -47,6 +66,8 @@ public protocol NotificationDismissalHosting: AnyObject {
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool
     /// Whether an unread notification exists for the workspace (or surface).
     func storeHasUnreadNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool
+    /// Whether policy evaluation is still pending for the workspace (or surface).
+    func storeHasPendingNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool
     /// Whether a visible notification indicator exists for the workspace
     /// (or surface).
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool
