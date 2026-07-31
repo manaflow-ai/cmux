@@ -194,8 +194,14 @@ fn readWithTimeout(
     buffer: []u8,
     timeout_ms: ?u32,
 ) !usize {
-    try state.waitReadable(timeout_ms);
-    return state.readSome(buffer);
+    var deadline = try Deadline.start(timeout_ms);
+    while (true) {
+        try state.waitReadable(try deadline.remainingMs());
+        return state.readSome(buffer) catch |failure| {
+            if (failure == error.WouldBlock) continue;
+            return failure;
+        };
+    }
 }
 
 fn writeAllWithTimeout(
@@ -207,7 +213,10 @@ fn writeAllWithTimeout(
     var remaining = bytes;
     while (remaining.len > 0) {
         try state.waitWritable(try deadline.remainingMs());
-        const written = try state.writeSome(remaining);
+        const written = state.writeSome(remaining) catch |failure| {
+            if (failure == error.WouldBlock) continue;
+            return failure;
+        };
         if (written == 0) return error.ConnectionClosed;
         remaining = remaining[written..];
         _ = try deadline.remainingMs();
@@ -249,41 +258,40 @@ fn connectUnixStream(
     );
     errdefer std.posix.close(socket);
     var address = try std.net.Address.initUnix(path);
+    var pending = false;
     std.posix.connect(
         socket,
         &address.any,
         address.getOsSockLen(),
     ) catch |failure| switch (failure) {
-        error.WouldBlock, error.ConnectionPending => {
-            var poll_fds = [_]std.posix.pollfd{.{
-                .fd = socket,
-                .events = std.posix.POLL.OUT,
-                .revents = 0,
-            }};
-            const remaining_ms = try deadline.remainingMs();
-            const poll_timeout: i32 = if (remaining_ms) |milliseconds|
-                @intCast(@min(
-                    milliseconds,
-                    @as(u32, std.math.maxInt(i32)),
-                ))
-            else
-                -1;
-            if (try std.posix.poll(&poll_fds, poll_timeout) == 0) {
-                return error.Timeout;
-            }
-            try std.posix.getsockoptError(socket);
-        },
+        error.WouldBlock, error.ConnectionPending => pending = true,
         error.ConnectionTimedOut => return error.Timeout,
         else => return failure,
     };
-    const flags = try std.posix.fcntl(socket, std.posix.F.GETFL, 0);
-    const nonblocking = @as(usize, 1) <<
-        @bitOffsetOf(std.posix.O, "NONBLOCK");
-    _ = try std.posix.fcntl(
-        socket,
-        std.posix.F.SETFL,
-        flags & ~nonblocking,
-    );
+    while (pending) {
+        var poll_fds = [_]std.posix.pollfd{.{
+            .fd = socket,
+            .events = std.posix.POLL.OUT,
+            .revents = 0,
+        }};
+        const remaining_ms = try deadline.remainingMs();
+        const poll_timeout: i32 = if (remaining_ms) |milliseconds|
+            @intCast(@min(
+                milliseconds,
+                @as(u32, std.math.maxInt(i32)),
+            ))
+        else
+            -1;
+        if (try std.posix.poll(&poll_fds, poll_timeout) == 0) {
+            return error.Timeout;
+        }
+        std.posix.getsockoptError(socket) catch |failure| switch (failure) {
+            error.WouldBlock, error.ConnectionPending => continue,
+            error.ConnectionTimedOut => return error.Timeout,
+            else => return failure,
+        };
+        pending = false;
+    }
     _ = try deadline.remainingMs();
     return .{ .handle = socket };
 }
