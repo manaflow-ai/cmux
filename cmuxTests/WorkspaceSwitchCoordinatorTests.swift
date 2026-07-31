@@ -10,7 +10,7 @@ import CmuxSettings
 struct WorkspaceSwitchCoordinatorTests {
     @Test
     func loadedTerminalPointerDoesNotMakeDestinationReady() {
-        let readiness = WorkspaceSwitchCoordinator.Readiness(
+        let readiness = WorkspaceSwitchReadiness(
             contentKind: .terminal,
             requiresInteraction: true,
             portalPresented: false,
@@ -23,7 +23,7 @@ struct WorkspaceSwitchCoordinatorTests {
 
     @Test
     func terminalPresentationRequiresPortalAndFrame() {
-        var readiness = WorkspaceSwitchCoordinator.Readiness(
+        var readiness = WorkspaceSwitchReadiness(
             contentKind: .terminal,
             requiresInteraction: true,
             portalPresented: false,
@@ -43,7 +43,7 @@ struct WorkspaceSwitchCoordinatorTests {
 
     @Test
     func terminalPresentationDoesNotWaitForFocusTransfer() {
-        let readiness = WorkspaceSwitchCoordinator.Readiness(
+        let readiness = WorkspaceSwitchReadiness(
             contentKind: .terminal,
             requiresInteraction: true,
             portalPresented: true,
@@ -145,7 +145,7 @@ struct WorkspaceSwitchCoordinatorTests {
 
     @Test
     func backgroundTerminalPresentationRequiresFrame() {
-        var readiness = WorkspaceSwitchCoordinator.Readiness(
+        var readiness = WorkspaceSwitchReadiness(
             contentKind: .terminal,
             requiresInteraction: false,
             portalPresented: true,
@@ -160,7 +160,7 @@ struct WorkspaceSwitchCoordinatorTests {
 
     @Test
     func browserPresentationTracksInteractionSeparately() {
-        var readiness = WorkspaceSwitchCoordinator.Readiness(
+        var readiness = WorkspaceSwitchReadiness(
             contentKind: .browser,
             requiresInteraction: true,
             portalPresented: false,
@@ -318,7 +318,7 @@ struct WorkspaceSwitchCoordinatorTests {
         )
 
         coordinator.beginPresentation(
-            WorkspaceSwitchCoordinator.PresentationTarget(
+            WorkspaceSwitchPresentationTarget(
                 workspaceID: UUID(), contentKind: .passive,
                 terminalSurfaceID: nil, terminalView: nil,
                 terminalRendererPresented: false, terminalRenderedFrameSequence: 0,
@@ -482,8 +482,8 @@ struct WorkspaceSwitchCoordinatorTests {
         portalPresented: Bool,
         interactionReady: Bool,
         requiresInteraction: Bool = true
-    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
-        WorkspaceSwitchCoordinator.PresentationTarget(
+    ) -> WorkspaceSwitchPresentationTarget {
+        WorkspaceSwitchPresentationTarget(
             workspaceID: workspaceID,
             contentKind: .terminal,
             terminalSurfaceID: surfaceID,
