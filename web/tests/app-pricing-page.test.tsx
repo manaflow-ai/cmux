@@ -94,6 +94,8 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain("$35/user/month");
+    expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain("/api/billing/portal");
   });
 
@@ -112,10 +114,16 @@ describe("app pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("$24");
+    expect(html).toContain("$28");
     expect(html).toContain("per month billed yearly");
+    expect(html).toContain("per user per month billed yearly");
     expect(html).not.toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("$28/user/month · $336/user/year");
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
+    );
+    expect(html).toContain(
+      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year",
     );
     expect(html).toContain('<button type="button" aria-pressed="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");

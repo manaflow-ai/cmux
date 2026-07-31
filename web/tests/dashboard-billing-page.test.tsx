@@ -99,7 +99,9 @@ describe("dashboard billing page", () => {
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
     );
-    expect(html).toContain('href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1"');
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month"',
+    );
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
     expect(html).toContain('href="/dashboard/testflight"');
@@ -107,14 +109,19 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("/api/billing/subscription");
   });
 
-  test("renders annual Pro pricing from the billing upsell", async () => {
+  test("renders annual Pro and Team pricing from the billing upsell", async () => {
     const html = await renderBillingPage({ interval: "year" });
 
     expect(html).toContain("$24");
+    expect(html).toContain("$28");
     expect(html).toContain("per month billed yearly");
+    expect(html).toContain("per user per month billed yearly");
     expect(html).not.toContain("Billed $288 annually · save 20%");
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
+    );
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year"',
     );
   });
 
@@ -188,6 +195,26 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$35/seat/month");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
+  });
+
+  test("labels annual Stripe Team subscriptions", async () => {
+    proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "cmux-team-yearly-336",
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    expect(await renderBillingPage()).toContain("$336/seat/year");
   });
 
   test("renders active Stripe Team for a paid team when no team is selected", async () => {

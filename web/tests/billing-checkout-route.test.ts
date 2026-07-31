@@ -48,7 +48,9 @@ const createStripeCustomer = mock(async (params: unknown) => {
 const resolveProPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_month" : "price_year",
 );
-const resolveTeamPrice = mock(async () => "price_team");
+const resolveTeamPrice = mock(async (interval: unknown) =>
+  interval === "month" ? "price_team_month" : "price_team_year",
+);
 const stripeLimit = mock(async () => []);
 let useStubDb = false;
 
@@ -297,7 +299,7 @@ describe("billing checkout route", () => {
     );
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(resolveTeamPrice).toHaveBeenCalled();
+    expect(resolveTeamPrice).toHaveBeenCalledWith("month");
     expect(createStripeCustomer).toHaveBeenCalledWith({
       name: "Signed Team",
       metadata: { stackTeamId: "team-signed-in", app: "cmux" },
@@ -312,21 +314,51 @@ describe("billing checkout route", () => {
       mode: "subscription",
       line_items: [
         {
-          price: "price_team",
+          price: "price_team_month",
           quantity: 2,
           adjustable_quantity: { enabled: true, minimum: 1 },
         },
       ],
       customer: "cus_team",
       client_reference_id: "team-signed-in",
-      metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+      metadata: {
+        stackTeamId: "team-signed-in",
+        plan: "team",
+        app: "cmux",
+        billingInterval: "month",
+      },
       subscription_data: {
-        metadata: { stackTeamId: "team-signed-in", plan: "team", app: "cmux" },
+        metadata: {
+          stackTeamId: "team-signed-in",
+          plan: "team",
+          app: "cmux",
+          billingInterval: "month",
+        },
       },
       allow_promotion_codes: true,
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
-      cancel_url: "https://cmux.test/pricing?billing=cancelled",
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
+    });
+  });
+
+  test("uses yearly Stripe price for annual Team checkout", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=team&interval=year",
+      ),
+    );
+
+    expect(resolveTeamPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_team_year", quantity: 2 }],
+      metadata: { billingInterval: "year" },
+      subscription_data: { metadata: { billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
   });
 

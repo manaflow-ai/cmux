@@ -37,7 +37,7 @@ describe("billing links", () => {
     );
   });
 
-  test("annual Pro checkout carries the selected billing interval", () => {
+  test("annual checkout carries the selected billing interval for every paid plan", () => {
     expect(withCheckoutInterval("/api/billing/checkout?plan=pro", "year")).toBe(
       "/api/billing/checkout?plan=pro&interval=year",
     );
@@ -50,6 +50,16 @@ describe("billing links", () => {
       ),
     ).toBe(
       "http://localhost:9210/api/billing/checkout?plan=pro&cmux_external_browser=1&cmux_scheme=cmux-dev-test&interval=year",
+    );
+    expect(
+      appPricingCheckoutURL(
+        "team",
+        "http://localhost:9210",
+        "cmux-dev-test",
+        "year",
+      ),
+    ).toBe(
+      "http://localhost:9210/api/billing/checkout?plan=team&cmux_external_browser=1&cmux_scheme=cmux-dev-test&interval=year",
     );
   });
 
