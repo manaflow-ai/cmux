@@ -260,7 +260,16 @@ extension TerminalController {
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceRestoreRecord? {
-        if let agent = target.restorableAgent {
+        // A hook can replace the live binding after this surface was restored,
+        // while the restore-time agent snapshot still names the previous
+        // conversation. Reuse the session-restore identity gate so the record
+        // returned to the CLI always agrees with the binding that generated its
+        // typed `cmux restore <kind> <checkpoint>` selector.
+        let compatibleAgent = Workspace.restorableAgentForSessionRestore(
+            target.restorableAgent,
+            resumeBinding: binding
+        )
+        if let agent = compatibleAgent {
             let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
                 ? .relaunchAgent
                 : .resumeAgent

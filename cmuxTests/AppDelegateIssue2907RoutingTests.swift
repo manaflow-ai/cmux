@@ -788,6 +788,85 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
     }
 
+    func testSurfaceRestoreRecordPrefersNewerBindingOverStaleRestoredAgent() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let currentSessionID = UUID().uuidString.lowercased()
+        let currentLaunch = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/opt/current/codex",
+            arguments: ["/opt/current/codex", "--model", "gpt-current"],
+            workingDirectory: "/tmp/current"
+        )
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "codex resume \(currentSessionID)",
+                cwd: "/tmp/current",
+                checkpointId: currentSessionID,
+                source: "agent-hook",
+                launchCommand: currentLaunch,
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+
+        let staleSessionID = UUID().uuidString.lowercased()
+        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: staleSessionID,
+            workingDirectory: "/tmp/stale",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/stale/codex",
+                arguments: ["/opt/stale/codex", "--model", "gpt-stale"],
+                workingDirectory: "/tmp/stale"
+            )
+        )
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["kind"] as? String, "codex")
+        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, currentSessionID)
+        XCTAssertEqual(restoreRecord["source"] as? String, "agent-hook")
+        XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
+        let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
+        XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
+    }
+
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

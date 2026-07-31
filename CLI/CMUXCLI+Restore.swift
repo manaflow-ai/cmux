@@ -200,6 +200,9 @@ extension CMUXCLI {
             return path
         }
         let changeDirectoryError = errno
+        // Preserve the old guarded `cd`: a directory removed since capture
+        // falls back to the shell's current directory, while an existing but
+        // inaccessible path still blocks restore.
         if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
             return nil
         }

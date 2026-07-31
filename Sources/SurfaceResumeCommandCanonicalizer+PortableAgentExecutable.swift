@@ -62,6 +62,9 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private var localRestoreCLIInput: String {
+        // Runtime surface creation prepends the app's Resources/bin directory
+        // to the protected terminal PATH, so this readable token resolves to
+        // the same tagged/bundled CLI that owns the surface and socket.
         if let kind = Self.restoreCLIArgument(kind),
            let checkpointId = Self.restoreCLIArgument(checkpointId) {
             return "cmux restore \(kind) \(checkpointId)\n"
