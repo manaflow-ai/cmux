@@ -411,4 +411,19 @@ describe("billing checkout route", () => {
     );
     expect(getUser).not.toHaveBeenCalled();
   });
+
+  test("rejects unknown checkout intervals", async () => {
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=team&interval=yearly",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=invalid_plan",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
 });
