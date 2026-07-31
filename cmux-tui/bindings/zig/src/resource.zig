@@ -1353,6 +1353,11 @@ const TimeoutDeadline = struct {
     }
 };
 
+const RequestDispatch = enum {
+    not_dispatched,
+    fully_dispatched,
+};
+
 fn isSecretField(key: []const u8) bool {
     return std.mem.eql(u8, key, "token") or
         std.mem.eql(u8, key, "specifier") or
@@ -2213,7 +2218,15 @@ pub const Client = struct {
             self.request_waiters -= 1;
             waiting = false;
         }
-        _ = try deadline.remainingNs();
+        _ = deadline.remainingNs() catch |failure| {
+            // A waiter can be signaled while the slot is idle, then expire
+            // before it reacquires this mutex. Hand the idle slot to the next
+            // waiter instead of consuming the only wakeup.
+            if (self.request_waiters > 0) {
+                self.request_admission_condition.signal();
+            }
+            return failure;
+        };
         self.request_active = true;
     }
 
@@ -2240,6 +2253,7 @@ pub const Client = struct {
             params,
             mutation,
             &deadline,
+            null,
         );
     }
 
@@ -2250,7 +2264,9 @@ pub const Client = struct {
         params: raw.wire.Value,
         mutation: ?MutationOptions,
         deadline: *TimeoutDeadline,
+        dispatch: ?*RequestDispatch,
     ) !void {
+        if (dispatch) |state| state.* = .not_dispatched;
         if (self.closed) return error.ConnectionClosed;
         if (mutation) |options| try options.validate();
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -2345,6 +2361,7 @@ pub const Client = struct {
             self.close();
             return failure;
         };
+        if (dispatch) |state| state.* = .fully_dispatched;
         _ = deadline.remainingMs() catch |failure| {
             self.close();
             return failure;
@@ -2444,6 +2461,7 @@ pub const Client = struct {
             .{ .object = params },
             null,
             &deadline,
+            null,
         );
 
         var cancel_result: ?bool = null;
@@ -2531,13 +2549,29 @@ pub const Client = struct {
         self.clearMutationTransportUncertain();
         const request_id = try self.requestId();
         defer self.allocator.free(request_id);
-        try self.sendRequestWithDeadline(
+        var dispatch: RequestDispatch = .not_dispatched;
+        self.sendRequestWithDeadline(
             request_id,
             operation,
             params,
             mutation,
             deadline,
-        );
+            &dispatch,
+        ) catch |failure| {
+            if (dispatch == .fully_dispatched) {
+                if (mutation) |options| {
+                    if (mutationTransportCause(failure)) |cause| {
+                        try self.setMutationTransportUncertain(
+                            operation,
+                            options.key(),
+                            cause,
+                        );
+                        return error.MutationTransportUncertain;
+                    }
+                }
+            }
+            return failure;
+        };
         while (true) {
             var message = self.readMessageWithDeadline(deadline) catch |failure| {
                 if ((operation == .terminal_wait or
@@ -4398,6 +4432,7 @@ const RawStream = struct {
             params,
             null,
             &deadline,
+            null,
         );
         while (true) {
             var message = try self.client.readMessageWithDeadline(&deadline);
@@ -4496,6 +4531,7 @@ const RawStream = struct {
             .{ .object = params },
             null,
             &deadline,
+            null,
         );
         var response_seen = false;
         while (!response_seen or self.stream_end == null) {
