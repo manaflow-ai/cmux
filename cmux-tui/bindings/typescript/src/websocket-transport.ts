@@ -86,6 +86,7 @@ export class WebSocketTransport implements Transport {
   private pendingBytes = 0;
   private flushing = false;
   private authenticated = false;
+  private closing = false;
   private closed = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions = {}) {
@@ -135,7 +136,9 @@ export class WebSocketTransport implements Transport {
   }
 
   private enqueue(json: string, onDispatched: OnDispatched): Unsubscribe {
-    if (this.closed) throw new CmuxConnectionError("WebSocket transport is closed");
+    if (this.closing || this.closed) {
+      throw new CmuxConnectionError("WebSocket transport is closed");
+    }
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
       throw new CmuxConnectionError(
@@ -183,7 +186,9 @@ export class WebSocketTransport implements Transport {
   }
 
   close(): void {
-    if (!this.closed) this.socket.close();
+    if (this.closing || this.closed) return;
+    this.closing = true;
+    this.socket.close();
   }
 
   private listen<Kind extends keyof WebSocketEventMap>(
@@ -202,7 +207,7 @@ export class WebSocketTransport implements Transport {
   }
 
   private open(): void {
-    if (this.closed) return;
+    if (this.closing || this.closed) return;
     if (this.authToken === undefined) {
       this.sendPreamble(
         "pairing",
@@ -233,11 +238,12 @@ export class WebSocketTransport implements Transport {
   }
 
   private flush(): void {
-    if (this.flushing || this.closed) return;
+    if (this.flushing || this.closing || this.closed) return;
     this.flushing = true;
     try {
       while (
-        !this.closed
+        !this.closing
+        && !this.closed
         && this.authenticated
         && this.socket.readyState === 1
         && this.pending.length > 0
@@ -260,6 +266,7 @@ export class WebSocketTransport implements Transport {
   }
 
   private receive(event: WebSocketEventMap["message"] | unknown): void {
+    if (this.closing || this.closed) return;
     const data =
       event && typeof event === "object" && "data" in event
         ? (event as { data: unknown }).data
@@ -356,6 +363,8 @@ export class WebSocketTransport implements Transport {
   }
 
   private failAndClose(error: Error, code?: number, reason?: string): void {
+    if (this.closing || this.closed) return;
+    this.closing = true;
     invokeCallbacks([
       () => this.fail(error),
       () => this.socket.close(code, reason),
@@ -364,6 +373,7 @@ export class WebSocketTransport implements Transport {
 
   private finish(event?: WebSocketEventMap["close"]): void {
     if (this.closed) return;
+    this.closing = true;
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
