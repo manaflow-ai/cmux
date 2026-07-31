@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
 import ObjectiveC.runtime
 import Testing
 import UniformTypeIdentifiers
@@ -229,6 +230,23 @@ struct BrowserScreenshotCropTests {
             BrowserScreenshotCaptureService.socketResponseTimeout
                 > BrowserScreenshotCaptureService.automationLeaseTimeout
         )
+    }
+
+    @Test
+    func screenshotTimingBudgetNestsEveryResponseDeadline() {
+        let budget = BrowserScreenshotTimingBudget(
+            maximumAttempts: 3,
+            leaseSetupAllowance: 2,
+            probeCollectionAllowance: 4,
+            synchronizationAllowance: 5,
+            snapshotCompletionAllowance: 6,
+            socketDeliveryAllowance: 7,
+            clientDeliveryAllowance: 8
+        )
+
+        #expect(budget.captureLeaseTimeout == 59)
+        #expect(budget.socketResponseTimeout == 66)
+        #expect(budget.clientResponseTimeout == 74)
     }
 
     @Test
