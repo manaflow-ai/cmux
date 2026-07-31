@@ -15,6 +15,8 @@ import {
 } from "../services/apns/deliveryState";
 import {
   APNS_DEFAULT_MAX_DELIVERY_DURATION_MS,
+  APNS_RATE_LIMIT_FALLBACK_SECONDS,
+  APNS_SERVER_ERROR_RETRY_SECONDS,
   sendApnsNotification,
   sendApnsNotificationReliably,
   signApnsJwt,
@@ -204,8 +206,8 @@ describe("apns response", () => {
       sent: 1,
       devices: 4,
       pruned: 1,
-      transientFailures: 2,
-      permanentFailures: 1,
+      transientFailures: 1,
+      permanentFailures: 2,
     });
     expect(JSON.stringify(summary)).not.toContain("BadDeviceToken");
     expect(JSON.stringify(summary)).not.toContain("ServiceUnavailable");
@@ -652,7 +654,7 @@ describe("apns sender transport", () => {
     expect(connections).toBe(0);
   });
 
-  test("defers 429 and 503 Retry-After responses instead of clamping and hammering", async () => {
+  test("defers 429 and 503 responses instead of clamping and hammering", async () => {
     const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
     const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
 
@@ -716,15 +718,154 @@ describe("apns sender transport", () => {
 
       expect(requests).toBe(1);
       expect(inProcessDelays).toBe(0);
-      expect(results[0]?.retryAfterSeconds).toBe(30);
+      const expectedRetryAfter = status === 503
+        ? APNS_SERVER_ERROR_RETRY_SECONDS
+        : 30;
+      expect(results[0]?.retryAfterSeconds).toBe(expectedRetryAfter);
       expect(summarizeApnsSendResults(results)).toMatchObject({
         transientFailures: 1,
-        retryAfterSeconds: 30,
+        retryAfterSeconds: expectedRetryAfter,
       });
     }
   });
 
-  test("retries only unresolved devices after a partial APNs result", async () => {
+  test("429 without Retry-After gets a bounded deferred retry", async () => {
+    let requests = 0;
+    let inProcessDelays = 0;
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 429 });
+        this.emit("data", Buffer.from(JSON.stringify({
+          reason: "TooManyRequests",
+        })));
+        this.emit("end");
+        return this;
+      }
+    }
+    class FakeSession extends EventEmitter {
+      request() {
+        return new FakeRequest();
+      }
+      close() {}
+    }
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+
+    const results = await sendApnsNotificationReliably(
+      { keyP8: p8, keyId: "KID-429-FALLBACK", teamId: "TEAM456" },
+      [{
+        deviceToken: "a".repeat(64),
+        bundleId: "com.cmux.app",
+        environment: "production",
+      }],
+      {
+        title: "agent",
+        body: "done",
+        expirationEpochSeconds: Math.floor(Date.now() / 1_000) + 120,
+      },
+      {
+        retryDelay: async () => {
+          inProcessDelays += 1;
+        },
+      },
+      1_000,
+      transport,
+    );
+
+    expect(requests).toBe(1);
+    expect(inProcessDelays).toBe(0);
+    expect(results[0]).toMatchObject({
+      status: 429,
+      retryAfterSeconds: APNS_RATE_LIMIT_FALLBACK_SECONDS,
+      prune: false,
+    });
+  });
+
+  test("5xx without Retry-After waits fifteen minutes beyond event freshness", async () => {
+    let requests = 0;
+    let inProcessDelays = 0;
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 503 });
+        this.emit("data", Buffer.from(JSON.stringify({
+          reason: "ServiceUnavailable",
+        })));
+        this.emit("end");
+        return this;
+      }
+    }
+    class FakeSession extends EventEmitter {
+      request() {
+        return new FakeRequest();
+      }
+      close() {}
+    }
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+
+    const results = await sendApnsNotificationReliably(
+      { keyP8: p8, keyId: "KID-503-DEFER", teamId: "TEAM456" },
+      [{
+        deviceToken: "a".repeat(64),
+        bundleId: "com.cmux.app",
+        environment: "production",
+      }],
+      {
+        title: "agent",
+        body: "done",
+        expirationEpochSeconds: Math.floor(Date.now() / 1_000) + 120,
+      },
+      {
+        retryDelay: async () => {
+          inProcessDelays += 1;
+        },
+      },
+      1_000,
+      transport,
+    );
+
+    expect(requests).toBe(1);
+    expect(inProcessDelays).toBe(0);
+    expect(results[0]).toMatchObject({
+      status: 503,
+      retryAfterSeconds: APNS_SERVER_ERROR_RETRY_SECONDS,
+      prune: false,
+    });
+  });
+
+  test("retries only unresolved devices after a partial connection failure", async () => {
     const attemptsByToken = new Map<string, number>();
     const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
 
@@ -739,10 +880,11 @@ describe("apns sender transport", () => {
         return this;
       }
       end() {
-        this.emit("response", { ":status": this.status });
-        if (this.status === 503) {
-          this.emit("data", Buffer.from(JSON.stringify({ reason: "ServiceUnavailable" })));
+        if (this.status === 0) {
+          this.emit("error", new Error("connection reset"));
+          return this;
         }
+        this.emit("response", { ":status": this.status });
         this.emit("end");
         return this;
       }
@@ -754,7 +896,7 @@ describe("apns sender transport", () => {
         const deviceToken = String(headers[":path"]).split("/").at(-1)!;
         const attempt = (attemptsByToken.get(deviceToken) ?? 0) + 1;
         attemptsByToken.set(deviceToken, attempt);
-        const status = deviceToken.startsWith("a") || attempt > 1 ? 200 : 503;
+        const status = deviceToken.startsWith("a") || attempt > 1 ? 200 : 0;
         return new FakeRequest(status);
       }
       close() {}
@@ -792,7 +934,98 @@ describe("apns sender transport", () => {
     expect(attemptsByToken.get("a".repeat(64))).toBe(1);
     expect(attemptsByToken.get("b".repeat(64))).toBe(2);
     expect(capturedHeaders.every((headers) => headers["apns-collapse-id"] === correlationId)).toBe(true);
+    expect(capturedHeaders.every((headers) => headers["apns-id"] === correlationId)).toBe(true);
     expect(capturedHeaders.every((headers) => headers["apns-expiration"] === "1700000120")).toBe(true);
+  });
+
+  test("refreshes once for expired provider token but never retries invalid credentials", async () => {
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const target = {
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+
+    for (const reason of [
+      "ExpiredProviderToken",
+      "InvalidProviderToken",
+    ] as const) {
+      const authorizations: string[] = [];
+      let requests = 0;
+      class FakeRequest extends EventEmitter {
+        setTimeout() {
+          return this;
+        }
+        close() {
+          return this;
+        }
+        end() {
+          requests += 1;
+          const succeeds = reason === "ExpiredProviderToken" && requests === 2;
+          this.emit("response", { ":status": succeeds ? 200 : 403 });
+          if (!succeeds) {
+            this.emit("data", Buffer.from(JSON.stringify({ reason })));
+          }
+          this.emit("end");
+          return this;
+        }
+      }
+      class FakeSession extends EventEmitter {
+        request(headers: http2.OutgoingHttpHeaders) {
+          authorizations.push(String(headers.authorization));
+          return new FakeRequest();
+        }
+        close() {}
+      }
+      const transport = {
+        connect: () => new FakeSession(),
+      } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+      const results = await sendApnsNotificationReliably(
+        {
+          keyP8: p8,
+          keyId: `KID-${reason}`,
+          teamId: "TEAM456",
+        },
+        [target],
+        {
+          title: "agent",
+          body: "done",
+          expirationEpochSeconds: Math.floor(Date.now() / 1_000) + 120,
+        },
+        {
+          maxAttempts: 3,
+          retryDelay: async () => {},
+        },
+        1_000,
+        transport,
+      );
+
+      if (reason === "ExpiredProviderToken") {
+        expect(requests).toBe(2);
+        expect(results[0]?.status).toBe(200);
+        expect(authorizations).toHaveLength(2);
+        expect(authorizations[1]).not.toBe(authorizations[0]);
+      } else {
+        expect(requests).toBe(1);
+        expect(results[0]).toMatchObject({
+          status: 403,
+          reason: "InvalidProviderToken",
+          prune: false,
+        });
+        expect(summarizeApnsSendResults(results)).toMatchObject({
+          transientFailures: 0,
+          permanentFailures: 1,
+        });
+      }
+    }
   });
 
   test("leaves sent zero as a failure after the retry TTL is exhausted", async () => {
