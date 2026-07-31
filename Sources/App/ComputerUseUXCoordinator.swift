@@ -16,8 +16,10 @@ final class ComputerUseUXCoordinator {
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
     private let liveSessionProjection: ComputerUseLiveSessionProjection
+    private let activityLifecycle = ComputerUseActivityLifecycle()
 
     private var menuBarController: ComputerUseMenuBarController?
+    private var menuBarSnapshotStore: ComputerUseMenuBarSnapshotStore?
     private var watchTargetController: ComputerUseWatchTargetController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
@@ -82,10 +84,20 @@ final class ComputerUseUXCoordinator {
         featureEnabled && settingEnabled
     }
 
-    func install(onFocusTerminal: @escaping @MainActor (UUID, UUID) -> Void) {
+    func install(
+        onFocusTerminal:
+            @escaping ComputerUseSessionPresentationController
+                .TerminalFocusEffect
+    ) {
         guard menuBarController == nil else { return }
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
+        runtimeService.setInitialOnboardingCompletion(
+            userDefaults.bool(
+                forKey: ComputerUseOnboardingWindowController
+                    .directCaptureReadyDefaultsKey
+            )
+        )
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
             await liveSettingRepository.setEnabled(initialComputerUseEnabled)
             await runtimeService.setEnabled(initialComputerUseEnabled)
@@ -102,7 +114,7 @@ final class ComputerUseUXCoordinator {
             ) {
                 guard !Task.isCancelled else { return }
                 guard let event = notification.object as? WorkstreamEvent else { continue }
-                self?.recordToolInvocation(event)
+                self?.handleWorkstreamEvent(event)
             }
         }
 
@@ -120,18 +132,25 @@ final class ComputerUseUXCoordinator {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: runtimeService.stateAuthenticationKey
             ),
-            onCursorVisibilityChange: { [runtimeService] driverSessionID, visible in
-                Task { @MainActor in
-                    _ = await runtimeService.setDriverCursorVisible(
-                        visible,
-                        driverSessionID: driverSessionID
-                    )
-                }
+            onFocusTerminal: onFocusTerminal,
+            onCursorVisibilityChange: {
+                [runtimeService]
+                driverSessionID,
+                proxySessionID,
+                visible,
+                isCurrent in
+                _ = await runtimeService.setDriverCursorVisible(
+                    visible,
+                    driverSessionID: driverSessionID,
+                    proxySessionID: proxySessionID,
+                    while: isCurrent
+                )
             }
         )
 
         let snapshotStore = ComputerUseMenuBarSnapshotStore(
             liveSessionProjection: liveSessionProjection,
+            activityLifecycle: activityLifecycle,
             stateRepository: stateRepository,
             stateDirectoryURL: stateDirectoryURL,
             configStore: configStore,
@@ -139,6 +158,7 @@ final class ComputerUseUXCoordinator {
             workspaceTitle: workspaceTitle,
             featureEnabled: featureEnabled
         )
+        menuBarSnapshotStore = snapshotStore
         menuBarController = ComputerUseMenuBarController(
             snapshotStore: snapshotStore,
             isRunningInBackground: { driverSessionID, logicalSessionID in
@@ -148,20 +168,18 @@ final class ComputerUseUXCoordinator {
                 )
             },
             onContinueInBackground: {
-                workspaceID,
-                surfaceID,
+                _,
+                _,
                 driverSessionID,
                 logicalSessionID,
-                stateWriterIdentity in
-                guard watchTarget.continueInBackground(
+                stateWriterIdentity,
+                proxySessionID in
+                watchTarget.continueInBackground(
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
-                    stateWriterIdentity: stateWriterIdentity
-                ) else {
-                    return false
-                }
-                onFocusTerminal(workspaceID, surfaceID)
-                return true
+                    stateWriterIdentity: stateWriterIdentity,
+                    proxySessionID: proxySessionID
+                )
             },
             canViewComputerUse: {
                 identity,
@@ -179,12 +197,14 @@ final class ComputerUseUXCoordinator {
                 identity,
                 driverSessionID,
                 logicalSessionID,
-                stateWriterIdentity in
+                stateWriterIdentity,
+                proxySessionID in
                 watchTarget.viewTarget(
                     identity,
                     driverSessionID: driverSessionID,
                     logicalSessionID: logicalSessionID,
-                    stateWriterIdentity: stateWriterIdentity
+                    stateWriterIdentity: stateWriterIdentity,
+                    proxySessionID: proxySessionID
                 )
             },
             onStopComputerUse: {
@@ -237,6 +257,7 @@ final class ComputerUseUXCoordinator {
         onboardingGateTask = nil
         menuBarController?.removeFromMenuBar()
         menuBarController = nil
+        menuBarSnapshotStore = nil
         watchTargetController?.stop()
         watchTargetController = nil
         onboardingWindowController?.dismiss()
@@ -266,8 +287,47 @@ final class ComputerUseUXCoordinator {
         )
     }
 
-    private func recordToolInvocation(_ event: WorkstreamEvent) {
-        guard Self.isComputerUseToolInvocation(event) else { return }
+    private func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+        let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
+        if isComputerUseInvocation {
+            reconcileToolInvocation(event)
+        }
+        let isCompletion =
+            event.hookEventName == .stop
+                || event.hookEventName == .sessionEnd
+        guard isComputerUseInvocation || isCompletion else { return }
+        guard
+            let driverSessionID = liveSessionProjection.driverSessionID(
+                surfaceID: event.surfaceId,
+                agentSessionID: event.sessionId,
+                hookProcessID: event.ppid
+            )
+        else {
+            return
+        }
+
+        switch event.hookEventName {
+        case .preToolUse where isComputerUseInvocation:
+            watchTargetController?.driverSessionDidStart(driverSessionID)
+        case .stop, .sessionEnd:
+            activityLifecycle.recordCompletion(
+                driverSessionID: driverSessionID,
+                receivedAt: event.receivedAt
+            )
+            let proxySessionID = menuBarSnapshotStore?.proxySessionID(
+                for: driverSessionID
+            )
+            watchTargetController?.driverSessionDidComplete(
+                driverSessionID,
+                proxySessionID: proxySessionID
+            )
+            menuBarSnapshotStore?.driverSessionDidComplete(driverSessionID)
+        default:
+            break
+        }
+    }
+
+    private func reconcileToolInvocation(_ event: WorkstreamEvent) {
         guard onboardingGateTask == nil else { return }
         onboardingGateTask = Task { @MainActor [weak self] in
             guard let self else { return }

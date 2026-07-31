@@ -111,8 +111,8 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(force_proxy) == "1", f"{context}: expected forced proxy, got {force_proxy}", failures)
     if external_flow is not None:
         expect(
-            json.loads(external_flow) == "0",
-            f"{context}: proxy must wait for the helper's grants, got {external_flow}",
+            json.loads(external_flow) == "1",
+            f"{context}: proxy must honor the helper's external permission flow, got {external_flow}",
             failures,
         )
     if auth_token is not None:
@@ -608,13 +608,15 @@ def test_codex_hooks_disabled_is_fully_inert(failures: list[str]) -> None:
 
 def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str]) -> None:
     # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
-    # live socket ping there is no authoritative evidence cmux owns this
-    # process chain, so the TCC-sensitive driver must NOT be attached.
+    # live cmux socket there is no authoritative evidence cmux owns this process
+    # chain, so the TCC-sensitive driver must NOT be attached. Hook
+    # injection remains independent of this gate so a transient socket outage
+    # does not discard the surface context needed for later rebinding.
     code, args, stderr, _ = run_wrapper(["hello"], dead_socket=True)
     expect(code == 0, f"dead-socket wrapper exited {code}: {stderr}", failures)
     expect(
-        "hooks.cmux-test=true" not in args,
-        f"expected no hook args with dead socket, got {args}",
+        "hooks.cmux-test=true" in args,
+        f"expected hook args to survive a dead socket, got {args}",
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)

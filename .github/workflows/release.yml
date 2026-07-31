@@ -68,9 +68,10 @@ jobs:
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
-    # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
-    timeout-minutes: 40
+    # Notarization wait times vary on Apple's side. The standalone Computer Use
+    # helper, outer app, and final DMG each need a ticket, so leave enough room
+    # for three sequential submissions without killing a valid release.
+    timeout-minutes: 60
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -428,6 +429,10 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
+          ./scripts/ci/notarize-computer-use-helper.sh \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"

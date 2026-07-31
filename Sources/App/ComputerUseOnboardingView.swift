@@ -24,6 +24,7 @@ struct ComputerUseOnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var permissionStatusIsKnown = false
     @State private var refreshInFlight = false
+    @State private var permissionChangeRefreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
     @State private var helperIcon: NSImage?
@@ -88,6 +89,17 @@ struct ComputerUseOnboardingView: View {
         .onChange(of: presentationState.returnToOverviewGeneration) {
             step = .overview
             refreshPermissions()
+        }
+        .onChange(of: presentationState.permissionSnapshot) {
+            guard let snapshot = presentationState.permissionSnapshot else {
+                return
+            }
+            refreshHelperPresentation()
+            applyPermissions(
+                statusIsKnown: snapshot.statusIsKnown,
+                accessibilityGranted: snapshot.accessibilityGranted,
+                screenRecordingGranted: snapshot.screenRecordingGranted
+            )
         }
         .task {
             await refreshPermissionsNow()
@@ -477,7 +489,24 @@ struct ComputerUseOnboardingView: View {
     private func handleHelperDragEnded(operation: NSDragOperation) {
         guard operation != [] else { return }
         permissionCheckArmed = true
-        refreshPermissions()
+        Task { @MainActor in
+            await refreshPermissionsAfterPermissionChange()
+        }
+    }
+
+    private func refreshPermissionsAfterPermissionChange() async {
+        guard !permissionChangeRefreshInFlight else { return }
+        permissionChangeRefreshInFlight = true
+        defer { permissionChangeRefreshInFlight = false }
+        let status = await runtimeService
+            .refreshHelperStatusAfterPermissionChange()
+        guard !Task.isCancelled else { return }
+        refreshHelperPresentation()
+        applyPermissions(
+            statusIsKnown: runtimeService.permissionStatusIsKnown,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording
+        )
     }
 
     private func prepareHelperForOnboarding() {
@@ -670,22 +699,34 @@ struct ComputerUseOnboardingView: View {
         // visible presentation explains the alert instead of surprising the
         // user with "attempting to bypass" wording out of nowhere.
         presentationState.beginScreenCaptureConsent()
+        // Leave the compact System Settings companion immediately. The direct
+        // capture prompt belongs to the final onboarding phase, and keeping the
+        // drag tile up made a successful second drag look stuck while the
+        // helper recovered and macOS prepared its consent alert.
+        onExpandedRequested()
         Task { @MainActor in
-            let ready = await runtimeService.verifyDirectScreenCapture()
+            let verification = await runtimeService
+                .verifyDirectScreenCaptureOutcome()
             // Completion is forbidden while this flag is set. Clear the
             // prompt-capable phase before applying the successful result so
             // the controller can atomically replace the companion with Done.
             directCaptureVerificationInFlight = false
             presentationState.endScreenCaptureConsent()
             guard !Task.isCancelled else { return }
-            directCaptureReady = ready
-            if ready {
+            directCaptureReady = verification == .ready
+            if verification == .ready {
                 applyPermissions(
                     statusIsKnown: permissionStatusIsKnown,
                     accessibilityGranted: accessibilityGranted,
                     screenRecordingGranted: screenRecordingGranted
                 )
             } else {
+                if verification == .unavailable {
+                    // A helper replacement is not a user denial. Permit a later
+                    // TCC/status event or explicit Allow action to retry instead
+                    // of leaving this onboarding run permanently attempted.
+                    directCaptureVerificationAttempted = false
+                }
                 step = .screenRecording
                 onExpandedRequested()
             }
@@ -694,21 +735,20 @@ struct ComputerUseOnboardingView: View {
 }
 
 enum ComputerUsePermissionCompanionLayout {
-    static let size = CGSize(width: 456, height: 138)
-    static let horizontalInset: CGFloat = 16
-    static let verticalInset: CGFloat = 14
-    static let leadingColumnWidth: CGFloat = 32
+    static let size = CGSize(width: 472, height: 112)
+    static let horizontalInset: CGFloat = 12
+    static let verticalInset: CGFloat = 8
+    static let leadingColumnWidth: CGFloat = 40
     static let headerHeight: CGFloat = 48
-    static let dragRowHeight: CGFloat = 52
-    static let columnSpacing: CGFloat = 12
-    static let rowSpacing: CGFloat = 10
+    static let dragRowHeight: CGFloat = 40
+    static let columnSpacing: CGFloat = 8
+    static let rowSpacing: CGFloat = 8
 }
 
 /// The borderless drag surface shown beside System Settings.
 ///
-/// The back control owns one fixed leading column. Inside the content column,
-/// the header icon and app icon use matched geometry so both text baselines
-/// begin on the same vertical grid.
+/// Both rows use the same fixed leading column and inter-column spacing, so
+/// the instruction text and app tile share an exact leading edge.
 @MainActor
 struct ComputerUsePermissionCompanionView: View {
     let permissionStep: ComputerUseOnboardingStep
@@ -728,19 +768,73 @@ struct ComputerUsePermissionCompanionView: View {
     }
 
     var body: some View {
-        HStack(
-            alignment: .center,
-            spacing: ComputerUsePermissionCompanionLayout.columnSpacing
-        ) {
-            backControl
+        VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
+            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        Color.accentColor.opacity(0.12),
+                        in: Circle()
+                    )
+                    .frame(
+                        width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
+                        height: ComputerUsePermissionCompanionLayout.headerHeight
+                    )
+                    .accessibilityHidden(true)
 
-            VStack(spacing: ComputerUsePermissionCompanionLayout.rowSpacing) {
-                companionHeader
-                if message == .confirmScreenCapture {
-                    consentStatusTile
-                } else {
-                    helperDragTile
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(instruction)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.88)
+
+                    Text(followUp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: ComputerUsePermissionCompanionLayout.headerHeight,
+                    maxHeight: ComputerUsePermissionCompanionLayout.headerHeight,
+                    alignment: .leading
+                )
+                .accessibilityElement(children: .combine)
+            }
+
+            HStack(spacing: ComputerUsePermissionCompanionLayout.columnSpacing) {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary.opacity(0.72))
+                .frame(
+                    width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
+                    height: ComputerUsePermissionCompanionLayout.dragRowHeight
+                )
+                .background(
+                    Color.primary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(
+                            Color(nsColor: .separatorColor).opacity(0.32),
+                            lineWidth: 0.5
+                        )
+                }
+                .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
+                .accessibilityLabel(
+                    String(localized: "computerUse.onboarding.back", defaultValue: "Back")
+                )
+
+                helperDragTile
             }
         }
         .padding(.horizontal, ComputerUsePermissionCompanionLayout.horizontalInset)
@@ -749,133 +843,77 @@ struct ComputerUsePermissionCompanionView: View {
             width: ComputerUsePermissionCompanionLayout.size.width,
             height: ComputerUsePermissionCompanionLayout.size.height
         )
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.55),
-                    lineWidth: 0.6
+                    Color(nsColor: .separatorColor).opacity(0.5),
+                    lineWidth: 0.5
                 )
         }
         .onAppear(perform: onLayoutReady)
     }
 
-    private var backControl: some View {
-        Button(action: onBack) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .frame(
-            width: ComputerUsePermissionCompanionLayout.leadingColumnWidth,
-            height: ComputerUsePermissionCompanionLayout.leadingColumnWidth
-        )
-        .background(Color.primary.opacity(0.055), in: Circle())
-        .overlay {
-            Circle()
-                .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.55),
-                    lineWidth: 0.5
-                )
-        }
-        .disabled(presentationState.screenCaptureConsentPending)
-        .opacity(presentationState.screenCaptureConsentPending ? 0.45 : 1)
-        .help(String(localized: "computerUse.onboarding.back", defaultValue: "Back"))
-        .accessibilityLabel(
-            String(localized: "computerUse.onboarding.back", defaultValue: "Back")
-        )
-    }
-
-    private var companionHeader: some View {
-        HStack(spacing: 8) {
-            Image(systemName: message == .confirmScreenCapture ? "lock.shield" : "arrow.up")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(message == .confirmScreenCapture ? Color.orange : Color.accentColor)
-                .frame(width: 32, height: 32)
-                .background(
-                    (message == .confirmScreenCapture ? Color.orange : Color.accentColor)
-                        .opacity(0.12),
-                    in: Circle()
-                )
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(instruction)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.88)
-
-                Text(followUp)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
-        }
-        .frame(
-            maxWidth: .infinity,
-            minHeight: ComputerUsePermissionCompanionLayout.headerHeight,
-            maxHeight: ComputerUsePermissionCompanionLayout.headerHeight,
-            alignment: .leading
-        )
-    }
-
     /// A file-URL drag source accepted by the macOS permission lists.
     private var helperDragTile: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
             Group {
                 if let helperIcon {
                     Image(nsImage: helperIcon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 28, height: 28)
                 } else {
                     Image(systemName: "app.dashed")
-                        .font(.system(size: 19))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
             }
+            .frame(width: 26, height: 26)
+            .background(
+                Color.white,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(
+                        Color(nsColor: .separatorColor).opacity(0.35),
+                        lineWidth: 0.5
+                    )
+            }
+            .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
             .accessibilityHidden(true)
 
             Text(applicationName)
-                .font(.system(size: 13.5, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Spacer(minLength: 8)
-
-            Label(
-                String(localized: "computerUse.onboarding.dragAction", defaultValue: "Drag"),
-                systemImage: "hand.draw"
-            )
-            .font(.system(size: 11.5, weight: .medium))
-            .foregroundStyle(.secondary)
+            Spacer(minLength: 10)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 11)
         .frame(
             maxWidth: .infinity,
             minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
             maxHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
             alignment: .leading
         )
-        .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.82),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.035))
+                }
+        }
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    Color(nsColor: .separatorColor).opacity(0.5),
+                    Color.accentColor.opacity(0.18),
                     lineWidth: 0.5
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             ComputerUseAppDragSource(
                 helperAppURL: helperAppURL,
@@ -890,46 +928,6 @@ struct ComputerUsePermissionCompanionView: View {
             defaultValue: "Drag \(applicationName) into the permission list"
         ))
         .opacity(helperAppURL == nil ? 0.55 : 1)
-    }
-
-    private var consentStatusTile: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.orange)
-                .frame(width: 28, height: 28)
-                .accessibilityHidden(true)
-
-            Text(String(
-                localized: "computerUse.onboarding.companion.waitingForAllow",
-                defaultValue: "Waiting for Allow"
-            ))
-            .font(.system(size: 13.5, weight: .medium))
-            .foregroundStyle(.primary)
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "checkmark.shield")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.orange)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 6)
-        .frame(
-            maxWidth: .infinity,
-            minHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
-            maxHeight: ComputerUsePermissionCompanionLayout.dragRowHeight,
-            alignment: .leading
-        )
-        .background(
-            Color.orange.opacity(0.08),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.24), lineWidth: 0.5)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private var instruction: String {
@@ -947,7 +945,7 @@ struct ComputerUsePermissionCompanionView: View {
         case .confirmScreenCapture:
             String(
                 localized: "computerUse.onboarding.companion.confirmCapture",
-                defaultValue: "One more macOS confirmation"
+                defaultValue: "Allow screen capture in the macOS alert"
             )
         }
     }
@@ -962,7 +960,7 @@ struct ComputerUsePermissionCompanionView: View {
         case .confirmScreenCapture:
             String(
                 localized: "computerUse.onboarding.companion.confirmCapture.detail",
-                defaultValue: "Choose Allow in the system alert to finish setup."
+                defaultValue: "The system “bypass” warning is expected here."
             )
         }
     }

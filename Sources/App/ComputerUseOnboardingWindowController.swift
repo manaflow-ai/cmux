@@ -2,6 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
+struct ComputerUseOnboardingPermissionSnapshot: Equatable, Sendable {
+    let statusIsKnown: Bool
+    let accessibilityGranted: Bool
+    let screenRecordingGranted: Bool
+}
+
 @MainActor
 final class ComputerUseOnboardingPresentationState: ObservableObject {
     @Published private(set) var returnToOverviewGeneration = 0
@@ -11,6 +17,20 @@ final class ComputerUseOnboardingPresentationState: ObservableObject {
     /// True while the direct-capture probe can raise Tahoe's system consent
     /// alert, so whichever presentation is on screen explains that alert.
     @Published private(set) var screenCaptureConsentPending = false
+    @Published private(set) var permissionSnapshot:
+        ComputerUseOnboardingPermissionSnapshot?
+
+    func publishPermissionSnapshot(
+        statusIsKnown: Bool,
+        accessibilityGranted: Bool,
+        screenRecordingGranted: Bool
+    ) {
+        permissionSnapshot = ComputerUseOnboardingPermissionSnapshot(
+            statusIsKnown: statusIsKnown,
+            accessibilityGranted: accessibilityGranted,
+            screenRecordingGranted: screenRecordingGranted
+        )
+    }
 
     func beginScreenCaptureConsent() {
         screenCaptureConsentPending = true
@@ -151,6 +171,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         onCompleted: (@MainActor () -> Void)? = nil,
         onDismissed: (@MainActor () -> Void)? = nil
     ) {
+        runtimeService.onboardingWasPresented()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
@@ -558,6 +579,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         pendingPermissionCompanionFrame = nil
         pendingPermissionStep = nil
         userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
+        runtimeService.onboardingWasCompleted()
         guard let window else { return }
         revealExpandedOnboarding(
             window,
@@ -650,7 +672,16 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             onDragEnded: { [weak self] operation in
                 guard operation != [] else { return }
                 Task { @MainActor [weak self] in
-                    _ = await self?.runtimeService.refreshHelperStatus()
+                    guard let self else { return }
+                    let status = await self.runtimeService
+                        .refreshHelperStatusAfterPermissionChange()
+                    guard !Task.isCancelled else { return }
+                    self.presentationState?.publishPermissionSnapshot(
+                        statusIsKnown: self.runtimeService
+                            .permissionStatusIsKnown,
+                        accessibilityGranted: status.accessibility,
+                        screenRecordingGranted: status.screenRecording
+                    )
                 }
             },
             onLayoutReady: { [weak self] in

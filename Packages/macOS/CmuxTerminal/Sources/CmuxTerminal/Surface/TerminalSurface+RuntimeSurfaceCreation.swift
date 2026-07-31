@@ -97,6 +97,7 @@ extension TerminalSurface {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
+                terminalLifecycleId: terminalLifecycleId,
                 socketPath: socketPath
             ),
             to: &env,
@@ -274,7 +275,6 @@ extension TerminalSurface {
             }
             return baseConfig.initialInput
         }()
-
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in

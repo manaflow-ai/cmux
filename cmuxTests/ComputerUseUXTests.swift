@@ -210,6 +210,30 @@ struct ComputerUseUXTests {
             directCaptureReady: false))
     }
 
+    @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
+        var phase = ComputerUseRuntimePermissionPhase.disabled(
+            onboardingComplete: false
+        )
+
+        phase = phase.applying(.setEnabled(true))
+        #expect(phase == .onboardingRequired)
+
+        phase = phase.applying(.onboardingPresented)
+        #expect(phase == .onboarding)
+
+        phase = phase.applying(.onboardingCompleted)
+        #expect(phase == .ready)
+
+        phase = phase.applying(.setEnabled(false))
+        #expect(phase == .disabled(onboardingComplete: true))
+
+        phase = phase.applying(.setEnabled(true))
+        #expect(phase == .ready)
+
+        phase = phase.applying(.helperReplaced)
+        #expect(phase == .onboardingRequired)
+    }
+
     @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
@@ -562,6 +586,99 @@ struct ComputerUseUXTests {
 
         rootProcessIsAlive = false
         #expect(projection.sessionsByDriverSessionID()[driverSessionID] == nil)
+    }
+
+    @Test @MainActor
+    func computerUseHookResolutionAcceptsTheCurrentProcessGenerationWhenAgentIDsDiffer() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let processID = ProcessInfo.processInfo.processIdentifier
+        let currentIdentity = try #require(
+            AgentPIDProcessIdentity(pid: processID)
+        )
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "current-agent-generation"
+            ),
+            lifecycle: .running,
+            updatedAt: Date().timeIntervalSince1970,
+            processLiveness: .running,
+            processIDs: [Int(processID)],
+            agentProcessIDs: [Int(processID)],
+            agentProcessIdentities: [Int(processID): currentIdentity]
+        )
+        let projection = ComputerUseLiveSessionProjection(
+            liveEntries: {
+                [(
+                    panelKey: RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceID,
+                        panelId: surfaceID
+                    ),
+                    entry: entry
+                )]
+            },
+            scheduleRefreshIfStale: {}
+        )
+        let expectedDriverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+
+        #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "current-agent-generation"
+        ) == expectedDriverSessionID)
+        #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "replaced-agent-generation"
+        ) == nil)
+        #expect(projection.driverSessionID(
+            surfaceID: surfaceID.uuidString,
+            agentSessionID: "hook-protocol-session",
+            hookProcessID: Int(processID)
+        ) == expectedDriverSessionID)
+        #expect(projection.driverSessionID(
+            surfaceID: UUID().uuidString,
+            agentSessionID: "hook-protocol-session",
+            hookProcessID: Int(processID)
+        ) == nil)
+    }
+
+    @Test @MainActor
+    func completedComputerUseTurnRetiresOnlyStateAtOrBeforeItsCutoff() {
+        let lifecycle = ComputerUseActivityLifecycle()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: UUID()
+        )
+        let completion = Date(timeIntervalSince1970: 1_900_000_000)
+        lifecycle.recordCompletion(
+            driverSessionID: driverSessionID,
+            receivedAt: completion
+        )
+        let cutoffs = lifecycle.completionCutoffs()
+
+        #expect(!ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion.addingTimeInterval(-1),
+            completionCutoffs: cutoffs
+        ))
+        #expect(!ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion,
+            completionCutoffs: cutoffs
+        ))
+        #expect(ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: driverSessionID,
+            lastActionAt: completion.addingTimeInterval(1),
+            completionCutoffs: cutoffs
+        ))
+        #expect(ComputerUseActivityLifecycle.isDisplayEligible(
+            driverSessionID: ComputerUseSessionScope.driverSessionID(
+                surfaceID: UUID()
+            ),
+            lastActionAt: completion.addingTimeInterval(-1),
+            completionCutoffs: cutoffs
+        ))
     }
 
     @Test func computerUseSettingsNavigationRawValuesStayInSync() {
@@ -942,6 +1059,26 @@ struct ComputerUseUXTests {
         #expect(!presentationState.screenCaptureConsentPending)
     }
 
+    @Test @MainActor
+    func permissionCompanionPublishesItsRecoveredStatusToTheMainOnboarding() {
+        let presentationState = ComputerUseOnboardingPresentationState()
+
+        presentationState.publishPermissionSnapshot(
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true
+        )
+
+        #expect(
+            presentationState.permissionSnapshot
+                == ComputerUseOnboardingPermissionSnapshot(
+                    statusIsKnown: true,
+                    accessibilityGranted: true,
+                    screenRecordingGranted: true
+                )
+        )
+    }
+
     /// Regression: ScreenCaptureKit can return from its first direct-content
     /// query while Tahoe's system consent sheet is still waiting for a user
     /// decision. The companion must remain visible and completion must not
@@ -958,17 +1095,19 @@ struct ComputerUseUXTests {
         #expect(!presentationState.onboardingComplete)
     }
 
-    /// The dogfood companion was an overly wide 472×112 strip with only eight
-    /// points of vertical breathing room. Keep the next composition compact
-    /// enough to sit beside System Settings while giving its two rows a native
-    /// panel proportion and full macOS control spacing.
-    @Test func permissionCompanionUsesBalancedNativeProportions() {
+    /// Keep the permission companion at the wider, compact proportions that
+    /// make the app row read as one full-width drag target.
+    @Test func permissionCompanionUsesTheApprovedCompactProportions() {
         let size = ComputerUsePermissionCompanionLayout.size
 
-        #expect(size == CGSize(width: 456, height: 138))
-        #expect(size.width / size.height < 3.5)
-        #expect(ComputerUsePermissionCompanionLayout.horizontalInset >= 16)
-        #expect(ComputerUsePermissionCompanionLayout.verticalInset >= 14)
+        #expect(size == CGSize(width: 472, height: 112))
+        #expect(ComputerUsePermissionCompanionLayout.horizontalInset == 12)
+        #expect(ComputerUsePermissionCompanionLayout.verticalInset == 8)
+        #expect(ComputerUsePermissionCompanionLayout.leadingColumnWidth == 40)
+        #expect(ComputerUsePermissionCompanionLayout.headerHeight == 48)
+        #expect(ComputerUsePermissionCompanionLayout.dragRowHeight == 40)
+        #expect(ComputerUsePermissionCompanionLayout.columnSpacing == 8)
+        #expect(ComputerUsePermissionCompanionLayout.rowSpacing == 8)
     }
 
     @Test func permissionCompanionUsesOneAlignmentGrid() {
@@ -1136,10 +1275,24 @@ struct ComputerUseUXTests {
 
     @Test func permissionAdvancementWaitsForEachExplicitAllowAndDirectCapture() {
         #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .overview,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
+            directCaptureReady: false
+        ) == .none)
+        #expect(ComputerUseOnboardingAdvance.resolve(
             activeStep: .accessibility,
             statusIsKnown: true,
             accessibilityGranted: true,
             screenRecordingGranted: false,
+            directCaptureReady: false
+        ) == .requestSecondAllow)
+        #expect(ComputerUseOnboardingAdvance.resolve(
+            activeStep: .accessibility,
+            statusIsKnown: true,
+            accessibilityGranted: true,
+            screenRecordingGranted: true,
             directCaptureReady: false
         ) == .requestSecondAllow)
         #expect(ComputerUseOnboardingAdvance.resolve(
@@ -1390,6 +1543,24 @@ struct ComputerUseUXTests {
                 as? Bool == false
         )
         #expect(codexCursorRequest?["name"] == nil)
+
+        let proxyCursorSessionID =
+            "\(driverSessionID)-mcp-42-1000"
+        let proxyCursorRequest =
+            ComputerUseRuntimeService.setDriverCursorVisibleRequest(
+                false,
+                driverSessionID: proxyCursorSessionID,
+                profile: .codexCompatibility
+            )
+        #expect(
+            (proxyCursorRequest?["args"] as? [String: Any])?["session"]
+                as? String == proxyCursorSessionID,
+            "Turn completion must be able to hide the exact proxy-generation cursor that owns the visible overlay"
+        )
+        #expect(
+            (proxyCursorRequest?["args"] as? [String: Any])?["enabled"]
+                as? Bool == false
+        )
 
         #expect(ComputerUseSessionScope.isManagedProxySessionID(
             driverSessionID,
@@ -1975,6 +2146,94 @@ struct ComputerUseUXTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
+    func directCaptureVerificationDistinguishesDenialFromHelperUnavailability() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-computer-use-direct-capture-outcome-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-capture-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "direct-capture-outcome"],
+            authenticationToken: "agent-capability",
+            hostAuthenticationToken: "host-capability"
+        )
+        let currentIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let deniedResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":false}}"#
+        )
+        let denied = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                expectedPeerIdentity: currentIdentity
+            )
+        deniedResponder.stop()
+
+        let unavailableResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":false}"#
+        )
+        let unavailable = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                expectedPeerIdentity: currentIdentity
+            )
+        unavailableResponder.stop()
+
+        let nativeReadyResponder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":true}}"#
+        )
+        let codexDeniedResponder = try UnixSocketResponder(
+            path: paths.codexDaemonSocketURL.path,
+            response: #"{"ok":true,"result":{"capturable":false}}"#
+        )
+        let profiles = await ComputerUseRuntimeService
+            .verifyDirectScreenCaptureOutcomes(
+                paths: paths,
+                expectedPeerIdentities: [
+                    .native: currentIdentity,
+                    .codexCompatibility: currentIdentity,
+                ]
+            )
+        nativeReadyResponder.stop()
+        codexDeniedResponder.stop()
+
+        #expect(denied == .notCapturable)
+        #expect(unavailable == .unavailable)
+        #expect(profiles == .notCapturable)
+        #expect(nativeReadyResponder.receivedRequests.count == 1)
+        #expect(codexDeniedResponder.receivedRequests.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func nativePermissionRequestRejectsAReusedHelperProcessIdentity() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -2172,10 +2431,31 @@ struct ComputerUseUXTests {
         #expect(codexConfiguration.environment == configuration.environment)
     }
 
+    @Test func agentWrappersDeclareHostOwnedComputerUseOnboarding() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        for wrapperName in [
+            "cmux-codex-wrapper",
+            "cmux-claude-wrapper",
+        ] {
+            let wrapperURL = repositoryRoot
+                .appendingPathComponent("Resources/bin", isDirectory: true)
+                .appendingPathComponent(wrapperName, isDirectory: false)
+            let source = try String(contentsOf: wrapperURL, encoding: .utf8)
+            #expect(source.contains(
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
+            ))
+            #expect(!source.contains(
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
+            ))
+        }
+    }
+
     /// Every Codex compatibility action already returns a refreshed screenshot
     /// and accessibility snapshot. Asking the agent to scan again doubled the
     /// state captures and model/MCP round trips between Calculator clicks.
-    @Test func bundledCodexInstructionsReuseActionReturnedState() throws {
+    @Test func bundledCodexInstructionsUseTheReferenceFastPathAndReturnedState() throws {
         let skillURL = try #require(Bundle.main.url(
             forResource: "SKILL",
             withExtension: "md",
@@ -2184,7 +2464,22 @@ struct ComputerUseUXTests {
         let skill = try String(contentsOf: skillURL, encoding: .utf8)
 
         #expect(skill.contains(
+            "For deterministic, key-driven tasks such as Calculator arithmetic"
+        ))
+        #expect(skill.contains(
+            "Requests like “click 100 + 105” normally describe the UI goal"
+        ))
+        #expect(skill.contains(
+            "Only pointer-click each control when the user explicitly requires"
+        ))
+        #expect(skill.contains(
             "Every successful action already returns a fresh app state and screenshot."
+        ))
+        #expect(skill.contains(
+            "Never loop, batch, or issue multiple element-index actions"
+        ))
+        #expect(skill.contains(
+            "Calculator's **All Clear** removes display nodes"
         ))
         #expect(!skill.contains("Re-read the returned app state after each action"))
     }
@@ -2253,6 +2548,7 @@ struct ComputerUseUXTests {
             liveSessionProjection: ComputerUseLiveSessionProjection(
                 liveAgentIndex: sharedIndex
             ),
+            activityLifecycle: ComputerUseActivityLifecycle(),
             stateRepository: ComputerUseStateRepository(
                 authenticationKey: Self.stateAuthenticationKey
             ),
@@ -2387,17 +2683,24 @@ struct ComputerUseUXTests {
         #expect(ComputerUseWatchTargetDecision.activation(current: 200, lastActivated: 100) == 200)
     }
 
-    @Test func backgroundModeSuppressesAutomaticTargetFrontingUntilResumed() {
+    @Test func explicitFocusModesRemainAuthoritativeAcrossLaterActions() {
         #expect(ComputerUseWatchTargetDecision.activation(
             current: 200,
             lastActivated: 100,
-            automaticActivationEnabled: false
+            focusMode: .callingTerminal
         ) == nil)
         #expect(ComputerUseWatchTargetDecision.activation(
             current: 200,
-            lastActivated: 100,
-            automaticActivationEnabled: true
+            lastActivated: 200,
+            focusMode: .computerUse,
+            targetIsFrontmost: false
         ) == 200)
+        #expect(ComputerUseWatchTargetDecision.activation(
+            current: 200,
+            lastActivated: 200,
+            focusMode: .computerUse,
+            targetIsFrontmost: true
+        ) == nil)
     }
 
     @Test func transientTargetValidationDoesNotConsumeFreshActivity() {
@@ -2560,6 +2863,8 @@ struct ComputerUseUXTests {
             ComputerUseSessionScope.driverSessionID(
                 surfaceID: backgroundSurfaceID
             )
+        let backgroundProxySessionID =
+            "\(backgroundDriverSessionID)-mcp-73-2000"
         let foregroundDriverSessionID =
             ComputerUseSessionScope.driverSessionID(
                 surfaceID: foregroundSurfaceID
@@ -2595,7 +2900,14 @@ struct ComputerUseUXTests {
         )
         defer { scannedSessions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
-        var cursorVisibilityChanges: [(driverSessionID: String, visible: Bool)] = []
+        var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
+        var cursorVisibilityChanges: [
+            (
+                driverSessionID: String,
+                proxySessionID: String?,
+                visible: Bool
+            )
+        ] = []
         let controller = ComputerUseWatchTargetController(
             stateDirectoryURL: directory,
             featureEnabled: { featureEnabled },
@@ -2611,9 +2923,21 @@ struct ComputerUseUXTests {
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
-            onCursorVisibilityChange: { driverSessionID, visible in
-                cursorVisibilityChanges.append((driverSessionID, visible))
+            onFocusTerminal: { workspaceID, surfaceID, _ in
+                focusedTerminalSessions.append((workspaceID, surfaceID))
             },
+            onCursorVisibilityChange: {
+                driverSessionID,
+                proxySessionID,
+                visible,
+                _ in
+                cursorVisibilityChanges.append((
+                    driverSessionID,
+                    proxySessionID,
+                    visible
+                ))
+            },
+            frontmostApplicationProcessIdentifier: { nil },
             activate: { application in
                 activatedProcessIdentifiers.append(
                     application.processIdentifier
@@ -2626,11 +2950,20 @@ struct ComputerUseUXTests {
         #expect(controller.continueInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
         ))
-        #expect(cursorVisibilityChanges.count == 1)
-        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
-        #expect(cursorVisibilityChanges.first?.visible == false)
+        await Task.yield()
+        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(focusedTerminalSessions.count == 1)
+        #expect(
+            focusedTerminalSessions.first?.workspaceID
+                == backgroundSession.workspaceID
+        )
+        #expect(
+            focusedTerminalSessions.first?.surfaceID
+                == backgroundSession.surfaceID
+        )
 
         let actionDate = max(Date(), targetLaunchDate)
         let formatter = ISO8601DateFormatter()
@@ -2680,8 +3013,9 @@ struct ComputerUseUXTests {
         var scannedIterator = scannedSessions.stream.makeAsyncIterator()
         let scannedLogicalSessionID = await scannedIterator.next()
 
-        #expect(scannedLogicalSessionID == foregroundLogicalSessionID)
+        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
+        #expect(focusedTerminalSessions.count == 2)
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -2692,16 +3026,240 @@ struct ComputerUseUXTests {
             identity,
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID,
-            stateWriterIdentity: writerIdentity
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: backgroundProxySessionID
         ))
+        await Task.yield()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
-        #expect(cursorVisibilityChanges.count == 2)
-        #expect(cursorVisibilityChanges.last?.driverSessionID == backgroundDriverSessionID)
-        #expect(cursorVisibilityChanges.last?.visible == true)
+        #expect(cursorVisibilityChanges.isEmpty)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID
         ))
+    }
+
+    @Test @MainActor
+    func computerUseSessionsDefaultToCallingTerminalFocus() async {
+        let controller = ComputerUseSessionPresentationController(
+            setCursorVisibility: { _, _, _, _ in },
+            focusTerminal: { _, _, _ in }
+        )
+        let driverSessionID = "terminal-default-session"
+
+        controller.driverSessionDidStart(driverSessionID)
+        #expect(controller.isRunningInBackground(driverSessionID))
+
+        var targetWasActivated = false
+        controller.activateTarget(driverSessionID: driverSessionID) {
+            targetWasActivated = true
+        }
+        #expect(!targetWasActivated)
+
+        controller.focusComputerUse(driverSessionID: driverSessionID) {
+            targetWasActivated = true
+        }
+        #expect(!targetWasActivated)
+        await Task.yield()
+        #expect(targetWasActivated)
+        #expect(controller.focusMode(for: driverSessionID) == .computerUse)
+
+        controller.driverSessionDidComplete(driverSessionID)
+        controller.driverSessionDidStart(driverSessionID)
+        #expect(controller.isRunningInBackground(driverSessionID))
+    }
+
+    /// Status-item actions run while AppKit is still tracking the menu. The
+    /// selected mode must become authoritative immediately, but the activation
+    /// effect must wait until menu tracking unwinds. If the user switches modes
+    /// before that happens, only the newest choice may take focus.
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func newestMenuFocusChoiceWinsAfterMenuTrackingCloses() async throws {
+        let application = NSRunningApplication.current
+        let bundleIdentifier = try #require(application.bundleIdentifier)
+        let launchDate = try #require(application.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let logicalSessionID = "menu-focus-session"
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: logicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let focusEffectStream = AsyncStream.makeStream(
+            of: String.self,
+            bufferingPolicy: .unbounded
+        )
+        defer { focusEffectStream.continuation.finish() }
+        var focusEffects: [String] = []
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { false },
+            liveDriverSessions: { [driverSessionID: liveSession] },
+            currentLiveDriverSession: { _ in liveSession },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { _, _, _ in
+                focusEffects.append("terminal")
+                focusEffectStream.continuation.yield("terminal")
+            },
+            activate: { _ in
+                focusEffects.append("computerUse")
+                focusEffectStream.continuation.yield("computerUse")
+            }
+        )
+        controller.start()
+        defer { controller.stop() }
+        controller.driverSessionDidStart(driverSessionID)
+
+        #expect(controller.continueInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+        let target = ComputerUseTargetIdentity(
+            processIdentifier: Int(application.processIdentifier),
+            bundleIdentifier: bundleIdentifier,
+            launchDate: launchDate
+        )
+        #expect(controller.viewTarget(
+            target,
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity
+        ))
+
+        #expect(focusEffects.isEmpty)
+        #expect(!controller.isRunningInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID
+        ))
+
+        var focusEffectIterator =
+            focusEffectStream.stream.makeAsyncIterator()
+        let committedFocusEffect =
+            try #require(await focusEffectIterator.next())
+
+        #expect(committedFocusEffect == "computerUse")
+        #expect(focusEffects == ["computerUse"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func newerComputerUseFocusInvalidatesDelayedTerminalAndCursorEffects() async throws {
+        let currentApplication = NSRunningApplication.current
+        let bundleIdentifier = try #require(currentApplication.bundleIdentifier)
+        let launchDate = try #require(currentApplication.launchDate)
+        let writerIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: surfaceID
+        )
+        let proxySessionID = "\(driverSessionID)-mcp-81-3000"
+        let logicalSessionID = "presentation-generation-session"
+        let liveSession = ComputerUseLiveDriverSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            logicalSessionID: logicalSessionID,
+            rootProcessIdentities: [writerIdentity]
+        )
+        let cursorEffects = AsyncStream.makeStream(
+            of: (
+                proxySessionID: String?,
+                visible: Bool,
+                isCurrent: @MainActor @Sendable () -> Bool
+            ).self,
+            bufferingPolicy: .unbounded
+        )
+        defer { cursorEffects.continuation.finish() }
+        var observedCursorEffects: [(proxySessionID: String?, visible: Bool)] = []
+        var delayedTerminalFocusIsCurrent:
+            (@MainActor @Sendable () -> Bool)?
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: FileManager.default.temporaryDirectory,
+            featureEnabled: { false },
+            liveDriverSessions: { [driverSessionID: liveSession] },
+            currentLiveDriverSession: { _ in liveSession },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { _, _, isCurrent in
+                delayedTerminalFocusIsCurrent = isCurrent
+            },
+            onCursorVisibilityChange: {
+                _,
+                proxySessionID,
+                visible,
+                isCurrent in
+                observedCursorEffects.append((proxySessionID, visible))
+                cursorEffects.continuation.yield((
+                    proxySessionID,
+                    visible,
+                    isCurrent
+                ))
+            },
+            activate: { _ in }
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        controller.driverSessionDidStart(driverSessionID)
+        var cursorIterator = cursorEffects.stream.makeAsyncIterator()
+        let initialShow = try #require(await cursorIterator.next())
+        #expect(initialShow.visible)
+        #expect(initialShow.proxySessionID == nil)
+        #expect(initialShow.isCurrent())
+
+        #expect(controller.continueInBackground(
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: proxySessionID
+        ))
+        await Task.yield()
+        #expect(observedCursorEffects.count == 1)
+        #expect(initialShow.isCurrent())
+        #expect(delayedTerminalFocusIsCurrent?() == true)
+
+        let target = ComputerUseTargetIdentity(
+            processIdentifier: Int(currentApplication.processIdentifier),
+            bundleIdentifier: bundleIdentifier,
+            launchDate: launchDate
+        )
+        #expect(controller.viewTarget(
+            target,
+            driverSessionID: driverSessionID,
+            logicalSessionID: logicalSessionID,
+            stateWriterIdentity: writerIdentity,
+            proxySessionID: proxySessionID
+        ))
+        await Task.yield()
+        #expect(observedCursorEffects.count == 1)
+        #expect(initialShow.isCurrent())
+        #expect(delayedTerminalFocusIsCurrent?() == false)
+
+        controller.driverSessionDidComplete(driverSessionID)
+        let completionHide = try #require(await cursorIterator.next())
+        #expect(!completionHide.visible)
+        #expect(completionHide.proxySessionID == proxySessionID)
+        #expect(completionHide.isCurrent())
+        #expect(!initialShow.isCurrent())
+
+        controller.driverSessionDidStart(driverSessionID)
+        let nextTurnShow = try #require(await cursorIterator.next())
+        #expect(nextTurnShow.visible)
+        #expect(nextTurnShow.proxySessionID == proxySessionID)
+        #expect(nextTurnShow.isCurrent())
+        #expect(!completionHide.isCurrent())
     }
 
     @Test @MainActor func computerUsePresentationModeResetsAfterLiveSessionsEnd() throws {
@@ -2777,6 +3335,15 @@ struct ComputerUseUXTests {
             stateWriterIdentity: currentIdentity
         ))
         #expect(controller.isRunningInBackground(
+            driverSessionID: "session-a",
+            logicalSessionID: logicalSessionA
+        ))
+        #expect(controller.isRunningInBackground(
+            driverSessionID: "session-b",
+            logicalSessionID: logicalSessionB
+        ))
+        controller.driverSessionDidComplete("session-a")
+        #expect(!controller.isRunningInBackground(
             driverSessionID: "session-a",
             logicalSessionID: logicalSessionA
         ))

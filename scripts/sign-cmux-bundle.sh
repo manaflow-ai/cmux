@@ -13,6 +13,9 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
+#   CMUX_SIGN_MODE             "all" (default) or "main-only". main-only
+#                              re-seals the outer app after a nested helper is
+#                              stapled without replacing the helper's ticket.
 #
 # Signs in the Apple-documented inside-out order:
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
@@ -38,6 +41,7 @@ APP_PATH="$1"
 APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
+SIGN_MODE="${CMUX_SIGN_MODE:-all}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -51,6 +55,13 @@ if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   echo "error: helper entitlements not found at $HELPER_ENTITLEMENTS" >&2
   exit 1
 fi
+case "$SIGN_MODE" in
+  all|main-only) ;;
+  *)
+    echo "error: unsupported CMUX_SIGN_MODE: $SIGN_MODE" >&2
+    exit 2
+    ;;
+esac
 
 if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
   TS_FLAG=(--timestamp=none)
@@ -59,45 +70,47 @@ else
 fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
-
-# 1. CLI and private helpers
-for helper_dir in bin libexec; do
-  for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
-    [[ -f "$helper" && -x "$helper" ]] || continue
-    echo "==> signing helper $(basename "$helper")"
-    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
-  done
-done
-
-# 2. Computer Use helper app
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
-if [[ -d "$COMPUTER_USE_HELPER" ]]; then
-  echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
-  /usr/bin/codesign \
-    "${COMMON[@]}" \
-    --entitlements "$HELPER_ENTITLEMENTS" \
-    "$COMPUTER_USE_HELPER"
-fi
 
-# 3. Plugins
-if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
-  while IFS= read -r -d '' plugin; do
-    echo "==> signing plugin $(basename "$plugin")"
-    /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
-  done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
-fi
+if [[ "$SIGN_MODE" == "all" ]]; then
+  # 1. CLI and private helpers
+  for helper_dir in bin libexec; do
+    for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+      [[ -f "$helper" && -x "$helper" ]] || continue
+      echo "==> signing helper $(basename "$helper")"
+      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+    done
+  done
 
-# 4. Frameworks
-if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
-  "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
-  while IFS= read -r -d '' framework; do
-    echo "==> signing framework $(basename "$framework")"
-    /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
-  done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
+  # 2. Computer Use helper app
+  if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+    echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
+    /usr/bin/codesign \
+      "${COMMON[@]}" \
+      --entitlements "$HELPER_ENTITLEMENTS" \
+      "$COMPUTER_USE_HELPER"
+  fi
+
+  # 3. Plugins
+  if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
+    while IFS= read -r -d '' plugin; do
+      echo "==> signing plugin $(basename "$plugin")"
+      /usr/bin/codesign "${COMMON[@]}" --deep "$plugin"
+    done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
+  fi
+
+  # 4. Frameworks
+  if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+    "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
+    while IFS= read -r -d '' framework; do
+      echo "==> signing framework $(basename "$framework")"
+      /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
+    done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
+  fi
 fi
 
 # 5. Main app bundle (no --deep).
-echo "==> signing main bundle"
+echo "==> signing main bundle ($SIGN_MODE)"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
 
 echo "==> verifying"

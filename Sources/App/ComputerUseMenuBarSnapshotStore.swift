@@ -16,6 +16,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     @Published private(set) var snapshot: ComputerUseMenuBarSnapshot = .hidden
 
     private let liveSessionProjection: ComputerUseLiveSessionProjection
+    private let activityLifecycle: ComputerUseActivityLifecycle
     private let stateRepository: ComputerUseStateRepository
     private let stateDirectoryURL: URL
     private let configStore: JSONConfigStore
@@ -38,6 +39,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
 
     init(
         liveSessionProjection: ComputerUseLiveSessionProjection,
+        activityLifecycle: ComputerUseActivityLifecycle,
         stateRepository: ComputerUseStateRepository,
         stateDirectoryURL: URL,
         configStore: JSONConfigStore,
@@ -47,6 +49,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         refreshPolicy: ComputerUseMenuBarRefreshPolicy = .live
     ) {
         self.liveSessionProjection = liveSessionProjection
+        self.activityLifecycle = activityLifecycle
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
         self.configStore = configStore
@@ -171,6 +174,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             // Driver-state writes therefore do no workspace-title resolution or
             // live-index enumeration on the main actor.
             let pending = self.liveRows
+            let completionCutoffs = self.activityLifecycle
+                .completionCutoffs()
 
             let repository = self.stateRepository
             let directoryURL = self.stateDirectoryURL
@@ -196,6 +201,13 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                         sessions: scopes,
                         now: Date()
                     ) { scope, state in
+                        guard ComputerUseActivityLifecycle.isDisplayEligible(
+                            driverSessionID: scope.driverSessionID,
+                            lastActionAt: state.lastActionAt,
+                            completionCutoffs: completionCutoffs
+                        ) else {
+                            return false
+                        }
                         guard let roots = rootsByScopeID[scope.id] else {
                             return false
                         }
@@ -262,6 +274,32 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 )
             }
         }
+    }
+
+    /// Hides a completed driver's current row synchronously, then reconciles
+    /// from disk. The lifecycle cutoff prevents that disk scan from restoring
+    /// the stale row while the long-lived MCP proxy remains connected.
+    func proxySessionID(for driverSessionID: String) -> String? {
+        snapshot.rows.first {
+            ComputerUseSessionScope.driverSessionID(surfaceID: $0.surfaceID)
+                == driverSessionID
+        }?.proxySessionID
+    }
+
+    func driverSessionDidComplete(_ driverSessionID: String) {
+        let remainingRows = snapshot.rows.filter {
+            ComputerUseSessionScope.driverSessionID(surfaceID: $0.surfaceID)
+                != driverSessionID
+        }
+        if remainingRows.count != snapshot.rows.count {
+            snapshot = ComputerUseMenuBarSnapshot(
+                rows: remainingRows,
+                hasRecentStateFiles: snapshot.hasRecentStateFiles,
+                showInMenuBar: snapshot.showInMenuBar,
+                featureEnabled: snapshot.featureEnabled
+            )
+        }
+        refresh()
     }
 
     private func hideSnapshot(showInMenuBar: Bool, featureEnabled: Bool) {

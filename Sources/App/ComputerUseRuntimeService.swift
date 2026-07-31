@@ -5,6 +5,12 @@ import Darwin
 import Foundation
 import Security
 
+enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
+    case ready
+    case notCapturable
+    case unavailable
+}
+
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
 /// The main cmux process never calls TCC-protected APIs and never executes the
@@ -42,6 +48,10 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         ComputerUseFinalHelperCleanupState.idle
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
+    private(set) var permissionPhase =
+        ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
+    private var readinessPublicationTask: Task<Void, Never>?
+    private var readinessPublicationGeneration = 0
     private var acceptsNewLaunches = true
     private var computerUseEnabled = false
     private var applicationSurfaceLeaseIdentifiers: Set<UUID> = []
@@ -87,6 +97,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
         finalHelperCleanupTask?.cancel()
+        readinessPublicationTask?.cancel()
     }
 
     var helperAppURL: URL? {
@@ -131,6 +142,22 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         cachedStatus.isKnown
     }
 
+    /// Seeds the host gate from the capture verification persisted by the last
+    /// completed onboarding run. This is called before the enabled setting is
+    /// reconciled, so starting the helper can publish the correct first value.
+    func setInitialOnboardingCompletion(_ completed: Bool) {
+        guard !desiredEnabled else { return }
+        permissionPhase = .disabled(onboardingComplete: completed)
+    }
+
+    func onboardingWasPresented() {
+        transitionPermissionPhase(.onboardingPresented)
+    }
+
+    func onboardingWasCompleted() {
+        transitionPermissionPhase(.onboardingCompleted)
+    }
+
     /// Emits coalesced filesystem changes from the user's TCC database.
     ///
     /// The event is only a refresh trigger; the helper remains the sole
@@ -147,12 +174,14 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
+        permissionPhase = permissionPhase.applying(.setEnabled(newValue))
         computerUseEnabled = newValue
         if desiredEnabled {
             cancelFinalHelperCleanup()
             await startIfNeeded()
             startMonitoringHelperHealth()
         } else {
+            cancelReadinessPublication()
             await stopHelperAfterLastDemand()
         }
     }
@@ -204,6 +233,35 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         cachedStatus = cachedStatus.applyingProbeResult(latest)
         return status()
+    }
+
+    /// Reconciles the helper immediately after a known TCC mutation, then reads
+    /// status from that recovered generation.
+    ///
+    /// A drag into System Settings can terminate both helper profiles. Waiting
+    /// for two periodic health misses adds several seconds before recovery even
+    /// starts, so onboarding uses this explicit path for its drag and TCC-event
+    /// callbacks. Other passive status reads remain lifecycle-neutral.
+    @discardableResult
+    func refreshHelperStatusAfterPermissionChange() async
+        -> (accessibility: Bool, screenRecording: Bool)
+    {
+        guard acceptsNewLaunches, !Task.isCancelled else { return status() }
+        permissionRefreshGeneration &+= 1
+        guard desiredEnabled else {
+            return await refreshHelperStatus()
+        }
+        missedHelperHealthChecks = 0
+        let recovery = scheduleHelperRecovery()
+        await recovery?.value
+        guard
+            acceptsNewLaunches,
+            desiredEnabled,
+            !Task.isCancelled
+        else {
+            return status()
+        }
+        return await refreshHelperStatus()
     }
 
     func revealHelperInFinder() {
@@ -969,30 +1027,68 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     /// window picker bypass consent. It is called only from the Screenshots
     /// onboarding step after the ordinary Screen Recording grant is present.
     func verifyDirectScreenCapture() async -> Bool {
-        await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+        await verifyDirectScreenCaptureOutcome() == .ready
+    }
+
+    func verifyDirectScreenCaptureOutcome()
+        async -> ComputerUseDirectScreenCaptureVerification
+    {
+        await serializeHelperLifecycle(cancelledResult: .unavailable) { [weak self] in
             guard
                 let self,
                 self.desiredEnabled,
                 self.acceptsNewLaunches,
                 !Task.isCancelled
             else {
-                return false
+                return .unavailable
             }
             await self.startIfNeededWithinLifecycle()
+            guard !Task.isCancelled else {
+                return .unavailable
+            }
+            let expectedPeerIdentities = Dictionary(
+                uniqueKeysWithValues: ComputerUseDaemonProfile.allCases
+                    .compactMap { profile in
+                        self.processIdentity(for: profile).map {
+                            (profile, $0)
+                        }
+                    }
+            )
+            return await Self.verifyDirectScreenCaptureOutcomes(
+                paths: self.paths,
+                transport: self.transport,
+                expectedPeerIdentities: expectedPeerIdentities
+            )
+        }
+    }
+
+    /// Verifies every helper profile that can perform a real capture. Tahoe's
+    /// direct-capture consent can be process-generation scoped, so validating
+    /// only the native daemon lets the Codex compatibility daemon prompt later
+    /// during the first actual Computer Use call.
+    nonisolated static func verifyDirectScreenCaptureOutcomes(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
+    ) async -> ComputerUseDirectScreenCaptureVerification {
+        for profile in ComputerUseDaemonProfile.allCases {
             guard
-                !Task.isCancelled,
-                let expectedPeerIdentity = self.processIdentity(for: .native),
+                let expectedPeerIdentity = expectedPeerIdentities[profile],
                 AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
                     == expectedPeerIdentity
             else {
-                return false
+                return .unavailable
             }
-            return await Self.verifyDirectScreenCapture(
-                paths: self.paths,
-                transport: self.transport,
-                expectedPeerIdentity: expectedPeerIdentity
+            let result = await verifyDirectScreenCaptureOutcome(
+                paths: paths,
+                transport: transport,
+                expectedPeerIdentity: expectedPeerIdentity,
+                socketURL: Self.socketURL(for: profile, paths: paths)
             )
+            guard result == .ready else { return result }
         }
+        return .ready
     }
 
     /// Socket-level host request kept internal for peer/capability regression
@@ -1002,6 +1098,19 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         transport: SocketTransport = SocketTransport(),
         expectedPeerIdentity: AgentPIDProcessIdentity
     ) async -> Bool {
+        await verifyDirectScreenCaptureOutcome(
+            paths: paths,
+            transport: transport,
+            expectedPeerIdentity: expectedPeerIdentity
+        ) == .ready
+    }
+
+    nonisolated static func verifyDirectScreenCaptureOutcome(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport = SocketTransport(),
+        expectedPeerIdentity: AgentPIDProcessIdentity,
+        socketURL: URL? = nil
+    ) async -> ComputerUseDirectScreenCaptureVerification {
         guard
             let response = await sendDaemonRequest(
                 ["method": "verify_screen_capture"],
@@ -1009,15 +1118,19 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 transport: transport,
                 timeout: 60,
                 expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: paths.daemonSocketURL
-            ),
+                socketURL: socketURL ?? paths.daemonSocketURL
+            )
+        else {
+            return .unavailable
+        }
+        guard
             response["ok"] as? Bool == true,
             let result = response["result"] as? [String: Any],
             let capturable = result["capturable"] as? Bool
         else {
-            return false
+            return .unavailable
         }
-        return capturable
+        return capturable ? .ready : .notCapturable
     }
 
     /// Ends one exact cmux-managed proxy generation through the authenticated
@@ -1090,46 +1203,82 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
     }
 
-    /// Shows or hides the stable cursor owned by one cmux surface. The helper
-    /// keeps this cursor identity across short-lived MCP proxy generations, so
-    /// a menu choice applies to both the current call and later calls.
+    /// Shows or hides both the stable cursor owned by one cmux surface and the
+    /// exact authenticated proxy generation that wrote the current state. The
+    /// stable identity carries the choice into later calls; the exact identity
+    /// owns the cursor feed that may already be visible.
     func setDriverCursorVisible(
         _ visible: Bool,
-        driverSessionID: String
+        driverSessionID: String,
+        proxySessionID: String? = nil,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
     ) async -> Bool {
-        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
+        guard
+            ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID),
+            (proxySessionID.map {
+                ComputerUseSessionScope.isManagedProxySessionID(
+                    $0,
+                    for: driverSessionID
+                )
+            } ?? true),
+            effectIsCurrent()
         else {
             return false
         }
         return await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
-            guard let self, self.desiredEnabled, self.acceptsNewLaunches else {
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                effectIsCurrent()
+            else {
                 return false
             }
             var updated = false
             for profile in ComputerUseDaemonProfile.allCases {
-                guard
-                    let request = Self.setDriverCursorVisibleRequest(
-                        visible,
-                        driverSessionID: driverSessionID,
-                        profile: profile
-                    ),
-                    let expectedPeerIdentity = self.processIdentity(for: profile),
-                    AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
-                        == expectedPeerIdentity
-                else {
-                    continue
+                let cursorSessionIDs: [String]
+                switch profile {
+                case .native:
+                    cursorSessionIDs = [driverSessionID]
+                case .codexCompatibility:
+                    if let proxySessionID,
+                       proxySessionID != driverSessionID {
+                        cursorSessionIDs = [
+                            proxySessionID,
+                            driverSessionID,
+                        ]
+                    } else {
+                        cursorSessionIDs = [driverSessionID]
+                    }
                 }
-                let response = await Self.sendDaemonRequest(
-                    request,
-                    paths: self.paths,
-                    transport: self.transport,
-                    timeout: 3,
-                    expectedPeerIdentity: expectedPeerIdentity,
-                    socketURL: self.socketURL(for: profile)
-                )
-                updated =
-                    response?["ok"] as? Bool == true
-                        || updated
+                for cursorSessionID in cursorSessionIDs {
+                    guard
+                        effectIsCurrent(),
+                        let request = Self.setDriverCursorVisibleRequest(
+                            visible,
+                            driverSessionID: cursorSessionID,
+                            profile: profile
+                        ),
+                        let expectedPeerIdentity = self.processIdentity(for: profile),
+                        AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
+                            == expectedPeerIdentity
+                    else {
+                        continue
+                    }
+                    let response = await Self.sendDaemonRequest(
+                        request,
+                        paths: self.paths,
+                        transport: self.transport,
+                        timeout: 3,
+                        expectedPeerIdentity: expectedPeerIdentity,
+                        socketURL: self.socketURL(for: profile)
+                    )
+                    guard effectIsCurrent() else { return false }
+                    updated =
+                        response?["ok"] as? Bool == true
+                            || updated
+                }
             }
             return updated
         }
@@ -1140,12 +1289,15 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         driverSessionID: String,
         profile: ComputerUseDaemonProfile
     ) -> [String: Any]? {
-        guard ComputerUseSessionScope.isManagedDriverSessionID(driverSessionID)
-        else {
-            return nil
-        }
         switch profile {
         case .native:
+            guard
+                ComputerUseSessionScope.isManagedDriverSessionID(
+                    driverSessionID
+                )
+            else {
+                return nil
+            }
             return [
                 "method": "call",
                 "name": "set_agent_cursor_enabled",
@@ -1155,6 +1307,13 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 ],
             ]
         case .codexCompatibility:
+            guard
+                ComputerUseSessionScope.driverSessionID(
+                    containing: driverSessionID
+                ) != nil
+            else {
+                return nil
+            }
             return [
                 "method": "set_cursor_enabled",
                 "args": [
@@ -1361,6 +1520,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         installedHelperURL = result
         if result != nil, replacesExistingHelper {
+            permissionPhase = permissionPhase.applying(.helperReplaced)
+            cancelReadinessPublication()
             helperBuildReplacedHandler?()
         }
         return result
@@ -1377,7 +1538,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         )
         let nativeReady: Bool
         if nativeListening {
-            nativeReady = await configureStateAuthentication(for: .native)
+            nativeReady = await configureHostAuthority(for: .native)
         } else {
             nativeReady = false
         }
@@ -1388,7 +1549,9 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         )
         let codexReady: Bool
         if codexListening {
-            codexReady = await configureStateAuthentication(for: .codexCompatibility)
+            codexReady = await configureHostAuthority(
+                for: .codexCompatibility
+            )
         } else {
             codexReady = false
         }
@@ -1419,7 +1582,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 _ = await stopDaemon()
                 return
             }
-            guard await configureStateAuthentication(for: profile) else {
+            guard await configureHostAuthority(for: profile) else {
                 _ = await stopDaemon()
                 return
             }
@@ -1594,7 +1757,94 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
                 ] as? Bool == true
     }
 
+    private func configureHostAuthority(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        guard await configureStateAuthentication(for: profile) else {
+            return false
+        }
+        return await publishExternalPermissionReadiness(for: profile)
+    }
+
+    private func publishExternalPermissionReadiness(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        guard
+            let runningIdentity = processIdentity(for: profile),
+            AgentPIDProcessIdentity(pid: runningIdentity.pid)
+                == runningIdentity
+        else {
+            return false
+        }
+        let ready = desiredEnabled && permissionPhase.isReady
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "set_external_permission_ready",
+                "args": ["ready": ready],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 2,
+            expectedPeerIdentity: runningIdentity,
+            socketURL: socketURL(for: profile)
+        ) else {
+            return false
+        }
+        return
+            response["ok"] as? Bool == true
+                && (response["result"] as? [String: Any])?[
+                    "external_permission_ready"
+                ] as? Bool == ready
+    }
+
+    private func transitionPermissionPhase(
+        _ event: ComputerUseRuntimePermissionPhase.Event
+    ) {
+        let nextPhase = permissionPhase.applying(event)
+        guard nextPhase != permissionPhase else { return }
+        permissionPhase = nextPhase
+        scheduleReadinessPublication()
+    }
+
+    private func scheduleReadinessPublication() {
+        readinessPublicationGeneration &+= 1
+        let generation = readinessPublicationGeneration
+        readinessPublicationTask?.cancel()
+        readinessPublicationTask = Task { @MainActor [weak self] in
+            guard
+                let self,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !Task.isCancelled,
+                generation == self.readinessPublicationGeneration
+            else {
+                return
+            }
+            await self.startIfNeeded()
+            guard
+                !Task.isCancelled,
+                generation == self.readinessPublicationGeneration
+            else {
+                return
+            }
+            self.readinessPublicationTask = nil
+        }
+    }
+
+    private func cancelReadinessPublication() {
+        readinessPublicationGeneration &+= 1
+        readinessPublicationTask?.cancel()
+        readinessPublicationTask = nil
+    }
+
     private func socketURL(for profile: ComputerUseDaemonProfile) -> URL {
+        Self.socketURL(for: profile, paths: paths)
+    }
+
+    nonisolated private static func socketURL(
+        for profile: ComputerUseDaemonProfile,
+        paths: ComputerUseRuntimePaths
+    ) -> URL {
         switch profile {
         case .native:
             paths.daemonSocketURL
@@ -1672,6 +1922,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         recoveryTask?.cancel()
         recoveryTask = nil
         cancelFinalHelperCleanup()
+        cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
@@ -1957,13 +2208,19 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         scheduleHelperRecovery()
     }
 
-    private func scheduleHelperRecovery() {
-        guard recoveryTask == nil else { return }
-        recoveryTask = Task { @MainActor [weak self] in
+    @discardableResult
+    private func scheduleHelperRecovery() -> Task<Void, Never>? {
+        guard desiredEnabled, acceptsNewLaunches else { return nil }
+        if let recoveryTask {
+            return recoveryTask
+        }
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.startIfNeeded()
             self.recoveryTask = nil
         }
+        recoveryTask = task
+        return task
     }
 
     nonisolated static func shouldRecoverAfterHelperTermination(
