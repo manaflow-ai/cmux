@@ -117,7 +117,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                // NotificationCenter invokes this observer on the registered main queue.
                 MainActor.assumeIsolated {
                     guard let self, let outlineView = self.outlineView else { return }
                     let style = FileExplorerStyle.current

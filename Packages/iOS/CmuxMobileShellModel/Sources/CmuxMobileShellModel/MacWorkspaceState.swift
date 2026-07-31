@@ -18,6 +18,10 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// The stable device id of the Mac this state describes. Also the dictionary
     /// key in the aggregate, and the `id` for `Identifiable`.
     public var macDeviceID: String
+    /// The app-instance tag of the Mac pairing this state describes ("default",
+    /// "nightly", a dev tag), or `nil` for a legacy untagged pairing. Sibling
+    /// builds of one physical Mac are separate entries distinguished by tag.
+    public var instanceTag: String?
     /// The Mac's user-facing display name, for per-Mac sections/labels.
     public var displayName: String?
     /// This Mac's workspaces, each already tagged with `macDeviceID` so the
@@ -33,12 +37,19 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// Workspace actions supported by this Mac.
     public var actionCapabilities: MobileWorkspaceActionCapabilities
 
-    /// Stable identity for SwiftUI lists and dictionaries.
-    public var id: String { macDeviceID }
+    /// Stable identity for SwiftUI lists and dictionaries. Sibling builds of
+    /// one physical Mac are distinct entries, so identity carries the tag; the
+    /// separator is the same U+001F unit separator `MobilePairedMac.pairingID`
+    /// uses (this package deliberately does not depend on that module).
+    public var id: String {
+        guard let instanceTag, !instanceTag.isEmpty else { return macDeviceID }
+        return "\(macDeviceID)\u{1F}\(instanceTag)"
+    }
 
     /// Create one per-Mac workspace state snapshot.
     public init(
         macDeviceID: String,
+        instanceTag: String? = nil,
         displayName: String? = nil,
         workspaces: [MobileWorkspacePreview] = [],
         groups: [MobileWorkspaceGroupPreview] = [],
@@ -46,6 +57,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
         self.macDeviceID = macDeviceID
+        self.instanceTag = instanceTag
         self.displayName = displayName
         self.workspaces = workspaces
         self.groups = groups

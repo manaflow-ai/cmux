@@ -345,6 +345,7 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -1238,6 +1239,7 @@ final class MobileHostService {
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
                     executionContext: MobileHostRPCExecutionContext(
+                        connectionID: id,
                         authorization: authorization,
                         artifactTransfers: artifactTransfers
                     )
@@ -1249,6 +1251,7 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
