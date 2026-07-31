@@ -318,6 +318,7 @@ describe("notifications push route", () => {
       ],
     ];
     const correlationId = "527e7ed5-b70d-45d8-a78e-fd032ae61ff5";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1000) + 120;
     const request = () => new Request(
       "https://cmux.test/api/notifications/push",
       {
@@ -330,7 +331,7 @@ describe("notifications push route", () => {
           title: "agent",
           body: "done",
           correlationId,
-          expirationEpochSeconds: Math.floor(Date.now() / 1000) + 120,
+          expirationEpochSeconds,
         }),
       },
     );
