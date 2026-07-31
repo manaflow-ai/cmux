@@ -166,23 +166,28 @@ import Testing
 
     // MARK: - Heuristic details
 
-    @Test func idleExactlyAtThresholdCountsAsActive() {
+    @Test func idleBoundaryForwardsAtTwoMinutes() {
+        let justBefore = monitor(
+            hardwareIdleSeconds: MacPresenceMonitor.recentHardwareInputThreshold - 1
+        ).evaluate()
         let decision = monitor(
             hardwareIdleSeconds: MacPresenceMonitor.recentHardwareInputThreshold
         ).evaluate()
-        #expect(decision.isActive)
-        #expect(!PhonePushClient.shouldForward(mode: .onlyWhenAway, presence: decision))
-    }
-
-    @Test func idleJustOverThresholdCountsAsAway() {
-        let decision = monitor(
+        let justAfter = monitor(
             hardwareIdleSeconds: MacPresenceMonitor.recentHardwareInputThreshold + 1
         ).evaluate()
+
+        #expect(justBefore.isActive)
+        #expect(!decision.isActive)
+        #expect(!justAfter.isActive)
         #expect(
             decision.verdict == .awayNoRecentHardwareInput(
-                secondsSinceLastHardwareInput: MacPresenceMonitor.recentHardwareInputThreshold + 1
+                secondsSinceLastHardwareInput: MacPresenceMonitor.recentHardwareInputThreshold
             )
         )
+        #expect(!PhonePushClient.shouldForward(mode: .onlyWhenAway, presence: justBefore))
+        #expect(PhonePushClient.shouldForward(mode: .onlyWhenAway, presence: decision))
+        #expect(PhonePushClient.shouldForward(mode: .onlyWhenAway, presence: justAfter))
     }
 
     @Test func unknownHardwareIdleCountsAsAway() {
@@ -374,68 +379,39 @@ import Testing
         }
     }
 
-    // MARK: - willForwardReplacement (superseded-banner buffering gate)
+    // MARK: - Replacement admission
 
-    /// The store's superseded-banner buffering decision must match the real
-    /// send gate: only the burst throttle is a legitimate defer case, so
-    /// `willForwardReplacement` reports `false` whenever forwarding is off or
-    /// the `.onlyWhenAway` presence gate would suppress the replacement while
-    /// the Mac is active. A `true` answer there would stash the old phone
-    /// banner waiting for a push that never comes, stranding it until reconcile.
-    /// A presence monitor pinned to a specific instant, so successive samples in
-    /// one test step past the shared client's 1 s active-decision cache TTL
-    /// instead of reusing a stale ACTIVE decision across monitor swaps.
-    private func monitor(at instant: Date, hardwareIdleSeconds: TimeInterval?) -> MacPresenceMonitor {
-        MacPresenceMonitor(
-            now: { instant },
-            signals: {
-                MacPresenceMonitor.Signals(
-                    isConsoleSessionActiveAndUnlocked: true,
-                    areDisplaysAwake: true,
-                    isScreensaverRunning: false,
-                    secondsSinceLastHardwareInput: hardwareIdleSeconds
-                )
-            }
+    @Test func supersededDismissUsesTheSingleActualForwardAdmission() {
+        let active = monitor(hardwareIdleSeconds: 0).evaluate()
+        let away = monitor(hardwareIdleSeconds: 3_600).evaluate()
+
+        // Away → active before queue admission: the actual active sample wins,
+        // so the stale banner is dismissed immediately.
+        let suppressed = PhonePushClient.admission(
+            enabled: true,
+            mode: .onlyWhenAway,
+            presence: active
         )
-    }
+        #expect(suppressed == .presenceSuppressed)
+        #expect(
+            TerminalNotificationStore.supersededPhoneDismissDisposition(
+                after: suppressed
+            ) == .immediate
+        )
 
-    @MainActor
-    @Test func willForwardReplacementMirrorsTheRealSendGate() throws {
-        let client = PhonePushClient.shared
-        let savedMonitor = client.presenceMonitor
-        defer { client.presenceMonitor = savedMonitor }
-
-        // Advance the clock past the active-decision cache TTL between samples so
-        // each step re-evaluates the swapped monitor rather than a cached active.
-        let step = MacPresenceDecisionCache.ttl + 1
-        var t = Self.now
-
-        try withScratchDefaults { defaults in
-            // Forwarding off: never a replacement, regardless of presence.
-            client.presenceMonitor = monitor(at: t, hardwareIdleSeconds: 3_600) // away
-            #expect(!client.willForwardReplacement(defaults: defaults))
-
-            defaults.set(true, forKey: PhonePushSettings.forwardEnabledKey)
-
-            // .always ignores presence: a replacement is always coming.
-            defaults.set(PhoneForwardingMode.always.rawValue, forKey: PhonePushSettings.forwardModeKey)
-            t = t.addingTimeInterval(step)
-            client.presenceMonitor = monitor(at: t, hardwareIdleSeconds: 0) // active
-            #expect(client.willForwardReplacement(defaults: defaults))
-
-            // .onlyWhenAway + active Mac: the replacement push is suppressed, so
-            // no replacement is coming — the store must emit the dismiss now.
-            defaults.set(PhoneForwardingMode.onlyWhenAway.rawValue, forKey: PhonePushSettings.forwardModeKey)
-            t = t.addingTimeInterval(step)
-            client.presenceMonitor = monitor(at: t, hardwareIdleSeconds: 0) // active
-            #expect(!client.willForwardReplacement(defaults: defaults))
-
-            // .onlyWhenAway + away Mac: the replacement will forward, so the
-            // store defers the superseded dismiss until that push is queued.
-            t = t.addingTimeInterval(step)
-            client.presenceMonitor = monitor(at: t, hardwareIdleSeconds: 3_600) // away
-            #expect(client.willForwardReplacement(defaults: defaults))
-        }
+        // Active → away before queue admission: the actual away sample wins,
+        // so dismissal follows the queued replacement.
+        let queued = PhonePushClient.admission(
+            enabled: true,
+            mode: .onlyWhenAway,
+            presence: away
+        )
+        #expect(queued == .queued)
+        #expect(
+            TerminalNotificationStore.supersededPhoneDismissDisposition(
+                after: queued
+            ) == .afterReplacementQueued
+        )
     }
 
     // MARK: - Server acknowledgement
