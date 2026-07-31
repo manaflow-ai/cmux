@@ -105,7 +105,11 @@ import Testing
             do {
                 retryData = try await client.sendRequest(second)
                 break
-            } catch MobileShellConnectionError.requestTimedOut {
+            } catch MobileShellConnectionError.requestTimedOut,
+                    MobileShellConnectionError.routeCleanupBlocked {
+                // Cleanup of the abandoned first connect may still be in
+                // flight; the session reports that as routeCleanupBlocked
+                // until the transport finishes closing.
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
         }
