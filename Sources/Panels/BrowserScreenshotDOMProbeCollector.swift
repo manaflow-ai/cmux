@@ -401,12 +401,21 @@ final class BrowserScreenshotDOMProbeCollector {
           // Pointer-transparent layers do not appear in elementFromPoint, yet
           // can legitimately paint over text. Bound the scan before asking for
           // computed styles; large or layer-heavy documents are inconclusive.
-          const elements = document.body.getElementsByTagName("*");
-          if (elements.length > 2000) {
-            return { viewportWidth, viewportHeight, probes: [] };
-          }
+          const elementWalker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_ELEMENT
+          );
           const passivePaintedRects = [];
-          for (const element of elements) {
+          let visitedElements = 0;
+          for (
+            let element = elementWalker.nextNode();
+            element;
+            element = elementWalker.nextNode()
+          ) {
+            visitedElements += 1;
+            if (visitedElements > 2000) {
+              return { viewportWidth, viewportHeight, probes: [] };
+            }
             const style = styleFor(element);
             if (style.pointerEvents !== "none" || !layerPaints(element)) continue;
             const rect = element.getBoundingClientRect();

@@ -826,7 +826,7 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func bitmapPixelSourceFallsBackFromUnsupportedLargestRepresentation() throws {
+    func bitmapPixelSourceSamplesHigherPrecisionLargestRepresentation() throws {
         let supported = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 10,
@@ -859,12 +859,11 @@ struct BrowserScreenshotCropTests {
 
         let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
 
-        #expect(source.pixelSize.width > 0)
-        #expect(source.pixelSize.height > 0)
+        #expect(source.pixelSize == NSSize(width: 20, height: 20))
     }
 
     @Test
-    func bitmapPixelSourceNormalizesPremultipliedBGRA() throws {
+    func bitmapPixelSourceReturnsStraightColorFromPremultipliedBGRA() throws {
         let pixels = Data([
             0, 0, 128, 128,
             0, 0, 128, 128,
