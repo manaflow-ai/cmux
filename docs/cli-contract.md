@@ -339,6 +339,11 @@ Browser subcommands:
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
 
+`browser screenshot` reports `screenshot_mismatch` when conservative DOM/pixel
+attestation still disagrees after its retry, `timeout` when capture cannot
+complete within its bounded budget, and `internal_error` for other failures.
+Clients may retry `screenshot_mismatch`; cmux does not return the suspect image.
+
 `browser viewport` changes the selected browser surface only. On WKWebView, the
 requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
 page is uniformly scaled to fit inside the existing pane. The pane layout and

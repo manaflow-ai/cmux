@@ -7,14 +7,6 @@ enum BrowserScreenshotPresentation: Equatable {
     /// A hidden view temporarily attached to the offscreen render host.
     case offscreen
 
-    /// Whether `WKWebView.takeSnapshot` may wait for a displayed update.
-    var afterScreenUpdates: Bool {
-        // Waiting can stall if the window becomes occluded after a visibility
-        // check. Double-rAF plus the AppKit transaction flush provide the
-        // bounded synchronization signal instead.
-        false
-    }
-
     /// Whether the web view needs the temporary offscreen render host.
     var usesOffscreenRenderHost: Bool {
         self == .offscreen

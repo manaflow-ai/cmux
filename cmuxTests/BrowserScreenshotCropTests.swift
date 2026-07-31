@@ -182,10 +182,8 @@ struct BrowserScreenshotCropTests {
     @Test
     func screenshotPresentationSeparatesHostingFromSynchronization() {
         let onscreen = BrowserScreenshotPresentation.onscreen
-        #expect(!onscreen.afterScreenUpdates)
         #expect(!onscreen.usesOffscreenRenderHost)
         #expect(BrowserScreenshotPresentation.offscreen.usesOffscreenRenderHost)
-        #expect(!BrowserScreenshotPresentation.offscreen.afterScreenUpdates)
         #expect(
             onscreen.waitsForAnimationFrame(isRetry: false)
         )
@@ -220,6 +218,16 @@ struct BrowserScreenshotCropTests {
                 isHiddenOrHasHiddenAncestor: false,
                 boundsSize: NSSize(width: 1600, height: 1200)
             ) == .offscreen
+        )
+    }
+
+    @Test
+    func verifiedCaptureBudgetCoversRetriesAndSocketDelivery() {
+        #expect(BrowserScreenshotCaptureService.defaultMaximumAttempts == 2)
+        #expect(BrowserScreenshotCaptureService.automationLeaseTimeout == 30)
+        #expect(
+            BrowserScreenshotCaptureService.socketResponseTimeout
+                > BrowserScreenshotCaptureService.automationLeaseTimeout
         )
     }
 

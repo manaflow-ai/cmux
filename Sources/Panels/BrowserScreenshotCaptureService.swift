@@ -5,6 +5,24 @@ import WebKit
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
+    static let defaultMaximumAttempts = 2
+    private static let leaseSetupAllowance: TimeInterval = 4
+    private static let probeCollectionAllowance: TimeInterval = 1
+    private static let synchronizationAllowance: TimeInterval = 1
+    private static let snapshotCompletionAllowance: TimeInterval = 10
+    static let automationLeaseTimeout = leaseSetupAllowance + TimeInterval(
+        defaultMaximumAttempts
+    ) * (
+        probeCollectionAllowance * 2
+            + synchronizationAllowance
+            + snapshotCompletionAllowance
+    )
+    static let socketResponseTimeout = automationLeaseTimeout + 2
+
+    // Waiting for a displayed update can stall after window occlusion. The
+    // bounded double-rAF/AppKit flush is the synchronization contract instead.
+    private static let waitsForScreenUpdates = false
+
     typealias Synchronizer = @MainActor (
         _ isRetry: Bool
     ) async throws -> BrowserScreenshotSynchronizationOutcome
@@ -24,7 +42,7 @@ struct BrowserScreenshotCaptureService {
     init(
         webView: WKWebView,
         presentation: BrowserScreenshotPresentation,
-        maximumAttempts: Int = 2
+        maximumAttempts: Int = Self.defaultMaximumAttempts
     ) {
         let probeCollector = BrowserScreenshotDOMProbeCollector(webView: webView)
         self.init(
@@ -42,7 +60,7 @@ struct BrowserScreenshotCaptureService {
             snapshot: {
                 try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
-                    afterScreenUpdates: presentation.afterScreenUpdates
+                    afterScreenUpdates: Self.waitsForScreenUpdates
                 )
             },
             makePixelSource: {
@@ -52,7 +70,7 @@ struct BrowserScreenshotCaptureService {
     }
 
     init(
-        maximumAttempts: Int = 2,
+        maximumAttempts: Int = Self.defaultMaximumAttempts,
         synchronize: @escaping Synchronizer,
         collectProbes: @escaping ProbeCollector,
         snapshot: @escaping SnapshotProvider,

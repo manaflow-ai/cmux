@@ -7351,7 +7351,7 @@ extension BrowserPanel {
 
         withVisualAutomationRenderLease(
             reason: "browser.screenshot",
-            timeout: 15.0,
+            timeout: BrowserScreenshotCaptureService.automationLeaseTimeout,
             operation: { webView, presentation, finish in
                 Task { @MainActor in
                     do {
