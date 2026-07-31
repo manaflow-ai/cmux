@@ -13,19 +13,16 @@ import Testing
 @MainActor
 @Suite("Mobile Iroh runtime composition broker cooldown", .serialized)
 struct MobileIrohRuntimeCompositionCooldownTests {
-    /// Re-drives the lifecycle until the broker fake has seen activity (or the
-    /// runtime activated). Auth observation and reconcile coalesce across
-    /// main-actor tasks, so a single prepareForConnection can settle before
-    /// the first activation lands; short bounded sleeps (max ~5s) let every
-    /// executor drain between attempts.
+    /// The production readiness owner is the event-driven barrier. Tests inject
+    /// deterministic jitter and await that same barrier instead of polling the
+    /// main actor with wall-clock sleeps.
     private func settleActivation(
         _ fixture: MobileIrohCooldownFixture,
         until condition: @escaping () async -> Bool
     ) async {
-        for _ in 0 ..< 500 {
-            if await condition() { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            await fixture.composition.prepareForConnection()
+        await fixture.composition.prepareForConnection()
+        if !(await condition()) {
+            Issue.record("Connection readiness settled before the activation outcome")
         }
     }
 
@@ -376,6 +373,9 @@ private struct MobileIrohCooldownFixture {
                 deviceID: { stableDeviceID },
                 tag: tag,
                 now: { clock.now() },
+                connectionReadiness: MobileIrohConnectionReadinessOwner(
+                    jitterUnitInterval: { 0 }
+                ),
                 diagnosticLog: diagnosticLog,
                 debugDefaults: defaults
             )

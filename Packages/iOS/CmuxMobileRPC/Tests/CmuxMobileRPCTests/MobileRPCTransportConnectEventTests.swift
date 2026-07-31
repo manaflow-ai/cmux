@@ -55,11 +55,13 @@ import Testing
     @Test func abandonedDialEmitsCancelledOutcomeAndRetryConnects() async throws {
         let transport = FirstConnectClosedErrorThenSucceedsTransport()
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let cancellationSignal = MobileRPCConnectCancellationSignal()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             diagnosticTransport: .debugLoopback,
             transportConnectObserver: { event in
                 _ = continuation.yield(event)
+                Task { await cancellationSignal.record(event) }
             }
         )
         let first = try MobileCoreRPCClient.requestData(
@@ -89,6 +91,7 @@ import Testing
             Issue.record("Expected CancellationError, got \(error)")
         }
         await transport.waitUntilFirstConnectFinished()
+        await cancellationSignal.waitUntilObserved()
 
         let data = try await session.send(
             payload: second,
@@ -154,5 +157,30 @@ import Testing
             events.append(event)
         }
         return events
+    }
+}
+
+private actor MobileRPCConnectCancellationSignal {
+    private var observed = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func record(_ event: MobileRPCTransportConnectEvent) {
+        guard case let .failed(_, _, failure, _) = event,
+              failure == .cancelled else {
+            return
+        }
+        observed = true
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
+
+    func waitUntilObserved() async {
+        guard !observed else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }

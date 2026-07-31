@@ -58,7 +58,12 @@ function removeStaleSocket(socketPath) {
   );
 }
 
-function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
+function waitForUsableSession(
+  status = 0,
+  baseline = "100",
+  timeout = "15",
+  event = '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","transport":"iroh","stream_id":"events"}}',
+) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
 
@@ -72,6 +77,7 @@ function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
           'cmux_attach_events() {',
           '  shift 2',
           '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
+          '  [[ "$CMUX_TEST_STATUS" == "0" ]] && printf "%s\\n" "$CMUX_TEST_EVENT"',
           '  return "$CMUX_TEST_STATUS"',
           '}',
           'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4"',
@@ -84,6 +90,7 @@ function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
       ],
       {
         CMUX_TEST_ARGS: argsPath,
+        CMUX_TEST_EVENT: event,
         CMUX_TEST_STATUS: String(status),
       },
     );
@@ -92,6 +99,31 @@ function waitForUsableSession(status = 0, baseline = "100", timeout = "30") {
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+function writeReadinessReceipt(eventJSON) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-receipt-test-"));
+  const receiptPath = path.join(tempRoot, "receipt.json");
+  const result = run(
+    "bash",
+    [
+      "-c",
+      [
+        'source "$1"',
+        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock 8421 1 "$4"',
+      ].join("\n"),
+      "mobile-readiness-receipt-test",
+      validator,
+      receiptPath,
+      "0123456789abcdef0123456789abcdef01234567",
+      eventJSON,
+    ],
+  );
+  result.receipt = fs.existsSync(receiptPath)
+    ? JSON.parse(fs.readFileSync(receiptPath, "utf8"))
+    : null;
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+  return result;
 }
 
 function readinessCursor(snapshot) {
@@ -451,13 +483,14 @@ test("dogfood readiness captures the Mac event sequence before launch", () => {
 });
 
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
-  const result = waitForUsableSession(0, "842", "30");
+  const result = waitForUsableSession(0, "842", "15");
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(
     result.eventArgs,
-    "--after 842 --name mobile.rpc.ready --limit 1 --timeout 30 --no-ack --no-heartbeat",
+    "--after 842 --name mobile.rpc.ready --limit 1 --timeout 15 --no-ack --no-heartbeat",
   );
+  assert.match(result.stdout, /"name":"mobile\.rpc\.ready"/);
 });
 
 test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
@@ -465,6 +498,32 @@ test("dogfood readiness fails when a usable RPC session misses its deadline", ()
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
+});
+
+test("dogfood readiness writes a secret-free identity and latency receipt", () => {
+  const result = writeReadinessReceipt(
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.receipt, {
+    schema: "cmux-ios-dogfood-readiness-v1",
+    git_sha: "0123456789abcdef0123456789abcdef01234567",
+    tag: "iosrdy",
+    bundle_id: "dev.cmux.ios.iosrdy",
+    target: "physical_device",
+    target_id: "phone-a",
+    mac_tag: "iosrdy",
+    socket_path: "/tmp/cmux-debug-iosrdy.sock",
+    readiness_latency_ms: 8421,
+    attempt_count: 1,
+    connection_id: "connection-a",
+    client_id: "phone-a",
+    workspace_count: 2,
+    stream_id: "events",
+    transport: "iroh",
+  });
+  assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {

@@ -9,6 +9,28 @@ import Testing
 /// absorbs the race; a second rejection is authoritative.
 @Suite(.serialized)
 struct CmxIrohTrustBrokerClientAuthRecoveryTests {
+    private actor AccountSnapshotSource {
+        private var snapshots: [CmxIrohAccountCredentialSnapshot]
+        private var lastSnapshot: CmxIrohAccountCredentialSnapshot?
+        private(set) var forceRefreshCount = 0
+
+        init(_ snapshots: [CmxIrohAccountCredentialSnapshot]) {
+            self.snapshots = snapshots
+            self.lastSnapshot = snapshots.last
+        }
+
+        func snapshot() -> CmxIrohAccountCredentialSnapshot? {
+            guard !snapshots.isEmpty else { return lastSnapshot }
+            let next = snapshots.removeFirst()
+            lastSnapshot = next
+            return next
+        }
+
+        func forceRefresh() {
+            forceRefreshCount += 1
+        }
+    }
+
     private actor RecoveryRecorder {
         private(set) var rejectedPairs: [CmxIrohBrokerCredentials] = []
         private let recovered: CmxIrohBrokerCredentials?
@@ -126,6 +148,68 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
+    func sharedAccountPinnedSourceReusesAnAlreadyRotatedPair() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let fresh = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "fresh-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, fresh])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        _ = try await client.issueChallenge(try Self.challengeRequest)
+
+        #expect(await snapshots.forceRefreshCount == 0)
+        #expect(await transport.requests().count == 2)
+    }
+
+    @Test
+    func sharedAccountPinnedSourceForceRefreshesAnUnchangedRejectedPairOnce() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let fresh = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "fresh-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, stale, fresh])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        _ = try await client.issueChallenge(try Self.challengeRequest)
+
+        #expect(await snapshots.forceRefreshCount == 1)
+        #expect(await transport.requests().count == 2)
+    }
+
+    @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.connectivity
@@ -201,5 +285,18 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
             )
             return try signer.prepare(payload: payload).challengeRequest
         }
+    }
+
+    private static func accountSnapshot(
+        accountID: String,
+        accessToken: String
+    ) -> CmxIrohAccountCredentialSnapshot {
+        CmxIrohAccountCredentialSnapshot(
+            accountID: accountID,
+            credentials: CmxIrohBrokerCredentials(
+                accessToken: accessToken,
+                refreshToken: "\(accessToken)-refresh"
+            )
+        )
     }
 }
