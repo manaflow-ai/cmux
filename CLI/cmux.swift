@@ -3765,7 +3765,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
-        let client = SocketClient(path: resolvedSocketPath)
+        let client: SocketClient
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3783,7 +3783,15 @@ struct CMUXCLI {
             ]
         )
         do {
-            try client.connect()
+            // App-driven restore has no explicit --socket and can reach this
+            // point before bootstrap starts the listener. Explicit callers
+            // preserve the normal fail-fast socket contract.
+            if command == "restore", explicitSocketPath == nil {
+                client = try restoreSocketClient(path: resolvedSocketPath)
+            } else {
+                client = SocketClient(path: resolvedSocketPath)
+                try client.connect()
+            }
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])

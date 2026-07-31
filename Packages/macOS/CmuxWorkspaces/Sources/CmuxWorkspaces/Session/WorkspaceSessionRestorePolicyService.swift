@@ -125,9 +125,14 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return .input(input)
     }
 
-    /// Returns the binding used only when a legacy shell command must be restored.
+    /// Prepares a binding used only when a legacy shell command must be restored.
+    ///
+    /// - Parameter binding: The persisted binding whose structured fields remain authoritative.
+    /// - Returns: A copy with compatibility-only provider setup applied to its shell command.
     public func bindingForCompatibilityShellRestore(_ binding: Binding) -> Binding {
-        binding
+        WorkspaceHermesAgentCommandBootstrapper(
+            hermesCodexEnvironment: hermesCodexEnvironment
+        ).bindingForStartup(binding)
     }
 
     /// Applies stored approval state and returns the binding allowed to run.
@@ -147,9 +152,7 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
             return nil
         }
         if !effectiveBinding.usesLocalRestoreVerb {
-            effectiveBinding = WorkspaceHermesAgentCommandBootstrapper(
-                hermesCodexEnvironment: hermesCodexEnvironment
-            ).bindingForStartup(effectiveBinding)
+            effectiveBinding = bindingForCompatibilityShellRestore(effectiveBinding)
         }
         if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil

@@ -269,6 +269,12 @@ extension TerminalController {
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceRestoreRecord? {
+        // Structured fields remain untouched; only the explicit legacy fallback
+        // receives restore-time provider refreshes that older records depended on.
+        let compatibilityBinding = binding.map {
+            Workspace.makeSessionRestorePolicyService()
+                .bindingForCompatibilityShellRestore($0)
+        }
         // A hook can replace the live binding after this surface was restored,
         // while the restore-time agent snapshot still names the previous
         // conversation. Reuse the session-restore identity gate so the record
@@ -318,7 +324,7 @@ extension TerminalController {
                 },
                 preparedArguments: preparedArguments,
                 permissionMode: permissionMode,
-                legacyCommand: binding?.inlineStartupInput
+                legacyCommand: compatibilityBinding?.inlineStartupInput
             )
         }
         guard let binding else { return nil }
@@ -344,7 +350,7 @@ extension TerminalController {
             },
             preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
             permissionMode: binding.permissionMode,
-            legacyCommand: binding.inlineStartupInput
+            legacyCommand: compatibilityBinding?.inlineStartupInput
         )
     }
 

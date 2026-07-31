@@ -3,6 +3,11 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Waits for the app-startup socket race only on implicit restore routing.
+    func restoreSocketClient(path: String) throws -> SocketClient {
+        try SocketClient.waitForConnectableSocket(path: path, timeout: 10)
+    }
+
     func controlAgentLaunchCommandPayload(
         _ command: AgentLaunchCommand
     ) -> [String: Any] {

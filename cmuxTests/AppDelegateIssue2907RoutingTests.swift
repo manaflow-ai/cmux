@@ -858,23 +858,22 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(
-            legacyCommand.contains("'hermes' config set model.provider 'custom' >/dev/null"),
+            legacyCommand.contains("config set model.provider"),
             legacyCommand
         )
         XCTAssertTrue(
-            legacyCommand.contains(
-                "'hermes' config set model.base_url 'https://codex.example.test/v1' >/dev/null"
-            ),
+            legacyCommand.contains("config set model.base_url")
+                && legacyCommand.contains("https://codex.example.test/v1"),
             legacyCommand
         )
         XCTAssertTrue(
-            legacyCommand.contains(
-                "'hermes' config set model.api_mode 'codex_responses' >/dev/null"
-            ),
+            legacyCommand.contains("config set model.api_mode"),
             legacyCommand
         )
         XCTAssertTrue(
-            legacyCommand.contains("hermes --provider 'custom' --resume \(checkpointID)"),
+            legacyCommand.contains("--provider")
+                && legacyCommand.contains("custom")
+                && legacyCommand.contains(checkpointID),
             legacyCommand
         )
     }

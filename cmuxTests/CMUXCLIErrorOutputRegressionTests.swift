@@ -461,13 +461,12 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "--socket",
-                socketPath,
                 "restore",
                 "custom",
                 checkpointID,
