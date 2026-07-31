@@ -10,7 +10,10 @@ import { inArray, eq, and } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
-import { stackServerApp } from "../../app/lib/stack";
+import {
+  getStackServerApp,
+  isStackConfigured,
+} from "../../app/lib/stack";
 import type { AccountDeletionUserMutationLease } from
   "../account/deletionLock";
 import {
@@ -188,10 +191,10 @@ const withDefaultFreshProMetadataUser: FreshProMetadataUserMutation = async (
   userId,
   operation,
 ) => {
-  const app = stackServerApp;
-  if (!app) {
+  if (!isStackConfigured()) {
     throw new Error("Stack Auth is required for account metadata mutation");
   }
+  const app = getStackServerApp();
   type FreshStackProMetadataUser = ProReconcileUser & {
     readonly id: string;
   };
