@@ -1574,6 +1574,7 @@ impl Mux {
         }
         {
             let workspace = &mut state.workspaces[workspace_index];
+            let was_empty = workspace.screens.is_empty();
             workspace.screens.push(Screen {
                 id: screen_id,
                 name: None,
@@ -1587,7 +1588,9 @@ impl Mux {
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            workspace.active_screen = workspace.screens.len() - 1;
+            if was_empty {
+                workspace.active_screen = 0;
+            }
         }
         // Adoption materializes a live pane without stealing focus, but it
         // must still advance the pane-set revision used by frontend focus
@@ -9331,6 +9334,14 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
     true
 }
 
+fn remove_screen_preserving_active(workspace: &mut Workspace, index: usize) {
+    let active = workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
+    workspace.screens.remove(index);
+    workspace.active_screen = active
+        .and_then(|id| workspace.screens.iter().position(|screen| screen.id == id))
+        .unwrap_or_else(|| index.min(workspace.screens.len().saturating_sub(1)));
+}
+
 fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
     let mut unique = Vec::new();
     for id in ids {
@@ -9341,7 +9352,7 @@ fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
     unique
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ActiveTreeSelection {
     workspace: Option<WorkspaceId>,
     screen: Option<ScreenId>,
@@ -9582,8 +9593,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
 
     // Screen emptied: drop it from the workspace.
     let ws = &mut state.workspaces[wi];
-    ws.screens.remove(si);
-    ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+    remove_screen_preserving_active(ws, si);
     if !ws.screens.is_empty() {
         stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
@@ -9623,8 +9633,7 @@ fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
         }
     } else {
         let ws = &mut state.workspaces[wi];
-        ws.screens.remove(si);
-        ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+        remove_screen_preserving_active(ws, si);
     }
 }
 
@@ -11918,6 +11927,32 @@ mod tests {
             };
             assert!((*ratio - (0.75 / 1.15)).abs() < 0.0001);
         });
+    }
+
+    #[test]
+    fn closing_an_earlier_screen_preserves_owner_selection() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let (workspace, first_screen) = mux.with_state(|state| {
+            let pane = state.pane_of(first.id).unwrap();
+            let (wi, si) = state.screen_of(pane).unwrap();
+            (state.workspaces[wi].id, state.workspaces[wi].screens[si].id)
+        });
+        mux.new_screen(Some(workspace), None).unwrap();
+        mux.new_screen(Some(workspace), None).unwrap();
+        mux.select_screen(Some(1), None);
+        let selection_before = mux.with_state(active_tree_selection);
+
+        assert!(mux.close_screen(first_screen).unwrap());
+
+        mux.with_state(|state| {
+            assert_eq!(
+                active_tree_selection(state),
+                selection_before,
+                "closing an unrelated earlier screen must not move the owner TUI"
+            );
+        });
+        mux.shutdown();
     }
 
     #[cfg(unix)]

@@ -62,7 +62,9 @@ workspace, screen, pane, tab, viewport scroll, stack expansion, and keyboard
 focus. Servers advertising `independent-client-selection-v1` accept
 `activate:false` on workspace/screen/pane/tab structural creation and tab
 movement, and return exact placement ids so only the initiating frontend
-selects the result.
+selects the result. Closing or reordering an unrelated workspace, screen,
+pane, or tab must preserve the server owner's selection by stable identity;
+only deleting the selected object may choose a fallback.
 
 The opaque frontend projection is reserved for state cmux does not express:
 Chrome navigation/controller details, toolbar and sidebar preferences,

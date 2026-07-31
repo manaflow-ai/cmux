@@ -73,8 +73,10 @@ pane-targeted `create-terminal`, and every tab/pane relocation command with
 Creation results include `surface`, `pane`, `screen`, and `workspace`, so the
 requesting frontend can select the result locally without changing the owner
 TUI's active workspace, screen, pane, or tab. A non-activating move likewise
-preserves the owner's complete focus identity. Omitting `activate` preserves
-the historical activating behavior.
+preserves the owner's complete focus identity. Closing or reordering an
+unrelated sibling preserves that identity by stable id; only deleting the
+selected object chooses a fallback. Omitting `activate` preserves the
+historical activating behavior.
 
 `layout-undo-v1` adds server-owned structural layout history and `undo-layout`. A creation undo first returns `confirmation_required`, the pane ids it would close, and a unique confirmation revision bound to those panes' exact tab membership. The client must show that consequence and resend the exact revision with `confirm_close:true`. A stale revision or changed tab membership fails without closing a pane; request a new preview before retrying. Resize-only and other non-destructive entries undo in one request.
 
