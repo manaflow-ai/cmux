@@ -176,7 +176,6 @@ extension TerminalController {
                     data: ["surface_id": surfaceID.uuidString]
                 )
             }
-            terminalPanel.surface.recordHumanPromptInput(.unknown)
             terminalPanel.surface.forceRefresh(
                 reason: "mobileHost.terminalPaste"
             )

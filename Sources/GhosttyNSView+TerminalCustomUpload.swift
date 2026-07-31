@@ -13,9 +13,7 @@ extension GhosttyNSView {
             surface.recordHumanPromptInput(.unknown)
             return
         }
-        if surface.sendText(text) {
-            surface.recordHumanPromptInput(.unknown)
-        }
+        _ = surface.sendText(text)
     }
 
     @discardableResult

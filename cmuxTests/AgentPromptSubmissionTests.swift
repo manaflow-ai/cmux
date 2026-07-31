@@ -115,6 +115,79 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func rawMobileDraftBlocksExactMobileAndAgentSubmissions() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.mobile-draft",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.releaseSurfaceForTesting()
+        let inputResult = TerminalController.shared.v2MobileTerminalInput(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelID.uuidString,
+                "text": "phone draft",
+            ]
+        )
+        guard case .ok = inputResult else {
+            Issue.record("Expected raw mobile draft to be accepted")
+            return
+        }
+
+        let mobileResult = TerminalController.shared.v2MobileTerminalPaste(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelID.uuidString,
+                "text": "mobile message",
+            ],
+            rejectIfHumanComposerBusy: true
+        )
+        guard case .err(let mobileCode, _, _) = mobileResult else {
+            Issue.record("Expected exact mobile submission to reject the draft")
+            return
+        }
+        #expect(mobileCode == "rejected_composer_busy")
+
+        let agentResult = TerminalController.shared.v2WorkspaceAgentSubmit(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelID.uuidString,
+                "text": "supervisor message",
+            ]
+        )
+        guard case .err(let agentCode, _, _) = agentResult else {
+            Issue.record("Expected agent submission to reject the draft")
+            return
+        }
+        #expect(agentCode == "rejected_composer_busy")
+
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 1)
+        #expect(pending.inputTextItems == 1)
+        #expect(pending.promptSubmissionItems == 0)
+    }
+
+    @MainActor
     @Test func exactMobileSendPreservesDeliveryBeforeAgentScopeBinding() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = previousAppDelegate ?? AppDelegate()
@@ -199,6 +272,50 @@ struct AgentPromptSubmissionTests {
         TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
 
         #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @MainActor
+    @Test func staleExplicitSurfaceHookDoesNotConfirmAnotherTerminal() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.stale-surface-hook",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let event = WorkstreamEvent(
+            sessionId: "stale-surface-hook",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: UUID().uuidString,
+            toolInputJSON: #"{"prompt":"other prompt"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @MainActor

@@ -33,6 +33,103 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func genericSocketDraftBlocksAnAtomicPromptSubmission() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.socket-draft"
+        )
+
+        #expect(fixture.surface.sendInputResult("phone draft").accepted)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return"
+            ) == .composerBusy
+        )
+
+        let pending = fixture.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 1)
+        #expect(pending.inputTextItems == 1)
+        #expect(pending.promptSubmissionItems == 0)
+    }
+
+    @Test func genericSocketReturnRequiresAHookBeforeClearingOwnership() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.socket-submit"
+        )
+
+        #expect(
+            fixture.surface.sendInputResult("phone prompt\r").accepted
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "phone prompt"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func genericPasteAndNamedReturnShareTheOwnershipLedger() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.paste-submit"
+        )
+
+        #expect(fixture.surface.sendText("pasted draft"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.surface.sendNamedKey("return").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "pasted draft"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func acceptedExternalInputUsesTheGenericInputLedgerGrammar() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.remote-input"
+        )
+
+        fixture.surface.recordAcceptedUnownedPromptInput(
+            "\u{1B}]0;title\u{7}remote prompt\r"
+        )
+
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "remote prompt"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func acceptedExternalNamedReturnCreatesARecoverableBoundary() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.remote-key"
+        )
+
+        fixture.surface.recordAcceptedUnownedPromptInput("remote draft")
+        fixture.surface.recordAcceptedUnownedPromptKey("return")
+
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "remote draft"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func promptSubmissionQueuesAsOneCompoundItemOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

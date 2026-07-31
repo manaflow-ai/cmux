@@ -99,19 +99,20 @@ extension TerminalController {
         }
     }
 
-    /// Resolves the surface that owns a prompt-submission hook. Hooks with no
-    /// usable surface identity may fall back only to one authoritative agent
-    /// terminal; ambiguous workspaces deliberately remain unresolved.
+    /// Resolves the surface that owns a prompt-submission hook. Hooks that omit
+    /// surface identity may fall back only to one authoritative agent terminal;
+    /// an explicit invalid or stale identity remains unresolved.
     func agentPromptConfirmationPanel(
         in workspace: Workspace,
         rawSurfaceID: String?
     ) -> TerminalPanel? {
-        if let rawSurfaceID,
-           let surfaceID = v2UUIDAny(rawSurfaceID),
-           let terminalPanel = workspace.terminalInputTarget(
-               forPanelID: surfaceID
-           )?.panel {
-            return terminalPanel
+        if let rawSurfaceID {
+            guard let surfaceID = v2UUIDAny(rawSurfaceID) else {
+                return nil
+            }
+            return workspace.terminalInputTarget(
+                forPanelID: surfaceID
+            )?.panel
         }
         guard case .success(let target) = agentPromptTerminalTarget(
             in: workspace,
