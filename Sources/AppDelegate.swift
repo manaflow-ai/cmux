@@ -6770,6 +6770,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rememberRecoverableRoute: Bool
     ) -> MainWindowContext? {
         guard mainWindowContexts.values.contains(where: { $0 === context }) else { return nil }
+        // Cancel switch work before either retaining or retiring the context's Dock.
+        context.tabManager.workspaceSwitchCoordinator.cancel()
         let sidebarSnapshot = sessionSidebarSnapshot(for: context)
         let recoverableWindowDock: DockSplitStore?
         if rememberRecoverableRoute {
