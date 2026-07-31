@@ -1,5 +1,5 @@
 import { CmuxConnectionError } from "./errors.js";
-import type { Transport, Unsubscribe } from "./transport.js";
+import type { OnDispatched, Transport, Unsubscribe } from "./transport.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
@@ -61,10 +61,16 @@ export interface PairingChallenge {
   readonly expiresIn: number;
 }
 
+interface PendingMessage {
+  readonly json: string;
+  readonly bytes: number;
+  readonly onDispatched: OnDispatched;
+}
+
 /** Browser-safe text-frame transport with bounded pre-open buffering. */
 export class WebSocketTransport implements Transport {
   private readonly socket: WebSocketLike;
-  private readonly pending: string[] = [];
+  private readonly pending: PendingMessage[] = [];
   private readonly messages = new Set<(json: string) => void>();
   private readonly closes = new Set<() => void>();
   private readonly errors = new Set<(error: Error) => void>();
@@ -128,6 +134,14 @@ export class WebSocketTransport implements Transport {
   }
 
   send(json: string): void {
+    this.enqueue(json, () => undefined);
+  }
+
+  sendCancellable(json: string, onDispatched: OnDispatched): Unsubscribe {
+    return this.enqueue(json, onDispatched);
+  }
+
+  private enqueue(json: string, onDispatched: OnDispatched): Unsubscribe {
     if (this.closed) throw new CmuxConnectionError("WebSocket transport is closed");
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
@@ -136,8 +150,9 @@ export class WebSocketTransport implements Transport {
       );
     }
     if (this.authenticated && this.socket.readyState === 1) {
+      onDispatched();
       this.socket.send(json);
-      return;
+      return () => undefined;
     }
     if (
       this.pending.length >= this.maxPendingMessages
@@ -145,8 +160,15 @@ export class WebSocketTransport implements Transport {
     ) {
       throw new CmuxConnectionError("pending WebSocket message buffer is full");
     }
-    this.pending.push(json);
+    const message = { json, bytes, onDispatched };
+    this.pending.push(message);
     this.pendingBytes += bytes;
+    return () => {
+      const index = this.pending.indexOf(message);
+      if (index < 0) return;
+      this.pending.splice(index, 1);
+      this.pendingBytes -= bytes;
+    };
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -187,8 +209,9 @@ export class WebSocketTransport implements Transport {
   private flush(): void {
     while (this.pending.length > 0) {
       const message = this.pending.shift()!;
-      this.pendingBytes -= utf8ByteLength(message);
-      this.socket.send(message);
+      this.pendingBytes -= message.bytes;
+      message.onDispatched();
+      this.socket.send(message.json);
     }
   }
 
@@ -257,8 +280,8 @@ export class WebSocketTransport implements Transport {
       const credential = (message.paired as Record<string, unknown>).credential;
       if (typeof credential === "string") {
         this.authenticated = true;
-        this.onPairingCredential?.(credential);
         this.flush();
+        this.onPairingCredential?.(credential);
         return;
       }
     }

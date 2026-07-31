@@ -47,6 +47,7 @@ interface Pending {
   validateAbandonedResult?: (value: unknown) => unknown;
   timer?: ReturnType<typeof setTimeout>;
   removeAbort?: () => void;
+  cancelUndispatched?: Unsubscribe;
   abandonment?: RequestAbandonment;
 }
 
@@ -571,12 +572,27 @@ export class ResourceProtocol {
         return;
       }
       try {
-        dispatchStarted = true;
         this.activeTransportSends += 1;
         try {
-          this.transport.send(json);
+          if (this.transport.sendCancellable) {
+            const cancelUndispatched = this.transport.sendCancellable(
+              json,
+              () => {
+                dispatchStarted = true;
+                onDispatched?.();
+              },
+            );
+            if (this.pending.get(requestId) === pending) {
+              pending.cancelUndispatched = cancelUndispatched;
+            } else {
+              cancelUndispatched();
+            }
+          } else {
+            dispatchStarted = true;
+            this.transport.send(json);
+            onDispatched?.();
+          }
           dispatchComplete = true;
-          onDispatched?.();
         } finally {
           this.activeTransportSends -= 1;
         }
@@ -1005,6 +1021,8 @@ export class ResourceProtocol {
   private finishPending(pending: Pending): void {
     if (pending.timer) clearTimeout(pending.timer);
     pending.removeAbort?.();
+    pending.cancelUndispatched?.();
+    pending.cancelUndispatched = undefined;
   }
 
   private reserveTerminalWait(requestId: string, timeoutMs: number): boolean {
