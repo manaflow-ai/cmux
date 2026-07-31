@@ -16,11 +16,17 @@ final class MarkdownCodespanRenderingTests {
         try await withLoadedMarkdownShell { webView in
             let snapshot = try await renderSnapshot(
                 """
+                Plain prose control: 2 < 3 & 4 > 1, "quote" and 'apostrophe'.
+
                 Privileged verbs each require the typed `"<verb> <env>"` confirmation phrase (e.g. `"reset dev"`).
 
                 Inline JSON: `'{"action":"db_state"}'`
 
                 Issue 4144: `<>&"'`
+
+                Literal entity text: `&lt;`
+
+                Delimiter normalization: `` `tick` `` and ` code `.
 
                 Hostile inline: `<img src=x onerror=alert(1)>`
 
@@ -37,16 +43,21 @@ final class MarkdownCodespanRenderingTests {
                 in: webView
             )
 
+            #expect(snapshot.proseText == #"Plain prose control: 2 < 3 & 4 > 1, "quote" and 'apostrophe'."#)
+            #expect(snapshot.proseChildElementCount == 0)
             #expect(
                 snapshot.inlineTexts == [
                     #""<verb> <env>""#,
                     #""reset dev""#,
                     "'{\"action\":\"db_state\"}'",
                     #"<>&"'"#,
+                    "&lt;",
+                    "`tick`",
+                    "code",
                     #"<img src=x onerror=alert(1)>"#,
                 ]
             )
-            #expect(snapshot.inlineChildElementCounts == [0, 0, 0, 0, 0])
+            #expect(snapshot.inlineChildElementCounts == [0, 0, 0, 0, 0, 0, 0, 0])
             #expect(
                 snapshot.fencedTexts == [
                     #"aws lambda invoke --function-name foo --payload '{"action":"db_state"}' /dev/stdout"#,
@@ -98,6 +109,7 @@ final class MarkdownCodespanRenderingTests {
                 window.__cmuxCodespanHostileHandlerExecuted = true;
               };
               window.__cmuxRenderMarkdown(md);
+              var prose = document.querySelector('#content p');
               var inlineCodes = Array.prototype.slice.call(
                 document.querySelectorAll('#content p code:not(.hljs)')
               );
@@ -105,6 +117,8 @@ final class MarkdownCodespanRenderingTests {
                 document.querySelectorAll('#content pre > code.hljs')
               );
               return {
+                proseText: prose ? prose.textContent : null,
+                proseChildElementCount: prose ? prose.children.length : null,
                 inlineTexts: inlineCodes.map(function(code) { return code.textContent; }),
                 inlineChildElementCounts: inlineCodes.map(function(code) { return code.children.length; }),
                 fencedTexts: fencedCodes.map(function(code) { return code.textContent; }),
@@ -118,6 +132,8 @@ final class MarkdownCodespanRenderingTests {
             """
         )
         let raw = try #require(result as? [String: Any])
+        let proseText = try #require(raw["proseText"] as? String)
+        let proseChildElementCount = try #require(raw["proseChildElementCount"] as? NSNumber)
         let inlineTexts = try #require(raw["inlineTexts"] as? [String])
         let inlineChildElementCounts = try #require(raw["inlineChildElementCounts"] as? [NSNumber])
         let fencedTexts = try #require(raw["fencedTexts"] as? [String])
@@ -126,6 +142,8 @@ final class MarkdownCodespanRenderingTests {
         let hostileHandlerExecuted = try #require(raw["hostileHandlerExecuted"] as? Bool)
 
         return MarkdownCodespanSnapshot(
+            proseText: proseText,
+            proseChildElementCount: proseChildElementCount.intValue,
             inlineTexts: inlineTexts,
             inlineChildElementCounts: inlineChildElementCounts.map(\.intValue),
             fencedTexts: fencedTexts,
@@ -137,6 +155,8 @@ final class MarkdownCodespanRenderingTests {
 }
 
 private struct MarkdownCodespanSnapshot {
+    let proseText: String
+    let proseChildElementCount: Int
     let inlineTexts: [String]
     let inlineChildElementCounts: [Int]
     let fencedTexts: [String]

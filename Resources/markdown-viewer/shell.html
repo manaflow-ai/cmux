@@ -993,7 +993,9 @@ html { scroll-behavior: smooth; }
   // calls these methods with the *legacy* positional signature
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
-  // rendered to HTML and passed in as `text`.
+  // rendered to HTML and passed in as `text`. Codespan text is the
+  // exception below: walkTokens replaces marked's pre-escaped text
+  // with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1006,14 +1008,47 @@ html { scroll-behavior: smooth; }
     return count === 0 ? base : base + '-' + count;
   }
 
+  function normalizedCodespanText(token) {
+    if (!token || typeof token.raw !== 'string') {
+      throw new Error('marked codespan token is missing raw source');
+    }
+    var openingDelimiter = token.raw.match(/^`+/);
+    if (!openingDelimiter) {
+      throw new Error('marked codespan token is missing an opening delimiter');
+    }
+    var delimiter = openingDelimiter[0];
+    if (
+      token.raw.length < delimiter.length * 2 ||
+      token.raw.slice(-delimiter.length) !== delimiter
+    ) {
+      throw new Error('marked codespan token has mismatched delimiters');
+    }
+
+    // Own codespan normalization here instead of relying on marked's token.text,
+    // which marked 13.0.3 has already HTML-escaped. This mirrors CommonMark's
+    // newline and single outer-space normalization before our renderer performs
+    // the one and only HTML escape.
+    var text = token.raw.slice(delimiter.length, -delimiter.length)
+      .replace(/\n/g, ' ');
+    if (/[^ ]/.test(text) && /^ /.test(text) && / $/.test(text)) {
+      text = text.slice(1, -1);
+    }
+    return text;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    walkTokens: function(token) {
+      if (token.type === 'codespan') {
+        token.text = normalizedCodespanText(token);
+      }
+    },
     renderer: {
       codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
+        var text = code || '';
+        return '<code>' + escapeHtml(text) + '</code>';
       },
       code(code, infostring, escaped) {
         var raw = code || '';
