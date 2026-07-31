@@ -37,11 +37,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let previewLineLimit: Int
     }
 
-    private enum GroupDropLanding {
-        case visibleChild(IndexPath)
-        case collapsedHeader(IndexPath)
-    }
-
     private static let cellReuseIdentifier = "WorkspaceListTableCell"
     private static let section = 0
 
@@ -384,34 +379,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                == .groupHeader(intoTarget.groupID),
            configuration.canDropIntoGroup?(workspaceID, intoTarget.groupID) == true,
            isMovable(draggedItem) {
-            guard let landing = applyLocalGroupDrop(
+            guard let landingIndexPath = applyLocalGroupDrop(
                 workspaceID: workspaceID,
                 groupID: intoTarget.groupID
             ) else {
                 return
             }
-            switch landing {
-            case .visibleChild(let landingIndexPath):
-                coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
-            case .collapsedHeader(let landingIndexPath):
-                // A collapsed group has no inserted child row, so the
-                // row-target APIs do not apply. Retarget the native preview to
-                // the header's content bounds instead. This keeps the landing
-                // independent of the source row removed by the local snapshot.
-                tableView.layoutIfNeeded()
-                let target = dropPreviewTarget(
-                    in: tableView,
-                    at: landingIndexPath,
-                    previewSize: dropItem.previewSize,
-                    contentInsets: UIEdgeInsets(
-                        top: 6,
-                        left: 12,
-                        bottom: 6,
-                        right: 12
-                    )
-                )
-                coordinator.drop(dropItem.dragItem, to: target)
+            tableView.layoutIfNeeded()
+            guard let target = dropPreviewTarget(
+                in: tableView,
+                at: landingIndexPath,
+                previewSize: dropItem.previewSize
+            ) else {
+                return
             }
+            coordinator.drop(dropItem.dragItem, to: target)
             dropIntoGroup(workspaceID, intoTarget.groupID)
             return
         }
@@ -476,13 +458,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         appliedItems = movedItems
 
         tableView.layoutIfNeeded()
-        coordinator.drop(
-            dropItem.dragItem,
-            toRowAt: IndexPath(
-                row: min(insertionRow, movedItems.count - 1),
-                section: destinationIndexPath.section
-            )
+        let landingIndexPath = IndexPath(
+            row: min(insertionRow, movedItems.count - 1),
+            section: destinationIndexPath.section
         )
+        guard let target = dropPreviewTarget(
+            in: tableView,
+            at: landingIndexPath,
+            previewSize: dropItem.previewSize
+        ) else {
+            return
+        }
+        coordinator.drop(dropItem.dragItem, to: target)
         // Register the native landing before publishing the model mutation.
         // SwiftUI may schedule the authoritative update immediately; doing so
         // first can replace UIKit's destination while its preview is settling.
@@ -516,12 +503,30 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return parameters
     }
 
+    /// Targets the final rendered geometry without claiming that the table
+    /// inserted a new row. UITableView's row-target drop API requires an
+    /// insertion performed through batch updates, while these snapshots move
+    /// stable identities and sometimes remove a row into a collapsed group.
     private func dropPreviewTarget(
         in tableView: UITableView,
         at indexPath: IndexPath,
-        previewSize: CGSize,
-        contentInsets: UIEdgeInsets
-    ) -> UIDragPreviewTarget {
+        previewSize: CGSize
+    ) -> UIDragPreviewTarget? {
+        guard let item = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+        let contentInsets: UIEdgeInsets
+        switch item {
+        case .workspace:
+            contentInsets = UIEdgeInsets(
+                top: 4,
+                left: item.isIndentedWorkspace ? 32 : 12,
+                bottom: 4,
+                right: 12
+            )
+        case .groupHeader:
+            contentInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        case .chrome, .filterEmpty, .groupFooter:
+            contentInsets = .zero
+        }
         let contentRect = tableView.rectForRow(at: indexPath).inset(by: contentInsets)
         let transform: CGAffineTransform
         if previewSize.width > 0, previewSize.height > 0 {
@@ -543,7 +548,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private func applyLocalGroupDrop(
         workspaceID: MobileWorkspacePreview.ID,
         groupID: MobileWorkspaceGroupPreview.ID
-    ) -> GroupDropLanding? {
+    ) -> IndexPath? {
         guard let dataSource else { return nil }
 
         var items = configuration.items
@@ -552,19 +557,19 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         items.remove(at: sourceRow)
 
-        let landing: GroupDropLanding
+        let landingIndexPath: IndexPath
         var itemToReconfigure: WorkspaceListTableItem?
         if let footerRow = items.firstIndex(of: .groupFooter(groupID)) {
             let landedItem = WorkspaceListTableItem.workspace(workspaceID, indented: true)
             items.insert(landedItem, at: footerRow)
             configuredItemsByID[landedItem.id] = landedItem
             itemToReconfigure = landedItem
-            landing = .visibleChild(IndexPath(row: footerRow, section: Self.section))
+            landingIndexPath = IndexPath(row: footerRow, section: Self.section)
         } else if let headerRow = items.firstIndex(of: .groupHeader(groupID)) {
             // Collapsed groups intentionally have no child rows. Remove the
             // source from the native snapshot before completing the drop so
             // UIKit lands against the same final layout SwiftUI will publish.
-            landing = .collapsedHeader(IndexPath(row: headerRow, section: Self.section))
+            landingIndexPath = IndexPath(row: headerRow, section: Self.section)
         } else {
             return nil
         }
@@ -577,7 +582,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         dataSource.apply(snapshot, animatingDifferences: false)
         appliedItems = items
-        return landing
+        return landingIndexPath
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
