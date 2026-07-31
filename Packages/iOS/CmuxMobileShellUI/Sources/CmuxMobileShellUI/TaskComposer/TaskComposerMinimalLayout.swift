@@ -133,13 +133,20 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            pillScroller
-                .safeAreaInset(edge: .leading, spacing: 0) {
-                    leadingCluster
+            TaskComposerPillBar {
+                leadingCluster
+            } pills: {
+                HStack(spacing: 8) {
+                    agentPill
+
+                    if !models.isEmpty, showsStandaloneModelPill {
+                        modelPill
+                    }
                 }
-                .safeAreaInset(edge: .trailing, spacing: 0) {
-                    trailingCluster
-                }
+            } trailing: {
+                trailingCluster
+            }
+                .frame(height: 44)
                 .padding(.top, 8)
                 .padding(.bottom, 6)
         }
@@ -149,30 +156,6 @@ struct TaskComposerMinimalLayout: View {
         .background(Color(uiColor: .systemBackground))
     }
 
-    /// The pill scroller spans the whole bar; the button clusters sit in its
-    /// leading/trailing safe-area insets, so pills scroll under them, and the
-    /// fade bands beside each cluster dissolve passing content into the
-    /// background.
-    private var pillScroller: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                agentPill
-
-                if !models.isEmpty, showsStandaloneModelPill {
-                    modelPill
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, 10, for: .scrollContent)
-        .overlay(alignment: .leading) { edgeFade(.leading) }
-        .overlay(alignment: .trailing) { edgeFade(.trailing) }
-    }
-
-    /// Blur the pills as they pass beneath a cluster: full material under the
-    /// buttons, decaying to nothing across an adjacent band. Together with
-    /// `edgeFade` this reproduces the system scroll edge effect's progressive
-    /// blur+fade deterministically in SwiftUI.
     private var leadingCluster: some View {
         HStack(spacing: 10) {
             if showsAttachmentButton {
@@ -187,42 +170,11 @@ struct TaskComposerMinimalLayout: View {
             optionsButton
         }
         .padding(.leading, 16)
-        .background(.ultraThinMaterial)
     }
 
     private var trailingCluster: some View {
         submitButton
             .padding(.trailing, 16)
-            .background(.ultraThinMaterial)
-    }
-
-    /// The transition band beside a cluster: material blur and a fade toward
-    /// the bar background, both gradient-masked so content dissolves
-    /// progressively instead of hitting a hard boundary.
-    private func edgeFade(_ edge: HorizontalEdge) -> some View {
-        let inward: [Color] = [.black, .clear]
-        let colors = edge == .leading ? inward : inward.reversed()
-        return Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay {
-                LinearGradient(
-                    colors: edge == .leading
-                        ? [Color(uiColor: .systemBackground), .clear]
-                        : [.clear, Color(uiColor: .systemBackground)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .opacity(0.85)
-            }
-            .mask {
-                LinearGradient(
-                    colors: colors,
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            }
-            .frame(width: 24)
-            .allowsHitTesting(false)
     }
 
     private var optionsButton: some View {
