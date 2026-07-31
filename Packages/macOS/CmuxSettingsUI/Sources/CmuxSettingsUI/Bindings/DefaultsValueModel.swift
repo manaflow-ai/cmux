@@ -35,14 +35,13 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
     private(set) var revision = 0
-    var pendingStoreEchoCount: Int { pendingStoreEchoes.count }
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
     private let initialStoreValue: Value
     @ObservationIgnored private let makeStream:
         @MainActor @Sendable (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
-    @ObservationIgnored private var pendingStoreEchoes: [(
+    @ObservationIgnored private(set) var pendingStoreEchoes: [(
         source: UserDefaultsSettingsMutationSource,
         value: Value,
         protectsExplicitValueFromInheritedChanges: Bool

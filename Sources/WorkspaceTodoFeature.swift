@@ -15,16 +15,6 @@ enum WorkspaceTodoFeature {
         BetaFeaturesCatalogSection().workspaceTodoControls.value(in: .standard)
     }
 
-    static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
-        let key = BetaFeaturesCatalogSection().workspaceTodoControls
-        return Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
-            ?? remoteEnabled
-    }
-
-    static func effectiveControlsValue(defaults: UserDefaults) -> Bool {
-        BetaFeaturesCatalogSection().workspaceTodoControls.value(in: defaults)
-    }
-
     /// The checklist presentation style (popover or inline), user-selectable.
     static var checklistStyle: WorkspaceTodoChecklistStyle {
         let key = BetaFeaturesCatalogSection().workspaceTodosChecklistStyle

@@ -33,6 +33,14 @@ extension ControlDebugContext {
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlDebugBetaRemoteDefaultStrings() -> ControlDebugBetaRemoteDefaultStrings {
+        ControlDebugBetaRemoteDefaultStrings(
+            missingKey: "Missing key",
+            notFound: "Beta remote default not found",
+            missingValue: "Missing value",
+            invalidValue: "value must be a bool or null"
+        )
+    }
     func controlDebugBetaRemoteDefaultSnapshot(
         identifier: String
     ) -> ControlDebugBetaRemoteDefaultSnapshot? { nil }

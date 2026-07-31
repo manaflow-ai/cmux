@@ -8462,7 +8462,11 @@ struct ContentView: View {
             tabManager.moveTabsToTop([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
-        WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
+        WorkspaceTodoPaletteCommands.registerHandlers(
+            in: &registry,
+            tabManager: tabManager,
+            todoControlsEnabled: workspaceTodoControlsEnabled
+        )
         registry.register(commandId: "palette.closeOtherWorkspaces") {
             closeOtherSelectedWorkspaces()
         }

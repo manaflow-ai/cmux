@@ -3,10 +3,10 @@ import XCTest
 /// Behavioral UI tests for Sidebar and Beta Features settings.
 ///
 /// Branch layout, Feed, and Dock assert their reactive derived subtitles.
-/// Workspace Todo uses the deterministic remote-default launch seam plus
-/// debug-domain readback to verify inherited-on, explicit-off, relaunch, and
-/// Reset All behavior through `LiveSetting`. Runtime row and mode-bar effects
-/// that require a materialized workspace remain documented as Tier 2 below.
+/// Workspace Todo seeds the production remote-cache layer plus debug-domain
+/// readback to verify inherited-on, explicit-off, relaunch, and Reset All
+/// behavior through `LiveSetting`. Runtime row and mode-bar effects that
+/// require a materialized workspace remain documented as Tier 2 below.
 final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
 
     // userDefaultsKeys for the in-scope settings, reset before/after each
@@ -200,11 +200,11 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     }
 
     func testWorkspaceTodoRemoteDefaultYieldsToUserChoiceAndResetAll() {
-        let remoteEnvironment = [
-            "CMUX_UI_TEST_BETA_REMOTE_DEFAULTS":
-                #"{"workspace-todo-controls-enabled-release":true}"#,
-        ]
-        var app = makeLaunchedApp(environment: remoteEnvironment)
+        writeDebugDefaultBool(
+            true,
+            forKey: "cmux.beta.remoteDefault.workspaceTodos.controls.enabled"
+        )
+        var app = makeLaunchedApp()
         var window = openSettings(app)
         navigate(window, to: "Beta Features")
 
@@ -228,7 +228,7 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         )
         app.terminate()
 
-        app = makeLaunchedApp(environment: remoteEnvironment)
+        app = makeLaunchedApp()
         window = openSettings(app)
         navigate(window, to: "Beta Features")
         XCTAssertTrue(

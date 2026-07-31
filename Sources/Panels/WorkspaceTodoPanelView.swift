@@ -441,7 +441,7 @@ private struct WorkspaceTodoPaneContent: View {
 
     /// Enter commits the trimmed text and re-arms the field for the next item.
     private func commitPendingItem() {
-        guard WorkspaceTodoFeature.isEnabled else { return }
+        guard todoControlsEnabled else { return }
         let text = pendingItemText
         pendingItemText = ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

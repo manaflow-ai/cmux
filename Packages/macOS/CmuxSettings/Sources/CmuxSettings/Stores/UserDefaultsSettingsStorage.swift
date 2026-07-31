@@ -74,12 +74,19 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     ) -> NotificationObserverToken {
         let defaultsID = ObjectIdentifier(defaults)
         let remoteDefaultState = RemoteDefaultNotificationState()
+        let matchesStorageKey: @Sendable (Notification) -> Bool = { notification in
+            guard let storageKey else { return true }
+            return notification.userInfo?[
+                CmuxSettingsRemoteDefaultNotification.storageKeyUserInfoKey
+            ] as? String == storageKey
+        }
         var tokens = [
             notificationCenter.addObserver(
                 forName: .cmuxSettingsRemoteDefaultWillChange,
                 object: defaults,
                 queue: nil
-            ) { _ in
+            ) { notification in
+                guard matchesStorageKey(notification) else { return }
                 remoteDefaultState.begin()
             },
             notificationCenter.addObserver(
@@ -99,19 +106,15 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
                 )
             }
         ]
-        if let storageKey {
+        if storageKey != nil {
             tokens.append(
                 notificationCenter.addObserver(
                     forName: .cmuxSettingsRemoteDefaultDidChange,
                     object: defaults,
                     queue: nil
                 ) { notification in
-                    let changedStorageKey = notification.userInfo?[
-                        CmuxSettingsRemoteDefaultNotification.storageKeyUserInfoKey
-                    ] as? String
-                    if changedStorageKey == storageKey {
-                        handler(true, false, true)
-                    }
+                    guard matchesStorageKey(notification) else { return }
+                    handler(true, false, true)
                     remoteDefaultState.end()
                 }
             )

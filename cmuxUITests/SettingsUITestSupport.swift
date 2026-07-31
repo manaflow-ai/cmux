@@ -120,6 +120,27 @@ class SettingsUITestCase: XCTestCase {
         }
     }
 
+    /// Seeds a Boolean in the app's isolated debug defaults domain.
+    ///
+    /// UI tests use the same persisted layers production reads, so launch does
+    /// not need a test-specific environment parser in the app target.
+    func writeDebugDefaultBool(
+        _ value: Bool,
+        forKey key: String,
+        suite: String = "com.cmuxterm.app.debug"
+    ) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["write", suite, key, "-bool", value ? "true" : "false"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, "Failed to seed \(key) in \(suite)")
+        } catch {
+            XCTFail("Failed to seed \(key) in \(suite): \(error)")
+        }
+    }
+
     /// Reads one Boolean from the app's isolated debug defaults domain.
     ///
     /// A nonnil result proves the primary user key is durable, rather than

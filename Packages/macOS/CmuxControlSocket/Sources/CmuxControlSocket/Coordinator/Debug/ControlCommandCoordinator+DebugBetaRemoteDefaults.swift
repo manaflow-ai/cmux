@@ -3,13 +3,17 @@ extension ControlCommandCoordinator {
     func debugBetaRemoteDefaultGet(
         _ params: [String: JSONValue]
     ) -> ControlCallResult {
-        guard let key = string(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
+        guard let debugContext else {
+            return .err(code: "unavailable", message: Self.debugContextUnavailableResponse, data: nil)
         }
-        guard let snapshot = debugContext?.controlDebugBetaRemoteDefaultSnapshot(
+        let strings = debugContext.controlDebugBetaRemoteDefaultStrings()
+        guard let key = string(params, "key") else {
+            return .err(code: "invalid_params", message: strings.missingKey, data: nil)
+        }
+        guard let snapshot = debugContext.controlDebugBetaRemoteDefaultSnapshot(
             identifier: key
         ) else {
-            return .err(code: "not_found", message: "Beta remote default not found", data: nil)
+            return .err(code: "not_found", message: strings.notFound, data: nil)
         }
         return debugBetaRemoteDefaultResult(snapshot)
     }
@@ -17,11 +21,15 @@ extension ControlCommandCoordinator {
     func debugBetaRemoteDefaultSet(
         _ params: [String: JSONValue]
     ) -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: Self.debugContextUnavailableResponse, data: nil)
+        }
+        let strings = debugContext.controlDebugBetaRemoteDefaultStrings()
         guard let key = string(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
+            return .err(code: "invalid_params", message: strings.missingKey, data: nil)
         }
         guard let rawValue = params["value"] else {
-            return .err(code: "invalid_params", message: "Missing value", data: nil)
+            return .err(code: "invalid_params", message: strings.missingValue, data: nil)
         }
         let value: Bool?
         switch rawValue {
@@ -32,15 +40,15 @@ extension ControlCommandCoordinator {
         default:
             return .err(
                 code: "invalid_params",
-                message: "value must be a bool or null",
+                message: strings.invalidValue,
                 data: .object(["value": rawValue])
             )
         }
-        guard let snapshot = debugContext?.controlDebugSetBetaRemoteDefault(
+        guard let snapshot = debugContext.controlDebugSetBetaRemoteDefault(
             identifier: key,
             value: value
         ) else {
-            return .err(code: "not_found", message: "Beta remote default not found", data: nil)
+            return .err(code: "not_found", message: strings.notFound, data: nil)
         }
         return debugBetaRemoteDefaultResult(snapshot)
     }

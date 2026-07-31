@@ -11,6 +11,7 @@ struct DefaultsValueModelRemoteDefaultTests {
         let suiteName = "cmux.settings.ui.remote.\(UUID().uuidString)"
         nonisolated(unsafe) let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let key = DefaultsKey<Bool>(
             id: "tests.beta.enabled",
             defaultValue: false,
@@ -134,14 +135,14 @@ struct DefaultsValueModelRemoteDefaultTests {
 
         for _ in 0..<100_000 where
             defaults.object(forKey: key.userDefaultsKey) != nil
-                || model.pendingStoreEchoCount != 0
+                || !model.pendingStoreEchoes.isEmpty
                 || model.current != true {
             await Task.yield()
         }
 
         #expect(defaults.object(forKey: key.userDefaultsKey) == nil)
         #expect(model.current)
-        #expect(model.pendingStoreEchoCount == 0)
+        #expect(model.pendingStoreEchoes.isEmpty)
         #expect(key.resolution(in: defaults) == .init(value: true, source: .remoteDefault))
     }
 
@@ -182,13 +183,13 @@ struct DefaultsValueModelRemoteDefaultTests {
         for _ in 0..<1_000 {
             await Task.yield()
             everyObservedValueStayedFalse = everyObservedValueStayedFalse && model.current == false
-            if model.pendingStoreEchoCount == 0 { break }
+            if model.pendingStoreEchoes.isEmpty { break }
         }
 
         #expect(everyObservedValueStayedFalse)
         #expect(model.current == false)
         #expect(model.revision == revisionAfterClick)
-        #expect(model.pendingStoreEchoCount == 0)
+        #expect(model.pendingStoreEchoes.isEmpty)
     }
 
     private func makeKey() -> DefaultsKey<Bool> {

@@ -226992,6 +226992,74 @@
         }
       }
     },
+    "socket.debug.betaRemoteDefault.error.invalidValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value must be a bool or null"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value は bool または null である必要があります"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.missingKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "key が指定されていません"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing value"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "value が指定されていません"
+          }
+        }
+      }
+    },
+    "socket.debug.betaRemoteDefault.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta remote default not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ版のリモートデフォルトが見つかりません"
+          }
+        }
+      }
+    },
     "socket.notification.dismissSelectorRequired": {
       "extractionState": "manual",
       "localizations": {

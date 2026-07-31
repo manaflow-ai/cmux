@@ -186,7 +186,8 @@ enum WorkspaceTodoPaletteCommands {
 
     static func registerHandlers(
         in registry: inout CommandPaletteHandlerRegistry,
-        tabManager: TabManager
+        tabManager: TabManager,
+        todoControlsEnabled: Bool
     ) {
         func withSelectedWorkspace(_ body: @escaping (Workspace) -> Void) -> () -> Void {
             {
@@ -200,7 +201,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: statusAutoCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }
@@ -211,7 +212,7 @@ enum WorkspaceTodoPaletteCommands {
             registry.register(
                 commandId: statusCommandId(status),
                 handler: withSelectedWorkspace { workspace in
-                    guard WorkspaceTodoFeature.isEnabled else {
+                    guard todoControlsEnabled else {
                         NSSound.beep()
                         return
                     }
@@ -222,7 +223,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: markWorkspaceDoneCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }
@@ -232,7 +233,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: addChecklistItemCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }

@@ -66,12 +66,59 @@ struct ControlCommandCoordinatorDebugBetaRemoteDefaultsTests {
         }
         #expect(code == "invalid_params")
     }
+
+    @Test func validationErrorsUseContextProvidedStrings() {
+        let context = FakeBetaRemoteDefaultControlCommandContext()
+        context.strings = ControlDebugBetaRemoteDefaultStrings(
+            missingKey: "localized missing key",
+            notFound: "localized not found",
+            missingValue: "localized missing value",
+            invalidValue: "localized invalid value"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        guard case .err(_, let missingKey, _) = coordinator.handle(
+            ControlRequest(
+                id: .int(1),
+                method: "debug.beta_remote_defaults.get",
+                params: [:]
+            )
+        ) else {
+            Issue.record("expected missing-key error")
+            return
+        }
+        guard case .err(_, let invalidValue, _) = coordinator.handle(
+            ControlRequest(
+                id: .int(2),
+                method: "debug.beta_remote_defaults.set",
+                params: [
+                    "key": .string("tests.beta.enabled"),
+                    "value": .string("true"),
+                ]
+            )
+        ) else {
+            Issue.record("expected invalid-value error")
+            return
+        }
+        #expect(missingKey == "localized missing key")
+        #expect(invalidValue == "localized invalid value")
+    }
 }
 
 @MainActor
 private final class FakeBetaRemoteDefaultControlCommandContext: ControlCommandContext {
     var lastValueWasSet = false
     var lastValue: Bool?
+    var strings = ControlDebugBetaRemoteDefaultStrings(
+        missingKey: "Missing key",
+        notFound: "Beta remote default not found",
+        missingValue: "Missing value",
+        invalidValue: "value must be a bool or null"
+    )
+
+    func controlDebugBetaRemoteDefaultStrings() -> ControlDebugBetaRemoteDefaultStrings {
+        strings
+    }
 
     func controlDebugBetaRemoteDefaultSnapshot(
         identifier: String

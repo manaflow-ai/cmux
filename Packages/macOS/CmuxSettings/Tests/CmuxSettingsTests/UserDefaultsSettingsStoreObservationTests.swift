@@ -103,6 +103,59 @@ struct UserDefaultsSettingsStoreObservationTests {
         #expect(targetedEvent?.2 == true)
     }
 
+    @Test func remoteNotificationDepthPairsOnlyForObservedStorageKey() {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let observedDefaults = UserDefaults(suiteName: suiteName)!
+        observedDefaults.removePersistentDomain(forName: suiteName)
+        defer { observedDefaults.removePersistentDomain(forName: suiteName) }
+        let notificationCenter = NotificationCenter()
+        let storage = UserDefaultsSettingsStorage(
+            defaults: observedDefaults,
+            notificationCenter: notificationCenter
+        )
+        let recorder = NotificationClassificationRecorder()
+        let observedKey = "tests.beta.observed"
+        let token = storage.addDidChangeObserver(for: observedKey) {
+            isBackingDefaultsNotification,
+            canCarryActiveMutationSource,
+            isInheritedDefaultNotification in
+            recorder.append(NotificationClassification(
+                isBackingDefaultsNotification: isBackingDefaultsNotification,
+                canCarryActiveMutationSource: canCarryActiveMutationSource,
+                isInheritedDefaultNotification: isInheritedDefaultNotification
+            ))
+        }
+        defer { token.remove() }
+
+        func postRemote(_ name: Notification.Name, storageKey: String) {
+            notificationCenter.post(
+                name: name,
+                object: observedDefaults,
+                userInfo: [
+                    CmuxSettingsRemoteDefaultNotification.storageKeyUserInfoKey: storageKey,
+                ]
+            )
+        }
+
+        postRemote(.cmuxSettingsRemoteDefaultWillChange, storageKey: "tests.beta.other")
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
+
+        postRemote(.cmuxSettingsRemoteDefaultWillChange, storageKey: observedKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
+        postRemote(.cmuxSettingsRemoteDefaultDidChange, storageKey: "tests.beta.other")
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
+        postRemote(.cmuxSettingsRemoteDefaultDidChange, storageKey: observedKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
+
+        #expect(recorder.snapshot() == [
+            NotificationClassification(true, true, false),
+            NotificationClassification(true, false, true),
+            NotificationClassification(true, false, true),
+            NotificationClassification(true, false, true),
+            NotificationClassification(true, true, false),
+        ])
+    }
+
     @Test func valueEventBufferCarriesDroppedSourcesOntoSourceTaggedSurvivor() async {
         let firstSource = UserDefaultsSettingsMutationSource()
         let secondSource = UserDefaultsSettingsMutationSource()
@@ -127,5 +180,48 @@ struct UserDefaultsSettingsStoreObservationTests {
         #expect(event?.mutationSource == thirdSource)
         #expect(event?.supersededMutationSources.contains(firstSource) == true)
         #expect(event?.supersededMutationSources.contains(secondSource) == true)
+    }
+}
+
+private struct NotificationClassification: Sendable, Equatable {
+    let isBackingDefaultsNotification: Bool
+    let canCarryActiveMutationSource: Bool
+    let isInheritedDefaultNotification: Bool
+
+    init(
+        _ isBackingDefaultsNotification: Bool,
+        _ canCarryActiveMutationSource: Bool,
+        _ isInheritedDefaultNotification: Bool
+    ) {
+        self.init(
+            isBackingDefaultsNotification: isBackingDefaultsNotification,
+            canCarryActiveMutationSource: canCarryActiveMutationSource,
+            isInheritedDefaultNotification: isInheritedDefaultNotification
+        )
+    }
+
+    init(
+        isBackingDefaultsNotification: Bool,
+        canCarryActiveMutationSource: Bool,
+        isInheritedDefaultNotification: Bool
+    ) {
+        self.isBackingDefaultsNotification = isBackingDefaultsNotification
+        self.canCarryActiveMutationSource = canCarryActiveMutationSource
+        self.isInheritedDefaultNotification = isInheritedDefaultNotification
+    }
+}
+
+private final class NotificationClassificationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [NotificationClassification] = []
+
+    func append(_ value: NotificationClassification) {
+        lock.withLock {
+            values.append(value)
+        }
+    }
+
+    func snapshot() -> [NotificationClassification] {
+        lock.withLock { values }
     }
 }

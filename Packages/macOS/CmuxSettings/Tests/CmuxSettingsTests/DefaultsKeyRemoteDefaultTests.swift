@@ -13,7 +13,9 @@ struct DefaultsKeyRemoteDefaultTests {
     )
 
     @Test func resolutionPrefersUserThenRemoteThenCompileDefault() throws {
-        let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
 
         #expect(key.resolution(in: defaults) == .init(value: false, source: .compileDefault))
 
@@ -34,7 +36,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func invalidLayersFallThroughWithoutBecomingUserIntent() throws {
-        let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         defaults.set("invalid-user", forKey: key.userDefaultsKey)
         key.setRemoteDefault(true, in: defaults)
 
@@ -46,7 +50,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func sameEffectiveUserWritePersistsIntentAcrossRemoteChanges() throws {
-        let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         key.setRemoteDefault(true, in: defaults)
 
         key.set(true, in: defaults)
@@ -58,7 +64,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func cachedRemoteDefaultSurvivesKeyAndStoreReconstruction() async throws {
-        nonisolated(unsafe) let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        nonisolated(unsafe) let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         key.setRemoteDefault(true, in: defaults)
 
         let reconstructed = DefaultsKey<Bool>(
@@ -75,7 +83,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func resetRemovesOnlyUserChoiceAndInheritsRemoteDefault() async throws {
-        nonisolated(unsafe) let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        nonisolated(unsafe) let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         key.setRemoteDefault(true, in: defaults)
         key.set(false, in: defaults)
         let store = UserDefaultsSettingsStore(defaults: defaults)
@@ -88,7 +98,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func resetAllRemovesOnlyUserChoiceAndInheritsRemoteDefault() async throws {
-        nonisolated(unsafe) let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        nonisolated(unsafe) let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         key.setRemoteDefault(true, in: defaults)
         key.set(false, in: defaults)
         let store = UserDefaultsSettingsStore(defaults: defaults)
@@ -101,7 +113,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func liveStoreObservationSeesRemoteChangeWithoutUserWrite() async throws {
-        nonisolated(unsafe) let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        nonisolated(unsafe) let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
         let store = UserDefaultsSettingsStore(defaults: defaults)
         var iterator = store.values(for: key).makeAsyncIterator()
 
@@ -112,7 +126,9 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func initialValueEventClassifiesInheritedAndPrimaryLayers() async throws {
-        nonisolated(unsafe) let inheritedDefaults = try makeDefaults()
+        let inherited = try makeDefaults()
+        nonisolated(unsafe) let inheritedDefaults = inherited.defaults
+        defer { inheritedDefaults.removePersistentDomain(forName: inherited.suiteName) }
         key.setRemoteDefault(true, in: inheritedDefaults)
         let inheritedStore = UserDefaultsSettingsStore(defaults: inheritedDefaults)
         let inheritedStream = await inheritedStore.valueEvents(for: key)
@@ -123,7 +139,9 @@ struct DefaultsKeyRemoteDefaultTests {
         #expect(inheritedEvent?.isInitialSnapshot == true)
         #expect(inheritedEvent?.isInheritedDefaultChange == true)
 
-        nonisolated(unsafe) let primaryDefaults = try makeDefaults()
+        let primary = try makeDefaults()
+        nonisolated(unsafe) let primaryDefaults = primary.defaults
+        defer { primaryDefaults.removePersistentDomain(forName: primary.suiteName) }
         key.set(true, in: primaryDefaults)
         let primaryStore = UserDefaultsSettingsStore(defaults: primaryDefaults)
         let primaryStream = await primaryStore.valueEvents(for: key)
@@ -136,16 +154,18 @@ struct DefaultsKeyRemoteDefaultTests {
     }
 
     @Test func unchangedRemoteRefreshReportsNoStorageChange() throws {
-        let defaults = try makeDefaults()
+        let isolated = try makeDefaults()
+        let defaults = isolated.defaults
+        defer { defaults.removePersistentDomain(forName: isolated.suiteName) }
 
         #expect(key.setRemoteDefault(true, in: defaults))
         #expect(!key.setRemoteDefault(true, in: defaults))
     }
 
-    private func makeDefaults() throws -> UserDefaults {
+    private func makeDefaults() throws -> (suiteName: String, defaults: UserDefaults) {
         let suiteName = "cmux.tests.beta.remote.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        return defaults
+        return (suiteName, defaults)
     }
 }

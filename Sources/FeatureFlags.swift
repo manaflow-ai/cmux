@@ -25,18 +25,6 @@ struct CmuxRemoteFlagSnapshot: Sendable, Equatable {
     let invalidKeys: Set<String>
 }
 
-#if DEBUG
-struct CmuxBetaRemoteDefaultState: Sendable, Equatable {
-    let settingID: String
-    let flagKey: String
-    let userKeyPresent: Bool
-    let userValue: Bool?
-    let remoteDefault: Bool?
-    let effectiveValue: Bool
-    let source: DefaultsValueSource
-}
-#endif
-
 /// PostHog-backed runtime feature flags for the macOS app (PostHog project
 /// 244066, same public key analytics uses). Values are cached in memory and
 /// refreshed when the SDK reports a flag payload, so gated UI can be toggled
@@ -182,29 +170,6 @@ final class CmuxFeatureFlags {
             ),
         ]
     }()
-
-#if DEBUG
-    static func applyUITestBetaRemoteDefaultsIfPresent(
-        environment: [String: String],
-        defaults: UserDefaults = .standard
-    ) {
-        guard environment["CMUX_UI_TEST_MODE"] == "1",
-              let rawPayload = environment["CMUX_UI_TEST_BETA_REMOTE_DEFAULTS"],
-              let data = rawPayload.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return
-        }
-
-        for definition in betaRemoteDefaults {
-            let rawValue = payload[definition.flagKey]
-                ?? payload[definition.settingKey.id]
-            definition.settingKey.setRemoteDefault(
-                Bool.decodeFromJSON(rawValue),
-                in: defaults
-            )
-        }
-    }
-#endif
 
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
@@ -704,42 +669,6 @@ final class CmuxFeatureFlags {
         recomputeEffectiveValues()
         postChangeIfNeeded(previousResolutions: previousResolutions)
     }
-
-#if DEBUG
-    func betaRemoteDefaultState(identifier: String) -> CmuxBetaRemoteDefaultState? {
-        guard let definition = Self.betaRemoteDefaults.first(where: {
-            $0.settingKey.id == identifier || $0.flagKey == identifier
-        }) else {
-            return nil
-        }
-        let key = definition.settingKey
-        let resolution = key.resolution(in: defaults)
-        return CmuxBetaRemoteDefaultState(
-            settingID: key.id,
-            flagKey: definition.flagKey,
-            userKeyPresent: defaults.object(forKey: key.userDefaultsKey) != nil,
-            userValue: Bool.decodeFromUserDefaults(
-                defaults.object(forKey: key.userDefaultsKey)
-            ),
-            remoteDefault: key.remoteDefaultValue(in: defaults),
-            effectiveValue: resolution.value,
-            source: resolution.source
-        )
-    }
-
-    func setBetaRemoteDefaultForDebug(
-        identifier: String,
-        value: Bool?
-    ) -> CmuxBetaRemoteDefaultState? {
-        guard let definition = Self.betaRemoteDefaults.first(where: {
-            $0.settingKey.id == identifier || $0.flagKey == identifier
-        }) else {
-            return nil
-        }
-        definition.settingKey.setRemoteDefault(value, in: defaults)
-        return betaRemoteDefaultState(identifier: identifier)
-    }
-#endif
 
     private func recomputeEffectiveValues() {
         resolutionsByKey = Self.allFlags.reduce(into: [:]) { values, definition in

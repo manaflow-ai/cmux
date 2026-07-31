@@ -85,19 +85,23 @@ struct WorkspaceTodoSidebarModelTests {
         }
         let key = BetaFeaturesCatalogSection().workspaceTodoControls
 
-        #expect(key.defaultValue == false)
-        #expect(!WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
-        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
-        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .compileDefault))
+
+        key.setRemoteDefault(true, in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .remoteDefault))
 
         defaults.set(true, forKey: key.userDefaultsKey)
-        #expect(WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
-        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .user))
 
         defaults.set(false, forKey: key.userDefaultsKey)
-        #expect(!WorkspaceTodoFeature.effectiveControlsValue(defaults: defaults))
-        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
-        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .user))
+
+        key.setRemoteDefault(false, in: defaults)
+        key.setRemoteDefault(true, in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .user))
+
+        key.removeValue(in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .remoteDefault))
     }
 
     @MainActor
@@ -113,10 +117,7 @@ struct WorkspaceTodoSidebarModelTests {
         model.startObserving()
 
         key.setRemoteDefault(true, in: defaults)
-        for _ in 0..<100_000 where model.current == false {
-            await Task.yield()
-        }
-        #expect(model.current)
+        #expect(await waitUntil { model.current })
         #expect(SidebarWorkspaceManualTaskStatusIndicatorModel(
             featureEnabled: model.current,
             taskStatus: .review,
@@ -124,16 +125,16 @@ struct WorkspaceTodoSidebarModelTests {
         ).showsIndicator)
 
         model.set(false)
-        for _ in 0..<100_000 where Bool.decodeFromUserDefaults(
-            defaults.object(forKey: key.userDefaultsKey)
-        ) != false {
-            await Task.yield()
-        }
+        #expect(await waitUntil {
+            Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) == false
+        })
         key.setRemoteDefault(false, in: defaults)
         key.setRemoteDefault(true, in: defaults)
-        for _ in 0..<100 {
-            await Task.yield()
-        }
+        #expect(await waitUntil {
+            key.remoteDefaultValue(in: defaults) == true
+                && key.resolution(in: defaults) == .init(value: false, source: .user)
+                && model.current == false
+        })
 
         #expect(model.current == false)
         #expect(Bool.decodeFromUserDefaults(
@@ -144,6 +145,20 @@ struct WorkspaceTodoSidebarModelTests {
             taskStatus: .review,
             hasManualOverride: true
         ).showsIndicator)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !predicate() {
+            guard clock.now < deadline else { return false }
+            await Task.yield()
+        }
+        return true
     }
 
     @Test
