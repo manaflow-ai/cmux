@@ -606,7 +606,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
-            guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+            guard let request = sender.representedObject as? FileExternalOpenRequest else { return }
             FileExternalOpenAction.perform(request)
         }
 
@@ -1484,7 +1484,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        guard let request = sender.representedObject as? FileExternalOpenRequest else { return }
         FileExternalOpenAction.perform(request)
     }
 

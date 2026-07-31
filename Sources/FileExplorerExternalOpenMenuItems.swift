@@ -16,17 +16,20 @@ struct FileExplorerExternalOpenMenuItems {
         if let primaryApplication {
             menu.addItem(menuItem(
                 title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-                applicationURL: primaryApplication.url
+                requestAction: .open(applicationURL: primaryApplication.url)
             ))
         } else {
-            menu.addItem(menuItem(title: FileExternalOpenText.openExternally, applicationURL: nil))
+            menu.addItem(menuItem(
+                title: FileExternalOpenText.openExternally,
+                requestAction: .open(applicationURL: nil)
+            ))
         }
 
         let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
         for application in otherApplications {
             openWithMenu.addItem(menuItem(
                 title: application.displayName,
-                applicationURL: application.url
+                requestAction: .open(applicationURL: application.url)
             ))
         }
         if !otherApplications.isEmpty {
@@ -36,8 +39,7 @@ struct FileExplorerExternalOpenMenuItems {
         // does not associate with it.
         openWithMenu.addItem(menuItem(
             title: FileExternalOpenText.openWithOther,
-            applicationURL: nil,
-            picksApplication: true
+            requestAction: .pickApplication
         ))
 
         let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
@@ -45,18 +47,10 @@ struct FileExplorerExternalOpenMenuItems {
         menu.addItem(openWithItem)
     }
 
-    private func menuItem(
-        title: String,
-        applicationURL: URL?,
-        picksApplication: Bool = false
-    ) -> NSMenuItem {
+    private func menuItem(title: String, requestAction: FileExternalOpenRequestAction) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = target
-        item.representedObject = FileExplorerExternalOpenRequest(
-            fileURL: fileURL,
-            applicationURL: applicationURL,
-            picksApplication: picksApplication
-        )
+        item.representedObject = FileExternalOpenRequest(fileURL: fileURL, action: requestAction)
         return item
     }
 }

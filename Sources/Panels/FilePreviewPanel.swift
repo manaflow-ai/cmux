@@ -125,14 +125,21 @@ enum FileExternalOpenAction {
         NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 
-    /// Single entry point for the file explorer menus, so "Open With > Other…"
-    /// behaves the same in the tree and in the search results.
-    static func perform(_ request: FileExplorerExternalOpenRequest) {
-        guard !request.picksApplication else {
+    /// Single entry point for every menu that carries a request, so the preview
+    /// header, the Files tree, and the Files search results cannot drift.
+    static func perform(_ request: FileExternalOpenRequest) {
+        switch request.action {
+        case .open(let applicationURL):
+            guard let applicationURL else {
+                openDefault(fileURL: request.fileURL)
+                return
+            }
+            open(fileURL: request.fileURL, applicationURL: applicationURL)
+        case .pickApplication:
             openWithPickedApplication(fileURL: request.fileURL)
-            return
+        case .revealInFinder:
+            revealInFinder(fileURL: request.fileURL)
         }
-        open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
 
     /// Backs "Open With > Other…". Returns false when the user cancels.
@@ -280,7 +287,7 @@ enum FileExternalOpenMenuFactory {
     private static func menuItem(
         title: String,
         fileURL: URL,
-        action: FileExternalOpenMenuPayloadAction
+        action: FileExternalOpenRequestAction
     ) -> NSMenuItem {
         let item = NSMenuItem(
             title: title,
@@ -288,10 +295,7 @@ enum FileExternalOpenMenuFactory {
             keyEquivalent: ""
         )
         item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
-            fileURL: fileURL,
-            action: action
-        )
+        item.representedObject = FileExternalOpenRequest(fileURL: fileURL, action: action)
         return item
     }
 }
@@ -481,41 +485,12 @@ private struct FileExternalOpenHeaderMenuButton: View {
     }
 }
 
-private enum FileExternalOpenMenuPayloadAction {
-    case open(applicationURL: URL?)
-    case pickApplication
-    case revealInFinder
-}
-
-private final class FileExternalOpenMenuActionPayload: NSObject {
-    let fileURL: URL
-    let action: FileExternalOpenMenuPayloadAction
-
-    init(fileURL: URL, action: FileExternalOpenMenuPayloadAction) {
-        self.fileURL = fileURL
-        self.action = action
-    }
-}
-
 private final class FileExternalOpenMenuActionTarget: NSObject {
     static let shared = FileExternalOpenMenuActionTarget()
 
     @objc func open(_ item: NSMenuItem) {
-        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
-            return
-        }
-        switch payload.action {
-        case .open(let applicationURL):
-            guard let applicationURL else {
-                FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
-                return
-            }
-            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
-        case .pickApplication:
-            FileExternalOpenAction.openWithPickedApplication(fileURL: payload.fileURL)
-        case .revealInFinder:
-            FileExternalOpenAction.revealInFinder(fileURL: payload.fileURL)
-        }
+        guard let request = item.representedObject as? FileExternalOpenRequest else { return }
+        FileExternalOpenAction.perform(request)
     }
 }
 

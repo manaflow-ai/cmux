@@ -3542,11 +3542,10 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let openWithItem = menu.items.first { $0.title == FileExternalOpenText.openWithMenu }
         let otherItem = openWithItem?.submenu?.items.first { $0.title == FileExternalOpenText.openWithOther }
-        let request = otherItem?.representedObject as? FileExplorerExternalOpenRequest
+        let request = otherItem?.representedObject as? FileExternalOpenRequest
 
         XCTAssertEqual(request?.fileURL, fileURL)
-        XCTAssertNil(request?.applicationURL)
-        XCTAssertEqual(request?.picksApplication, true)
+        XCTAssertEqual(request?.action, .pickApplication)
     }
 
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
