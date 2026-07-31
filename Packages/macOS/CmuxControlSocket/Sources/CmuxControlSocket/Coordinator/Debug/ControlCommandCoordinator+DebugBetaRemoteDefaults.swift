@@ -41,7 +41,7 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: strings.invalidValue,
-                data: .object(["value": rawValue])
+                data: nil
             )
         }
         guard let snapshot = debugContext.controlDebugSetBetaRemoteDefault(

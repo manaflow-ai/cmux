@@ -51,7 +51,7 @@ struct ControlCommandCoordinatorDebugBetaRemoteDefaultsTests {
             return
         }
 
-        guard case .err(let code, _, _) = coordinator.handle(
+        guard case .err(let code, _, let data) = coordinator.handle(
             ControlRequest(
                 id: .int(2),
                 method: "debug.beta_remote_defaults.set",
@@ -65,6 +65,7 @@ struct ControlCommandCoordinatorDebugBetaRemoteDefaultsTests {
             return
         }
         #expect(code == "invalid_params")
+        #expect(data == nil)
     }
 
     @Test func validationErrorsUseContextProvidedStrings() {
