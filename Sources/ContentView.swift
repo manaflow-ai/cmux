@@ -13481,14 +13481,28 @@ struct VerticalTabsSidebar: View, Equatable {
             // drag is alive, so re-arm instead of rejecting every update
             // (which left the rest of the drag indicator-less and made the
             // final drop a silent no-op).
-            guard !tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+            let isSourceGroupAnchor = tabManager.workspaceGroups.contains {
+                $0.anchorWorkspaceId == dragId
+            }
+            guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+                isLocalWorkspace: true,
+                isSourceGroupAnchor: isSourceGroupAnchor
+            ) else {
                 return false
             }
             dragState.beginDragging(tabId: dragId)
             return true
         }
-        guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId),
-              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == dragId }) else {
+        guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId) else {
+            return false
+        }
+        let isSourceGroupAnchor = sourceManager.workspaceGroups.contains {
+            $0.anchorWorkspaceId == dragId
+        }
+        guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+            isLocalWorkspace: false,
+            isSourceGroupAnchor: isSourceGroupAnchor
+        ) else {
             return false
         }
         dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == dragId }?.isPinned ?? false

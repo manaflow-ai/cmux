@@ -418,7 +418,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
-    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
+    let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -509,13 +509,13 @@ class TabManager: ObservableObject {
                 configuredValue: GhosttyConfig.load().workingDirectory
             )
         },
-        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
-        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore ?? WorkspaceDirectoryCustomizationStore()
+        self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
@@ -1137,7 +1137,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1220,10 +1220,9 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if workspaceDirectoryCustomizationMode == .trackDirectory {
-                trackWorkspaceDirectoryCustomization(
+            if applyCreationTitleAsCustomTitle {
+                applyCreationWorkspaceCustomization(
                     to: newWorkspace,
-                    rootDirectory: workingDirectory,
                     explicitTitle: title,
                     explicitTitleSource: titleSource
                 )
@@ -1896,7 +1895,7 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1908,7 +1907,7 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -2010,7 +2009,7 @@ class TabManager: ObservableObject {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
+        applyCreationTitleAsCustomTitle: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -2022,7 +2021,7 @@ class TabManager: ObservableObject {
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -4265,7 +4264,7 @@ class TabManager: ObservableObject {
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: .disabled
+            applyCreationTitleAsCustomTitle: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -4276,7 +4275,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
-        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
+        reconcileWorkspaceCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -5692,7 +5691,6 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
-            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -6094,7 +6092,12 @@ extension TabManager {
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        var restoredDirectoryCustomizations = cachedWorkspaceDirectoryCustomizations(afterRestoring: Array(workspaceSnapshots))
+        prepareLegacyWorkspaceCustomizationMigration(
+            afterRestoring: Array(workspaceSnapshots)
+        )
+        let restoredCustomizations = cachedWorkspaceCustomizations(
+            afterRestoring: Array(workspaceSnapshots)
+        )
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6118,7 +6121,11 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
-            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace, cachedCustomizations: &restoredDirectoryCustomizations)
+            reconcileWorkspaceCustomization(
+                afterRestoring: workspaceSnapshot,
+                to: workspace,
+                cachedCustomizations: restoredCustomizations
+            )
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6141,7 +6148,6 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
-            trackWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
