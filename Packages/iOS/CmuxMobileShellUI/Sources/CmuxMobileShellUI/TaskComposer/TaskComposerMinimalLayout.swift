@@ -133,72 +133,40 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            pillScroller
-                .safeAreaInset(edge: .leading, spacing: 0) {
-                    HStack(spacing: 10) {
-                        if showsAttachmentButton {
-                            TaskComposerAttachmentPickerMenu(
-                                style: .circularPlus,
-                                isDisabled: isDisabled,
-                                choosePhotos: chooseAttachmentPhotos,
-                                chooseFiles: chooseAttachmentFiles
-                            )
-                        }
-
-                        optionsButton
+            TaskComposerPillBar {
+                HStack(spacing: 10) {
+                    if showsAttachmentButton {
+                        TaskComposerAttachmentPickerMenu(
+                            style: .circularPlus,
+                            isDisabled: isDisabled,
+                            choosePhotos: chooseAttachmentPhotos,
+                            chooseFiles: chooseAttachmentFiles
+                        )
                     }
-                    .padding(.leading, 16)
-                    .background(scrollEdgeNeighborBackground)
+
+                    optionsButton
                 }
-                .safeAreaInset(edge: .trailing, spacing: 0) {
-                    submitButton
-                        .padding(.trailing, 16)
-                        .background(scrollEdgeNeighborBackground)
+                .padding(.leading, 16)
+            } pills: {
+                HStack(spacing: 8) {
+                    agentPill
+
+                    if !models.isEmpty, showsStandaloneModelPill {
+                        modelPill
+                    }
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+            } trailing: {
+                submitButton
+                    .padding(.trailing, 16)
+            }
+            .frame(height: 44)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
-    }
-
-    /// The pill scroller spans the whole bar; the neighboring buttons sit in
-    /// its leading/trailing safe-area insets, so pills genuinely scroll
-    /// UNDER them. On iOS 26 the native soft scroll edge effect then blurs
-    /// and fades the passing content into the background at both edges (it
-    /// only renders where content goes beneath an inset). Earlier systems
-    /// occlude with an opaque button background instead.
-    @ViewBuilder
-    private var pillScroller: some View {
-        let scroller = ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                agentPill
-
-                if !models.isEmpty, showsStandaloneModelPill {
-                    modelPill
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, 10, for: .scrollContent)
-        if #available(iOS 26.0, *) {
-            scroller.scrollEdgeEffectStyle(.soft, for: .all)
-        } else {
-            scroller
-        }
-    }
-
-    /// Opaque only where the system cannot blur: iOS 26's edge effect wants
-    /// the passing content visible beneath the buttons.
-    @ViewBuilder
-    private var scrollEdgeNeighborBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-        } else {
-            Color(uiColor: .systemBackground)
-        }
     }
 
     private var optionsButton: some View {
