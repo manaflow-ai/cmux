@@ -291,6 +291,28 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
+    @Test(arguments: [408, 425])
+    func transientHTTPStatusRetriesAndHonorsRetryAfter(
+        statusCode: Int
+    ) async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(statusCode, headers: ["Retry-After": "0"]),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(
+            retryDelays: [.seconds(30)]
+        )
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        for _ in 0..<100 where await service.snapshot.backendState != .registered {
+            await Task.yield()
+        }
+
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+    }
+
     @Test func rateLimitHonorsRetryAfterBeforeRecovering() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(
