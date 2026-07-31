@@ -87,7 +87,9 @@ jobs:
 
       - name: Install zig
         if: steps.check-release.outputs.exists == 'false'
-        run: ./scripts/install-zig-ci.sh
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
 
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'

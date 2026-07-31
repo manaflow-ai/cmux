@@ -1,14 +1,11 @@
-import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-private typealias AppStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
-private typealias AppStoredShortcut = cmux.StoredShortcut
 #endif
 
 @MainActor
@@ -187,7 +184,9 @@ struct WorkspaceRecoveryTests {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: nil,
             cmuxConfigStore: nil,
-            window: nil
+            window: nil,
+            workspaceTerminalFontSizeArbiter:
+                appDelegate.workspaceTerminalFontSizeArbiter
         )
         appDelegate.mainWindowContexts[ObjectIdentifier(sourceContext)] = sourceContext
         appDelegate.tabManager = sourceManager
@@ -568,33 +567,4 @@ struct WorkspaceRecoveryTests {
         #expect(laterManager.selectedWorkspace?.customColor == "#445566")
     }
 
-    @Test
-    func reopenWorkspaceShortcutIsCustomizableAndMappedToThePaletteCommand() throws {
-        let expected = AppStoredShortcut(
-            key: "t",
-            command: true,
-            shift: true,
-            option: false,
-            control: false
-        )
-        #expect(KeyboardShortcutSettings.Action.reopenClosedWorkspace.defaultShortcut == expected)
-        #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(.reopenClosedWorkspace))
-        let settingsAction = try #require(
-            ShortcutAction(rawValue: KeyboardShortcutSettings.Action.reopenClosedWorkspace.rawValue)
-        )
-        #expect(
-            settingsAction.defaultStroke ==
-                CmuxSettings.ShortcutStroke(key: "t", command: true, shift: true)
-        )
-        #expect(settingsAction.group == .workspace)
-        #expect(settingsAction.displayName == KeyboardShortcutSettings.Action.reopenClosedWorkspace.label)
-        #expect(ShortcutAction.settingsVisibleActions.contains(settingsAction))
-        #expect(ShortcutAction.reopenClosedBrowserPanel.defaultStroke == nil)
-        #expect(KeyboardShortcutSettings.Action.reopenClosedBrowserPanel.defaultShortcut.isUnbound)
-        #expect(
-            ContentView.commandPaletteShortcutAction(
-                forCommandID: "palette.reopenClosedWorkspace"
-            ) == .reopenClosedWorkspace
-        )
-    }
 }

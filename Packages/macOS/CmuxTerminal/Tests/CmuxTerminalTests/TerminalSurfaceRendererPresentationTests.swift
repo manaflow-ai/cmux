@@ -99,7 +99,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRebuildCallCount() == 1)
     }
 
-    @Test func hiddenRuntimeUsesAtomicRebuildOnFirstVisibility() {
+    @Test func hiddenRuntimeIsReleasedThenRebuiltOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -174,7 +174,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRealizedCalls().isEmpty)
     }
 
-    @Test func reclaimedRuntimeIsRealizedOnceWhenShownAgain() {
+    @Test func reclaimedRuntimeIsRebuiltOnceWhenShownAgain() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -199,10 +199,11 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
 
         #expect(surface.isRendererPresented)
-        #expect(rendererRealizedCalls() == [false, true])
+        #expect(rendererRealizedCalls() == [false])
+        #expect(rendererRebuildCallCount() == 1)
     }
 
-    @Test func failedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
+    @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
@@ -254,7 +255,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(scheduler.scheduledSurfaceIDs == [surface.id])
     }
 
-    @Test func laterRendererActivityRepairsAfterRepeatedMailboxFailures() {
+    @Test func laterRendererActivityRepairsAfterRepeatedRebuildRejections() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
