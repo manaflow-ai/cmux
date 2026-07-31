@@ -2501,9 +2501,9 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(3, label: "q quit", in: app)
     }
 
-    /// Regression: a diagonal left-edge swipe must pop the workspace detail
-    /// without also forwarding its vertical component as terminal scroll. A
-    /// later center drag proves terminal scrolling remains enabled off the edge.
+    /// Regression: a center drag must keep scrolling the terminal, while a
+    /// diagonal left-edge swipe must pop the workspace detail without also
+    /// forwarding its vertical component as terminal scroll.
     @MainActor
     func testEdgeSwipeBackDoesNotScrollTerminal() async throws {
         let server = try MobileSyncMockHostServer()
@@ -2516,6 +2516,22 @@ final class cmuxUITests: XCTestCase {
         try await switchToTUITerminal(in: app, server: server)
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let scrollStart = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        let scrollEnd = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        scrollStart.press(
+            forDuration: 0.05,
+            thenDragTo: scrollEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        let forwardedCenterScroll = await server.waitForTerminalScrollRequest(timeout: 2)
+        XCTAssertTrue(
+            forwardedCenterScroll,
+            "A center drag must keep forwarding ordinary terminal scroll."
+        )
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await server.resetTerminalScrollRequests()
 
         let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.78))
         let edgeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.22))
@@ -2530,19 +2546,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(
             forwardedEdgeScroll,
             "The edge navigation gesture also forwarded terminal scroll."
-        )
-
-        workspaceRow.tap()
-        XCTAssertTrue(surface.waitForExistence(timeout: 8))
-        assertTerminalRow(0, label: "LAZYGIT", in: app)
-
-        let scrollStart = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-        let scrollEnd = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-        scrollStart.press(forDuration: 0.05, thenDragTo: scrollEnd)
-        let forwardedCenterScroll = await server.waitForTerminalScrollRequest(timeout: 2)
-        XCTAssertTrue(
-            forwardedCenterScroll,
-            "A center drag must keep forwarding ordinary terminal scroll."
         )
     }
 
@@ -6460,6 +6463,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
 
         return await terminalScrollRequestCount() > 0
+    }
+
+    func resetTerminalScrollRequests() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.terminalScrollRequestsReceived = 0
+                continuation.resume()
+            }
+        }
     }
 
     private func terminalScrollRequestCount() async -> Int {

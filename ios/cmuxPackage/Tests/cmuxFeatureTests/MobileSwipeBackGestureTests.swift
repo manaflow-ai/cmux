@@ -37,6 +37,7 @@ struct MobileSwipeBackGestureTests {
         // it no-op against a not-yet-created recognizer.
         nav.loadViewIfNeeded()
         root.addChild(host)
+        root.view.addSubview(host.view)
         host.didMove(toParent: root)
         guard let popGesture = nav.interactivePopGestureRecognizer else { return nil }
         return (nav, host, popGesture)
@@ -79,13 +80,19 @@ struct MobileSwipeBackGestureTests {
     @Test("pop gesture takes precedence over surface pan recognizers")
     func popGestureTakesPrecedenceOverSurfacePans() throws {
         let hosted = try #require(makeHostedNavigation())
-        let surfacePan = UIPanGestureRecognizer()
+        let surfaceScrollView = UIScrollView()
+        hosted.host.view.addSubview(surfaceScrollView)
+        let surfacePan = surfaceScrollView.panGestureRecognizer
+        let unrelatedScrollView = UIScrollView()
+        let unrelatedPan = unrelatedScrollView.panGestureRecognizer
         let delegate = try #require(hosted.popGesture.delegate)
 
         #expect(
-            hosted.host.gestureRecognizer(
-                hosted.popGesture,
-                shouldRecognizeSimultaneouslyWith: surfacePan
+            (
+                delegate.gestureRecognizer?(
+                    hosted.popGesture,
+                    shouldRecognizeSimultaneouslyWith: surfacePan
+                ) ?? false
             ) == false
         )
         #expect(
@@ -93,6 +100,12 @@ struct MobileSwipeBackGestureTests {
                 hosted.popGesture,
                 shouldBeRequiredToFailBy: surfacePan
             ) == true
+        )
+        #expect(
+            delegate.gestureRecognizer?(
+                hosted.popGesture,
+                shouldBeRequiredToFailBy: unrelatedPan
+            ) == false
         )
     }
 }
