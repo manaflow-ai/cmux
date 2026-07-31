@@ -192,8 +192,8 @@ cmux_attach_readiness_cursor() {
 # Waits on the host's explicit usable-RPC event after the launch baseline.
 # Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>.
 cmux_attach_wait_for_usable_session() {
-  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
-  if cmux_attach_events \
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4" event
+  if event="$(cmux_attach_events \
     "$tag" \
     "$repo_root" \
     --after "$baseline" \
@@ -201,13 +201,101 @@ cmux_attach_wait_for_usable_session() {
     --limit 1 \
     --timeout "$timeout" \
     --no-ack \
-    --no-heartbeat \
-    >/dev/null; then
+    --no-heartbeat)"; then
+    printf '%s\n' "$event"
     return 0
   fi
   echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
   echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
   return 1
+}
+
+# Writes the durable, secret-free proof consumed by dogfood automation. The
+# event arrives on stdin to Python so even an unexpectedly sensitive field
+# never appears in argv or the process environment; only the explicit
+# readiness identity fields are copied into the receipt.
+cmux_attach_write_readiness_receipt() {
+  local path="$1" git_sha="$2" tag="$3" bundle_id="$4"
+  local target="$5" target_id="$6" mac_tag="$7" socket_path="$8"
+  local readiness_latency_ms="$9" attempt_count="${10}" event_json="${11}"
+  if [[ ! "$readiness_latency_ms" =~ ^[0-9]+$ ]] \
+      || [[ ! "$attempt_count" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: readiness receipt timing and attempt count must be integers" >&2
+    return 2
+  fi
+  printf '%s' "$event_json" | /usr/bin/python3 -c '
+import json
+import os
+import sys
+import tempfile
+
+(
+    path,
+    git_sha,
+    tag,
+    bundle_id,
+    target,
+    target_id,
+    mac_tag,
+    socket_path,
+    readiness_latency_ms,
+    attempt_count,
+) = sys.argv[1:]
+event = json.load(sys.stdin)
+payload = event.get("payload")
+if event.get("name") != "mobile.rpc.ready" or not isinstance(payload, dict):
+    raise SystemExit("invalid mobile.rpc.ready event")
+
+required_strings = ("connection_id", "client_id", "stream_id", "transport")
+for key in required_strings:
+    if not isinstance(payload.get(key), str) or not payload[key]:
+        raise SystemExit(f"missing readiness field: {key}")
+workspace_count = payload.get("workspace_count")
+if isinstance(workspace_count, bool) or not isinstance(workspace_count, int) or workspace_count < 1:
+    raise SystemExit("invalid readiness field: workspace_count")
+
+receipt = {
+    "schema": "cmux-ios-dogfood-readiness-v1",
+    "git_sha": git_sha,
+    "tag": tag,
+    "bundle_id": bundle_id,
+    "target": target,
+    "target_id": target_id,
+    "mac_tag": mac_tag,
+    "socket_path": socket_path,
+    "readiness_latency_ms": int(readiness_latency_ms),
+    "attempt_count": int(attempt_count),
+    "connection_id": payload["connection_id"],
+    "client_id": payload["client_id"],
+    "workspace_count": workspace_count,
+    "stream_id": payload["stream_id"],
+    "transport": payload["transport"],
+}
+parent = os.path.dirname(path) or "."
+os.makedirs(parent, exist_ok=True)
+descriptor, temporary_path = tempfile.mkstemp(prefix=".cmux-ready-", dir=parent)
+try:
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        json.dump(receipt, output, sort_keys=True)
+        output.write("\n")
+    os.replace(temporary_path, path)
+except BaseException:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+    try:
+        os.unlink(temporary_path)
+    except OSError:
+        pass
+    raise
+' "$path" "$git_sha" "$tag" "$bundle_id" "$target" "$target_id" \
+    "$mac_tag" "$socket_path" "$readiness_latency_ms" "$attempt_count"
+}
+
+cmux_attach_monotonic_milliseconds() {
+  /usr/bin/python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
 }
 
 # Ensure the tagged Mac app is running AND its iOS pairing listener

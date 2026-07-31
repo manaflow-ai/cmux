@@ -25,6 +25,24 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     public var debugDescription: String { description }
 }
 
+/// One authenticated account and credential pair captured atomically.
+///
+/// Platform auth coordinators map their native session snapshot into this
+/// transport-owned value so account pinning and exactly-once rejection
+/// recovery stay identical on macOS and iOS.
+public struct CmxIrohAccountCredentialSnapshot: Sendable {
+    public let accountID: String
+    public let credentials: CmxIrohBrokerCredentials
+
+    public init(
+        accountID: String,
+        credentials: CmxIrohBrokerCredentials
+    ) {
+        self.accountID = accountID
+        self.credentials = credentials
+    }
+}
+
 /// Supplies the short-lived Stack credentials required by native API calls.
 ///
 /// The ONLY construction input is `credentialPair`, which must return BOTH
@@ -59,18 +77,75 @@ public struct CmxIrohBrokerTokenSource: Sendable {
     /// never silently switches credentials. The client retries the rejected
     /// request at most once with the recovered pair.
     public let recoveredCredentialPair:
-        @Sendable (_ rejected: CmxIrohBrokerCredentials) async -> CmxIrohBrokerCredentials?
+        @Sendable (_ rejected: CmxIrohBrokerCredentials) async throws
+            -> CmxIrohBrokerCredentials?
 
     public init(
         credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?,
         recoveredCredentialPair: @escaping @Sendable (
             _ rejected: CmxIrohBrokerCredentials
-        ) async -> CmxIrohBrokerCredentials? = { _ in nil }
+        ) async throws -> CmxIrohBrokerCredentials? = { _ in nil }
     ) {
         self.credentialPair = credentialPair
         self.recoveredCredentialPair = recoveredCredentialPair
         self.accessToken = { try await credentialPair()?.accessToken }
         self.refreshToken = { try await credentialPair()?.refreshToken }
+    }
+
+    /// Builds a live token source pinned to one account.
+    ///
+    /// A rejected pair first re-reads the atomic session snapshot. If another
+    /// lane already rotated it, that newer pair is reused. Otherwise the
+    /// platform auth owner is asked to refresh once, followed by one final
+    /// account-pinned snapshot. Account switches and missing sessions fail
+    /// closed throughout.
+    public static func accountPinned(
+        to expectedAccountID: String,
+        snapshot: @escaping @Sendable () async throws
+            -> CmxIrohAccountCredentialSnapshot?,
+        forceRefresh: @escaping @Sendable () async throws -> Void
+    ) -> Self {
+        Self(
+            credentialPair: {
+                guard let captured = try await snapshot(),
+                      captured.accountID == expectedAccountID else {
+                    return nil
+                }
+                return captured.credentials
+            },
+            recoveredCredentialPair: { rejected in
+                do {
+                    if let captured = try await snapshot(),
+                       captured.accountID == expectedAccountID,
+                       captured.credentials.accessToken != rejected.accessToken {
+                        return captured.credentials
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // A transient snapshot read can still be repaired by the
+                    // one explicit refresh below.
+                }
+                do {
+                    try await forceRefresh()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    return nil
+                }
+                let refreshed: CmxIrohAccountCredentialSnapshot?
+                do {
+                    refreshed = try await snapshot()
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    return nil
+                }
+                guard let refreshed,
+                      refreshed.accountID == expectedAccountID else { return nil }
+                return refreshed.credentials
+            }
+        )
     }
 }
 
@@ -475,6 +550,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let capturedPair: CmxIrohBrokerCredentials?
         do {
             capturedPair = try await tokenSource.credentialPair()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             // The source could not read a coherent pair right now (token store
             // mid-transition, re-mint in flight or offline). That is transient
@@ -501,9 +578,15 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             // lane rotated the session before the server validated it. Recover
             // ONCE with a pair minted after the rejection; a second rejection
             // is authoritative and propagates.
-            guard let recovered = await tokenSource.recoveredCredentialPair(pair) else {
-                throw error
+            let recovered: CmxIrohBrokerCredentials?
+            do {
+                recovered = try await tokenSource.recoveredCredentialPair(pair)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw CmxIrohTrustBrokerClientError.connectivity
             }
+            guard let recovered else { throw error }
             return try await performAuthenticatedRequest(
                 path: path,
                 method: method,

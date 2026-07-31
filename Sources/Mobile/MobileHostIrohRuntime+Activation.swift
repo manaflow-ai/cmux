@@ -100,7 +100,8 @@ extension MobileHostIrohRuntime {
         }
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
-            tokenSource: CmxIrohBrokerTokenSource(
+            tokenSource: .accountPinned(
+                to: accountID,
                 // An ATOMIC authenticated snapshot per fetch, validated
                 // against the activation's ACCOUNT pin: identity and
                 // credentials come from one transition-checked capture, so an
@@ -115,7 +116,7 @@ extension MobileHostIrohRuntime {
                 // strand the runtime on nil credentials until relaunch. The
                 // snapshot's pair capture is store-level (no network while the
                 // stored access token is valid).
-                credentialPair: { [weak auth] in
+                snapshot: { [weak auth] in
                     guard let auth else { return nil }
                     let session: AuthenticatedSessionSnapshot
                     do {
@@ -128,34 +129,17 @@ extension MobileHostIrohRuntime {
                     // store, a re-mint is in flight or offline) rethrow so
                     // the broker classifies them connectivity instead of
                     // tearing the host runtime down as unauthorized.
-                    guard session.accountID == accountID else { return nil }
-                    return CmxIrohBrokerCredentials(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken
-                    )
-                },
-                recoveredCredentialPair: { [weak auth] rejected in
-                    guard let auth else { return nil }
-                    // Re-capture first: when another lane already rotated the
-                    // session, the fresh snapshot differs from the rejected
-                    // pair and no extra mint is needed. Only an unchanged
-                    // access token forces a mint; the SDK store dedups
-                    // concurrent refreshes.
-                    if let session = try? await auth.authenticatedSessionSnapshot(),
-                       session.accountID == accountID,
-                       session.accessToken != rejected.accessToken {
-                        return CmxIrohBrokerCredentials(
+                    return CmxIrohAccountCredentialSnapshot(
+                        accountID: session.accountID,
+                        credentials: CmxIrohBrokerCredentials(
                             accessToken: session.accessToken,
                             refreshToken: session.refreshToken
                         )
-                    }
-                    guard (try? await auth.forceRefreshAccessToken()) != nil,
-                          let session = try? await auth.authenticatedSessionSnapshot(),
-                          session.accountID == accountID else { return nil }
-                    return CmxIrohBrokerCredentials(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken
                     )
+                },
+                forceRefresh: { [weak auth] in
+                    guard let auth else { return }
+                    _ = try await auth.forceRefreshAccessToken()
                 }
             ),
             backpressureMode: .callerOwned

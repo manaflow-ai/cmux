@@ -17,6 +17,15 @@ import SwiftUI
 import AppKit
 #endif
 
+enum WorkspaceDetailConnectionChrome {
+    static func reconnectAction(
+        connectionRequiresReauth: Bool,
+        reconnect: @escaping () -> Void
+    ) -> (() -> Void)? {
+        connectionRequiresReauth ? nil : reconnect
+    }
+}
+
 struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
@@ -350,7 +359,10 @@ struct WorkspaceDetailView: View {
             MobileMacConnectionStatusPill(
                 host: host,
                 status: effectiveConnectionStatus,
-                reconnect: { reconnectToWorkspaceMac() }
+                reconnect: WorkspaceDetailConnectionChrome.reconnectAction(
+                    connectionRequiresReauth: store.connectionRequiresReauth,
+                    reconnect: { reconnectToWorkspaceMac() }
+                )
             )
                 .padding(.top, 10)
                 .padding(.leading, 10)
