@@ -20,10 +20,10 @@ struct MobileInjectedAttachStartupTests {
             return MobilePairingURLConnectionResult.connected
         }
 
-        let completion = try #require(completion)
+        let completedAttempt = try #require(completion)
         #expect(await recorder.values() == [attachURL])
-        #expect(completion.result == .connected)
-        #expect(!completion.shouldReconnectStoredMac)
+        #expect(completedAttempt.result == .connected)
+        #expect(!completedAttempt.shouldReconnectStoredMac)
         #expect(coordinator.claimStoredReconnect() == nil)
     }
 }
