@@ -451,6 +451,221 @@ describe("notifications push route", () => {
     expect(retryPayload.expirationEpochSeconds).toBe(stored?.expiration);
   });
 
+  dbTest("stale takeover without a summary keeps the claimed expiration", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    const correlationId = "0eb814aa-5b3b-4776-a4e8-f45f57c4f51f";
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+        }),
+      },
+    );
+    beforeNextSend = async () => {
+      throw new Error("simulated worker loss");
+    };
+
+    await expect(
+      pushRoute.sendPushWithTransport(
+        request(),
+        sendApnsNotificationReliably as Parameters<
+          typeof pushRoute.sendPushWithTransport
+        >[1],
+      ),
+    ).rejects.toThrow();
+    await sql`
+      update notification_send_events
+      set
+        expires_at = date_trunc('second', now()) + interval '30 seconds',
+        lease_until = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    const [stored] = await sql<{ expiration: number }[]>`
+      select extract(epoch from expires_at)::int as expiration
+      from notification_send_events
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    scriptedSendOutcomes = [[{
+      deviceToken: "a".repeat(64),
+      status: 200,
+      prune: false,
+    }]];
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    const retryPayload = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[1]?.[2] as {
+        expirationEpochSeconds: number;
+      }
+    );
+    expect(retryPayload.expirationEpochSeconds).toBe(stored?.expiration);
+  });
+
+  dbTest("a frozen empty recipient set excludes devices registered later", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    const correlationId = "7e278f1d-4f9d-4d1e-9695-55db39373319";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 120;
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds,
+        }),
+      },
+    );
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await sql`
+      update notification_send_events
+      set
+        result_summary = null,
+        result_outcomes = null,
+        lease_until = now() - interval '1 second'
+      where user_id = 'user-1' and correlation_id = ${correlationId}
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"c".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+
+    const recovered = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(await recovered.json()).toMatchObject({
+      sent: 0,
+      devices: 0,
+    });
+    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
+  });
+
+  dbTest("a changed topic or environment is not the frozen target", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment
+      ) values (
+        'user-1',
+        ${"a".repeat(64)},
+        'ios',
+        'com.cmux.app',
+        'production'
+      )
+    `;
+    scriptedSendOutcomes = [[{
+      deviceToken: "a".repeat(64),
+      status: 503,
+      reason: "ServiceUnavailable",
+      prune: false,
+    }]];
+    const correlationId = "58f663e4-72f4-4904-82da-02c45bcb576f";
+    const expirationEpochSeconds = Math.floor(Date.now() / 1_000) + 120;
+    const request = () => new Request(
+      "https://cmux.test/api/notifications/push",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds,
+        }),
+      },
+    );
+
+    await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    await sql`
+      update device_tokens
+      set bundle_id = 'dev.cmux.ios.push1', environment = 'sandbox'
+      where user_id = 'user-1' and device_token = ${"a".repeat(64)}
+    `;
+
+    const reconciled = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(await reconciled.json()).toMatchObject({
+      sent: 0,
+      devices: 1,
+      transientFailures: 0,
+      permanentFailures: 1,
+    });
+    expect(sendApnsNotificationReliably).toHaveBeenCalledTimes(1);
+  });
+
   dbTest("freezes recipients and terminally resolves a device removed before retry", async () => {
     if (!sql) throw new Error("test database not initialized");
     useStubDb = false;
@@ -595,6 +810,9 @@ describe("notifications push route", () => {
       >[1],
     );
     expect(changedBody.status).toBe(409);
+    expect(
+      changedBody.headers.get("x-cmux-push-correlation-id"),
+    ).toBe(correlationId);
     expect(await changedBody.json()).toEqual({
       error: "correlation_payload_mismatch",
       correlationId,
