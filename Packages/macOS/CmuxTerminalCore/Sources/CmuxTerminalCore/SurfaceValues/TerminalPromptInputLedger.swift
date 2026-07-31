@@ -68,10 +68,11 @@ public struct TerminalPromptInputLedger: Sendable {
     /// never makes the composer available on its own. The ledger stays busy
     /// until an actual agent `UserPromptSubmit` hook confirms that boundary.
     /// This means agent-specific key handling can conservatively produce a
-    /// false negative without weakening draft safety: a later known boundary
-    /// and hook can still recover the ledger. Unknown cancellation or
-    /// delete-to-empty input deliberately stays busy until that proof or an
-    /// agent-process transition; state alone cannot prove the TUI is empty.
+    /// false negative without weakening draft safety: one hook confirms at
+    /// most one possible boundary, and an agent-process transition remains the
+    /// definitive recovery. Unknown cancellation or delete-to-empty input
+    /// deliberately stays busy until that proof or transition; state alone
+    /// cannot prove the TUI is empty.
     public mutating func recordHumanInput(
         _ mutation: HumanPromptInputMutation
     ) {
@@ -144,10 +145,10 @@ public struct TerminalPromptInputLedger: Sendable {
     /// Matches an agent `UserPromptSubmit` hook to a known prompt boundary.
     ///
     /// App-owned records match by message rather than position. An unmatched
-    /// hook may confirm the leading run of human boundaries only when no
-    /// pending app-owned record could own it. This retires submit-capable
-    /// Returns that produced no hook while preserving any input after the
-    /// latest boundary.
+    /// hook may confirm one leading human boundary only when no pending
+    /// app-owned record could own it. Confirming at most one possible boundary
+    /// per hook prevents a later non-submitting Return from being mistaken for
+    /// proof that newer human input is gone.
     @discardableResult
     public mutating func confirmSubmission(message: String?)
         -> PromptSubmissionConfirmationOrigin
@@ -188,18 +189,14 @@ public struct TerminalPromptInputLedger: Sendable {
         if consumeEarliestProgrammaticBoundary() {
             return .unmatched
         }
-        var latestHumanGeneration: UInt64?
-        while let first = pendingBoundaries.first,
-              case .human(let generation) = first {
-            pendingBoundaries.removeFirst()
-            latestHumanGeneration = generation
-        }
-        guard let latestHumanGeneration else {
+        guard let first = pendingBoundaries.first,
+              case .human(let generation) = first else {
             return .unmatched
         }
+        pendingBoundaries.removeFirst()
         confirmedHumanInputGeneration = max(
             confirmedHumanInputGeneration,
-            latestHumanGeneration
+            generation
         )
         return .human
     }
@@ -242,8 +239,7 @@ public struct TerminalPromptInputLedger: Sendable {
         }
         // Never discard or coalesce an older boundary: doing so could let its
         // delayed hook clear newer typing. Skipping this boundary remains
-        // fail-closed, and once older hooks drain, any later Return plus hook
-        // can recover normally.
+        // fail-closed until a later confirmed boundary or process transition.
         guard humanBoundaryCount < Self.maximumPendingBoundaries else { return }
         pendingBoundaries.append(.human(generation: generation))
     }

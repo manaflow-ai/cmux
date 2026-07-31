@@ -25,19 +25,19 @@ import Testing
         #expect(ledger.hasUnconfirmedHumanInput)
     }
 
-    @Test func unhookedReturnDoesNotPermanentlyDelayRecovery() {
+    @Test func oneHookCannotConfirmMoreThanOneHumanBoundary() {
         var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agentPIDKey:codex.session")
         ledger.recordHumanInput(.unknown)
         ledger.recordHumanInput(.submissionBoundary)
         ledger.recordHumanInput(.unknown)
         ledger.recordHumanInput(.submissionBoundary)
 
         #expect(ledger.confirmSubmission(message: "human prompt") == .human)
+        #expect(ledger.hasUnconfirmedHumanInput)
+
+        ledger.synchronizeAgentScope("agentPIDKey:next.session")
         #expect(!ledger.hasUnconfirmedHumanInput)
-        #expect(
-            ledger.confirmSubmission(message: "no additional prompt")
-                == .unmatched
-        )
     }
 
     @Test func programmaticHookMatchNeverClearsNewerHumanTyping() {
@@ -320,7 +320,12 @@ import Testing
         ledger.recordHumanInput(.unknown)
         ledger.recordHumanInput(.submissionBoundary)
 
-        #expect(ledger.confirmSubmission(message: "submitted") == .human)
+        for index in 0..<64 {
+            #expect(
+                ledger.confirmSubmission(message: "submitted \(index)")
+                    == .human
+            )
+        }
         #expect(ledger.hasUnconfirmedHumanInput)
         #expect(
             ledger.confirmSubmission(message: "untracked") == .unmatched
