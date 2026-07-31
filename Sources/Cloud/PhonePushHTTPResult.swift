@@ -16,7 +16,9 @@ enum PhonePushHTTPResult: Equatable, Sendable {
     case rejected(statusCode: Int)
     case cancelled
 
-    var shouldRetry: Bool { self == .retryableFailure }
+    var shouldRetry: Bool {
+        self == .retryableFailure || self == .authenticationUnavailable
+    }
 
     static func decode(statusCode: Int, data: Data) -> Self {
         switch statusCode {

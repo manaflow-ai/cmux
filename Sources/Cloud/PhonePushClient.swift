@@ -431,19 +431,8 @@ final class PhonePushClient {
             return .expired
         }
         guard let auth else { return .authenticationUnavailable }
-        let initial: AuthenticatedSessionSnapshot
-        do {
-            initial = try await auth.authenticatedSessionSnapshot()
-        } catch {
-            return .authenticationUnavailable
-        }
-        guard PhonePushDeliveryAuthorization.permits(
-            envelope: envelope,
-            session: initial,
-            sessionIsCurrent: await auth.isAuthenticatedSessionCurrent(initial)
-        ) else { return .staleSession }
-
-        var sessionSnapshot = initial
+        var initialSnapshot: AuthenticatedSessionSnapshot?
+        var sessionSnapshot: AuthenticatedSessionSnapshot?
         var refreshedAuthentication = false
         var attempt = 1
         while attempt <= PhonePushRetryPolicy.maximumAttempts {
@@ -453,9 +442,47 @@ final class PhonePushClient {
             guard !envelope.isExpired(at: clock.nowEpochSeconds) else {
                 return .expired
             }
+            if sessionSnapshot == nil {
+                do {
+                    let captured = try await auth
+                        .authenticatedSessionSnapshot()
+                    guard PhonePushDeliveryAuthorization.permits(
+                        envelope: envelope,
+                        session: captured,
+                        sessionIsCurrent: await auth
+                            .isAuthenticatedSessionCurrent(captured)
+                    ) else { return .staleSession }
+                    initialSnapshot = captured
+                    sessionSnapshot = captured
+                } catch {
+                    guard let delay = PhonePushRetryPolicy.delaySeconds(
+                        afterAttempt: attempt,
+                        result: .authenticationUnavailable,
+                        retryAfterSeconds: nil,
+                        nowEpochSeconds: clock.nowEpochSeconds,
+                        expirationEpochSeconds:
+                            envelope.expirationEpochSeconds
+                    ) else {
+                        return envelope.isExpired(at: clock.nowEpochSeconds)
+                            ? .expired
+                            : .retryExhausted
+                    }
+                    do {
+                        try await clock.sleep(for: .seconds(delay))
+                    } catch {
+                        return .cancelled
+                    }
+                    attempt += 1
+                    continue
+                }
+            }
+            guard let currentSessionSnapshot = sessionSnapshot,
+                  let initialSnapshot else {
+                return .authenticationUnavailable
+            }
             let response = await performRequest(
                 envelope,
-                sessionSnapshot: sessionSnapshot,
+                sessionSnapshot: currentSessionSnapshot,
                 allowRefreshedGeneration: refreshedAuthentication
             )
             if response.result == .authenticationRequired,
@@ -463,7 +490,7 @@ final class PhonePushClient {
                 do {
                     _ = try await auth.forceRefreshAccessToken()
                     let refreshed = try await auth.authenticatedSessionSnapshot()
-                    guard refreshed.accountID == initial.accountID,
+                    guard refreshed.accountID == initialSnapshot.accountID,
                           refreshed.accountID == envelope.expectedAccountID,
                           await auth.isAuthenticatedSessionCurrent(refreshed)
                     else { return .staleSession }
@@ -525,9 +552,9 @@ final class PhonePushClient {
             sessionSnapshot.refreshToken,
             forHTTPHeaderField: "X-Stack-Refresh-Token"
         )
-        if let teamID = auth.resolvedTeamID, !teamID.isEmpty {
-            request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
-        }
+        // Intentionally omit X-Cmux-Team-Id. The push route fans out by the
+        // authenticated Stack user id, so a team-picker change cannot retarget
+        // an already-created or in-flight notification request.
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let redirectDelegate = RedirectMethodPreservingDelegate()
