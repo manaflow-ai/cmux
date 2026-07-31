@@ -480,10 +480,10 @@ import Testing
             }
         )
 
-        let responder = try #require(responder)
+        let requiredResponder = try #require(responder)
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(responder.receivedRequests.count, 1)
+        XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
     }
 
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
