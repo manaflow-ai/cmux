@@ -300,7 +300,8 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
-        additionalCapabilities: Set<String> = []
+        additionalCapabilities: Set<String> = [],
+        phonePushAdmission: PhonePushAdmission = .unknown
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
@@ -309,7 +310,8 @@ enum MobileHostPublicStatusCache {
             includeIdentity
                 ? MobileHostService.identityStatusPayload(
                     routes: cachedRoutes,
-                    additionalCapabilities: additionalCapabilities
+                    additionalCapabilities: additionalCapabilities,
+                    phonePushAdmission: phonePushAdmission
                 )
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )

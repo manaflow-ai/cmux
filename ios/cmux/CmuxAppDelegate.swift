@@ -39,9 +39,9 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        NSLog("cmux.push registration failed: %@", error.localizedDescription)
         let nsError = error as NSError
         Task { @MainActor in
+            await pushCoordinator?.handleDeviceTokenFailure()
             analytics?.capture("ios_push_token_registration_failed", [
                 "stage": .string("apns"),
                 "error_code": .int(nsError.code),

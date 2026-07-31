@@ -15,6 +15,14 @@ enum PhonePushSettings {
     static let forwardModeKey = "forwardNotificationsToPhoneMode"
 }
 
+/// Sanitized result of applying the Mac's live forwarding gate.
+enum PhonePushAdmission: String, Equatable, Sendable {
+    case allowed
+    case forwardingDisabled = "forwarding_disabled"
+    case suppressedMacActive = "suppressed_mac_active"
+    case unknown
+}
+
 /// Forwards macOS terminal notifications to the user's iPhone via the cmux web
 /// API (`POST /api/notifications/push`), which relays them through APNs. Gated
 /// by ``PhonePushSettings/forwardEnabledKey`` (off by default) and only invoked
@@ -96,11 +104,25 @@ final class PhonePushClient {
     /// forward that will never happen. Returns `false` when forwarding is off
     /// or the presence gate currently suppresses delivery; `true` otherwise.
     func willForwardReplacement(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else { return false }
+        currentAdmission(defaults: defaults) == .allowed
+    }
+
+    /// Samples the same gate used by the next banner forward without exposing
+    /// raw HID, lock, or timing data to the phone.
+    func currentAdmission(
+        defaults: UserDefaults = .standard
+    ) -> PhonePushAdmission {
+        guard defaults.bool(
+            forKey: PhonePushSettings.forwardEnabledKey
+        ) else {
+            return .forwardingDisabled
+        }
         let mode = PhoneForwardingMode.fromDefaults(defaults)
-        if mode == .always { return true }
+        guard mode != .always else { return .allowed }
         let presence = presenceCache.decision(from: presenceMonitor)
         return Self.shouldForward(mode: mode, presence: presence)
+            ? .allowed
+            : .suppressedMacActive
     }
 
     /// Forward a notification if the user opted in. Captures the fields up front
@@ -135,15 +157,14 @@ final class PhonePushClient {
         // A suppressed forward queues no banner push, so it reports `false`
         // like a throttled one: the store must not dismiss the superseded
         // banner when no replacement is coming.
-        let mode = PhoneForwardingMode.fromDefaults()
-        if mode != .always {
-            let presence = presenceCache.decision(from: presenceMonitor)
-            guard Self.shouldForward(mode: mode, presence: presence) else {
+        let admission = currentAdmission()
+        guard admission == .allowed else {
 #if DEBUG
-                cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
+            cmuxDebugLog(
+                "phonepush.suppressed admission=\(admission.rawValue)"
+            )
 #endif
-                return false
-            }
+            return false
         }
 
         // The throttle slot is consumed only after the gate passes, so a

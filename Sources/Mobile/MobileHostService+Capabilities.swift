@@ -5,6 +5,10 @@ extension MobileHostService {
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
+    /// Authenticated status includes the Mac's independent phone-forwarding
+    /// gate, presence mode, account proof, and API endpoint identity.
+    nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
+    nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
