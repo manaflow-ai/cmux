@@ -142,7 +142,10 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                     return nil
                 }
                 guard let refreshed,
-                      refreshed.accountID == expectedAccountID else { return nil }
+                      refreshed.accountID == expectedAccountID,
+                      refreshed.credentials.accessToken != rejected.accessToken else {
+                    return nil
+                }
                 return refreshed.credentials
             }
         )

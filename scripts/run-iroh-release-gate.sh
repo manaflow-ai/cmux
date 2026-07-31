@@ -449,7 +449,6 @@ fi
 # tag is uniquely owned by this driver, and the exact executable is now absent,
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
-CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
 

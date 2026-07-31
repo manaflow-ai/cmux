@@ -1,4 +1,3 @@
-import CoreFoundation
 import Darwin
 import Foundation
 
@@ -35,15 +34,24 @@ extension CMUXCLI {
 
         while true {
             if let deadline, Date.now >= deadline {
-                throw CLIError(message: "Timed out waiting for a matching event")
+                throw CLIError(message: Self.eventsTimedOutMessage)
             }
             let client = SocketClient(path: socketPath)
+            // Capture an existing dead inode before connect so a refused
+            // connection waits for that exact socket to be replaced instead
+            // of treating its mere presence as a wake signal.
+            var connectedSocketIdentity = SocketClient.socketFilesystemIdentity(
+                at: socketPath
+            )
             do {
                 if let deadline {
                     try client.connect(deadline: deadline)
                 } else {
                     try client.connect()
                 }
+                connectedSocketIdentity = SocketClient.socketFilesystemIdentity(
+                    at: socketPath
+                ) ?? connectedSocketIdentity
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: explicitPassword,
@@ -116,16 +124,20 @@ extension CMUXCLI {
             } catch {
                 client.close()
                 if let deadline, Date.now >= deadline {
-                    throw CLIError(message: "Timed out waiting for a matching event")
+                    throw CLIError(message: Self.eventsTimedOutMessage)
                 }
                 guard options.reconnect, isTransientEventStreamError(error) else {
                     throw error
                 }
                 let remaining = deadline?.timeIntervalSinceNow ?? 1
                 guard remaining > 0 else {
-                    throw CLIError(message: "Timed out waiting for a matching event")
+                    throw CLIError(message: Self.eventsTimedOutMessage)
                 }
-                waitBeforeReconnectingEventStream(maximumDelay: remaining)
+                waitBeforeReconnectingEventStream(
+                    socketPath: socketPath,
+                    replacing: connectedSocketIdentity,
+                    maximumDelay: remaining
+                )
                 continue
             }
         }
@@ -162,17 +174,21 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream(maximumDelay: TimeInterval = 1) {
+    func waitBeforeReconnectingEventStream(
+        socketPath: String,
+        replacing connectedSocketIdentity: String?,
+        maximumDelay: TimeInterval = 1
+    ) {
         let delay = min(1, max(0, maximumDelay))
         guard delay > 0 else { return }
-        let deadline = Date(timeIntervalSinceNow: delay)
-        var didFire = false
-        let timer = Timer(timeInterval: delay, repeats: false) { _ in
-            didFire = true
-        }
-        RunLoop.current.add(timer, forMode: .default)
-        while !didFire, RunLoop.current.run(mode: .default, before: deadline) {}
-        timer.invalidate()
+        // Wait on the socket directory rather than pumping a RunLoop timer.
+        // A tagged app restart or socket replacement wakes the retry
+        // immediately; the deadline remains only a quiet-period ceiling.
+        SocketClient.waitForSocketReplacement(
+            at: socketPath,
+            replacing: connectedSocketIdentity,
+            timeout: delay
+        )
     }
 
     private func parseEventsOptions(_ args: [String]) throws -> EventsCommandOptions {
@@ -214,7 +230,10 @@ extension CMUXCLI {
                 guard let timeout = TimeInterval(raw),
                       timeout.isFinite,
                       timeout > 0 else {
-                    throw CLIError(message: "--timeout must be greater than 0")
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.timeoutPositive",
+                        defaultValue: "--timeout must be greater than 0"
+                    ))
                 }
                 options.timeout = timeout
             case "--snapshot":
@@ -229,6 +248,38 @@ extension CMUXCLI {
             index += 1
         }
         return options
+    }
+
+    private static var eventsTimedOutMessage: String {
+        String(
+            localized: "cli.events.error.timedOut",
+            defaultValue: "Timed out waiting for a matching event"
+        )
+    }
+
+    static var eventsCommandUsage: String {
+        String(localized: "cli.events.usage", defaultValue: """
+        Usage: cmux events [options]
+
+        Stream cmux events as newline-delimited JSON.
+
+        Options:
+          --after <seq>          Replay retained events after this sequence
+          --cursor-file <path>   Read the starting sequence from a file and update it after each event
+          --name <event>         Filter by event name, repeatable
+          --category <name>      Filter by category, repeatable
+          --reconnect            Reconnect forever and resume from the last received sequence
+          --limit <n>            Exit after printing n event frames
+          --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline
+          --snapshot             Print the subscription snapshot and exit
+          --no-ack               Do not print the subscription ack frame
+          --no-heartbeat         Do not print heartbeat frames
+
+        Examples:
+          cmux events --category notification
+          cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+          cmux events --after 42 --name feed.item.received
+        """)
     }
 
     private func parseEventStreamFrame(_ line: String) throws -> [String: Any] {

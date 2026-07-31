@@ -1599,6 +1599,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         lastPresenceReconnectEvidence = nil
         presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
+        pendingInactiveDeadRecoveryClient = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidatePairingAttempt()
@@ -1985,6 +1986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var lastReconnectStackUserID: String?
     var foregroundRefreshIsActive = true
     var pendingInactiveRecoveryTrigger: RecoveryTrigger?
+    var pendingInactiveDeadRecoveryClient: MobileCoreRPCClient?
 
     enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
@@ -9029,6 +9031,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Any explicit connect supersedes launch/network recovery, including a
         // recovery suspended in a registry refresh for the same device id.
         pendingInactiveRecoveryTrigger = nil
+        pendingInactiveDeadRecoveryClient = nil
         connectionRecoveryOwner.cancel()
         applyConnectionRecoveryOwnerState()
         invalidateStoredMacReconnectAttempt()

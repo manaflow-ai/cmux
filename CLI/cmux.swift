@@ -2985,9 +2985,6 @@ final class SocketClient {
         maxBytes: Int = 4 * 1024 * 1024,
         deadline: Date? = nil
     ) throws -> String {
-        if deadline == nil {
-            try configureReceiveTimeout(45)
-        }
         while true {
             if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
                 let lineByteCount = streamReadBuffer.distance(
@@ -2995,20 +2992,37 @@ final class SocketClient {
                     to: newlineIndex
                 )
                 guard lineByteCount < maxBytes else {
-                    throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.events.error.frameTooLarge",
+                            defaultValue: "Event stream frame exceeded %lld bytes"
+                        ),
+                        Int64(maxBytes)
+                    ))
                 }
                 let lineData = streamReadBuffer[..<newlineIndex]
                 guard let line = String(data: Data(lineData), encoding: .utf8) else {
-                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.invalidUTF8",
+                        defaultValue: "Invalid UTF-8 event stream frame"
+                    ))
                 }
                 streamReadBuffer.removeSubrange(...newlineIndex)
                 return line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard streamReadBuffer.count < maxBytes else {
-                throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.events.error.frameTooLarge",
+                        defaultValue: "Event stream frame exceeded %lld bytes"
+                    ),
+                    Int64(maxBytes)
+                ))
             }
             if let deadline {
                 try waitForReadableStream(deadline: deadline)
+            } else {
+                try configureResponseReceiveTimeout(45)
             }
             var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
             let count = chunk.withUnsafeMutableBytes { bytes in
@@ -3021,26 +3035,81 @@ final class SocketClient {
                 if errno == EAGAIN || errno == EWOULDBLOCK {
                     if let deadline {
                         guard deadline.timeIntervalSinceNow > 0 else {
-                            throw CLIError(message: "Event stream deadline exceeded")
+                            throw CLIError(message: Self.eventStreamDeadlineMessage)
                         }
                         continue
                     }
-                    throw CLIError(message: "Timed out waiting for event stream frame")
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.frameTimedOut",
+                        defaultValue: "Timed out waiting for event stream frame"
+                    ))
                 }
-                throw CLIError(message: "Event stream socket read error")
+                throw CLIError(message: Self.eventStreamSocketReadMessage)
             }
             if count == 0 {
-                throw CLIError(message: "Event stream closed")
+                throw CLIError(message: String(
+                    localized: "cli.events.error.closed",
+                    defaultValue: "Event stream closed"
+                ))
             }
             streamReadBuffer.append(contentsOf: chunk.prefix(count))
         }
+    }
+
+    static func socketFilesystemIdentity(at path: String) -> String? {
+        var metadata = stat()
+        guard lstat(path, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return nil
+        }
+        return "\(UInt64(metadata.st_dev)):\(UInt64(metadata.st_ino))"
+    }
+
+    static func waitForSocketReplacement(
+        at path: String,
+        replacing connectedIdentity: String?,
+        timeout: TimeInterval
+    ) {
+        guard timeout > 0,
+              let watchDirectory = existingWatchDirectory(forPath: path) else {
+            return
+        }
+        let watchFD = open(watchDirectory, O_EVTONLY)
+        guard watchFD >= 0 else { return }
+
+        let queue = DispatchQueue(
+            label: "com.cmux.cli.event-stream-watch.\(UUID().uuidString)"
+        )
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: watchFD,
+            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
+            queue: queue
+        )
+        var replacementObserved = false
+        func signalIfReplaced() {
+            guard !replacementObserved,
+                  let currentIdentity = socketFilesystemIdentity(at: path),
+                  currentIdentity != connectedIdentity else {
+                return
+            }
+            replacementObserved = true
+            semaphore.signal()
+        }
+        source.setEventHandler { signalIfReplaced() }
+        source.setCancelHandler { Darwin.close(watchFD) }
+        source.resume()
+        // Close the race between the identity snapshot and source activation.
+        queue.async { signalIfReplaced() }
+        _ = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
     }
 
     private func waitForReadableStream(deadline: Date) throws {
         while true {
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else {
-                throw CLIError(message: "Event stream deadline exceeded")
+                throw CLIError(message: Self.eventStreamDeadlineMessage)
             }
             var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
             let timeoutMilliseconds = min(
@@ -3056,12 +3125,26 @@ final class SocketClient {
                 return
             }
             if ready == 0 {
-                throw CLIError(message: "Event stream deadline exceeded")
+                throw CLIError(message: Self.eventStreamDeadlineMessage)
             }
             if errno != EINTR {
-                throw CLIError(message: "Event stream socket read error")
+                throw CLIError(message: Self.eventStreamSocketReadMessage)
             }
         }
+    }
+
+    private static var eventStreamDeadlineMessage: String {
+        String(
+            localized: "cli.events.error.deadlineExceeded",
+            defaultValue: "Event stream deadline exceeded"
+        )
+    }
+
+    private static var eventStreamSocketReadMessage: String {
+        String(
+            localized: "cli.events.error.socketRead",
+            defaultValue: "Event stream socket read error"
+        )
     }
 }
 
@@ -15562,28 +15645,7 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
-            return """
-            Usage: cmux events [options]
-
-            Stream cmux events as newline-delimited JSON.
-
-            Options:
-              --after <seq>          Replay retained events after this sequence
-              --cursor-file <path>   Read the starting sequence from a file and update it after each event
-              --name <event>         Filter by event name, repeatable
-              --category <name>      Filter by category, repeatable
-              --reconnect            Reconnect forever and resume from the last received sequence
-              --limit <n>            Exit after printing n event frames
-              --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline
-              --snapshot             Print the subscription snapshot and exit
-              --no-ack               Do not print the subscription ack frame
-              --no-heartbeat         Do not print heartbeat frames
-
-            Examples:
-              cmux events --category notification
-              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
-              cmux events --after 42 --name feed.item.received
-            """
+            return Self.eventsCommandUsage
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -35931,7 +35993,7 @@ export default CMUXSessionRestore;
           iroh-diag
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--timeout <seconds>] [--snapshot] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)

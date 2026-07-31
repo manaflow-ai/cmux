@@ -253,6 +253,18 @@ actor CmxIrohClientSessionPool {
             )
             sessionOrder.removeAll { $0 == key }
             sessionOrder.append(key)
+            // The observer starts before installation and may consume its
+            // buffering-newest initial value while this key is still absent.
+            // Seed the installed session from the current level so an already
+            // unavailable path cannot be lost without a later edge.
+            let installedPath = await connected.observedSelectedPath()
+            if sessions[key]?.id == sessionID {
+                handleObservedSelectedPathChange(
+                    installedPath,
+                    key: key,
+                    sessionID: sessionID
+                )
+            }
             recordSessionLifecycle(
                 .established,
                 sessionID: diagnosticID,
@@ -415,14 +427,15 @@ actor CmxIrohClientSessionPool {
                 )
                 continue
             }
-            guard await pooled.session.observedSelectedPath() == .unavailable else {
-                continue
-            }
-            await invalidateSession(
-                for: key,
-                matching: pooled.id,
-                reason: .foregroundValidationFailed,
-                failure: .noRoute
+            let observedPath = await pooled.session.observedSelectedPath()
+            guard sessions[key]?.id == pooled.id else { continue }
+            // Foreground validation is another level-triggered path sample.
+            // Reuse the migration grace used by path events; a closed session
+            // above is still retired immediately.
+            handleObservedSelectedPathChange(
+                observedPath,
+                key: key,
+                sessionID: pooled.id
             )
         }
     }

@@ -283,7 +283,7 @@ if [[ -n "$READINESS_CURSOR" ]]; then
   fi
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
-  cmux_attach_write_readiness_receipt \
+  if ! cmux_attach_write_readiness_receipt \
     "$RECEIPT_PATH" \
     "$GIT_SHA" \
     "$TAG" \
@@ -294,7 +294,10 @@ if [[ -n "$READINESS_CURSOR" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT"; then
+    echo "error: readiness event did not satisfy the dogfood receipt contract" >&2
+    exit 1
+  fi
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
 fi

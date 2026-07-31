@@ -259149,6 +259149,159 @@
         }
       }
     },
+    "cli.events.error.timeoutPositive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout は 0 より大きい値でなければなりません"
+          }
+        }
+      }
+    },
+    "cli.events.error.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for a matching event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するイベントの待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.events.error.frameTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream frame exceeded %lld bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのフレームが %lld バイトを超えました"
+          }
+        }
+      }
+    },
+    "cli.events.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid UTF-8 event stream frame"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームの UTF-8 フレームが無効です"
+          }
+        }
+      }
+    },
+    "cli.events.error.frameTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for event stream frame"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのフレーム待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.events.error.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームが閉じられました"
+          }
+        }
+      }
+    },
+    "cli.events.error.deadlineExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream deadline exceeded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームの期限を超過しました"
+          }
+        }
+      }
+    },
+    "cli.events.error.socketRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream socket read error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのソケット読み取りエラー"
+          }
+        }
+      }
+    },
+    "cli.events.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux events [options]\n\nStream cmux events as newline-delimited JSON.\n\nOptions:\n  --after <seq>          Replay retained events after this sequence\n  --cursor-file <path>   Read the starting sequence from a file and update it after each event\n  --name <event>         Filter by event name, repeatable\n  --category <name>      Filter by category, repeatable\n  --reconnect            Reconnect forever and resume from the last received sequence\n  --limit <n>            Exit after printing n event frames\n  --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline\n  --snapshot             Print the subscription snapshot and exit\n  --no-ack               Do not print the subscription ack frame\n  --no-heartbeat         Do not print heartbeat frames\n\nExamples:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux events [オプション]\n\ncmux のイベントを改行区切り JSON としてストリーム出力します。\n\nオプション:\n  --after <seq>          このシーケンス以降の保持されたイベントを再生\n  --cursor-file <path>   開始シーケンスをファイルから読み込み、イベントごとに更新\n  --name <event>         イベント名で絞り込み（複数指定可）\n  --category <name>      カテゴリで絞り込み（複数指定可）\n  --reconnect            継続的に再接続し、最後に受信したシーケンスから再開\n  --limit <n>            n 個のイベントフレームを出力したら終了\n  --timeout <seconds>    期限までに一致するイベントが届かなければ失敗して終了\n  --snapshot             購読スナップショットを出力して終了\n  --no-ack               購読確認フレームを出力しない\n  --no-heartbeat         ハートビートフレームを出力しない\n\n例:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

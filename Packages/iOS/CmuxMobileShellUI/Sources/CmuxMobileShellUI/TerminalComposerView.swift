@@ -595,7 +595,7 @@ struct TerminalComposerView: View {
     /// running and fanning out temp files. `nonisolated` so the synchronous decode
     /// never runs on the main actor. The cancellation check before the heavy
     /// `CGImageSourceCreateWithURL` skips the decode entirely once cancelled.
-    private nonisolated static func prepare(url: URL) async -> PreparedAttachment? {
+    @concurrent private nonisolated static func prepare(url: URL) async -> PreparedAttachment? {
         // Bail before launching the decode if the staging task is already cancelled.
         if Task.isCancelled { return nil }
         return await withTaskGroup(of: PreparedAttachment?.self) { group in

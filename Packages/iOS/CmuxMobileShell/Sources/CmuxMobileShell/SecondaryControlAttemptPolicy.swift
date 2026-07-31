@@ -34,9 +34,9 @@ extension MobileShellComposite {
         }
         switch connectionError {
         case .connectionClosed, .requestTimedOut, .transportWriteTimedOut,
-             .routeCleanupBlocked:
+             .routeCleanupBlocked, .connectAttemptGated:
             return true
-        case .invalidResponse, .connectAttemptGated, .insecureManualRoute,
+        case .invalidResponse, .insecureManualRoute,
              .attachTicketExpired, .authorizationFailed, .accountMismatch:
             return false
         case let .rpcError(code, _):

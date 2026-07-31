@@ -179,9 +179,24 @@ cmux_attach_events() {
 cmux_attach_readiness_cursor() {
   local tag="$1" repo_root="$2" snapshot cursor
   snapshot="$(cmux_attach_events "$tag" "$repo_root" --snapshot --no-heartbeat)" || return 1
-  cursor="$(printf '%s\n' "$snapshot" \
-    | sed -nE 's/.*"latest_seq"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
-    | head -1)"
+  cursor="$(printf '%s' "$snapshot" | /usr/bin/python3 -c '
+import json
+import sys
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        frame = json.loads(line)
+    except ValueError:
+        continue
+    resume = frame.get("resume")
+    latest = resume.get("latest_seq") if isinstance(resume, dict) else None
+    if isinstance(latest, int) and not isinstance(latest, bool) and latest >= 0:
+        print(latest)
+        break
+')"
   [[ -n "$cursor" ]] || {
     echo "error: tagged Mac did not return an event-stream cursor" >&2
     return 1

@@ -320,7 +320,7 @@ extension MobileShellComposite {
         }
     }
 
-    nonisolated static func workspaceChangesLines(from data: Data) async throws -> [String] {
+    @concurrent nonisolated static func workspaceChangesLines(from data: Data) async throws -> [String] {
         guard !data.isEmpty else { return [] }
 
         var lines: [String] = []

@@ -215,6 +215,11 @@ extension AuthCoordinator {
     ///   errors as ``coherentTokenPair()``.
     public func authenticatedSessionSnapshot() async throws -> AuthenticatedSessionSnapshot {
         await awaitBootstrapped()
+        // A session writer owns both identity and tokens during this window.
+        // Check it before published identity, which may be temporarily empty.
+        guard !sessionTokenTransitionIsActive else {
+            throw AuthError.networkError
+        }
         guard isAuthenticated,
               let accountID = currentUser?.id,
               !accountID.isEmpty else {
@@ -224,9 +229,6 @@ extension AuthCoordinator {
         // revalidates the session over the network, and classifying that
         // window as unauthorized made the iroh broker source fail closed on
         // every app launch. Match `accessToken()`'s classification.
-        guard !sessionTokenTransitionIsActive else {
-            throw AuthError.networkError
-        }
         let generation = sessionGeneration
         // Read both tokens as one coherent pair so a concurrent force refresh
         // cannot pair an old access token with a rotated refresh token; the

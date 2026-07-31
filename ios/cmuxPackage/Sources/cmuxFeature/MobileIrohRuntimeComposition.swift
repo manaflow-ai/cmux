@@ -511,7 +511,8 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog?.record(DiagnosticEvent(
                 .discoveryFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
-                b: readiness.failureKind.rawValue
+                b: readiness.failureKind?.rawValue
+                    ?? DiagnosticFailureKind.endpointUnavailable.rawValue
             ))
             return []
         }

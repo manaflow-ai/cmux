@@ -58,6 +58,7 @@ extension MobileShellComposite {
               let client = remoteClient,
               pairedMacStore != nil else { return }
         guard foregroundRefreshIsActive else {
+            guard pendingInactiveDeadRecoveryClient == nil else { return }
             pendingInactiveRecoveryTrigger = .foreground
             return
         }
@@ -78,6 +79,7 @@ extension MobileShellComposite {
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         guard foregroundRefreshIsActive else {
+            guard pendingInactiveDeadRecoveryClient == nil else { return }
             pendingInactiveRecoveryTrigger = trigger
             return
         }
@@ -117,6 +119,7 @@ extension MobileShellComposite {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
         guard foregroundRefreshIsActive else {
             pendingInactiveRecoveryTrigger = trigger
+            pendingInactiveDeadRecoveryClient = expectedClient
             return
         }
 
@@ -148,8 +151,14 @@ extension MobileShellComposite {
     func recoverPendingInactiveRecoveryIfNeeded() {
         guard foregroundRefreshIsActive,
               let trigger = pendingInactiveRecoveryTrigger else { return }
+        let deadClient = pendingInactiveDeadRecoveryClient
         pendingInactiveRecoveryTrigger = nil
-        recoverMobileConnection(trigger: trigger)
+        pendingInactiveDeadRecoveryClient = nil
+        if let deadClient {
+            recoverDeadConnection(trigger: trigger, expectedClient: deadClient)
+        } else {
+            recoverMobileConnection(trigger: trigger)
+        }
     }
 
     private func beginConnectionRecovery(
