@@ -89,6 +89,21 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
   }, "macOS");
+  const presenceMismatch = run("bash", [
+    "scripts/lib/verify-iroh-release-gate-builds.sh",
+    "--mac-app", macApp,
+    "--ios-app", iosApp,
+    "--backend-base-url", expected,
+    "--presence-base-url", presence,
+  ]);
+  assert.notEqual(presenceMismatch.status, 0);
+  assert.match(presenceMismatch.stderr, /Mac app presence.*requested backend/u);
+
+  writeGateAppPlist(macApp, {}, {
+    CMUX_API_BASE_URL: expected,
+    CMUX_IROH_BROKER_BASE_URL: expected,
+    CMUX_PRESENCE_BASE_URL: presence,
+  }, "macOS");
   const matched = run("bash", [
     "scripts/lib/verify-iroh-release-gate-builds.sh",
     "--mac-app", macApp,
