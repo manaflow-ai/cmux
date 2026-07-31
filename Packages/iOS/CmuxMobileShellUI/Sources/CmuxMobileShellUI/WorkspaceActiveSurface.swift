@@ -3,10 +3,17 @@ import Foundation
 enum WorkspaceActiveSurface: Equatable {
     case terminal
     case browser
+    case browserStream
 
-    static func derive(hasActiveBrowser: Bool) -> Self {
+    static func derive(
+        hasActiveBrowser: Bool,
+        hasActiveBrowserStream: Bool = false
+    ) -> Self {
         if hasActiveBrowser {
             return .browser
+        }
+        if hasActiveBrowserStream {
+            return .browserStream
         }
         return .terminal
     }

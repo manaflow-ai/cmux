@@ -10,6 +10,13 @@ import Testing
         #expect(WorkspaceActiveSurface.derive(hasActiveBrowser: false) == .terminal)
     }
 
+    @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true
+        ) == .browserStream)
+    }
+
     @Test func chromeReturnRefocusesTheSelectedTerminal() {
         #expect(WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
             selectedTerminalID: "terminal-1",
