@@ -51,7 +51,13 @@
          location = "group:CmuxMobileBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileBrowserStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileChanges">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCrashReporting">
@@ -173,6 +179,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSidebarProviderKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

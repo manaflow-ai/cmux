@@ -10,6 +10,9 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let templateID: MobileTaskTemplate.ID
     /// Identifier of the Mac targeted by the captured submission.
     public let macDeviceID: String
+    /// Paired app instance targeted by the captured submission, or `nil` for
+    /// legacy device-level routing.
+    public let macInstanceTag: String?
     /// Unmodified prompt text captured from the composer.
     public let prompt: String
     /// Optional workspace name exactly as entered in the composer.
@@ -38,6 +41,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ///   - template: Task template selected when submission begins.
     ///   - prompt: Prompt text to compose into the template command.
     ///   - macDeviceID: Identifier of the Mac that should create the task.
+    ///   - macInstanceTag: Exact paired app instance to target, or `nil`.
     ///   - directory: Working-directory text shown in the composer.
     ///   - workspaceName: Optional workspace name shown in the composer.
     ///   - didEditDirectory: Whether the user changed the suggested directory.
@@ -46,6 +50,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         template: MobileTaskTemplate,
         prompt: String,
         macDeviceID: String,
+        macInstanceTag: String? = nil,
         directory: String,
         workspaceName: String = "",
         didEditDirectory: Bool,
@@ -53,6 +58,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ) {
         self.templateID = template.id
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.prompt = prompt
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -71,6 +77,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     /// environment, and trimmed effective working directory.
     public func isRequestEquivalent(to other: MobileTaskSubmissionSnapshot) -> Bool {
         Self.hasEqualUTF8(macDeviceID, other.macDeviceID)
+            && Self.hasEqualUTF8(macInstanceTag, other.macInstanceTag)
             && Self.hasEqualUTF8(composition.initialCommand, other.composition.initialCommand)
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
             && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
@@ -84,6 +91,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         MobileTaskSubmissionSnapshot(
             templateID: templateID,
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             prompt: prompt,
             workspaceName: workspaceName,
             directory: directory,
@@ -129,6 +137,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             prompt: prompt,
             templateID: templateID,
             macDeviceID: macDeviceID.isEmpty ? nil : macDeviceID,
+            macInstanceTag: macDeviceID.isEmpty ? nil : macInstanceTag,
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName.isEmpty ? nil : workspaceName,
@@ -139,6 +148,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     private init(
         templateID: MobileTaskTemplate.ID,
         macDeviceID: String,
+        macInstanceTag: String?,
         prompt: String,
         workspaceName: String,
         directory: String,
@@ -150,6 +160,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ) {
         self.templateID = templateID
         self.macDeviceID = macDeviceID
+        self.macInstanceTag = macInstanceTag
         self.prompt = prompt
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
