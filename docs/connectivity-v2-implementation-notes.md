@@ -91,6 +91,22 @@
     Found: The synchronous DNS callback entered a bounded queue before validation. Hundreds of unrelated cmux development builds could fill that queue and drop the exact authenticated Mac alias without ever bypassing cryptographic authorization.
     Decision: Derive the three accepted rotating aliases from the broker-authenticated binding before browsing, filter every DNS callback against that allowlist before it enters the bounded queue, restart browsing when the allowlist changes, and fence browser startup to the current network lifecycle revision.
 
+21. Expected: Refreshing the signed relay policy before endpoint startup was cheap enough to remain a readiness barrier.
+    Found: Clean traces spent 551 ms on Mac and 627 ms on iPhone in that broker call before endpoint activation, even though normal mode permits direct paths.
+    Decision: Restore the verified local relay policy before binding and refresh it immediately after activation. Relay-only verification retains the live readiness barrier.
+
+22. Expected: Registration followed by connectivity sync was the minimum authenticated startup sequence.
+    Found: Registration already commits the binding before returning, so the following sync repeated an account snapshot read and paid another client round trip.
+    Decision: Return the authoritative post-registration discovery snapshot in the registration response. New clients consume it after checking its revision, route contract, relay fleet, and exact local tuple; older brokers and clients keep the separate-sync fallback.
+
+23. Expected: Repeat iOS startup still had to register after the endpoint finished binding because registration publishes its address.
+    Found: A previously verified binding can authenticate a read-only connectivity snapshot independently of the new endpoint address, while binding and broker latency are also independent.
+    Decision: When persisted metadata exactly matches the current account, device, app instance, tag, endpoint identity, and generation, fetch one authenticated snapshot concurrently with endpoint binding. Admit it only when the snapshot contains exactly one full local expectation match with the same binding metadata, become active from that snapshot, then refresh the signed registration in the background.
+
+24. Expected: The existing authoritative-discovery helper could serve the concurrent startup fetch.
+    Found: It mutates actor-owned authoritative state, so a cancelled startup could publish a late response after teardown.
+    Decision: Give startup a read-only prefetch helper. Only the still-current lifecycle installs its returned snapshot.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -115,6 +131,11 @@
 - Done: Decoupled active Iroh route publication from fresh-registration persistence so a verified cached-policy restart immediately republishes the endpoint identity.
 - Done: Persisted deterministic simulator device identity in the app sandbox while preserving fail-closed Keychain identity on physical devices.
 - Done: Filtered LAN route discovery to exact broker-authenticated rotating aliases before bounded DNS ingestion.
+- Done: Removed live relay-policy refresh from the normal direct-capable startup path on Mac and iOS while retaining the relay-only readiness barrier.
+- Done: Embedded post-registration discovery in the broker response, eliminating the separate startup sync for new clients.
+- Done: Overlapped authenticated repeat-launch iOS discovery with endpoint binding and moved signed registration refresh after activation.
+- Verified: All 500 shared transport tests across 61 suites pass, including blocked-bind and blocked-registration coverage that proves discovery overlaps binding and registration completes after activation.
+- Verified: All 32 focused broker, route, and connectivity-authority web tests pass, and web typechecking passes.
 - Verified: The relay-disabled iOS Simulator gate completes an authenticated bidirectional Iroh round trip over a non-relay path.
 - Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
-- Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
+- Next: Record final tagged Mac and repeat-launch iPhone timings, verify the isolated simulator and physical-device routes, then update the existing pull request evidence.
