@@ -54,6 +54,14 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func mobileTransportDisconnectNeverRunsInlineOnMain() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "debug.mobile.transport.disconnect"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func everythingElseRunsOnTheMainActor() {
         for method in [
             "workspace.create", "browser.url.get",

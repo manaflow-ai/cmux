@@ -46,6 +46,31 @@ private actor HoldingGraceClock: CmxIrohRelayClock {
 @Suite
 struct CmxIrohClientSessionPoolPathEvictionTests {
     @Test
+    func initiallyUnavailableInstalledSessionStillArmsEviction() async throws {
+        let fixture = try PoolFixture()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            selectedPath: .unavailable
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            clock: ImmediateGraceClock()
+        )
+
+        _ = try await pool.session(for: fixture.request)
+
+        #expect(await pollUntilTrue {
+            await connection.observedCloseCallCount() == 1
+        })
+    }
+
+    @Test
     func sessionWithNoUsablePathIsEvictedAndAttributedAfterGrace() async throws {
         let fixture = try PoolFixture()
         let connection = TestIrohConnection(

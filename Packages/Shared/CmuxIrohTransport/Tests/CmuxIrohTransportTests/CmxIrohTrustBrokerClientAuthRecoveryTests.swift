@@ -210,6 +210,38 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
+    func sharedAccountPinnedSourceRejectsUnchangedPairAfterForceRefresh() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, stale, stale])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+
+        #expect(await snapshots.forceRefreshCount == 1)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.connectivity

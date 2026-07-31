@@ -101,7 +101,7 @@ function waitForUsableSession(
   }
 }
 
-function writeReadinessReceipt(eventJSON) {
+function writeReadinessReceipt(eventJSON, latency = "8421", attempts = "1") {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-receipt-test-"));
   const receiptPath = path.join(tempRoot, "receipt.json");
   const result = run(
@@ -110,13 +110,15 @@ function writeReadinessReceipt(eventJSON) {
       "-c",
       [
         'source "$1"',
-        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock 8421 1 "$4"',
+        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock "$5" "$6" "$4"',
       ].join("\n"),
       "mobile-readiness-receipt-test",
       validator,
       receiptPath,
       "0123456789abcdef0123456789abcdef01234567",
       eventJSON,
+      latency,
+      attempts,
     ],
   );
   result.receipt = fs.existsSync(receiptPath)
@@ -487,6 +489,15 @@ test("dogfood readiness captures the Mac event sequence before launch", () => {
   assert.equal(result.stdout, "842");
 });
 
+test("dogfood readiness reads only the authoritative resume cursor", () => {
+  const result = readinessCursor(
+    '{"latest_seq":1,"resume":{"latest_seq":842,"next_seq":843},"diagnostic":{"latest_seq":3}}',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "842");
+});
+
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
   const result = waitForUsableSession(0, "842", "15");
 
@@ -529,6 +540,35 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     transport: "iroh",
   });
   assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
+});
+
+test("dogfood readiness rejects malformed receipt timing and attempts", () => {
+  const event =
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","workspace_count":2,"stream_id":"events","transport":"iroh"}}';
+  for (const result of [
+    writeReadinessReceipt(event, "not-an-integer", "1"),
+    writeReadinessReceipt(event, "8421", "0"),
+  ]) {
+    assert.notEqual(result.status, 0);
+    assert.equal(result.receipt, null);
+  }
+});
+
+test("dogfood readiness rejects events without a usable RPC session", () => {
+  const payload =
+    '"payload":{"connection_id":"c","client_id":"p","workspace_count":2,"stream_id":"events","transport":"iroh"}';
+  const events = [
+    `{"name":"mobile.rpc.pending",${payload}}`,
+    '{"name":"mobile.rpc.ready","payload":{"client_id":"p","workspace_count":2,"stream_id":"events","transport":"iroh"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","workspace_count":0,"stream_id":"events","transport":"iroh"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","workspace_count":true,"stream_id":"events","transport":"iroh"}}',
+  ];
+
+  for (const event of events) {
+    const result = writeReadinessReceipt(event);
+    assert.notEqual(result.status, 0);
+    assert.equal(result.receipt, null);
+  }
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {

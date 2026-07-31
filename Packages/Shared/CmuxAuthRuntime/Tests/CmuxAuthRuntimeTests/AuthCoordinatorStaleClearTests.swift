@@ -367,6 +367,9 @@ import Testing
         await #expect(throws: AuthError.networkError) {
             _ = try await coordinator.forceRefreshAccessToken()
         }
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.authenticatedSessionSnapshot()
+        }
 
         await client.releaseParkedCredential()
         try await signIn.value

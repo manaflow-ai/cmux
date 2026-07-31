@@ -599,17 +599,21 @@ struct CmxIrohClientSessionPoolTests {
         await firstConnection.setObservedSelectedPath(.unavailable)
         let wakeStartedAt = clock.now()
         await pool.activate(runtimeGeneration: 1)
-        let postWakeSession = try await pool.session(for: fixture.request)
+        let duringGraceSession = try await pool.session(for: fixture.request)
 
-        #expect(postWakeSession !== firstSession)
-        #expect(await endpoint.observedDialedAddresses().count == 2)
-        #expect(await firstConnection.observedCloseCallCount() == 1)
+        #expect(duringGraceSession === firstSession)
+        #expect(await endpoint.observedDialedAddresses().count == 1)
+        #expect(await firstConnection.observedCloseCallCount() == 0)
         #expect(
             clock.now().timeIntervalSince(wakeStartedAt) <= 3,
             "wake validation must not consume the 30s retry ladder"
         )
-        await pool.deactivate()
         await clock.releaseAll()
+        #expect(await waitForConnectionClose(firstConnection))
+        let postGraceSession = try await pool.session(for: fixture.request)
+        #expect(postGraceSession !== firstSession)
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        await pool.deactivate()
     }
 
     @Test
@@ -643,6 +647,11 @@ struct CmxIrohClientSessionPoolTests {
         await firstConnection.setObservedSelectedPath(.unavailable)
         await pool.activate(runtimeGeneration: 1)
 
+        #expect(await firstConnection.observedCloseCallCount() == 0)
+        #expect(await endpoint.observedDialCount() == 1)
+        await clock.releaseAll()
+        #expect(await waitForConnectionClose(firstConnection))
+
         async let firstReconnect = pool.session(for: fixture.request)
         async let secondReconnect = pool.session(for: fixture.request)
         #expect(await waitForDialCount(endpoint, atLeast: 2))
@@ -655,7 +664,6 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await endpoint.observedDialCount() == 2)
         #expect(await firstConnection.observedCloseCallCount() == 1)
         await pool.deactivate()
-        await clock.releaseAll()
     }
 
     @Test
@@ -1047,6 +1055,16 @@ private func waitForControlWaiter(
         await Task.yield()
     }
     return false
+}
+
+private func waitForConnectionClose(
+    _ connection: TestIrohConnection
+) async -> Bool {
+    for _ in 0 ..< 1_000 {
+        if await connection.observedCloseCallCount() > 0 { return true }
+        await Task.yield()
+    }
+    return await connection.observedCloseCallCount() > 0
 }
 
 private actor SelectedPathChangeRecorder {

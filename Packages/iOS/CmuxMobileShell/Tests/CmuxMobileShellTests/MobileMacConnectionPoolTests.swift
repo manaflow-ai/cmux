@@ -32,6 +32,9 @@ import Testing
                 "server is busy"
             )
         ))
+        #expect(shell.secondaryControlAttemptIsTransient(
+            MobileShellConnectionError.connectAttemptGated
+        ))
         #expect(!shell.secondaryControlAttemptIsTransient(
             MobileShellConnectionError.rpcError(
                 "unauthorized",

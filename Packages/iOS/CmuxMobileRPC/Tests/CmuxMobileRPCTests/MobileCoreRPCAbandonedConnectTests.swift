@@ -524,6 +524,49 @@ import Testing
         await registry.finishConnect(lease: nextLease)
     }
 
+    @Test func networkChangeResetPreservesPhysicalOwnership() async throws {
+        let registry = MobileRPCConnectAttemptRegistry()
+        let activeKey = debugConnectAttemptKey(port: 59_136)
+        let cleanupKey = debugConnectAttemptKey(port: 59_137)
+        let releasedKey = debugConnectAttemptKey(port: 59_138)
+
+        guard case let .granted(activeLease) =
+                await registry.beginConnect(key: activeKey),
+              case let .granted(cleanupLease) =
+                await registry.beginConnect(key: cleanupKey),
+              case let .granted(releasedLease) =
+                await registry.beginConnect(key: releasedKey) else {
+            Issue.record("Expected route admissions")
+            return
+        }
+        let cleanup = PhysicalCleanupGate()
+        await registry.handOffPhysicalCleanup(lease: cleanupLease) {
+            await cleanup.wait()
+        }
+        await registry.finishConnect(lease: releasedLease)
+
+        await registry.resetRouteHealthForNetworkChange()
+
+        #expect(await registry.beginConnect(key: activeKey) == .busy)
+        guard case let .granted(cleanupRecovery) =
+                await registry.beginConnect(key: cleanupKey) else {
+            Issue.record("Network reset erased physical cleanup ownership")
+            await cleanup.release()
+            return
+        }
+        guard case let .granted(releasedReplacement) =
+                await registry.beginConnect(key: releasedKey) else {
+            Issue.record("Released route was not empty after network reset")
+            await cleanup.release()
+            return
+        }
+
+        await registry.finishConnect(lease: activeLease)
+        await registry.finishConnect(lease: cleanupRecovery)
+        await registry.finishConnect(lease: releasedReplacement)
+        await cleanup.release()
+    }
+
     @Test func activeRouteAdmissionReportsRouteGatedInsteadOfTimedOut()
         async throws {
         let registry = MobileRPCConnectAttemptRegistry()

@@ -15,7 +15,7 @@ struct CmxIrohTrustBrokerClientAuthClassifierTests {
                 code: "unauthorized"
             )
         ))
-        #expect(CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(
+        #expect(!CmxIrohTrustBrokerClientError.preservesVerifiedPolicyDuringRefresh(
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))
     }
