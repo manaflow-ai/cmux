@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileShellModel
 
 /// Serializes the two automatic connection sources that can run during app
 /// startup: an explicitly injected attach URL and restoration of a saved Mac.
@@ -17,6 +18,11 @@ final class MobileStartupConnectionCoordinator {
 
     struct Attempt: Equatable, Sendable {
         fileprivate let id: UUID
+    }
+
+    struct InjectedAttachCompletion: Sendable {
+        let result: MobilePairingURLConnectionResult
+        let shouldReconnectStoredMac: Bool
     }
 
     private enum Owner: Equatable {
@@ -38,6 +44,32 @@ final class MobileStartupConnectionCoordinator {
         let attempt = Attempt(id: UUID())
         owner = .injectedAttach(attempt)
         return attempt
+    }
+
+    /// Admits an explicit launch URL while retaining ownership of its startup
+    /// attempt. Route-specific readiness belongs to the transport selected by
+    /// the shell after it parses the URL.
+    func connectInjectedAttach(
+        _ attempt: Attempt,
+        attachURL: String,
+        connect: @escaping @MainActor @Sendable (String) async -> MobilePairingURLConnectionResult
+    ) async -> InjectedAttachCompletion? {
+        guard owner == .injectedAttach(attempt) else { return nil }
+
+        let result = await connect(attachURL)
+        guard owner == .injectedAttach(attempt) else { return nil }
+
+        let outcome: InjectedAttachOutcome = switch result {
+        case .connected:
+            .connected
+        case .failed, .needsUserApproval, .superseded:
+            .failed
+        }
+        let shouldReconnectStoredMac = finishInjectedAttach(attempt, outcome: outcome)
+        return InjectedAttachCompletion(
+            result: result,
+            shouldReconnectStoredMac: shouldReconnectStoredMac
+        )
     }
 
     /// Completes an explicit launch attach.

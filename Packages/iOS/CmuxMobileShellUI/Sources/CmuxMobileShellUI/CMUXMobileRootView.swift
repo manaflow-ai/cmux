@@ -23,7 +23,6 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and hosts without the app root still render.
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
-    @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
@@ -762,26 +761,19 @@ struct CMUXMobileRootView: View {
         }
         injectedAttachTaskAttempt = startupAttempt
         injectedAttachTask = Task { @MainActor in
-            let result = await dogfoodAttachPreparation.run {
-                await store.connectPairingURLResult(attachURL)
+            let completion = await startupConnectionCoordinator.connectInjectedAttach(
+                startupAttempt,
+                attachURL: attachURL
+            ) { rawURL in
+                await store.connectPairingURLResult(rawURL)
             }
             guard !Task.isCancelled,
-                  injectedAttachTaskAttempt == startupAttempt else {
+                  injectedAttachTaskAttempt == startupAttempt,
+                  let completion else {
                 return
             }
-            let outcome: MobileStartupConnectionCoordinator.InjectedAttachOutcome =
-                switch result {
-                case .connected:
-                    .connected
-                case .failed, .needsUserApproval, .superseded:
-                    .failed
-                }
-            let shouldReconnect = startupConnectionCoordinator.finishInjectedAttach(
-                startupAttempt,
-                outcome: outcome
-            )
             clearInjectedAttachTask(ifCurrent: startupAttempt)
-            if shouldReconnect {
+            if completion.shouldReconnectStoredMac {
                 reconnectStoredMacIfNeeded()
             }
         }
