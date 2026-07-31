@@ -92,7 +92,11 @@ private final class AgentChatProseStreamWakeDriver {
     }
 
     deinit {
-        stop()
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        releaseFrameDemand?()
+        releaseTickDemand?()
     }
 }
 
