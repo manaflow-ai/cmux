@@ -21,6 +21,9 @@ struct CmxIrohLANPeerDiscoveryTests {
         }
         await fixture.browser.waitUntilStarted()
         #expect(await fixture.factory.callCount() == 1)
+        let allowedServiceNames = await fixture.browser.serviceNameAllowlist()
+        #expect(allowedServiceNames.count == 3)
+        #expect(allowedServiceNames.contains(fixture.serviceID.serviceName))
         await fixture.browser.emit(.resolved(fixture.serviceID, fixture.service))
 
         guard case let .found(peers) = await discoveryTask.value else {
@@ -278,6 +281,11 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     private var continuation: AsyncStream<CmxIrohBonjourBrowserEvent>.Continuation?
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var stopped = false
+    private var allowedServiceNames: Set<String> = []
+
+    func replaceServiceNameAllowlist(_ serviceNames: Set<String>) {
+        allowedServiceNames = serviceNames
+    }
 
     func events() -> AsyncStream<CmxIrohBonjourBrowserEvent> {
         AsyncStream { continuation in
@@ -304,6 +312,7 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     }
 
     func wasStopped() -> Bool { stopped }
+    func serviceNameAllowlist() -> Set<String> { allowedServiceNames }
 }
 
 private actor TestLANBrowserFactoryRecorder {
