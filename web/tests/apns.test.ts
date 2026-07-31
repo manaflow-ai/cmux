@@ -18,6 +18,7 @@ import {
   APNS_MAX_PAYLOAD_BYTES,
   APNS_RATE_LIMIT_FALLBACK_SECONDS,
   APNS_SERVER_ERROR_RETRY_SECONDS,
+  createApnsSessionPool,
   sendApnsNotification,
   sendApnsNotificationReliably,
   signApnsJwt,
@@ -1404,6 +1405,175 @@ describe("apns sender transport", () => {
     expect(requestCount).toBe(200);
     expect(requestsBeforeBootstrap).toBe(1);
     expect(maximumActive).toBeLessThanOrEqual(remoteLimit);
+  });
+
+  test("reuses one authenticated APNs connection across logical events", async () => {
+    let connections = 0;
+    let closes = 0;
+    let requests = 0;
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      readonly remoteSettings = { maxConcurrentStreams: 8 };
+
+      request() {
+        return new FakeRequest();
+      }
+
+      close() {
+        closes += 1;
+      }
+    }
+
+    const transport = {
+      connect: () => {
+        connections += 1;
+        return new FakeSession();
+      },
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const pool = createApnsSessionPool(transport, 60_000);
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const config = {
+      keyP8: p8,
+      keyId: "KID-POOL",
+      teamId: "TEAM456",
+    };
+    const target = {
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+
+    await sendApnsNotification(
+      config,
+      [target],
+      { title: "agent", body: "first" },
+      1_000,
+      transport,
+      false,
+      pool,
+    );
+    await sendApnsNotification(
+      config,
+      [target],
+      { title: "agent", body: "second" },
+      1_000,
+      transport,
+      false,
+      pool,
+    );
+
+    expect(connections).toBe(1);
+    expect(requests).toBe(2);
+    expect(closes).toBe(0);
+    pool.closeAll();
+    expect(closes).toBe(1);
+  });
+
+  test("replaces a pooled APNs connection after GOAWAY", async () => {
+    const sessions: FakeSession[] = [];
+    let requests = 0;
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+
+      end() {
+        requests += 1;
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      readonly remoteSettings = { maxConcurrentStreams: 8 };
+
+      request() {
+        return new FakeRequest();
+      }
+
+      close() {}
+    }
+
+    const transport = {
+      connect: () => {
+        const session = new FakeSession();
+        sessions.push(session);
+        return session;
+      },
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+    const pool = createApnsSessionPool(transport, 60_000);
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const config = {
+      keyP8: p8,
+      keyId: "KID-GOAWAY",
+      teamId: "TEAM456",
+    };
+    const target = {
+      deviceToken: "a".repeat(64),
+      bundleId: "com.cmux.app",
+      environment: "production",
+    };
+
+    await sendApnsNotification(
+      config,
+      [target],
+      { title: "agent", body: "first" },
+      1_000,
+      transport,
+      false,
+      pool,
+    );
+    sessions[0]!.emit("goaway", 0, 1, Buffer.alloc(0));
+    await sendApnsNotification(
+      config,
+      [target],
+      { title: "agent", body: "second" },
+      1_000,
+      transport,
+      false,
+      pool,
+    );
+
+    expect(sessions).toHaveLength(2);
+    expect(requests).toBe(2);
+    pool.closeAll();
   });
 
   test("rejects 4097-byte Unicode payloads locally but sends 4096 bytes", async () => {
