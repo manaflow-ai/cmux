@@ -92,6 +92,17 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     #if DEBUG
+    #if targetEnvironment(simulator)
+    @Test
+    func unsignedSimulatorTreatsSeededDeviceIdentityAsSameDeviceEvidence() {
+        let probe = MobileIrohDevelopmentFileEvidenceProbe(
+            bundleIdentifier: "dev.cmux.ios.simulator-identity-regression"
+        )
+
+        #expect(probe.probe() == .present)
+    }
+    #endif
+
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
