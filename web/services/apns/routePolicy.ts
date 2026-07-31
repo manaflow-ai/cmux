@@ -128,7 +128,12 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   if (macDeviceId == null) return { ok: false, error: "mac_device_id_too_long" };
   if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
   if (correlationId == null) return { ok: false, error: "correlation_id_too_long" };
-  if (correlationId && !/^[A-Za-z0-9_-]{16,64}$/.test(correlationId)) {
+  if (
+    correlationId
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      correlationId,
+    )
+  ) {
     return { ok: false, error: "invalid_correlation_id" };
   }
   // A dismiss push is banner-less by design; only the visible kind needs text.
