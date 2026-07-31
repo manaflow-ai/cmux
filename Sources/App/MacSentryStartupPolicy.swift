@@ -32,6 +32,7 @@ struct MacSentryStartupPolicy: Sendable {
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        if environment["CMUX_XCTEST_APP_HOST"] == "1" { return true }
         if environment["XCTestConfigurationFilePath"] != nil { return true }
         if environment["XCTestBundlePath"] != nil { return true }
         if environment["XCTestSessionIdentifier"] != nil { return true }
