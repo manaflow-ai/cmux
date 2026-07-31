@@ -60,7 +60,8 @@ struct BrowserScreenshotCaptureService {
             snapshot: {
                 try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
-                    afterScreenUpdates: Self.waitsForScreenUpdates
+                    afterScreenUpdates: Self.waitsForScreenUpdates,
+                    timeout: Self.snapshotCompletionAllowance
                 )
             },
             makePixelSource: {

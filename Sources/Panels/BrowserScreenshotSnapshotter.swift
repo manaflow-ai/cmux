@@ -182,13 +182,15 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     static func captureVisibleViewport(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let renderer = viewportSnapshotRenderer(for: webView)
         return try await captureVisibleViewport(
             from: webView,
             afterScreenUpdates: afterScreenUpdates,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 
@@ -801,19 +803,22 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
-        renderer: BrowserViewportSnapshotRenderer? = nil
+        renderer: BrowserViewportSnapshotRenderer? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         try await BrowserScreenshotSnapshotRequest(
             webView: webView,
             configuration: configuration,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         ).capture()
     }
 
     private static func captureVisibleViewport(
         from webView: WKWebView,
         afterScreenUpdates: Bool,
-        renderer: BrowserViewportSnapshotRenderer?
+        renderer: BrowserViewportSnapshotRenderer?,
+        timeout: TimeInterval?
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
@@ -821,7 +826,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         return try await takeSnapshot(
             from: webView,
             configuration: configuration,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 

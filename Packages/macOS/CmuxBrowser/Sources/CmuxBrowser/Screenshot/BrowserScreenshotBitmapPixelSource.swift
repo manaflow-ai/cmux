@@ -30,19 +30,6 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotPixelSource {
         )
     }
 
-    /// Reads one top-left-origin pixel as straight-alpha sRGB.
-    ///
-    /// - Parameter point: Pixel coordinate to sample.
-    /// - Returns: A normalized color, or `nil` when `point` is outside the bitmap.
-    public func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
-        let x = Int(point.x.rounded(.down))
-        let y = Int(point.y.rounded(.down))
-        return colors(
-            in: NSRect(x: x, y: y, width: 1, height: 1),
-            stride: 1
-        )?.first
-    }
-
     /// Normalizes only the requested probe rectangle, then samples its packed bytes.
     public func colors(
         in rect: NSRect,

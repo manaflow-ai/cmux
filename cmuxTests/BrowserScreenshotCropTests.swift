@@ -254,6 +254,7 @@ struct BrowserScreenshotCropTests {
         var snapshotCompletion: (@MainActor (NSImage?, Error?) -> Void)?
         let request = BrowserScreenshotSnapshotRequest(
             renderer: nil,
+            timeout: 60,
             startSnapshot: { snapshotCompletion = $0 }
         )
         let task = Task { @MainActor in
@@ -272,6 +273,24 @@ struct BrowserScreenshotCropTests {
         let lateImage = try makeBlankBitmapImage(width: 10, height: 10)
         completeSnapshot(lateImage, nil)
         completeSnapshot(lateImage, nil)
+    }
+
+    @Test
+    func snapshotRequestDeadlineBoundsMissingWebKitCallback() async {
+        let request = BrowserScreenshotSnapshotRequest(
+            renderer: nil,
+            timeout: 0,
+            startSnapshot: { _ in }
+        )
+
+        do {
+            _ = try await request.capture()
+            Issue.record("Expected the snapshot deadline to fail")
+        } catch BrowserScreenshotError.automationTimedOut {
+            // Expected: one stalled snapshot cannot consume the entire retry lease.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test
@@ -1164,11 +1183,11 @@ struct BrowserScreenshotCropTests {
         )
     }
 
-    private struct SolidPixelSource: BrowserScreenshotPixelSource {
+    private struct SolidPixelSource: PointSamplingPixelSource {
         let pixelSize: NSSize
         let color: BrowserScreenshotRGBA
 
-        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
+        func testColor(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
@@ -1179,10 +1198,6 @@ struct BrowserScreenshotCropTests {
     private struct BulkOnlyPixelSource: BrowserScreenshotPixelSource {
         let pixelSize: NSSize
 
-        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
-            nil
-        }
-
         func colors(
             in rect: NSRect,
             stride: Int
@@ -1191,11 +1206,11 @@ struct BrowserScreenshotCropTests {
         }
     }
 
-    private struct TextPaintPixelSource: BrowserScreenshotPixelSource {
+    private struct TextPaintPixelSource: PointSamplingPixelSource {
         let pixelSize: NSSize
         let textRects: [NSRect]
 
-        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
+        func testColor(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
@@ -1214,11 +1229,11 @@ struct BrowserScreenshotCropTests {
         }
     }
 
-    private struct ThinTextStrokePixelSource: BrowserScreenshotPixelSource {
+    private struct ThinTextStrokePixelSource: PointSamplingPixelSource {
         let pixelSize: NSSize
         let textRects: [NSRect]
 
-        func color(at point: NSPoint) -> BrowserScreenshotRGBA? {
+        func testColor(at point: NSPoint) -> BrowserScreenshotRGBA? {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
@@ -1332,6 +1347,36 @@ struct BrowserScreenshotCropTests {
         #expect(abs(actualRGB.greenComponent - expectedRGB.greenComponent) < tolerance)
         #expect(abs(actualRGB.blueComponent - expectedRGB.blueComponent) < tolerance)
         #expect(abs(actualRGB.alphaComponent - expectedRGB.alphaComponent) < tolerance)
+    }
+}
+
+private protocol PointSamplingPixelSource: BrowserScreenshotPixelSource {
+    func testColor(at point: NSPoint) -> BrowserScreenshotRGBA?
+}
+
+private extension PointSamplingPixelSource {
+    func colors(
+        in rect: NSRect,
+        stride: Int
+    ) -> [BrowserScreenshotRGBA]? {
+        let minX = Int(rect.minX.rounded(.down))
+        let minY = Int(rect.minY.rounded(.down))
+        let maxX = Int(rect.maxX.rounded(.up)) - 1
+        let maxY = Int(rect.maxY.rounded(.up)) - 1
+        guard stride > 0, minX <= maxX, minY <= maxY else { return nil }
+
+        var result: [BrowserScreenshotRGBA] = []
+        for y in Swift.stride(from: minY, through: maxY, by: stride) {
+            for x in Swift.stride(from: minX, through: maxX, by: stride) {
+                guard let color = testColor(
+                    at: NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
+                ) else {
+                    return nil
+                }
+                result.append(color)
+            }
+        }
+        return result
     }
 }
 

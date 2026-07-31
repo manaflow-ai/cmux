@@ -8,16 +8,20 @@ final class BrowserScreenshotSnapshotRequest {
         _ completion: @escaping @MainActor (NSImage?, Error?) -> Void
     ) -> Void
 
+    private let timeout: TimeInterval?
     private let startSnapshot: SnapshotStarter
     private let renderer: BrowserViewportSnapshotRenderer?
     private let completionGate = BrowserScreenshotContinuationGate<NSImage>()
+    private var timeoutTimer: Timer?
     private var isCancelled = false
 
     init(
         webView: WKWebView,
         configuration: WKSnapshotConfiguration,
-        renderer: BrowserViewportSnapshotRenderer?
+        renderer: BrowserViewportSnapshotRenderer?,
+        timeout: TimeInterval? = nil
     ) {
+        self.timeout = timeout
         self.startSnapshot = { completion in
             webView.takeSnapshot(with: configuration, completionHandler: completion)
         }
@@ -26,8 +30,10 @@ final class BrowserScreenshotSnapshotRequest {
 
     init(
         renderer: BrowserViewportSnapshotRenderer?,
+        timeout: TimeInterval? = nil,
         startSnapshot: @escaping SnapshotStarter
     ) {
+        self.timeout = timeout
         self.startSnapshot = startSnapshot
         self.renderer = renderer
     }
@@ -51,6 +57,16 @@ final class BrowserScreenshotSnapshotRequest {
     }
 
     private func start() {
+        if let timeout {
+            let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.finish(.failure(BrowserScreenshotError.automationTimedOut))
+                }
+            }
+            timeoutTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+
         startSnapshot { [weak self] image, error in
             self?.complete(image: image, error: error)
         }
@@ -79,6 +95,8 @@ final class BrowserScreenshotSnapshotRequest {
     }
 
     private func finish(_ result: Result<NSImage, Error>) {
-        completionGate.finish(result)
+        guard completionGate.finish(result) else { return }
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
     }
 }
