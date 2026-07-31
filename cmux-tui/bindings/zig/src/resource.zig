@@ -15256,6 +15256,51 @@ test "one request deadline covers admission send and receive" {
     try std.testing.expect(split.read_timeout_ms.? < 30);
 }
 
+test "deadline before first write leaves the connection reusable" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 1_000,
+    });
+    defer client.deinit();
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    var deadline = try TimeoutDeadline.start(20);
+    var dispatch: RequestDispatch = .fully_dispatched;
+    try client.acquireRequest(&deadline);
+    {
+        defer client.releaseRequest();
+        client.mutex.lock();
+        defer client.mutex.unlock();
+        std.Thread.sleep(25 * std.time.ns_per_ms);
+        try std.testing.expectError(
+            error.Timeout,
+            client.sendRequestWithDeadline(
+                "expired-before-write",
+                .machine_list,
+                .{ .object = params },
+                null,
+                &deadline,
+                &dispatch,
+            ),
+        );
+    }
+
+    try std.testing.expectEqual(RequestDispatch.not_dispatched, dispatch);
+    try std.testing.expect(!client.closed);
+    try std.testing.expectEqual(@as(usize, 0), shared.write_calls);
+
+    var result = try client.read(.machine_list, .{ .object = params });
+    defer result.deinit();
+    try std.testing.expect(!client.closed);
+    try std.testing.expectEqual(@as(usize, 2), shared.write_calls);
+}
+
 test "fully dispatched mutation timeout preserves uncertainty" {
     const dispatched = try FullDispatchDeadlineConnection.create();
     var client = Client.init(
