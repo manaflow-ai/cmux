@@ -339,7 +339,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         }
     }
 
-    @Test func rejectsMacScopedMutationsWithoutAttachToken() async {
+    @Test func sameAccountAllowsMacScopedMutationsWithoutAttachToken() async {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
@@ -357,14 +357,11 @@ struct MobileHostMacScopedMutationAuthorizationTests {
                 auth: MobileHostRPCAuth(attachToken: nil, stackAccessToken: "cmux-dev-token")
             )
             let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "missing attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
+            #expect(result == nil, "same-account authorization should allow \(method) without a narrowing ticket")
         }
     }
 
-    @Test func rejectsMacScopedMutationsWithUnknownAttachToken() async {
+    @Test func sameAccountAllowsMacScopedMutationsWithExpiredOrUnknownAttachToken() async {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
@@ -382,10 +379,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
                 auth: MobileHostRPCAuth(attachToken: "stale-ticket", stackAccessToken: "cmux-dev-token")
             )
             let result = await service.debugAuthorizationError(for: request)
-            guard case let .failure(error) = result else {
-                return #expect(Bool(false), "stale attach token should reject \(method)")
-            }
-            #expect(error.code == "forbidden")
+            #expect(result == nil, "an unknown ticket cannot narrow same-account authorization for \(method)")
         }
     }
 }

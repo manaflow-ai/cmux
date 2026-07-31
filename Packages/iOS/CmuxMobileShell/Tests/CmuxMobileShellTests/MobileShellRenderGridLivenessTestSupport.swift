@@ -23,6 +23,9 @@ actor LivenessHostRouter {
         var topics: [String]?
         var workspaceID: String?
         var streamID: String?
+        var groupID: String?
+        var action: String?
+        var title: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -110,13 +113,19 @@ actor LivenessHostRouter {
         method: String?,
         topics: [String]?,
         workspaceID: String? = nil,
-        streamID: String? = nil
+        streamID: String? = nil,
+        groupID: String? = nil,
+        action: String? = nil,
+        title: String? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
             workspaceID: workspaceID,
-            streamID: streamID
+            streamID: streamID,
+            groupID: groupID,
+            action: action,
+            title: title
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -224,6 +233,12 @@ actor LivenessHostRouter {
 
     func streamIDs(for method: String) -> [String?] {
         recorded.filter { $0.method == method }.map(\.streamID)
+    }
+
+    func groupActions() -> [(groupID: String?, action: String?, title: String?)] {
+        recorded.filter { $0.method == "workspace.group.action" }.map {
+            (groupID: $0.groupID, action: $0.action, title: $0.title)
+        }
     }
 
     func setCapabilities(_ capabilities: [String]) {
@@ -535,6 +550,8 @@ actor LivenessHostRouter {
                 "subscribed": hasActiveSubscription,
                 "event_transport": "control_v1",
             ])
+        case "workspace.group.action":
+            return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.replay":
             replayRequestCount += 1
             if heldReplayResponsesRemaining > 0 {
@@ -768,7 +785,10 @@ actor LivenessTransport: CmxByteTransport {
                 method: method,
                 topics: topics,
                 workspaceID: params?["workspace_id"] as? String,
-                streamID: streamID
+                streamID: streamID,
+                groupID: params?["group_id"] as? String,
+                action: params?["action"] as? String,
+                title: params?["title"] as? String
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

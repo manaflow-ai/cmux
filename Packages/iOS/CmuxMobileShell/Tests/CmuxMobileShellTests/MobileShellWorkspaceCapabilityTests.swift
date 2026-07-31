@@ -159,6 +159,37 @@ import Testing
         #expect(connected.store.supportsWorkspaceGroupCreate)
     }
 
+    @Test func accountAuthorizedGroupRenameSurvivesExpiredMacWideTicket() async throws {
+        let connected = try await connectedStore(
+            capabilities: [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.group_actions.v1",
+                "workspace.mutations.account_auth.v1",
+            ],
+            ticketWorkspaceID: "",
+            ticketTerminalID: nil,
+            ticketLifetime: 1
+        )
+        let store = connected.store
+        let workspaceID = try #require(store.workspaces.first?.id)
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(id: "group-a", name: "Before", anchorWorkspaceID: workspaceID),
+        ]
+
+        connected.clock.advance(by: 2)
+
+        guard case .success = await store.renameWorkspaceGroup(id: "group-a", title: "  yu  ") else {
+            return #expect(Bool(false), "same-account group rename should outlive the route ticket")
+        }
+        let requests = await connected.router.groupActions()
+        #expect(requests.count == 1)
+        #expect(requests.first?.groupID == "group-a")
+        #expect(requests.first?.action == "rename")
+        #expect(requests.first?.title == "yu")
+    }
+
     private func connectedStore(
         capabilities: [String],
         ticketWorkspaceID: String = "live-workspace",
