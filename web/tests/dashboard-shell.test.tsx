@@ -41,5 +41,9 @@ describe("dashboard shell", () => {
       /<button[^>]*aria-controls="dashboard-mobile-nav"[^>]*>/,
     )?.[0];
     expect(menuButton).toContain("sm:hidden");
+    const controlledNavigation = html.match(
+      /<nav[^>]*id="dashboard-mobile-nav"[^>]*>/,
+    )?.[0];
+    expect(controlledNavigation).toContain("hidden");
   });
 });

@@ -93,6 +93,61 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionRequestAdmitsRestoredSessionWithoutPostSignInHook() async throws {
+        let suiteName = "BrowserAppSessionRestoredSessionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let client = BrowserAppSessionRestoredSessionAuthClient()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(
+                keyValueStore: defaults,
+                key: "auth-session"
+            ),
+            userCache: CMUXAuthIdentityStore(
+                keyValueStore: defaults,
+                key: "auth-user"
+            ),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: defaults,
+                key: "auth-team"
+            ),
+            anchor: AuthPresentationContextProvider(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(
+                    projectId: "project-a",
+                    publishableClientKey: "publishable-a"
+                ),
+                magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
+                apiBaseURL: "http://127.0.0.1:1"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1",
+                    "CMUX_UITEST_AUTH_USER_ID": "restored-account",
+                ],
+                includesDevAuth: true
+            )
+        )
+        coordinator.start()
+        let controller = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: URL(string: "http://127.0.0.1:1")!,
+            projectID: "project-a",
+            defaults: defaults
+        )
+
+        let outcome = await controller.request(
+            destinationURL: URL(string: "http://127.0.0.1:1/dashboard")!
+        )
+
+        #expect(outcome.shouldRetry)
+    }
+
+    @Test
     func authenticatedHandoffStoreSurvivesWorkspaceReattachment() {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let panel = BrowserPanel(
@@ -921,6 +976,39 @@ struct BrowserWebContentProcessTests {
 }
 
 private final class StoreLifetimeProbe {}
+
+private actor BrowserAppSessionRestoredSessionAuthClient: AuthClient {
+    func accessToken() async -> String? { "access-token" }
+    func refreshToken() async -> String? { "refresh-token" }
+    func forceRefreshAccessToken() async -> String? { "access-token" }
+    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
+        CMUXAuthUser(
+            id: "restored-account",
+            primaryEmail: "restored@cmux.test",
+            displayName: "Restored Account"
+        )
+    }
+    func listTeams() async throws -> [CMUXAuthTeam] { [] }
+    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
+        "nonce"
+    }
+    func signInWithMagicLink(code: String) async throws {}
+    func signInWithCredential(email: String, password: String) async throws {}
+    func signInWithOAuth(
+        provider: String,
+        anchor: any AuthPresentationAnchoring
+    ) async throws {}
+    func storedAccessToken() async -> String? { "access-token" }
+    func clearLocalSession() async {}
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
+    func freshAccessToken(
+        accessToken: String?,
+        refreshToken: String
+    ) async -> String? {
+        accessToken
+    }
+}
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
