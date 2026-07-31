@@ -2,6 +2,20 @@ import CmuxTerminal
 import Foundation
 
 extension TerminalController {
+    /// Preserves the legacy mobile-chat behavior when an agent's process scope
+    /// has not bound yet. The guarded automation path never calls this helper.
+    func clearAgentPromptForMobileCompatibility(
+        _ terminalPanel: TerminalPanel
+    ) -> TerminalSurface.NamedKeySendResult {
+        var latestAccepted: TerminalSurface.NamedKeySendResult = .sent
+        for keyName in ["ctrl+a", "ctrl+k", "ctrl+u"] {
+            let result = terminalPanel.sendNamedKeyResult(keyName)
+            guard result.accepted else { return result }
+            latestAccepted = result
+        }
+        return latestAccepted
+    }
+
     /// Main-actor half of one serialized agent prompt request: resolve the
     /// workspace's agent terminal, reject any human composer state, then issue
     /// one compound paste-and-submit operation without suspension.
@@ -83,6 +97,29 @@ extension TerminalController {
                 surfaceID: target.surfaceID
             )
         }
+    }
+
+    /// Resolves the surface that owns a prompt-submission hook. Hooks with no
+    /// usable surface identity may fall back only to one authoritative agent
+    /// terminal; ambiguous workspaces deliberately remain unresolved.
+    func agentPromptConfirmationPanel(
+        in workspace: Workspace,
+        rawSurfaceID: String?
+    ) -> TerminalPanel? {
+        if let rawSurfaceID,
+           let surfaceID = v2UUIDAny(rawSurfaceID),
+           let terminalPanel = workspace.terminalInputTarget(
+               forPanelID: surfaceID
+           )?.panel {
+            return terminalPanel
+        }
+        guard case .success(let target) = agentPromptTerminalTarget(
+            in: workspace,
+            requestedSurfaceID: nil
+        ) else {
+            return nil
+        }
+        return target.panel
     }
 
     private func agentPromptTerminalTarget(

@@ -1,4 +1,5 @@
 import Darwin
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -123,7 +124,7 @@ struct AgentPromptSubmissionTests {
         appDelegate.tabManager = tabManager
         let workspace = tabManager.addWorkspace(select: true)
         let panelID = try #require(workspace.focusedPanelId)
-        _ = try #require(
+        let panel = try #require(
             workspace.terminalInputTarget(forPanelID: panelID)?.panel
         )
         defer {
@@ -135,6 +136,7 @@ struct AgentPromptSubmissionTests {
         }
 
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+        panel.surface.releaseSurfaceForTesting()
         let result = TerminalController.shared.v2MobileTerminalPaste(
             params: [
                 "workspace_id": workspace.id.uuidString,
@@ -149,6 +151,54 @@ struct AgentPromptSubmissionTests {
             return
         }
         #expect(payload["submitted"] as? Bool == true)
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        #expect(pending.items == 4)
+        #expect(pending.keyEvents == 3)
+        #expect(pending.promptSubmissionItems == 1)
+    }
+
+    @MainActor
+    @Test func surfaceLessHookConfirmsUniqueAgentTerminalDraft() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.surface-less-hook",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let event = WorkstreamEvent(
+            sessionId: "surface-less-hook",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: nil,
+            toolInputJSON: #"{"prompt":"human prompt"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @MainActor

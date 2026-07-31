@@ -5841,12 +5841,13 @@ class TerminalController {
             v2MainSync {
                 guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-                if let rawSurfaceId = event.surfaceId,
-                   let surfaceId = v2UUIDAny(rawSurfaceId),
-                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-                   let terminalPanel = workspace.terminalInputTarget(
-                       forPanelID: surfaceId
-                   )?.panel {
+                if let workspace = tabManager.tabs.first(
+                    where: { $0.id == workspaceId }
+                ),
+                   let terminalPanel = agentPromptConfirmationPanel(
+                       in: workspace,
+                       rawSurfaceID: event.surfaceId
+                   ) {
                     let origin = terminalPanel.surface
                         .confirmPromptSubmission(
                             message: event.submittedPromptMessage

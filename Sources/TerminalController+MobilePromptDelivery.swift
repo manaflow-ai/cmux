@@ -76,6 +76,13 @@ extension TerminalController {
         var submitted = false
         var queued = false
         if let submitKeyName {
+            if rejectIfHumanComposerBusy, agentInputScope == nil {
+                let clearResult =
+                    clearAgentPromptForMobileCompatibility(terminalPanel)
+                guard clearResult.accepted else {
+                    return mobileChatInputError(clearResult)
+                }
+            }
             // Mobile chat is an existing human-owned send surface. Preserve its
             // prior delivery behavior during a transient process-identity gap,
             // while still rejecting a tracked Mac-side draft whenever an
