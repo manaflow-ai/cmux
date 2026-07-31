@@ -764,10 +764,10 @@ struct BrowserScreenshotCropTests {
     @Test
     func bitmapPixelSourceNormalizesPremultipliedBGRA() throws {
         let pixels = Data([
-            0, 0, 255, 255,
-            0, 0, 255, 255,
-            0, 0, 255, 255,
-            0, 0, 255, 255,
+            0, 0, 128, 128,
+            0, 0, 128, 128,
+            0, 0, 128, 128,
+            0, 0, 128, 128,
         ])
         let provider = try #require(CGDataProvider(data: pixels as CFData))
         let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
@@ -797,6 +797,8 @@ struct BrowserScreenshotCropTests {
         #expect(color.red > 0.9)
         #expect(color.green < 0.1)
         #expect(color.blue < 0.1)
+        #expect(color.alpha > 0.45)
+        #expect(color.alpha < 0.55)
     }
 
     @Test

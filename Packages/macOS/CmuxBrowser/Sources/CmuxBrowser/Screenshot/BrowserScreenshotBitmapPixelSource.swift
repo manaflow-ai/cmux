@@ -40,11 +40,13 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotPixelSource {
             return nil
         }
         let offset = y * bytesPerRow + x * 4
+        let alpha = CGFloat(data[offset + 3]) / 255.0
+        let straightColorScale = alpha > 0 ? 1.0 / (255.0 * alpha) : 0
         return BrowserScreenshotRGBA(
-            red: CGFloat(data[offset]) / 255.0,
-            green: CGFloat(data[offset + 1]) / 255.0,
-            blue: CGFloat(data[offset + 2]) / 255.0,
-            alpha: CGFloat(data[offset + 3]) / 255.0
+            red: min(1, CGFloat(data[offset]) * straightColorScale),
+            green: min(1, CGFloat(data[offset + 1]) * straightColorScale),
+            blue: min(1, CGFloat(data[offset + 2]) * straightColorScale),
+            alpha: alpha
         )
     }
 }
