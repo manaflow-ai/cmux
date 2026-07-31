@@ -1,23 +1,17 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
 import WebKit
 
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
-    static let defaultMaximumAttempts = 2
-    private static let leaseSetupAllowance: TimeInterval = 4
-    private static let probeCollectionAllowance: TimeInterval = 1
-    private static let synchronizationAllowance: TimeInterval = 1
-    private static let snapshotCompletionAllowance: TimeInterval = 10
-    static let automationLeaseTimeout = leaseSetupAllowance + TimeInterval(
-        defaultMaximumAttempts
-    ) * (
-        probeCollectionAllowance * 2
-            + synchronizationAllowance
-            + snapshotCompletionAllowance
-    )
-    static let socketResponseTimeout = automationLeaseTimeout + 2
+    static let defaultMaximumAttempts =
+        BrowserScreenshotTimingBudget().maximumAttempts
+    static let automationLeaseTimeout =
+        BrowserScreenshotTimingBudget().captureLeaseTimeout
+    static let socketResponseTimeout =
+        BrowserScreenshotTimingBudget().socketResponseTimeout
 
     // Waiting for a displayed update can stall after window occlusion. The
     // bounded double-rAF/AppKit flush is the synchronization contract instead.
@@ -44,7 +38,12 @@ struct BrowserScreenshotCaptureService {
         presentation: BrowserScreenshotPresentation,
         maximumAttempts: Int = Self.defaultMaximumAttempts
     ) {
-        let probeCollector = BrowserScreenshotDOMProbeCollector(webView: webView)
+        let timingBudget = BrowserScreenshotTimingBudget()
+        let probeCollector = BrowserScreenshotDOMProbeCollector(
+            webView: webView,
+            animationFrameTimeout: timingBudget.synchronizationAllowance,
+            javaScriptTimeout: timingBudget.probeCollectionAllowance
+        )
         self.init(
             maximumAttempts: maximumAttempts,
             synchronize: { isRetry in
@@ -61,7 +60,7 @@ struct BrowserScreenshotCaptureService {
                 try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
                     afterScreenUpdates: Self.waitsForScreenUpdates,
-                    timeout: Self.snapshotCompletionAllowance
+                    timeout: timingBudget.snapshotCompletionAllowance
                 )
             },
             makePixelSource: {
