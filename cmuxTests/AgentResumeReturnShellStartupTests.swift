@@ -46,6 +46,11 @@ struct AgentResumeReturnShellStartupTests {
 
         #expect(
             agentBinding.restoreStartupInput(
+                repairPortableAgentExecutable: true
+            ) == " cmux restore codex \(sessionID)\n"
+        )
+        #expect(
+            agentBinding.restoreStartupInput(
                 repairPortableAgentExecutable: true,
                 restoreCLIExecutableToken: restoreCLIExecutableToken
             )
