@@ -1,5 +1,9 @@
 import Foundation
 
+private struct PushRegistrationLoadingContext: @unchecked Sendable {
+    let loadingProtocol: PushRegistrationURLProtocol
+}
+
 /// Scripted transport for push-registration lifecycle tests.
 ///
 /// `URLProtocol` is configured by type, so one actor-backed script is shared by
@@ -65,8 +69,11 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let capturedRequest = request
-        let loadingProtocol = self
-        Task { [capturedRequest, loadingProtocol] in
+        let context = PushRegistrationLoadingContext(
+            loadingProtocol: self
+        )
+        Task { [capturedRequest, context] in
+            let loadingProtocol = context.loadingProtocol
             let stub = await Self.script.take(capturedRequest)
             await stub.started?.markStarted()
             await stub.blocker?.wait()
