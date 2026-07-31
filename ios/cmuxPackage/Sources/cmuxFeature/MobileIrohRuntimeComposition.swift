@@ -2470,7 +2470,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule().delay(
+                    let retryDelay = Self.relayPolicyRetrySchedule(for: error).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
@@ -2486,6 +2486,25 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 }
             }
         }
+    }
+
+    /// Cause-aware retry schedule for the relay policy refresh loop.
+    ///
+    /// An authorization failure that reaches this loop already survived the
+    /// broker client's single force-refresh retry, so it is a token-store
+    /// transition still settling — it resolves on the timescale of seconds,
+    /// not connectivity outages. The default 30s-plus-jitter first delay is
+    /// what turned every wake-time rotation race into a visible half-minute
+    /// connectivity gap; auth failures retry on a short ladder instead. A
+    /// genuinely dead session exits through the auth coordinator's state
+    /// clear, which cancels this loop via the lifecycle revision.
+    nonisolated static func relayPolicyRetrySchedule(
+        for error: any Error
+    ) -> CmxIrohRetrySchedule {
+        guard diagnosticFailureKind(for: error) == .authorizationFailed else {
+            return CmxIrohRetrySchedule()
+        }
+        return CmxIrohRetrySchedule(initialDelay: 2, maximumDelay: 120)
     }
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
@@ -2851,6 +2870,30 @@ extension MobileIrohRuntimeComposition {
         CmxIrohBrokerTokenSource(
             credentialPair: { [weak auth] in
                 guard let auth,
+                      let session = try? await auth.authenticatedSessionSnapshot(),
+                      session.accountID == expectedAccountID else { return nil }
+                return CmxIrohBrokerCredentials(
+                    accessToken: session.accessToken,
+                    refreshToken: session.refreshToken
+                )
+            },
+            recoveredCredentialPair: { [weak auth] rejected in
+                guard let auth else { return nil }
+                // Re-capture first: when another lane already rotated the
+                // session (the wake-time RPC force refresh, most commonly),
+                // the fresh snapshot differs from the rejected pair and no
+                // extra mint is needed. Only an unchanged access token forces
+                // a mint; the SDK store dedups concurrent refreshes, so
+                // parallel rejected requests cannot stampede the minter.
+                if let session = try? await auth.authenticatedSessionSnapshot(),
+                   session.accountID == expectedAccountID,
+                   session.accessToken != rejected.accessToken {
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
+                }
+                guard (try? await auth.forceRefreshAccessToken()) != nil,
                       let session = try? await auth.authenticatedSessionSnapshot(),
                       session.accountID == expectedAccountID else { return nil }
                 return CmxIrohBrokerCredentials(
