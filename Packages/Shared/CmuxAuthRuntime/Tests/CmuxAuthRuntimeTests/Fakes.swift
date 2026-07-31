@@ -160,6 +160,15 @@ actor HookFlag {
     func fire() { fired = true }
 }
 
+@MainActor
+final class AuthSessionTransitionRecorder {
+    private(set) var events: [String] = []
+
+    func record(_ event: String) {
+        events.append(event)
+    }
+}
+
 /// Captures a value observed inside an async hook, for ordering assertions.
 actor TokenProbe {
     private(set) var value: String?

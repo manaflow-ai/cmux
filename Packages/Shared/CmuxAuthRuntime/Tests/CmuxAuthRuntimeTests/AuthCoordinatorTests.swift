@@ -9,7 +9,9 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
+        onSignedIn: @escaping @Sendable () async -> Void = {}
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
@@ -21,7 +23,9 @@ import Testing
             config: .test,
             launch: launch,
             clock: clock,
-            isOnline: isOnline
+            isOnline: isOnline,
+            onSessionWillTransition: onSessionWillTransition,
+            onSignedIn: onSignedIn
         )
         return (coordinator, store)
     }
@@ -44,6 +48,41 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
+    }
+
+    @Test func everyAuthSessionTransitionClosesBeforeTheNextSessionPublishes() async throws {
+        let first = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let second = CMUXAuthUser(id: "u2", primaryEmail: "b@b.com", displayName: "B")
+        let client = FakeAuthClient(user: first)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSessionWillTransition: {
+                recorder.record("will-transition")
+            },
+            onSignedIn: {
+                await recorder.record("signed-in")
+            }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(recorder.events == ["will-transition", "signed-in"])
+
+        coordinator.clearAuthState()
+        #expect(recorder.events == [
+            "will-transition",
+            "signed-in",
+            "will-transition",
+        ])
+
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+        #expect(recorder.events == [
+            "will-transition",
+            "signed-in",
+            "will-transition",
+            "will-transition",
+            "signed-in",
+        ])
     }
 
     @Test func magicLinkRequiresPriorNonce() async {

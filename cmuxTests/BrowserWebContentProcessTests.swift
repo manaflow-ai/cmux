@@ -68,6 +68,31 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionAdmissionClosesAcrossAccountTransitions() {
+        let first = BrowserAppSessionAuthOwner(
+            userID: "account-a",
+            authSessionGeneration: 7
+        )
+        let second = BrowserAppSessionAuthOwner(
+            userID: "account-b",
+            authSessionGeneration: 9
+        )
+        var admission = BrowserAppSessionAdmission()
+
+        #expect(!admission.allows(first))
+        admission.resume(for: first)
+        #expect(admission.allows(first))
+
+        admission.beginTransition()
+        #expect(!admission.allows(first))
+        #expect(!admission.allows(second))
+
+        admission.resume(for: second)
+        #expect(!admission.allows(first))
+        #expect(admission.allows(second))
+    }
+
+    @Test
     func authenticatedHandoffStoreSurvivesWorkspaceReattachment() {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let panel = BrowserPanel(

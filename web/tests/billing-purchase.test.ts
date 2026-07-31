@@ -1111,6 +1111,43 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
   });
 
+  test("does not restore Pro metadata while removing recorded TestFlight ownership after a lapse", async () => {
+    const update = mock(async () => undefined);
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightEnrollmentEmails: ["buyer@example.com"],
+        cmuxProTestflightGrants: [
+          { email: "buyer@example.com", source: "user" },
+        ],
+      },
+      update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    const metadataWrites = update.mock.calls.map(
+      ([options]) => options.clientReadOnlyMetadata,
+    );
+    expect(metadataWrites).toHaveLength(2);
+    expect(metadataWrites[0]).not.toHaveProperty("cmuxPlan");
+    expect(metadataWrites[1]).toEqual({});
+  });
+
   test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
     const removeTester = mock(async () => undefined);
     const user = {
