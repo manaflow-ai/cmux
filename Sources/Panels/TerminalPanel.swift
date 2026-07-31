@@ -715,6 +715,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// Delivers one complete agent prompt without touching a human-owned
     /// TextBox draft or merging with unconfirmed physical terminal input.
+    /// Guarded callers also reject when no authoritative agent scope exists.
     @discardableResult
     func sendPromptSubmissionResult(
         _ text: String,
@@ -724,10 +725,14 @@ final class TerminalPanel: Panel, ObservableObject {
         hookRecordingSource: String?,
         hookConfirmsHumanInput: Bool = false
     ) -> TerminalSurface.PromptSubmissionSendResult {
-        if rejectIfHumanComposerBusy,
-           terminalComposerIsBusy(agentInputScope: agentInputScope) {
-            return .composerBusy
-        } else if !rejectIfHumanComposerBusy {
+        if rejectIfHumanComposerBusy {
+            guard let agentInputScope,
+                  !terminalComposerIsBusy(
+                      agentInputScope: agentInputScope
+                  ) else {
+                return .composerBusy
+            }
+        } else {
             surface.synchronizePromptInputAgentScope(agentInputScope)
         }
         resumeForExplicitInputIfNeeded()

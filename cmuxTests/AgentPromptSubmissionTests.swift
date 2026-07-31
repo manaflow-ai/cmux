@@ -259,6 +259,16 @@ struct AgentPromptSubmissionTests {
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
         #expect(panel.surface.currentPromptInputAgentScope == nil)
         #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let result = panel.sendPromptSubmissionResult(
+            "must not reach an identity-less composer",
+            submitKey: "return",
+            agentInputScope: nil,
+            rejectIfHumanComposerBusy: true,
+            hookRecordingSource: "workspace.agent_submit"
+        )
+        #expect(result == .composerBusy)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 
     @Test func rejectedMobileAttachmentBatchCleansEarlierFiles() async throws {

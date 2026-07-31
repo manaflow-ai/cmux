@@ -4549,7 +4549,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
-        terminalSurface?.recordHumanPromptInput(.unknown)
+        if let terminalSurface,
+           terminalSurface.hasPromptInputAgentScope {
+            terminalSurface.recordHumanPromptInput(.unknown)
+        }
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -7868,11 +7871,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.recordHumanPromptInput(.unknown)
+            if let terminalSurface,
+               terminalSurface.hasPromptInputAgentScope {
+                terminalSurface.recordHumanPromptInput(.unknown)
+            }
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
-            terminalSurface?.recordHumanPromptInput(.unknown)
+            if let terminalSurface,
+               terminalSurface.hasPromptInputAgentScope {
+                terminalSurface.recordHumanPromptInput(.unknown)
+            }
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget(),
@@ -12179,7 +12188,10 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-        terminalSurface?.recordHumanPromptInput(.unknown)
+        if let terminalSurface,
+           terminalSurface.hasPromptInputAgentScope {
+            terminalSurface.recordHumanPromptInput(.unknown)
+        }
         terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
