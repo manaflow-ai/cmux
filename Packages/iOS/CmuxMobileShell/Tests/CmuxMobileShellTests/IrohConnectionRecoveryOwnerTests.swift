@@ -488,7 +488,8 @@ extension ReconnectRouteSelectionTests {
 
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
-        heldConnectAttempts: Set<Int> = []
+        heldConnectAttempts: Set<Int> = [],
+        pathHealth: MobileTransportPathHealthProvider? = nil
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -519,7 +520,8 @@ extension ReconnectRouteSelectionTests {
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
+                supportedRouteKinds: [.iroh, .tailscale],
+                transportPathHealthProvider: pathHealth
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
@@ -724,5 +726,105 @@ private actor BlockingSecondFetchBackup: PairedMacBackingUp {
         let waiters = releaseWaiters
         releaseWaiters = []
         for waiter in waiters { waiter.resume() }
+    }
+}
+
+// MARK: - Transport path health
+
+@MainActor
+extension ReconnectRouteSelectionTests {
+    @Test func eventStreamEndedOnHealthyIrohPathRepairsInPlace() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .healthy })
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverDeadConnection(
+            trigger: .eventStreamEnded,
+            expectedClient: firstClient
+        )
+
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+        #expect(try await pollUntil {
+            fixture.store.connectionState == .connected
+                && fixture.store.remoteClient === firstClient
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
+
+    @Test func eventStreamEndedOnDeadIrohPathRedials() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(pathHealth: { .noPath })
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverDeadConnection(
+            trigger: .eventStreamEnded,
+            expectedClient: firstClient
+        )
+
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    @Test func presencePushOnHealthyIrohPathDoesNotProbeOrRedial() async throws {
+        let pathHealth = PathHealthProbe(.healthy)
+        let fixture = try await makeRecoveryOwnerFixture(
+            pathHealth: { await pathHealth.read() }
+        )
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+        let subscriptionsBefore = await fixture.router.count(
+            of: "mobile.events.subscribe"
+        )
+
+        fixture.store.recoverMobileConnection(trigger: .presencePush)
+        await pathHealth.waitUntilRead()
+        await Task.yield()
+
+        #expect(fixture.store.remoteClient === firstClient)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+        #expect(
+            await fixture.router.count(of: "mobile.events.subscribe")
+                == subscriptionsBefore
+        )
+        #expect(!fixture.store.isRecoveringConnection)
+    }
+}
+
+private actor PathHealthProbe {
+    private let value: MobileTransportPathHealth
+    private var wasRead = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(_ value: MobileTransportPathHealth) {
+        self.value = value
+    }
+
+    func read() -> MobileTransportPathHealth {
+        wasRead = true
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return value
+    }
+
+    func waitUntilRead() async {
+        if wasRead { return }
+        await withCheckedContinuation { waiters.append($0) }
     }
 }
