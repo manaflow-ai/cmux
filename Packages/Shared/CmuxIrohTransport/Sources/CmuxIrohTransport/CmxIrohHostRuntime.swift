@@ -13,6 +13,10 @@ public actor CmxIrohHostRuntime {
         _ discovery: CmxIrohDiscoveryResponse,
         _ attestation: CmxIrohEndpointAttestationResponse?
     ) async -> Void
+    public typealias RouteHandler = @Sendable (
+        _ binding: CmxIrohBrokerBindingMetadata,
+        _ pathHints: [CmxIrohPathHint]
+    ) async -> Void
     /// Clears app-visible network state after the endpoint and accepts are closed.
     ///
     /// Persistent identity and credential deletion belongs to the caller and
@@ -38,6 +42,7 @@ public actor CmxIrohHostRuntime {
         let attestation: CmxIrohEndpointAttestationResponse?
         let relayBootstrap: CmxIrohRelayTokenResponse?
         let lanRendezvous: CmxIrohLANRendezvous
+        let routePathHints: [CmxIrohPathHint]
     }
 
     enum LifecyclePhase: Equatable, Sendable {
@@ -70,6 +75,7 @@ public actor CmxIrohHostRuntime {
     let registrationRetryJitter: @Sendable () -> Double
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
+    let handleRoute: RouteHandler
     let handleDeactivation: DeactivationHandler
     let handleRelayCredential: RelayCredentialHandler
     let handleLANRefresh: LANRefreshHandler
@@ -124,6 +130,7 @@ public actor CmxIrohHostRuntime {
         },
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
+        handleRoute: @escaping RouteHandler = { _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLANRefresh: @escaping LANRefreshHandler = {},
@@ -141,6 +148,7 @@ public actor CmxIrohHostRuntime {
         self.registrationRetryJitter = registrationRetryJitter
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
+        self.handleRoute = handleRoute
         self.handleDeactivation = handleDeactivation
         self.handleRelayCredential = handleRelayCredential
         self.handleLANRefresh = handleLANRefresh
@@ -308,6 +316,7 @@ public actor CmxIrohHostRuntime {
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)
+                try requireCurrent(revision)
                 if let routeRevision = discovery.revision {
                     await connectivityEngine.didInstallRouteRevision(routeRevision)
                 }
@@ -316,6 +325,11 @@ public actor CmxIrohHostRuntime {
                     revision: revision
                 )
             }
+            await handleRoute(
+                publishedPolicy.binding,
+                publishedPolicy.routePathHints
+            )
+            try requireCurrent(revision)
             registrationRefreshEnabled = true
             if registrationRefreshPending {
                 registrationRefreshPending = false

@@ -144,6 +144,8 @@ extension CmxIrohHostRuntime {
                 attestation
             )
             try requireCurrent(revision)
+            await handleRoute(metadata, discovered.pathHints)
+            try requireCurrent(revision)
             await connectivityEngine.didInstallRouteRevision(discoveredRevision)
             scheduleLANPublication(
                 binding: metadata,

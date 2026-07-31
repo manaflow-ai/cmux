@@ -367,6 +367,19 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
+            handleRoute: { [weak self] binding, pathHints in
+                guard await self?.allowsPersistence(
+                    accountID: accountID,
+                    revision: revision
+                ) == true else { return }
+                await self?.recordActiveRoute(
+                    binding,
+                    pathHints: pathHints,
+                    accountID: accountID,
+                    tag: tag,
+                    revision: revision
+                )
+            },
             handleDeactivation: { [weak self] _ in
                 await self?.handleActiveRuntimeDeactivation(
                     revision: revision,
@@ -379,7 +392,7 @@ extension MobileHostIrohRuntime {
                         // therefore closes every Iroh-authorized connection and
                         // leaves Tailscale/other private-network sessions intact.
                         MobileHostService.shared.closeAllIrohConnections()
-                        MobileHostService.shared.updateIrohBinding(nil)
+                        MobileHostService.shared.updateIrohRoute(identity: nil)
                     }
                 )
             },
@@ -490,7 +503,26 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
-        MobileHostService.shared.updateIrohBinding(binding)
+    }
+
+    private func recordActiveRoute(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
+        accountID: String,
+        tag: String,
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        lastKnownBindingID = binding.bindingID
+        lastKnownAccountID = accountID
+        lastKnownTag = tag
+        if preparedSignOut?.pendingRevocation?.accountID == accountID {
+            preparedSignOut = nil
+        }
+        MobileHostService.shared.updateIrohRoute(
+            identity: binding.endpointID,
+            pathHints: pathHints
+        )
     }
 
     private func allowsPersistence(

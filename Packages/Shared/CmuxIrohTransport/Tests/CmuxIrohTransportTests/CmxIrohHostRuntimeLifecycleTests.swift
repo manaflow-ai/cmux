@@ -407,6 +407,7 @@ extension CmxIrohHostRuntimeTests {
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
         let cachedPolicy = try cachedFixture.policy()
+        let routes = HostRuntimeRouteRecorder()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
@@ -421,7 +422,10 @@ extension CmxIrohHostRuntimeTests {
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
             registrationClock: ImmediateHostActivationClock(),
-            handleTransport: { session, _ in await session.close() }
+            handleTransport: { session, _ in await session.close() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
         )
 
         try await runtime.start()
@@ -429,6 +433,9 @@ extension CmxIrohHostRuntimeTests {
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(await routes.values() == [
+            .init(binding: cachedPolicy.binding, pathHints: []),
+        ])
         await runtime.stop()
     }
 

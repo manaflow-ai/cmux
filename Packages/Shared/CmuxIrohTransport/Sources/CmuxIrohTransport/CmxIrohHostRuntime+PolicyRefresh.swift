@@ -168,7 +168,8 @@ extension CmxIrohHostRuntime {
             grantVerificationKeys: discovery.grantVerificationKeys,
             attestation: attestation,
             relayBootstrap: configuration.cachedRelayCredential,
-            lanRendezvous: discovery.lanRendezvous
+            lanRendezvous: discovery.lanRendezvous,
+            routePathHints: discovered.pathHints
         )
     }
 
@@ -226,7 +227,8 @@ extension CmxIrohHostRuntime {
             grantVerificationKeys: cached.grantVerificationKeys,
             attestation: cached.endpointAttestation,
             relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential,
-            lanRendezvous: cached.lanRendezvous
+            lanRendezvous: cached.lanRendezvous,
+            routePathHints: []
         )
     }
 
@@ -446,6 +448,8 @@ extension CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            try requireCurrent(revision)
+            await handleRoute(policy.binding, policy.routePathHints)
             try requireCurrent(revision)
             if let routeRevision = discovery.revision {
                 await connectivityEngine.didInstallRouteRevision(routeRevision)

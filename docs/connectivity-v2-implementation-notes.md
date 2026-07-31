@@ -83,6 +83,10 @@
     Found: The relay bootstrap route returned `503` before serving its available staging-signed policy, even though local and preview runtimes are intentionally credential-free.
     Decision: Local and preview runtimes return the signed policy without relay credentials so clients use direct and LAN paths. Every deployed non-preview runtime still fails closed when its private relay signer is absent.
 
+19. Expected: Restoring a verified cached host policy also restored the Mac's app-visible Iroh route.
+    Found: The host runtime activated and admitted peers from the signed cache, but route publication was coupled to the fresh-registration persistence callback. Every cached startup therefore exposed only legacy routes until another registration succeeded.
+    Decision: Give active-route publication its own runtime callback. Fresh policy publishes broker-validated hints, while cached policy publishes the attested endpoint identity without stale hints; persistence remains exclusive to fresh broker responses.
+
 ## Current state
 
 - Done: Current backend, Mac, iOS, shared transport, and recent Iroh-fork fixes mapped.
@@ -104,5 +108,6 @@
 - Done: The development backend runs on an isolated native PostgreSQL cluster, a same-worktree Next server, and an authenticated Worker quick tunnel without touching the wedged shared Docker daemon or shared Cloudflare worker.
 - Done: Fixed the first-sync wire mismatch found by the real Mac and local backend integration. The initial v2 request now carries the contract's explicit null revision.
 - Done: Made credential-free local and preview backends return their signed relay policy while retaining fail-closed relay credential issuance in deployed runtimes.
+- Done: Decoupled active Iroh route publication from fresh-registration persistence so a verified cached-policy restart immediately republishes the endpoint identity.
 - Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
 - Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
