@@ -123,6 +123,14 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.send_key") == .socketWorker(mainThreadCallable: true))
     }
 
+    @Test func atomicAgentSubmitRunsOnTheWorkerAndWaitsForItsFIFO() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.agent_submit"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v1SendsRunOnTheWorkerAndAreMainThreadCallable() {
         // send_workspace MUST stay callable (TerminalAndGhosttyTests drives
         // it through handleSocketLine on the main actor); the rest share the

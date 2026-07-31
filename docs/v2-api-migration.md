@@ -95,6 +95,7 @@ Panes:
 Input:
 - [x] send / send_surface -> `surface.send_text`
 - [x] send_key / send_key_surface -> `surface.send_key`
+- [x] atomic agent prompt submission -> `workspace.agent_submit` (per-workspace FIFO; rejects with `rejected_composer_busy` rather than merging with a human draft)
 
 Notifications:
 - [x] notify -> `notification.create`

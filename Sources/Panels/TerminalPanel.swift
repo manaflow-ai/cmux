@@ -713,6 +713,34 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.sendNamedKey(keyName)
     }
 
+    /// Delivers one complete agent prompt without touching a human-owned
+    /// TextBox draft or merging with unconfirmed physical terminal input.
+    @discardableResult
+    func sendPromptSubmissionResult(
+        _ text: String,
+        submitKey: String,
+        agentInputScope: String?,
+        rejectIfHumanComposerBusy: Bool,
+        hookRecording: ProgrammaticPromptHookRecording?
+    ) -> TerminalSurface.PromptSubmissionSendResult {
+        guard !hasHumanTextBoxDraft else { return .composerBusy }
+        surface.synchronizePromptInputAgentScope(agentInputScope)
+        resumeForExplicitInputIfNeeded()
+        return surface.sendPromptSubmission(
+            text,
+            submitKey: submitKey,
+            rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+            hookRecording: hookRecording
+        )
+    }
+
+    var hasHumanTextBoxDraft: Bool {
+        if textBoxInputView?.string.isEmpty == false {
+            return true
+        }
+        return !textBoxContent.isEmpty || !textBoxAttachments.isEmpty
+    }
+
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         switch sendNamedKeyResult(keyName) {

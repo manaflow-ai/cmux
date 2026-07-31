@@ -2,6 +2,7 @@ import CmuxFoundation
 import CmuxWorkspaces
 import AppKit
 import CmuxTerminal
+import CmuxTerminalCore
 import Carbon.HIToolbox
 import CmuxSettingsUI
 import Observation
@@ -1139,6 +1140,18 @@ private extension TerminalSurface.NamedKeySendResult {
     }
 }
 
+private extension TerminalSurface.PromptSubmissionSendResult {
+    var acceptedForTextBoxSubmit: Bool {
+        switch self {
+        case .sent, .queued:
+            true
+        case .composerBusy, .unknownKey, .inputQueueFull,
+             .surfaceUnavailable, .processExited:
+            false
+        }
+    }
+}
+
 @MainActor
 enum TextBoxSubmit {
     struct CompletionContext: Equatable {
@@ -1265,15 +1278,52 @@ enum TextBoxSubmit {
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
-        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+        TextBoxSubmitEventRunner.run(
+            events,
+            via: surface,
+            atomicPromptTerminalAgentContext: terminalAgentContext,
+            onComplete: onComplete
+        )
     }
 
     static func sendEvents(
         _ events: [DispatchEvent],
         via surface: TerminalSurface,
+        atomicPromptTerminalAgentContext: String? = nil,
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
-        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+        TextBoxSubmitEventRunner.run(
+            events,
+            via: surface,
+            atomicPromptTerminalAgentContext:
+                atomicPromptTerminalAgentContext,
+            onComplete: onComplete
+        )
+    }
+
+    static func atomicPromptSubmission(
+        for events: [DispatchEvent],
+        terminalAgentContext: String
+    ) -> TextBoxAtomicPromptSubmission? {
+        guard events.count == 2,
+              case .pasteText(let text) = events[0],
+              case .namedKey(let submitKey) = events[1] else {
+            return nil
+        }
+        return TextBoxAtomicPromptSubmission(
+            text: text,
+            submitKey: submitKey,
+            rejectIfHumanComposerBusy:
+                TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                    context: terminalAgentContext
+                ),
+            hookRecording:
+                TextBoxAgentDetection.supportsAgentPrefixes(
+                    context: terminalAgentContext
+                )
+                    ? .recordWhenConfirmed
+                    : nil
+        )
     }
 
     static func cleanupAttachmentsAfterSubmit(
@@ -1492,6 +1542,7 @@ private final class TextBoxSubmitEventRunner {
     private let surface: TextBoxSubmitSurfaceControlling
     private let surfaceKey: ObjectIdentifier
     private let usesPasteboard: Bool
+    private let atomicPromptSubmission: TextBoxAtomicPromptSubmission?
     private var onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
     private var index = 0
     private var claudeImageTokenBaseline = 0
@@ -1525,10 +1576,12 @@ private final class TextBoxSubmitEventRunner {
         let surface: TextBoxSubmitSurfaceControlling
         let onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
         let usesPasteboard: Bool
+        let atomicPromptSubmission: TextBoxAtomicPromptSubmission?
 
         init(
             events: [TextBoxSubmit.DispatchEvent],
             surface: TextBoxSubmitSurfaceControlling,
+            atomicPromptTerminalAgentContext: String?,
             onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
         ) {
             self.events = events
@@ -1538,6 +1591,13 @@ private final class TextBoxSubmitEventRunner {
                 if case .pasteFilePath = event { return true }
                 return false
             }
+            atomicPromptSubmission =
+                atomicPromptTerminalAgentContext.flatMap {
+                    TextBoxSubmit.atomicPromptSubmission(
+                        for: events,
+                        terminalAgentContext: $0
+                    )
+                }
         }
     }
 
@@ -1545,22 +1605,31 @@ private final class TextBoxSubmitEventRunner {
         events: [TextBoxSubmit.DispatchEvent],
         surface: TextBoxSubmitSurfaceControlling,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?,
-        usesPasteboard: Bool
+        usesPasteboard: Bool,
+        atomicPromptSubmission: TextBoxAtomicPromptSubmission?
     ) {
         self.events = events
         self.surface = surface
         self.surfaceKey = ObjectIdentifier(surface)
         self.onComplete = onComplete
         self.usesPasteboard = usesPasteboard
+        self.atomicPromptSubmission = atomicPromptSubmission
     }
 
     static func run(
         _ events: [TextBoxSubmit.DispatchEvent],
         via surface: TextBoxSubmitSurfaceControlling,
+        atomicPromptTerminalAgentContext: String? = nil,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)? = nil
     ) {
         let surfaceKey = ObjectIdentifier(surface)
-        let pendingRun = PendingRun(events: events, surface: surface, onComplete: onComplete)
+        let pendingRun = PendingRun(
+            events: events,
+            surface: surface,
+            atomicPromptTerminalAgentContext:
+                atomicPromptTerminalAgentContext,
+            onComplete: onComplete
+        )
         guard activeRunIDBySurface[surfaceKey] == nil,
               queuedRunsBySurface[surfaceKey]?.isEmpty != false,
               !(pendingRun.usesPasteboard && activePasteboardRunID != nil) else {
@@ -1578,7 +1647,8 @@ private final class TextBoxSubmitEventRunner {
             events: pendingRun.events,
             surface: pendingRun.surface,
             onComplete: pendingRun.onComplete,
-            usesPasteboard: pendingRun.usesPasteboard
+            usesPasteboard: pendingRun.usesPasteboard,
+            atomicPromptSubmission: pendingRun.atomicPromptSubmission
         )
         active[runner.id] = runner
         activeRunIDBySurface[runner.surfaceKey] = runner.id
@@ -1598,6 +1668,20 @@ private final class TextBoxSubmitEventRunner {
 
     private func processNext() {
         removeObservers()
+
+        if index == 0, let atomicPromptSubmission {
+            index = events.count
+            guard surface.sendPromptSubmission(
+                atomicPromptSubmission.text,
+                submitKey: atomicPromptSubmission.submitKey,
+                rejectIfHumanComposerBusy:
+                    atomicPromptSubmission.rejectIfHumanComposerBusy,
+                hookRecording: atomicPromptSubmission.hookRecording
+            ).acceptedForTextBoxSubmit else {
+                fail(.terminalWriteRejected)
+                return
+            }
+        }
 
         while index < events.count {
             let event = events[index]
@@ -2562,7 +2646,9 @@ struct TextBoxInputContainer: View {
         }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
-            via: surface
+            via: surface,
+            atomicPromptTerminalAgentContext:
+                submitPlan.cleanupTerminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {

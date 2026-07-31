@@ -137,6 +137,7 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-screen` | Read terminal text from a surface. |
 | `send` | Send text to a terminal surface. |
+| `agent-submit` | Submit one complete prompt to a workspace's agent terminal through the app-owned per-workspace FIFO. The call either accepts the whole paste-and-submit transaction or fails without changing input; `rejected_composer_busy` means a human draft was preserved and the caller may retry. Use `--surface` when a workspace has multiple agent terminals. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
@@ -638,6 +639,7 @@ the expected text without connecting to a cmux socket.
 - `cmux display-message --help` -> `Usage: cmux display-message`
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
 - `cmux send --help` -> `Usage: cmux send`
+- `cmux agent-submit --help` -> `Usage: cmux agent-submit`
 - `cmux send-key --help` -> `Usage: cmux send-key`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`

@@ -245,6 +245,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // Complete agent prompts wait for their own per-workspace FIFO result.
+        // The worker may block for an earlier submission while the main actor
+        // remains free to deliver each bounded terminal transaction.
+        "workspace.agent_submit",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies

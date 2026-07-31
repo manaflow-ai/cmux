@@ -96,6 +96,85 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
     }
 
+    @Test func agentSubmitUsesAtomicWorkspaceMethodAndPreservesPromptText() throws {
+        let socketPath = Self.makeSocketPath("agent-submit")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "workspace_id": Self.callerWorkspaceId,
+                    "surface_id": Self.callerSurfaceId,
+                ]
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "agent-submit",
+                "--workspace", Self.callerWorkspaceId,
+                "--surface", Self.callerSurfaceId,
+                "review", "the", "current", "diff",
+            ],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.callerSurfaceId)
+        #expect(params["text"] as? String == "review the current diff")
+    }
+
+    @Test func agentSubmitHelpIsRegisteredAsATopLevelCommand() throws {
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["agent-submit", "--help"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut)
+        #expect(
+            result.status == 0,
+            Comment(rawValue: result.stderr + result.stdout)
+        )
+        #expect(
+            result.stdout.contains(
+                "Usage: cmux agent-submit --workspace"
+            )
+        )
+    }
+
     private func assertExplicitSurfaceCommand(
         arguments: [String],
         expectedMethod: String,

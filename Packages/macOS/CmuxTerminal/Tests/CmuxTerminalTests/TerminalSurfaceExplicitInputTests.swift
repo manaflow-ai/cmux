@@ -33,6 +33,48 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func promptSubmissionQueuesAsOneCompoundItemOnAColdSurface() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "first line\nsecond line",
+                submitKey: "return",
+                hookRecording: .recordWhenConfirmed
+            ) == .queued
+        )
+
+        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
+        #expect(pending.pasteTextItems == 0)
+        #expect(pending.keyEvents == 0)
+        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(
+            fixture.surface.confirmPromptSubmission()
+                == .programmatic(.recordWhenConfirmed)
+        )
+    }
+
+    @Test func promptSubmissionRejectsWithoutChangingARecordedHumanDraft() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.recordHumanPromptInput(maySubmitPrompt: false)
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return"
+            ) == .composerBusy
+        )
+
+        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 0)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {
         let fixture = makeFixture()
         fixture.surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())

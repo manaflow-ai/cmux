@@ -1,6 +1,244 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.agentSubmit.error.missingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-submit requires prompt text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-submit にはプロンプトのテキストが必要です"
+          }
+        }
+      }
+    },
+    "cli.agentSubmit.error.missingWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-submit requires --workspace outside a cmux workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ワークスペースの外部で agent-submit を使うには --workspace が必要です"
+          }
+        }
+      }
+    },
+    "cli.agentSubmit.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt submitted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトを送信しました"
+          }
+        }
+      }
+    },
+    "cli.agentSubmit.usageLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] <text>"
+          }
+        }
+      }
+    },
+    "cli.help.agentSubmit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nSubmit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If a human draft is present, the command fails with rejected_composer_busy and leaves the draft unchanged.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Agent surface when the workspace has more than one\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux agent-submit --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nエージェントのターミナルに1件の完全なプロンプトを送信します。同じワークスペースへの同時呼び出しは順番に処理されます。人間の下書きがある場合、コマンドは rejected_composer_busy で失敗し、下書きは変更されません。\n\nFlags:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     ワークスペースに複数のエージェントがある場合の対象サーフェス\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウ\n\nExample:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.agentNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No running agent terminal was found in that workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのワークスペースに実行中のエージェントターミナルが見つかりません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.ambiguousAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More than one agent terminal is available. Specify surface_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のエージェントターミナルがあります。surface_id を指定してください。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.composerBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent composer contains human input. The draft was left unchanged; retry after it is submitted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの入力欄に人間が入力した内容があります。下書きは変更されていません。送信後に再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.invalidSubmitKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent's submit key is not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの送信キーはサポートされていません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.invalidSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id must be a valid surface UUID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id には有効なサーフェス UUID を指定してください。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.invalidWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id がないか、無効です。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.missingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent prompt text must not be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのプロンプトを空にすることはできません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal surface not found in that workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのワークスペースにターミナルサーフェスが見つかりません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.agentSubmit.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースが見つかりません。"
+          }
+        }
+      }
+    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {

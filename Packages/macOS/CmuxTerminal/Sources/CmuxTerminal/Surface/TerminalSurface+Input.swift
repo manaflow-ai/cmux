@@ -15,6 +15,47 @@ extension TerminalSurface {
         paneHost.terminalSurfaceDidReceiveExplicitInput()
     }
 
+    /// Records human input that may belong to an agent's terminal composer.
+    ///
+    /// This is deliberately separate from ``didReceiveExplicitInput()``:
+    /// socket/mobile writes are explicit input too, but they must never make a
+    /// later agent hook look like confirmation that a human draft was cleared.
+    ///
+    /// - Parameter maySubmitPrompt: Whether this event may commit the draft.
+    @MainActor
+    public func recordHumanPromptInput(maySubmitPrompt: Bool) {
+        promptInputLedger.recordHumanInput(maySubmitPrompt: maySubmitPrompt)
+    }
+
+    /// Aligns composer ownership with the currently bound agent process.
+    ///
+    /// A changed scope starts a fresh ledger epoch so shell input and a prior
+    /// agent's hooks cannot make the current agent appear composer-busy.
+    @MainActor
+    public func synchronizePromptInputAgentScope(_ scope: String?) {
+        promptInputLedger.synchronizeAgentScope(scope)
+    }
+
+    /// Matches an agent `UserPromptSubmit` hook to the next known input
+    /// boundary. Callers use the origin to avoid recording an app-owned
+    /// submission twice when its hook arrives.
+    ///
+    /// - Returns: The matched input origin.
+    @MainActor
+    @discardableResult
+    public func confirmPromptSubmission()
+        -> PromptSubmissionConfirmationOrigin
+    {
+        promptInputLedger.confirmNextSubmission()
+    }
+
+    /// Whether human terminal input may still be present in the current
+    /// agent composer.
+    @MainActor
+    public var hasUnconfirmedHumanPromptInput: Bool {
+        promptInputLedger.hasUnconfirmedHumanInput
+    }
+
     /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
     @MainActor
     public func closeSearchFromExplicitInput() {
@@ -175,6 +216,82 @@ extension TerminalSurface {
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         sendInput(text, to: liveSurface)
+        return .sent
+    }
+
+    /// Atomically delivers one composed prompt as bracketed-paste text followed
+    /// by exactly one named submit key.
+    ///
+    /// Both the live and cold-surface paths preserve the transaction boundary:
+    /// a cold surface queues one compound item, while a live surface performs
+    /// both Ghostty writes without suspension on the main actor. The submit key
+    /// is validated before any text is written, so unsupported keys cannot
+    /// partially apply a prompt.
+    ///
+    /// - Parameters:
+    ///   - text: The complete prompt body to paste.
+    ///   - submitKey: The agent-aware named key that commits the prompt.
+    ///   - rejectIfHumanComposerBusy: Whether unconfirmed human input
+    ///     rejects the transaction before any terminal write.
+    ///   - hookRecording: Whether the later agent hook should record the prompt,
+    ///     or `nil` when the target is not expected to emit an agent hook.
+    /// - Returns: The definitive acceptance or rejection outcome.
+    @MainActor
+    @discardableResult
+    public func sendPromptSubmission(
+        _ text: String,
+        submitKey: String,
+        rejectIfHumanComposerBusy: Bool = true,
+        hookRecording: ProgrammaticPromptHookRecording? =
+            nil
+    ) -> PromptSubmissionSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else {
+            return .sent
+        }
+        guard let submitEvent = pendingKeyEvent(for: submitKey) else {
+            return .unknownKey
+        }
+        if rejectIfHumanComposerBusy,
+           promptInputLedger.hasUnconfirmedHumanInput {
+            return .composerBusy
+        }
+
+        didReceiveExplicitInput()
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else {
+                return .surfaceUnavailable
+            }
+            guard enqueuePendingSocketInput(
+                .promptSubmission(text: data, submitKey: submitEvent)
+            ) else {
+                return .inputQueueFull
+            }
+            promptInputLedger.recordProgrammaticSubmission(
+                hookRecording: hookRecording
+            )
+            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            requestInputDemandSurfaceStartIfNeeded()
+            return .queued
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(
+            reason: "socket.sendPromptSubmission"
+        ) else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else {
+            return .processExited
+        }
+
+        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+        writeTextData(data, to: liveSurface)
+        sendKeyEvent(
+            surface: liveSurface,
+            keycode: submitEvent.keycode,
+            mods: submitEvent.mods
+        )
+        promptInputLedger.recordProgrammaticSubmission(
+            hookRecording: hookRecording
+        )
         return .sent
     }
 
@@ -774,6 +891,14 @@ extension TerminalSurface {
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+            case .promptSubmission(let text, let submitKey):
+                writeTextData(text, to: surface)
+                queuedKeys += 1
+                sendKeyEvent(
+                    surface: surface,
+                    keycode: submitKey.keycode,
+                    mods: submitKey.mods
+                )
             }
         }
 #if DEBUG

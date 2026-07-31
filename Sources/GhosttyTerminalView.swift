@@ -4549,6 +4549,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
+        terminalSurface?.recordHumanPromptInput(maySubmitPrompt: false)
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -5659,6 +5660,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// A plain Return (or Ctrl-Return) may commit an agent prompt. Modified
+    /// newline variants deliberately do not create a boundary; without a hook
+    /// they remain part of the same conservatively-busy draft generation.
+    private func keyMaySubmitAgentPrompt(_ event: NSEvent) -> Bool {
+        guard event.keyCode == UInt16(kVK_Return)
+                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
+            return false
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !flags.contains(.shift)
+            && !flags.contains(.option)
+            && !flags.contains(.command)
+    }
+
     override func keyDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
@@ -5749,6 +5764,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
+        terminalSurface?.recordHumanPromptInput(
+            maySubmitPrompt: keyMaySubmitAgentPrompt(event)
+        )
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
@@ -7825,9 +7843,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
+            terminalSurface?.recordHumanPromptInput(
+                maySubmitPrompt: false
+            )
             terminalSurface?.sendText(text)
             return true
         case .fileURLs(let fileURLs):
+            terminalSurface?.recordHumanPromptInput(
+                maySubmitPrompt: false
+            )
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget(),
@@ -12134,6 +12158,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
+        terminalSurface?.recordHumanPromptInput(maySubmitPrompt: false)
         terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
