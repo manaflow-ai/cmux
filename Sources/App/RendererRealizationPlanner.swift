@@ -40,7 +40,11 @@ enum RendererRealizationPlanner {
         if trigger == .systemMemoryPressure {
             return Set(
                 inputs.lazy
-                    .filter { $0.isRealized && !$0.isVisible }
+                    .filter {
+                        $0.isRealized &&
+                            !$0.isVisible &&
+                            !$0.isProtectedForPresentation
+                    }
                     .map(\.surfaceId)
             )
         }
@@ -49,7 +53,7 @@ enum RendererRealizationPlanner {
         // (most-recent first); visible surfaces are stamped ~now so they sort to
         // the top and land inside the warm set.
         let ranked = inputs
-            .filter { $0.isRealized }
+            .filter { $0.isRealized && !$0.isProtectedForPresentation }
             .sorted { lhs, rhs in
                 if lhs.lastVisibleAt == rhs.lastVisibleAt {
                     return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString

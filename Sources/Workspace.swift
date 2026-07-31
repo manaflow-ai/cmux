@@ -5417,12 +5417,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         scheduleTerminalGeometryReconcile()
     }
 
-    func hasLoadedTerminalSurface() -> Bool {
-        let terminalPanels = panels.keys.flatMap { self.terminalPanels(projectedFromPanelID: $0) }
-        guard !terminalPanels.isEmpty else { return true }
-        return terminalPanels.contains { $0.surface.surface != nil }
-    }
-
     func panelTitle(panelId: UUID) -> String? {
         if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
             return remotePane.pane.title

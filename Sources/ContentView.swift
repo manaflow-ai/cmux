@@ -2799,6 +2799,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
+            completeWorkspaceHandoffIfReady(reason: "mount_reconciled")
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -2895,11 +2896,11 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID
-            tabManager.workspaceSwitchCoordinator.noteInteractionReady(
-                workspaceID: tabId,
-                surfaceID: surfaceId
-            )
+            if selectedWorkspaceInputIsReady(workspaceID: tabId) {
+                tabManager.workspaceSwitchCoordinator.noteInteractionReady(
+                    workspaceID: tabId
+                )
+            }
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
@@ -2922,6 +2923,7 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: observedWindow)
+            noteSelectedTerminalPortalPresentedIfReady()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
@@ -2994,6 +2996,7 @@ struct ContentView: View {
                 workspaceID: selectedTabId,
                 webView: webView
             )
+            completeWorkspaceHandoffIfReady(reason: "browser_click")
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedBrowser.id,
@@ -3023,25 +3026,27 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: .terminalPortalVisibilityDidChange
         )) { notification in
-            guard let hostedView = notification.object as? GhosttySurfaceScrollView,
-                  hostedView.isVisibleInUI,
-                  let surface = hostedView.surfaceView.terminalSurface else {
-                return
-            }
-            tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
-                surfaceID: surface.id,
-                rendererPresented: surface.isRendererPresented
-            )
+            guard let hostedView = notification.object as? GhosttySurfaceScrollView else { return }
+            noteTerminalPortalPresentedIfReady(hostedView)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: .terminalSurfaceHostedViewDidMoveToWindow
+        )) { notification in
+            guard let surface = notification.object as? TerminalSurface else { return }
+            noteTerminalPortalPresentedIfReady(surface.hostedView)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
             for: .ghosttyDidRenderFrame
         )) { notification in
             guard let surfaceView = notification.object as? GhosttyNSView,
-                  let surfaceID = surfaceView.terminalSurface?.id else {
+                  let surface = surfaceView.terminalSurface else {
                 return
             }
-            tabManager.workspaceSwitchCoordinator.noteFirstFrame(surfaceID: surfaceID)
+            noteTerminalPortalPresentedIfReady(surface.hostedView)
+            tabManager.workspaceSwitchCoordinator.noteFirstFrame(surfaceID: surface.id)
+            completeWorkspaceHandoffIfReady(reason: "first_frame")
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -3055,6 +3060,7 @@ struct ContentView: View {
                 return
             }
             tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
+            completeWorkspaceHandoffIfReady(reason: "browser_portal_presented")
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -3649,22 +3655,6 @@ struct ContentView: View {
             )
         }
 #endif
-
-        if canCompleteWorkspaceHandoffImmediately(for: newSelectedId) {
-#if DEBUG
-            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
-                )
-            } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
-            }
-#endif
-            completeWorkspaceHandoff(reason: "ready")
-            return
-        }
-
         workspaceHandoffFallbackScheduler.schedule(after: .milliseconds(150)) {
             completeWorkspaceHandoff(reason: "timeout")
         }
@@ -3672,17 +3662,15 @@ struct ContentView: View {
 
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
         guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
-        completeWorkspaceHandoff(reason: reason)
+        completeWorkspaceHandoffIfReady(reason: reason)
     }
 
-    private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return true }
-        if let focusedPanelId = workspace.focusedPanelId,
-           workspace.browserPanel(for: focusedPanelId) != nil {
-            return true
+    private func completeWorkspaceHandoffIfReady(reason: String) {
+        guard retiringWorkspaceId != nil,
+              tabManager.workspaceSwitchCoordinator.isReadyForSourceRetirement else {
+            return
         }
-        return workspace.hasLoadedTerminalSurface()
+        completeWorkspaceHandoff(reason: reason)
     }
 
     private func completeWorkspaceHandoff(reason: String) {
@@ -3747,13 +3735,12 @@ struct ContentView: View {
         if let target = workspace.focusedTerminalInputTarget() {
             let surface = target.panel.surface
             let hostedView = target.panel.hostedView
-            let portalPresented =
-                hostedView.isVisibleInUI &&
-                !hostedView.isHidden &&
-                hostedView.window != nil &&
-                hostedView.superview != nil &&
-                hostedView.bounds.width > 1 &&
-                hostedView.bounds.height > 1
+            let portalPresented = Self.terminalPortalIsPresented(hostedView)
+            let interactionReady =
+                Self.firstResponder(in: window, belongsTo: hostedView) ||
+                target.panel.textBoxInputView.map {
+                    Self.firstResponder(in: window, belongsTo: $0)
+                } == true
             return WorkspaceSwitchCoordinator.PresentationTarget(
                 workspaceID: workspaceID,
                 contentKind: .terminal,
@@ -3763,8 +3750,8 @@ struct ContentView: View {
                 nativeSurfaceLoaded: surface.surface != nil,
                 rendererPresented: surface.isRendererPresented,
                 portalPresented: portalPresented,
-                firstFramePresented: portalPresented && surface.isRendererPresented,
-                interactionReady: Self.firstResponder(in: window, belongsTo: hostedView),
+                firstFramePresented: portalPresented && Self.terminalHasRenderedFrame(hostedView),
+                interactionReady: interactionReady,
                 requiresInteraction: requiresInteraction
             )
         }
@@ -3792,7 +3779,64 @@ struct ContentView: View {
 
     private static func firstResponder(in window: NSWindow?, belongsTo view: NSView) -> Bool {
         guard let responderView = window?.firstResponder as? NSView else { return false }
-        return responderView === view || responderView.isDescendant(of: view)
+        if responderView === view || responderView.isDescendant(of: view) {
+            return true
+        }
+        guard let fieldEditor = responderView as? NSTextView,
+              fieldEditor.isFieldEditor,
+              let delegateView = fieldEditor.delegate as? NSView else {
+            return false
+        }
+        return delegateView === view || delegateView.isDescendant(of: view)
+    }
+
+    private func selectedWorkspaceInputIsReady(workspaceID: UUID) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              workspace.id == workspaceID,
+              let target = workspace.focusedTerminalInputTarget() else {
+            return false
+        }
+        let window = observedWindow ?? tabManager.window
+        if Self.firstResponder(in: window, belongsTo: target.panel.hostedView) {
+            return true
+        }
+        guard let textBoxInputView = target.panel.textBoxInputView else { return false }
+        return Self.firstResponder(in: window, belongsTo: textBoxInputView)
+    }
+
+    private func noteSelectedTerminalPortalPresentedIfReady() {
+        guard let workspace = tabManager.selectedWorkspace,
+              let target = workspace.focusedTerminalInputTarget() else {
+            return
+        }
+        noteTerminalPortalPresentedIfReady(target.panel.hostedView)
+    }
+
+    private func noteTerminalPortalPresentedIfReady(_ hostedView: GhosttySurfaceScrollView) {
+        guard Self.terminalPortalIsPresented(hostedView),
+              let surfaceID = hostedView.surfaceView.terminalSurface?.id else {
+            return
+        }
+        tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
+            surfaceID: surfaceID
+        )
+        completeWorkspaceHandoffIfReady(reason: "portal_presented")
+    }
+
+    private static func terminalPortalIsPresented(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        hostedView.isVisibleInUI &&
+            !hostedView.isHidden &&
+            hostedView.window != nil &&
+            hostedView.superview != nil &&
+            hostedView.bounds.width > 1 &&
+            hostedView.bounds.height > 1
+    }
+
+    private static func terminalHasRenderedFrame(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        guard let metalLayer = hostedView.surfaceView.layer as? GhosttyMetalLayer else {
+            return false
+        }
+        return metalLayer.debugStats().count > 0
     }
 
     private var commandPaletteOverlay: some View {

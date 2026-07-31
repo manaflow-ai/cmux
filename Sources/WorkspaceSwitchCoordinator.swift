@@ -8,11 +8,6 @@ enum WorkspaceSwitchProfilingSignposts {
     )
 
     @inline(__always)
-    static var isEnabled: Bool {
-        signposts.isEnabled
-    }
-
-    @inline(__always)
     static func begin(
         _ name: StaticString,
         _ message: @autoclosure () -> String
@@ -46,16 +41,8 @@ final class WorkspaceSwitchCoordinator {
         var firstFramePresented: Bool
         var interactionReady: Bool
 
-        /// Preserves the existing handoff behavior while the permanent tracing
-        /// lands first. The follow-up lifecycle fix replaces these proxies with
-        /// `actualPresentationIsReady`.
         var isReadyForSourceRetirement: Bool {
-            switch contentKind {
-            case .terminal:
-                nativeSurfaceLoaded
-            case .browser, .passive:
-                true
-            }
+            actualPresentationIsReady
         }
 
         var actualPresentationIsReady: Bool {
@@ -118,10 +105,10 @@ final class WorkspaceSwitchCoordinator {
         to targetWorkspaceID: UUID?,
         targetSurfaceID: UUID?
     ) {
+        guard sourceWorkspaceID != targetWorkspaceID else { return }
         cancel()
         guard let sourceWorkspaceID,
-              let targetWorkspaceID,
-              sourceWorkspaceID != targetWorkspaceID else {
+              let targetWorkspaceID else {
             return
         }
 
@@ -218,10 +205,8 @@ final class WorkspaceSwitchCoordinator {
                 "ws.switch.first-frame",
                 details
             )
-            if WorkspaceSwitchProfilingSignposts.isEnabled {
-                transaction.frameNotificationRelease =
-                    target.terminalView?.retainLocalRenderedFrameNotifications()
-            }
+            transaction.frameNotificationRelease =
+                target.terminalView?.retainLocalRenderedFrameNotifications()
         }
         if target.portalPresented {
             releaseRendererProtection(&transaction)
@@ -241,7 +226,7 @@ final class WorkspaceSwitchCoordinator {
         finishIfPossible(&transaction)
     }
 
-    func noteTerminalPortalPresented(surfaceID: UUID, rendererPresented: Bool) {
+    func noteTerminalPortalPresented(surfaceID: UUID) {
         guard var transaction = active,
               transaction.targetSurfaceID == surfaceID,
               var readiness = transaction.readiness else {
@@ -251,10 +236,6 @@ final class WorkspaceSwitchCoordinator {
         transaction.readiness = readiness
         WorkspaceSwitchProfilingSignposts.end(transaction.portalShowInterval)
         transaction.portalShowInterval = nil
-        if rendererPresented {
-            WorkspaceSwitchProfilingSignposts.end(transaction.rendererRealizationInterval)
-            transaction.rendererRealizationInterval = nil
-        }
         releaseRendererProtection(&transaction)
         finishIfPossible(&transaction)
     }
@@ -275,7 +256,8 @@ final class WorkspaceSwitchCoordinator {
     func noteFirstFrame(surfaceID: UUID) {
         guard var transaction = active,
               transaction.targetSurfaceID == surfaceID,
-              var readiness = transaction.readiness else {
+              var readiness = transaction.readiness,
+              readiness.portalPresented else {
             return
         }
         readiness.firstFramePresented = true
