@@ -22,11 +22,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           label: t("vaultSessions"),
           active: pathname.startsWith("/dashboard/vault/sessions"),
         },
-        {
-          href: "/dashboard/vault/cli-auth",
-          label: t("vaultCliSetup"),
-          active: pathname.startsWith("/dashboard/vault/cli-auth"),
-        },
       ],
     },
     {

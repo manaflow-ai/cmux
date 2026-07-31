@@ -11,13 +11,13 @@ import {
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
+  parseNativeStackTokens,
 } from "../vms/auth";
+import { getStackServerApp } from "../../app/lib/stack";
 import {
-  createSubrouterClient,
-  subrouterRuntimeConfig,
-  type SubrouterClient,
-  type SubrouterRuntimeConfig,
-} from "./client";
+  createHostedSubrouterClient,
+  type HostedSubrouterClient,
+} from "./hostedClient";
 import {
   resolveTeam,
   serviceUnavailableResponse,
@@ -31,8 +31,8 @@ export type SubrouterRequestContext = {
     readonly use: boolean;
     readonly manageAccounts: boolean;
   };
-  readonly config: SubrouterRuntimeConfig;
-  readonly client: SubrouterClient;
+  readonly accessToken: string;
+  readonly client: HostedSubrouterClient;
 };
 
 export async function resolveSubrouterRequestContext(
@@ -79,11 +79,19 @@ export async function resolveSubrouterRequestContext(
         };
       }
 
-      const config = subrouterRuntimeConfig();
-      if (!config) {
+      const nativeTokens = parseNativeStackTokens(request);
+      const cookieTokens = nativeTokens
+        ? null
+        : await getStackServerApp().getAuthJson({
+          tokenStore: request as unknown as {
+            headers: { get(name: string): string | null };
+          },
+        });
+      const accessToken = nativeTokens?.accessToken ?? cookieTokens?.accessToken;
+      if (!accessToken) {
         return {
           ok: false,
-          response: serviceUnavailableResponse(),
+          response: unauthorized(),
         };
       }
 
@@ -92,11 +100,8 @@ export async function resolveSubrouterRequestContext(
         value: {
           user,
           team,
-          config,
-          client: createSubrouterClient({
-            baseUrl: config.baseUrl,
-            adminToken: config.adminToken,
-          }),
+          accessToken,
+          client: createHostedSubrouterClient(),
         },
       };
     });

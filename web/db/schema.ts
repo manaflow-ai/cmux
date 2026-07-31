@@ -451,21 +451,6 @@ export const billingEmailClaims = pgTable(
   ],
 );
 
-export const subrouterTenants = pgTable(
-  "subrouter_tenants",
-  {
-    teamId: text("team_id").primaryKey(),
-    tenantId: text("tenant_id").notNull(),
-    tenantName: text("tenant_name").notNull(),
-    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
-  ],
-);
-
 export const vaultSessions = pgTable(
   "vault_sessions",
   {
@@ -551,29 +536,6 @@ export const vaultUploadTombstones = pgTable(
     index("vault_upload_tombstones_user_idx").on(table.userId),
     index("vault_upload_tombstones_expires_idx").on(table.expiresAt),
     uniqueIndex("vault_upload_tombstones_upload_object_key_unique").on(table.uploadObjectKey),
-  ],
-);
-
-export const vaultCliAuthRequests = pgTable(
-  "vault_cli_auth_requests",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    deviceCodeHash: text("device_code_hash").notNull(),
-    userCode: text("user_code").notNull(),
-    client: text("client").notNull().default("cmux-vault"),
-    status: text("status").notNull(),
-    userId: text("user_id"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  },
-  (table) => [
-    uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
-    index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
-    index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
-    check(
-      "vault_cli_auth_requests_client_check",
-      sql`${table.client} in ('cmux-vault', 'subrouter')`,
-    ),
   ],
 );
 

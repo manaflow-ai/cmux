@@ -1,0 +1,178 @@
+import { env } from "../../app/env";
+import type { SubrouterAccount, SubrouterAccountInput } from "./types";
+
+const DEFAULT_HOSTED_SUBROUTER_URL = "https://sr.cmux.dev";
+
+export type HostedTenant = {
+  readonly tenantId: string;
+  readonly tenantName: string;
+  readonly tenantKey: string;
+  readonly proxyUrl: string;
+};
+
+export type HostedSubrouterClient = {
+  readonly exchangeTeam: (
+    accessToken: string,
+    team: { readonly teamId: string; readonly teamName: string },
+  ) => Promise<HostedTenant>;
+  readonly listAccounts: (tenantKey: string) => Promise<readonly SubrouterAccount[]>;
+  readonly createAccount: (
+    tenantKey: string,
+    input: SubrouterAccountInput,
+  ) => Promise<SubrouterAccount>;
+  readonly deleteAccount: (tenantKey: string, accountId: string) => Promise<void>;
+};
+
+export function createHostedSubrouterClient(options: {
+  readonly baseUrl?: string;
+  readonly fetch?: typeof fetch;
+} = {}): HostedSubrouterClient {
+  const baseUrl = (options.baseUrl ?? env.SUBROUTER_HOSTED_URL ??
+    DEFAULT_HOSTED_SUBROUTER_URL).replace(/\/+$/, "");
+  const fetchImpl = options.fetch ?? fetch;
+
+  const tenantURL = (tenantKey: string, path: string): string =>
+    `${baseUrl}/t/${encodeURIComponent(tenantKey)}${path}`;
+
+  return {
+    exchangeTeam: async (accessToken, team) => {
+      const response = await requestJson(
+        fetchImpl,
+        `${baseUrl}/_subrouter/auth/stack`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(team),
+        },
+      );
+      return parseHostedTenant(response);
+    },
+    listAccounts: async (tenantKey) => {
+      const response = await requestJson(
+        fetchImpl,
+        tenantURL(tenantKey, "/_subrouter/accounts"),
+        { method: "GET" },
+      );
+      if (!Array.isArray(response)) throw new HostedSubrouterError("invalid account list", 502);
+      return response.map(parseHostedAccount);
+    },
+    createAccount: async (tenantKey, input) => {
+      const response = await requestJson(
+        fetchImpl,
+        tenantURL(tenantKey, "/_subrouter/accounts"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      if (!isRecord(response) || !isRecord(response.account)) {
+        throw new HostedSubrouterError("invalid account response", 502);
+      }
+      return parseAccountEnvelope(response.account);
+    },
+    deleteAccount: async (tenantKey, accountId) => {
+      await requestJson(
+        fetchImpl,
+        tenantURL(
+          tenantKey,
+          `/_subrouter/accounts/${encodeURIComponent(accountId)}`,
+        ),
+        { method: "DELETE" },
+      );
+    },
+  };
+}
+
+export class HostedSubrouterError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "HostedSubrouterError";
+  }
+}
+
+async function requestJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new HostedSubrouterError("hosted Subrouter unavailable", 503);
+  }
+  if (!response.ok) {
+    throw new HostedSubrouterError("hosted Subrouter request failed", response.status);
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new HostedSubrouterError("hosted Subrouter returned invalid JSON", 502);
+  }
+}
+
+function parseHostedTenant(value: unknown): HostedTenant {
+  if (
+    !isRecord(value) ||
+    !isString(value.tenantId) ||
+    !isString(value.tenantName) ||
+    !isString(value.tenantKey) ||
+    !isString(value.proxyUrl)
+  ) {
+    throw new HostedSubrouterError("invalid hosted tenant response", 502);
+  }
+  return {
+    tenantId: value.tenantId,
+    tenantName: value.tenantName,
+    tenantKey: value.tenantKey,
+    proxyUrl: value.proxyUrl,
+  };
+}
+
+function parseHostedAccount(value: unknown): SubrouterAccount {
+  if (!isRecord(value) || !isString(value.id) || !isString(value.provider)) {
+    throw new HostedSubrouterError("invalid hosted account", 502);
+  }
+  const authMode = isString(value.auth_mode) ? value.auth_mode : "";
+  const kind = authMode === "apikey"
+    ? value.provider === "claude"
+      ? "anthropic-apikey"
+      : "openai-apikey"
+    : value.provider;
+  const label = isString(value.email) && value.email ? value.email : value.id;
+  const apiKeyPrefix = `apikey:${kind}:`;
+  return {
+    id: value.id,
+    kind,
+    label: label.startsWith(apiKeyPrefix) ? label.slice(apiKeyPrefix.length) : label,
+  };
+}
+
+function parseAccountEnvelope(value: Record<string, unknown>): SubrouterAccount {
+  if (!isString(value.id) || !isString(value.kind)) {
+    throw new HostedSubrouterError("invalid hosted account", 502);
+  }
+  return {
+    id: value.id,
+    kind: value.kind,
+    label: isString(value.label) ? value.label : undefined,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}

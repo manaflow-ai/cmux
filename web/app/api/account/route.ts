@@ -25,8 +25,6 @@ import {
   notificationSendEvents,
   stripeCustomers,
   stripeSubscriptions,
-  subrouterTenants,
-  vaultCliAuthRequests,
   vaultSessions,
   vaultSnapshots,
   vaultUploadGrants,
@@ -41,10 +39,6 @@ import { isAscConfigured } from "../../../services/asc/client";
 import { removeTester } from "../../../services/asc/testflight";
 import { captureAscError } from "../../../services/errors";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
-import {
-  createSubrouterClientFromEnv,
-  SubrouterClientError,
-} from "../../../services/subrouter/client";
 import { deleteObject } from "../../../services/vault/storage";
 import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
@@ -227,12 +221,6 @@ export async function DELETE(request: Request): Promise<Response> {
         await refreshAccountDeletionTombstoneLease(userId);
       },
     });
-    await deletePersonalSubrouterTenant(userId, {
-      afterExternalMutation: () => {
-        destructiveCleanupStarted = true;
-      },
-    }, accountScope.teamIds);
-    await refreshAccountDeletionTombstoneLease(userId);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -1172,33 +1160,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       inArray(devices.teamId, deletionTeamIds),
     ));
 
-    await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
   });
-}
-
-async function deletePersonalSubrouterTenant(
-  userId: string,
-  options: { readonly afterExternalMutation?: () => void } = {},
-  accountTeamIds: readonly string[] = [userId],
-): Promise<void> {
-  const db = cloudDb();
-  const teamIds = uniqueNonEmptyStrings([userId, ...accountTeamIds]);
-  const tenants = await db
-    .select({ tenantId: subrouterTenants.tenantId })
-    .from(subrouterTenants)
-    .where(inArray(subrouterTenants.teamId, teamIds));
-  if (tenants.length === 0) return;
-
-  const client = createSubrouterClientFromEnv();
-  for (const tenant of tenants) {
-    try {
-      await client.revokeTenant(tenant.tenantId);
-      options.afterExternalMutation?.();
-    } catch (error) {
-      if (!(error instanceof SubrouterClientError && error.status === 404)) throw error;
-    }
-  }
-  await db.delete(subrouterTenants).where(inArray(subrouterTenants.teamId, teamIds));
 }
 
 async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{

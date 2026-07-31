@@ -3,15 +3,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
-import { cloudDb } from "@/db/client";
-import { isStackConfigured } from "@/app/lib/stack";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import {
-  createSubrouterClient,
-  subrouterRuntimeConfig,
-  type SubrouterAccount,
-} from "@/services/subrouter/client";
-import { getTenantForTeam } from "@/services/subrouter/tenants";
+import type { SubrouterAccount } from "@/services/subrouter/types";
+import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
   authorizedSubrouterTeams,
 } from "@/services/subrouter/routeHelpers";
@@ -104,6 +99,13 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
   if (!authorized) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
+  const tokenStore = {
+    headers: { get: (name: string) => requestHeaders.get(name) },
+  };
+  const authJson = await getStackServerApp().getAuthJson({ tokenStore });
+  if (!authJson.accessToken) {
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
+  }
 
   const [tPage, t] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.subrouter" }),
@@ -120,7 +122,7 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect("/dashboard");
   }
   const selectedTeam = selectTeam(teams, team);
-  const accountState = await loadAccounts(selectedTeam);
+  const accountState = await loadAccounts(selectedTeam, authJson.accessToken);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -262,19 +264,16 @@ function selectTeam(teams: readonly DashboardTeam[], requestedTeamId: string | u
   return teams[0];
 }
 
-async function loadAccounts(team: DashboardTeam): Promise<AccountState> {
-  const config = subrouterRuntimeConfig();
-  if (!config) return { kind: "notConfigured" };
-
+async function loadAccounts(
+  team: DashboardTeam,
+  accessToken: string,
+): Promise<AccountState> {
   try {
-    const client = createSubrouterClient({
-      baseUrl: config.baseUrl,
-      adminToken: config.adminToken,
+    const client = createHostedSubrouterClient();
+    const tenant = await client.exchangeTeam(accessToken, {
+      teamId: team.id,
+      teamName: team.name,
     });
-    const tenant = await getTenantForTeam(cloudDb(), team.id, {
-      tenantKeySecret: config.tenantKeySecret,
-    });
-    if (!tenant) return { kind: "ok", accounts: [] };
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
   } catch {
