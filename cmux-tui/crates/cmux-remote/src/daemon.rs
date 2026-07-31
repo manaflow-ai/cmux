@@ -202,9 +202,31 @@ impl Drop for ServerCloseCompletionGuard {
 }
 
 #[derive(Debug)]
+struct ResumeExpiryTask(Option<tokio::task::AbortHandle>);
+
+impl ResumeExpiryTask {
+    fn new(task: tokio::task::AbortHandle) -> Self {
+        Self(Some(task))
+    }
+
+    fn disarm(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for ResumeExpiryTask {
+    fn drop(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ServerLifecycle {
     disconnected_generation: Option<u64>,
     resume_deadline: Option<Instant>,
+    resume_expiry_task: Option<ResumeExpiryTask>,
     lane_bindings: Vec<Vec<Lane>>,
 }
 
@@ -258,6 +280,7 @@ impl ServerConnection {
             lifecycle: Mutex::new(ServerLifecycle {
                 disconnected_generation: None,
                 resume_deadline: None,
+                resume_expiry_task: None,
                 lane_bindings: lane_bindings.clone(),
             }),
             diagnostics: StdMutex::new(ServerDiagnostics {
@@ -446,11 +469,12 @@ impl ServerConnection {
             let deadline = Instant::now() + owner.policy.resume_lease;
             lifecycle.disconnected_generation = Some(expected_generation);
             lifecycle.resume_deadline = Some(deadline);
+            lifecycle.resume_expiry_task =
+                Some(owner.schedule_resume_expiry(connection, expected_generation, deadline));
             let mut diagnostics =
                 self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             diagnostics.state = ConnectionState::Reconnecting;
             diagnostics.resume_deadline = Some(deadline);
-            owner.schedule_resume_expiry(connection, expected_generation, deadline);
         }
         let reconnecting = current.clone();
         let deadline =
@@ -464,6 +488,7 @@ impl ServerConnection {
             tokio::time::timeout(remaining, reconnect).await.map_err(|_| DaemonError::Closed)??;
         let generation = next.generation();
         let previous = std::mem::replace(&mut *current, next);
+        drop(lifecycle.resume_expiry_task.take());
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
         lifecycle.lane_bindings = lane_bindings;
@@ -495,26 +520,39 @@ impl ServerConnection {
         let Some(owner) = self.owner.upgrade() else { return };
         let Some(connection) = self.self_weak.upgrade() else { return };
         let deadline = Instant::now() + owner.policy.resume_lease;
-        let should_schedule = {
-            let mut lifecycle = self.lifecycle.lock().await;
-            if self.closed.load(Ordering::Acquire)
-                || self.current_generation() != generation
-                || lifecycle.disconnected_generation == Some(generation)
-            {
-                false
-            } else {
-                lifecycle.disconnected_generation = Some(generation);
-                lifecycle.resume_deadline = Some(deadline);
-                let mut diagnostics =
-                    self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                diagnostics.state = ConnectionState::Reconnecting;
-                diagnostics.resume_deadline = Some(deadline);
-                true
-            }
-        };
-        if should_schedule {
-            owner.schedule_resume_expiry(connection, generation, deadline);
+        let mut lifecycle = self.lifecycle.lock().await;
+        if self.closed.load(Ordering::Acquire)
+            || self.current_generation() != generation
+            || lifecycle.disconnected_generation == Some(generation)
+        {
+            return;
         }
+        lifecycle.disconnected_generation = Some(generation);
+        lifecycle.resume_deadline = Some(deadline);
+        drop(
+            lifecycle
+                .resume_expiry_task
+                .replace(owner.schedule_resume_expiry(connection, generation, deadline)),
+        );
+        let mut diagnostics =
+            self.diagnostics.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        diagnostics.state = ConnectionState::Reconnecting;
+        diagnostics.resume_deadline = Some(deadline);
+    }
+
+    async fn claim_resume_expiry(&self, generation: u64, deadline: Instant) -> bool {
+        let mut lifecycle = self.lifecycle.lock().await;
+        if self.closed.load(Ordering::Acquire)
+            || lifecycle.disconnected_generation != Some(generation)
+            || lifecycle.resume_deadline != Some(deadline)
+        {
+            return false;
+        }
+        let Some(expiry) = lifecycle.resume_expiry_task.take() else {
+            return false;
+        };
+        expiry.disarm();
+        true
     }
 
     async fn wait_for_replacement(&self, generation: u64) -> Option<u64> {
@@ -543,6 +581,7 @@ impl ServerConnection {
             return false;
         }
         self.closed.store(true, Ordering::Release);
+        drop(lifecycle.resume_expiry_task.take());
         lifecycle.disconnected_generation = None;
         lifecycle.resume_deadline = None;
         {
@@ -1018,16 +1057,20 @@ impl RemoteDaemon {
         connection: Arc<ServerConnection>,
         generation: u64,
         deadline: Instant,
-    ) {
+    ) -> ResumeExpiryTask {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             tokio::time::sleep_until(deadline.into()).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
+            if !connection.claim_resume_expiry(generation, deadline).await {
+                return;
+            }
             let _ = connection.close_if_disconnected_generation(Some(generation)).await;
         });
+        ResumeExpiryTask::new(task.abort_handle())
     }
 
     fn schedule_pending_link_expiry(
