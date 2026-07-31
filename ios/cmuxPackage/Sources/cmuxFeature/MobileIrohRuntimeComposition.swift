@@ -1611,6 +1611,7 @@ public final class MobileIrohRuntimeComposition:
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
@@ -1674,9 +1675,11 @@ public final class MobileIrohRuntimeComposition:
             resolvedPolicyService = nil
             resolvedEffectivePolicy = nil
         }
-        let compatibleCachedRelay = cachedRelay.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
+        let compatibleRelayCredential = Self.compatibleRelayCredential(
+            fresh: freshRelayCredential,
+            cached: cachedRelay,
+            managedRelayURLs: managedRelayURLs
+        )
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1687,7 +1690,7 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: compatibleCachedRelay
+            cachedRelayCredential: compatibleRelayCredential
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
@@ -2649,6 +2652,22 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         automaticRelayCredentialRefreshEnabled
             && serviceAvailable
             && trustRootAvailable
+    }
+
+    /// Selects a credential for the exact signed relay fleet. A credential
+    /// returned by this activation wins over an older compatible cache entry.
+    nonisolated static func compatibleRelayCredential(
+        fresh: CmxIrohRelayTokenResponse?,
+        cached: CmxIrohRelayTokenResponse?,
+        managedRelayURLs: Set<String>
+    ) -> CmxIrohRelayTokenResponse? {
+        if let fresh, Set(fresh.relayFleet) == managedRelayURLs {
+            return fresh
+        }
+        if let cached, Set(cached.relayFleet) == managedRelayURLs {
+            return cached
+        }
+        return nil
     }
 
     nonisolated static func relayPolicyRefreshAttemptDate(
