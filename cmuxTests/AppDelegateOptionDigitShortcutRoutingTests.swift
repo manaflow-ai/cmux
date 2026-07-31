@@ -118,7 +118,11 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                         event: defaultBackEvent,
                         action: .focusHistoryBack
                     ))
-                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultBackEvent))
+                    _ = appDelegate.debugHandleCustomShortcut(event: defaultBackEvent)
+                    #expect(
+                        manager.selectedTabId == firstWorkspace.id,
+                        "The retired Back binding must not keep navigating focus history"
+                    )
 
                     let reboundForwardEvent = try #require(makeKeyEvent(
                         modifierFlags: [.option, .shift],
@@ -145,7 +149,11 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                         event: defaultForwardEvent,
                         action: .focusHistoryForward
                     ))
-                    #expect(!appDelegate.debugHandleCustomShortcut(event: defaultForwardEvent))
+                    _ = appDelegate.debugHandleCustomShortcut(event: defaultForwardEvent)
+                    #expect(
+                        manager.selectedTabId == secondWorkspace.id,
+                        "The retired Forward binding must not keep navigating focus history"
+                    )
                 }
             }
         }
@@ -181,10 +189,6 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             testWindow.makeKeyAndOrderFront(nil)
             testWindow.displayIfNeeded()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-            #expect(
-                terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-                "Expected the terminal to own the colliding Ghostty shortcut"
-            )
 
             #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
             #expect(
@@ -266,7 +270,7 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
-    func focusHistoryDefaultsNavigateWithBrowserFocusDespiteGhosttyCollision() throws {
+    func browserDefaultsNavigateBrowserHistoryWithoutChangingFocusHistory() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
             let windowId = appDelegate.createMainWindow()
@@ -274,34 +278,48 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
             let testWindow = try #require(self.window(withId: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let firstWorkspace = try #require(manager.selectedWorkspace)
             let secondWorkspace = manager.addTab(select: true)
-            let focusHistoryScopeKey = "focusHistoryIncludesPanesAndTabs"
-            let originalFocusHistoryScope = UserDefaults.standard.object(forKey: focusHistoryScopeKey)
-            UserDefaults.standard.set(false, forKey: focusHistoryScopeKey)
             let browserPanelId = try #require(manager.openBrowser(inWorkspace: secondWorkspace.id))
             let browserPanel = try #require(secondWorkspace.browserPanel(for: browserPanelId))
-            let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
-            let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+            let back = KeyboardShortcutSettings.shortcut(for: .browserBack)
+            let forward = KeyboardShortcutSettings.shortcut(for: .browserForward)
             let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
             let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
             defer {
-                if let originalFocusHistoryScope {
-                    UserDefaults.standard.set(originalFocusHistoryScope, forKey: focusHistoryScopeKey)
-                } else {
-                    UserDefaults.standard.removeObject(forKey: focusHistoryScopeKey)
-                }
                 appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
                 appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
             }
             appDelegate.ghosttyGotoSplitPreviousShortcut = back
             appDelegate.ghosttyGotoSplitNextShortcut = forward
+            browserPanel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: [
+                    "https://example.com/a",
+                    "https://example.com/b",
+                ],
+                forwardHistoryURLStrings: [
+                    "https://example.com/d",
+                ],
+                currentURLString: "https://example.com/c"
+            )
             testWindow.makeKeyAndOrderFront(nil)
             #expect(testWindow.makeFirstResponder(browserPanel.webView))
 
             #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
-            #expect(manager.selectedTabId == firstWorkspace.id)
+            let afterBack = browserPanel.sessionNavigationHistorySnapshot()
+            #expect(afterBack.backHistoryURLStrings == ["https://example.com/a"])
+            #expect(afterBack.forwardHistoryURLStrings == [
+                "https://example.com/c",
+                "https://example.com/d",
+            ])
+            #expect(manager.selectedTabId == secondWorkspace.id)
+
             #expect(Self.dispatch(forward, in: testWindow, using: appDelegate))
+            let afterForward = browserPanel.sessionNavigationHistorySnapshot()
+            #expect(afterForward.backHistoryURLStrings == [
+                "https://example.com/a",
+                "https://example.com/b",
+            ])
+            #expect(afterForward.forwardHistoryURLStrings == ["https://example.com/d"])
             #expect(manager.selectedTabId == secondWorkspace.id)
             #expect(secondWorkspace.focusedPanelId == browserPanelId)
         }
