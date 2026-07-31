@@ -55,7 +55,7 @@
     "installTitle": "Install",
     "releaseTitle": "Releases and updates",
     "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
-    "sourceLink": "View source on GitHub",
+    "sourceLink": "Source and license disclosures",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux terminal for Mac",
     "windows": {
@@ -77,6 +77,38 @@
       "installBody": "Download the Debian package and install it with your package manager. Choose the portable ZIP for a per-user install and in-app updates."
     }
   },
+  "browserNightly": {
+    "metaTitle": "Download cmux Browser nightly for Mac, Windows, and Linux",
+    "metaDescription": "Download signed nightly builds of cmux Browser for macOS, Windows, and Linux, with automatic updates from one public release channel.",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly downloads",
+    "tagline": "One Chromium workspace for Mac, Windows, and Linux.",
+    "subtitle": "Nightly builds update automatically from the public cmux-v2 release channel. A platform unlocks here only after its package, native signature, and update path pass release verification.",
+    "logoAlt": "cmux Browser app icon",
+    "readyStatus": "Ready to download",
+    "pendingStatus": "Release verification in progress",
+    "portableCta": "Portable update ZIP",
+    "updatesTitle": "Automatic updates",
+    "updatesBody": "cmux checks a cryptographically signed manifest, verifies the package size and SHA-256 digest, stages the new version, and swaps it in when you approve the relaunch.",
+    "licenseBody": "cmux Browser and the original cmux-v2 repository material are licensed under GPL-3.0-or-later. Every release includes the corresponding source and required third-party notices.",
+    "releaseLink": "Nightly release details",
+    "sourceLink": "Source and license disclosures",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple silicon · macOS 14 or later",
+      "primaryCta": "Download .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 or later · x64",
+      "primaryCta": "Download installer"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian or Ubuntu · x64 · run with sh",
+      "primaryCta": "Download user installer"
+    }
+  },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
@@ -91,7 +123,8 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms"
+    "otherPlatforms": "Other platforms",
+    "browserNightly": "cmux Browser nightly"
   },
   "dashboard": {
     "nav": {

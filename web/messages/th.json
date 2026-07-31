@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "ดาวน์โหลดสำหรับ Mac",
+    "browserNightly": "cmux Browser รุ่น nightly",
     "viewOnGitHub": "ดูบน GitHub",
     "closeMenu": "ปิดเมนู",
     "openMenu": "เปิดเมนู",
@@ -3606,6 +3607,38 @@
       "primaryCta": "ดาวน์โหลด .deb",
       "requirements": "Debian หรือ Ubuntu · x64",
       "installBody": "ดาวน์โหลดแพ็กเกจ Debian และติดตั้งด้วยตัวจัดการแพ็กเกจ เลือก ZIP แบบพกพาสำหรับการติดตั้งเฉพาะผู้ใช้และการอัปเดตภายในแอป"
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "ดาวน์โหลด cmux Browser รุ่น nightly สำหรับ Mac, Windows และ Linux",
+    "metaDescription": "ดาวน์โหลดบิลด์ nightly ที่ลงนามแล้วของ cmux Browser สำหรับ macOS, Windows และ Linux พร้อมการอัปเดตอัตโนมัติจากช่องทางเผยแพร่สาธารณะเดียว",
+    "eyebrow": "cmux Browser",
+    "title": "ดาวน์โหลดรุ่น nightly",
+    "tagline": "พื้นที่ทำงาน Chromium เดียวสำหรับ Mac, Windows และ Linux",
+    "subtitle": "บิลด์ nightly อัปเดตอัตโนมัติจากช่องทาง cmux-v2 สาธารณะ แพลตฟอร์มจะเปิดให้ดาวน์โหลดที่นี่ต่อเมื่อแพ็กเกจ ลายเซ็นของระบบ และเส้นทางอัปเดตผ่านการตรวจสอบแล้ว",
+    "logoAlt": "ไอคอนแอป cmux Browser",
+    "readyStatus": "พร้อมดาวน์โหลด",
+    "pendingStatus": "กำลังตรวจสอบรุ่นเผยแพร่",
+    "portableCta": "ZIP อัปเดตแบบพกพา",
+    "updatesTitle": "การอัปเดตอัตโนมัติ",
+    "updatesBody": "cmux ตรวจสอบแมนิเฟสต์ที่ลงนามด้วยการเข้ารหัส ยืนยันขนาดแพ็กเกจและค่า SHA-256 เตรียมเวอร์ชันใหม่ และสลับเวอร์ชันเมื่อคุณอนุมัติการเริ่มใหม่",
+    "licenseBody": "cmux Browser และเนื้อหาต้นฉบับในที่เก็บ cmux-v2 ใช้สัญญาอนุญาต GPL-3.0-or-later แต่ละรุ่นมีซอร์สโค้ดที่เกี่ยวข้องและประกาศของบุคคลที่สามที่จำเป็น",
+    "releaseLink": "รายละเอียดรุ่น nightly",
+    "sourceLink": "ซอร์สและข้อมูลสิทธิ์ใช้งาน",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple silicon · macOS 14 ขึ้นไป",
+      "primaryCta": "ดาวน์โหลด .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 ขึ้นไป · x64",
+      "primaryCta": "ดาวน์โหลดตัวติดตั้ง"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian หรือ Ubuntu · x64 · เรียกใช้ด้วย sh",
+      "primaryCta": "ดาวน์โหลดตัวติดตั้งสำหรับผู้ใช้"
     }
   }
 }

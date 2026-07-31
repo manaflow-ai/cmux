@@ -11,12 +11,13 @@ import { PlatformIcon } from "@/app/[locale]/components/platform-icons";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   isPlatformDownloadAvailable,
+  BROWSER_DISTRIBUTION_URL,
   PLATFORM_DOWNLOADS,
   type DownloadPlatform,
 } from "@/app/lib/download";
 import { Link } from "@/i18n/navigation";
 
-const GITHUB_URL = "https://github.com/manaflow-ai/cmux-browser";
+const GITHUB_URL = BROWSER_DISTRIBUTION_URL;
 
 /** Renders the localized download, install, and release details for a platform. */
 export async function PlatformDownloadPage({
@@ -158,7 +159,7 @@ export async function PlatformDownloadPage({
 
         <div className="mt-12 flex flex-wrap items-center justify-center gap-4 text-sm">
           <a
-            href={GITHUB_URL}
+            href={`${GITHUB_URL}/blob/main/BINARY-LICENSING.md`}
             className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
           >
             {t("sourceLink")}

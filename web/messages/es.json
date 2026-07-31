@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Descargar para Mac",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "Ver en GitHub",
     "closeMenu": "Cerrar menú",
     "openMenu": "Abrir menú",
@@ -3600,6 +3601,38 @@
       "primaryCta": "Descargar .deb",
       "requirements": "Debian o Ubuntu · x64",
       "installBody": "Descarga el paquete de Debian e instálalo con tu gestor de paquetes. Elige el ZIP portátil para una instalación por usuario y actualizaciones dentro de la aplicación."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Descargar cmux Browser nightly para Mac, Windows y Linux",
+    "metaDescription": "Descarga compilaciones nightly firmadas de cmux Browser para macOS, Windows y Linux, con actualizaciones automáticas desde un único canal público.",
+    "eyebrow": "cmux Browser",
+    "title": "Descargas nightly",
+    "tagline": "Un espacio de trabajo Chromium para Mac, Windows y Linux.",
+    "subtitle": "Las compilaciones nightly se actualizan automáticamente desde el canal público cmux-v2. Una plataforma se habilita aquí solo después de que su paquete, firma nativa y ruta de actualización superen la verificación.",
+    "logoAlt": "Icono de la aplicación cmux Browser",
+    "readyStatus": "Listo para descargar",
+    "pendingStatus": "Verificación de la versión en curso",
+    "portableCta": "ZIP portátil de actualización",
+    "updatesTitle": "Actualizaciones automáticas",
+    "updatesBody": "cmux comprueba un manifiesto firmado criptográficamente, verifica el tamaño y el resumen SHA-256 del paquete, prepara la nueva versión y la sustituye cuando autorizas el reinicio.",
+    "licenseBody": "cmux Browser y el material original del repositorio cmux-v2 se publican bajo GPL-3.0-or-later. Cada versión incluye el código fuente correspondiente y los avisos de terceros requeridos.",
+    "releaseLink": "Detalles de la versión nightly",
+    "sourceLink": "Código fuente y licencias",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 o posterior",
+      "primaryCta": "Descargar .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 o posterior · x64",
+      "primaryCta": "Descargar instalador"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian o Ubuntu · x64 · ejecutar con sh",
+      "primaryCta": "Descargar instalador de usuario"
     }
   }
 }

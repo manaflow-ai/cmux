@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Скачать для Mac",
+    "browserNightly": "Ночная сборка cmux Browser",
     "viewOnGitHub": "Смотреть на GitHub",
     "closeMenu": "Закрыть меню",
     "openMenu": "Открыть меню",
@@ -3601,6 +3602,38 @@
       "primaryCta": "Скачать .deb",
       "requirements": "Debian или Ubuntu · x64",
       "installBody": "Скачайте пакет Debian и установите его с помощью менеджера пакетов. Выберите портативный ZIP для установки только для текущего пользователя и обновлений внутри приложения."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Скачать ночную сборку cmux Browser для Mac, Windows и Linux",
+    "metaDescription": "Скачайте подписанные ночные сборки cmux Browser для macOS, Windows и Linux с автоматическими обновлениями из единого публичного канала.",
+    "eyebrow": "cmux Browser",
+    "title": "Ночные сборки",
+    "tagline": "Единое рабочее пространство Chromium для Mac, Windows и Linux.",
+    "subtitle": "Ночные сборки автоматически обновляются из публичного канала cmux-v2. Платформа становится доступна только после проверки пакета, нативной подписи и пути обновления.",
+    "logoAlt": "Значок приложения cmux Browser",
+    "readyStatus": "Готово к скачиванию",
+    "pendingStatus": "Идёт проверка выпуска",
+    "portableCta": "Портативный ZIP обновления",
+    "updatesTitle": "Автоматические обновления",
+    "updatesBody": "cmux проверяет криптографически подписанный манифест, размер пакета и хеш SHA-256, подготавливает новую версию и заменяет текущую после подтверждения перезапуска.",
+    "licenseBody": "cmux Browser и оригинальные материалы репозитория cmux-v2 лицензируются по GPL-3.0-or-later. Каждый выпуск содержит соответствующий исходный код и необходимые уведомления о сторонних компонентах.",
+    "releaseLink": "Сведения о ночном выпуске",
+    "sourceLink": "Исходный код и лицензии",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 или новее",
+      "primaryCta": "Скачать .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 или новее · x64",
+      "primaryCta": "Скачать установщик"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian или Ubuntu · x64 · запуск через sh",
+      "primaryCta": "Скачать пользовательский установщик"
     }
   }
 }

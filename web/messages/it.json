@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Scarica per Mac",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "Vedi su GitHub",
     "closeMenu": "Chiudi menu",
     "openMenu": "Apri menu",
@@ -3601,6 +3602,38 @@
       "primaryCta": "Scarica .deb",
       "requirements": "Debian o Ubuntu · x64",
       "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Scarica cmux Browser nightly per Mac, Windows e Linux",
+    "metaDescription": "Scarica le build nightly firmate di cmux Browser per macOS, Windows e Linux, con aggiornamenti automatici da un unico canale pubblico.",
+    "eyebrow": "cmux Browser",
+    "title": "Download nightly",
+    "tagline": "Un unico spazio di lavoro Chromium per Mac, Windows e Linux.",
+    "subtitle": "Le build nightly si aggiornano automaticamente dal canale pubblico cmux-v2. Una piattaforma viene abilitata qui solo dopo che pacchetto, firma nativa e percorso di aggiornamento hanno superato la verifica.",
+    "logoAlt": "Icona dell’app cmux Browser",
+    "readyStatus": "Pronto per il download",
+    "pendingStatus": "Verifica della versione in corso",
+    "portableCta": "ZIP portatile di aggiornamento",
+    "updatesTitle": "Aggiornamenti automatici",
+    "updatesBody": "cmux controlla un manifesto firmato crittograficamente, verifica dimensione e digest SHA-256 del pacchetto, prepara la nuova versione e la sostituisce quando approvi il riavvio.",
+    "licenseBody": "cmux Browser e il materiale originale del repository cmux-v2 sono concessi in licenza GPL-3.0-or-later. Ogni versione include il codice sorgente corrispondente e gli avvisi di terze parti richiesti.",
+    "releaseLink": "Dettagli della versione nightly",
+    "sourceLink": "Codice sorgente e licenze",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 o successivo",
+      "primaryCta": "Scarica .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 o successivo · x64",
+      "primaryCta": "Scarica il programma di installazione"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian o Ubuntu · x64 · esegui con sh",
+      "primaryCta": "Scarica l’installer utente"
     }
   }
 }

@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
+    "browserNightly": "الإصدار الليلي من cmux Browser",
     "viewOnGitHub": "عرض على GitHub",
     "closeMenu": "إغلاق القائمة",
     "openMenu": "فتح القائمة",
@@ -3598,6 +3599,38 @@
       "primaryCta": "تنزيل .deb",
       "requirements": "Debian أو Ubuntu · x64",
       "installBody": "نزّل حزمة Debian وثبّتها باستخدام مدير الحزم. اختر ملف ZIP المحمول للتثبيت لكل مستخدم والتحديثات من داخل التطبيق."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "تنزيل الإصدار الليلي من cmux Browser لأجهزة Mac وWindows وLinux",
+    "metaDescription": "نزّل إصدارات ليلية موقعة من cmux Browser لأنظمة macOS وWindows وLinux، مع تحديثات تلقائية من قناة إصدار عامة واحدة.",
+    "eyebrow": "cmux Browser",
+    "title": "تنزيلات الإصدار الليلي",
+    "tagline": "مساحة عمل Chromium واحدة لأنظمة Mac وWindows وLinux.",
+    "subtitle": "تُحدَّث الإصدارات الليلية تلقائيًا من قناة cmux-v2 العامة. لا تصبح المنصة متاحة هنا إلا بعد اجتياز الحزمة والتوقيع الأصلي ومسار التحديث فحص الإصدار.",
+    "logoAlt": "أيقونة تطبيق cmux Browser",
+    "readyStatus": "جاهز للتنزيل",
+    "pendingStatus": "التحقق من الإصدار جارٍ",
+    "portableCta": "ملف ZIP محمول للتحديث",
+    "updatesTitle": "التحديثات التلقائية",
+    "updatesBody": "يتحقق cmux من بيان موقّع تشفيريًا، ويتأكد من حجم الحزمة وملخص SHA-256، ويجهز الإصدار الجديد ثم يستبدله عند موافقتك على إعادة التشغيل.",
+    "licenseBody": "تم ترخيص cmux Browser والمواد الأصلية في مستودع cmux-v2 بموجب GPL-3.0-or-later. يتضمن كل إصدار الكود المصدري المقابل وإشعارات الجهات الخارجية المطلوبة.",
+    "releaseLink": "تفاصيل الإصدار الليلي",
+    "sourceLink": "الكود المصدري وتفاصيل التراخيص",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple silicon · ‏macOS 14 أو أحدث",
+      "primaryCta": "تنزيل ‎.dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 أو أحدث · x64",
+      "primaryCta": "تنزيل برنامج التثبيت"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian أو Ubuntu · x64 · التشغيل باستخدام sh",
+      "primaryCta": "تنزيل مُثبّت المستخدم"
     }
   }
 }

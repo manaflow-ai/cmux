@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Mac için İndir",
+    "browserNightly": "cmux Browser nightly",
     "viewOnGitHub": "GitHub'da Görüntüle",
     "closeMenu": "Menüyü kapat",
     "openMenu": "Menüyü aç",
@@ -3599,6 +3600,38 @@
       "primaryCta": ".deb dosyasını indir",
       "requirements": "Debian veya Ubuntu · x64",
       "installBody": "Debian paketini indirin ve paket yöneticinizle kurun. Kullanıcı başına kurulum ve uygulama içi güncellemeler için taşınabilir ZIP'i seçin."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Mac, Windows ve Linux için cmux Browser nightly'yi indirin",
+    "metaDescription": "macOS, Windows ve Linux için imzalı cmux Browser nightly derlemelerini, tek bir herkese açık kanaldan otomatik güncellemelerle indirin.",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly indirmeleri",
+    "tagline": "Mac, Windows ve Linux için tek bir Chromium çalışma alanı.",
+    "subtitle": "Nightly derlemeleri herkese açık cmux-v2 kanalından otomatik olarak güncellenir. Bir platform yalnızca paketi, yerel imzası ve güncelleme yolu doğrulamayı geçtikten sonra burada açılır.",
+    "logoAlt": "cmux Browser uygulama simgesi",
+    "readyStatus": "İndirmeye hazır",
+    "pendingStatus": "Sürüm doğrulaması sürüyor",
+    "portableCta": "Taşınabilir güncelleme ZIP'i",
+    "updatesTitle": "Otomatik güncellemeler",
+    "updatesBody": "cmux kriptografik olarak imzalanmış bir manifesti kontrol eder, paket boyutunu ve SHA-256 özetini doğrular, yeni sürümü hazırlar ve yeniden başlatmayı onayladığınızda değiştirir.",
+    "licenseBody": "cmux Browser ve cmux-v2 deposundaki özgün materyaller GPL-3.0-or-later kapsamında lisanslanır. Her sürüm, karşılık gelen kaynak kodunu ve gerekli üçüncü taraf bildirimlerini içerir.",
+    "releaseLink": "Nightly sürüm ayrıntıları",
+    "sourceLink": "Kaynak kodu ve lisans açıklamaları",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple Silicon · macOS 14 veya sonrası",
+      "primaryCta": ".dmg indir"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 veya sonrası · x64",
+      "primaryCta": "Yükleyiciyi indir"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian veya Ubuntu · x64 · sh ile çalıştırın",
+      "primaryCta": "Kullanıcı yükleyicisini indir"
     }
   }
 }

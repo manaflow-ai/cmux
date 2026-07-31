@@ -3,9 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_NIGHTLY_AVAILABILITY,
+  BROWSER_NIGHTLY_DOWNLOADS,
+  BROWSER_NIGHTLY_RELEASE_URL,
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
+  browserNightlyReleaseUrlForAvailability,
   platformMenuSectionsForAvailability,
 } from "../app/lib/download";
 import sitemap from "../app/sitemap";
@@ -28,16 +32,53 @@ describe("Windows and Linux downloads", () => {
     expect(WAITLIST_PLATFORMS).toEqual(["linux", "android", "windows"]);
 
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
+      "https://github.com/manaflow-ai/cmux-v2/releases/latest/download/cmux-windows-x64-installer.exe",
     );
     expect(PLATFORM_DOWNLOADS.windows.portable.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64.zip",
+      "https://github.com/manaflow-ai/cmux-v2/releases/latest/download/cmux-windows-x64.zip",
     );
     expect(PLATFORM_DOWNLOADS.linux.primary.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.deb",
+      "https://github.com/manaflow-ai/cmux-v2/releases/latest/download/cmux-linux-x64.deb",
     );
     expect(PLATFORM_DOWNLOADS.linux.portable.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.zip",
+      "https://github.com/manaflow-ai/cmux-v2/releases/latest/download/cmux-linux-x64.zip",
+    );
+  });
+
+  test("keeps all nightly platforms visible but gated until verification", () => {
+    expect(BROWSER_NIGHTLY_RELEASE_URL).toBeNull();
+    expect(BROWSER_NIGHTLY_AVAILABILITY).toEqual({
+      macos: false,
+      windows: false,
+      linux: false,
+    });
+    expect(BROWSER_NIGHTLY_DOWNLOADS.macos.primary.url).toEndWith(
+      "/releases/download/nightly/cmux-macos-arm64.dmg",
+    );
+    expect(BROWSER_NIGHTLY_DOWNLOADS.windows.primary.url).toEndWith(
+      "/releases/download/nightly/cmux-windows-x64-installer.exe",
+    );
+    expect(BROWSER_NIGHTLY_DOWNLOADS.linux.primary.url).toEndWith(
+      "/releases/download/nightly/cmux-linux-x64-installer.run",
+    );
+  });
+
+  test("publishes nightly release details only after every platform is verified", () => {
+    expect(
+      browserNightlyReleaseUrlForAvailability({
+        macos: true,
+        windows: true,
+        linux: false,
+      }),
+    ).toBeNull();
+    expect(
+      browserNightlyReleaseUrlForAvailability({
+        macos: true,
+        windows: true,
+        linux: true,
+      }),
+    ).toBe(
+      "https://github.com/manaflow-ai/cmux-v2/releases/tag/nightly",
     );
   });
 
@@ -112,6 +153,32 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
+  test("keeps every locale's nightly copy complete and token-compatible", async () => {
+    const englishLeaves = leafStrings(en.browserNightly);
+
+    for (const locale of locales) {
+      const catalog = JSON.parse(
+        await readFile(join(MESSAGE_DIRECTORY, `${locale}.json`), "utf8"),
+      );
+      const localizedLeaves = leafStrings(catalog.browserNightly);
+
+      expect(messageShape(catalog.browserNightly)).toEqual(
+        messageShape(en.browserNightly),
+      );
+      expect(Object.keys(localizedLeaves)).toEqual(Object.keys(englishLeaves));
+      for (const [key, english] of Object.entries(englishLeaves)) {
+        const localized = localizedLeaves[key];
+        expect(localized.length).toBeGreaterThan(0);
+        expect(messageTokens(localized)).toEqual(messageTokens(english));
+      }
+
+      expect(catalog.common.browserNightly.length).toBeGreaterThan(0);
+      expect(messageTokens(catalog.common.browserNightly)).toEqual(
+        messageTokens(en.common.browserNightly),
+      );
+    }
+  });
+
   test("keeps unavailable platform pages out of the sitemap", () => {
     for (const path of ["/windows", "/linux"]) {
       expect(
@@ -120,6 +187,14 @@ describe("Windows and Linux downloads", () => {
         ),
       ).toEqual([]);
     }
+  });
+
+  test("publishes the all-platform nightly status page in every locale", () => {
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith("/browser"),
+      ),
+    ).toHaveLength(locales.length);
   });
 
   test("wraps long localized installer labels on narrow screens", async () => {

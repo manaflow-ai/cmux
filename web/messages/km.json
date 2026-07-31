@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",
+    "browserNightly": "cmux Browser កំណែ nightly",
     "viewOnGitHub": "មើលនៅលើ GitHub",
     "closeMenu": "បិទម៉ឺនុយ",
     "openMenu": "បើកម៉ឺនុយ",
@@ -3599,6 +3600,38 @@
       "primaryCta": "ទាញយក .deb",
       "requirements": "Debian ឬ Ubuntu · x64",
       "installBody": "ទាញយកកញ្ចប់ Debian ហើយដំឡើងវាដោយប្រើកម្មវិធីគ្រប់គ្រងកញ្ចប់។ ជ្រើស ZIP ចល័ត សម្រាប់ការដំឡើងតាមអ្នកប្រើ និងការអាប់ដេតក្នុងកម្មវិធី។"
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "ទាញយក cmux Browser កំណែ nightly សម្រាប់ Mac, Windows និង Linux",
+    "metaDescription": "ទាញយកបង្កើត nightly ដែលបានចុះហត្ថលេខារបស់ cmux Browser សម្រាប់ macOS, Windows និង Linux ជាមួយការអាប់ដេតស្វ័យប្រវត្តិពីបណ្តាញចេញផ្សាយសាធារណៈតែមួយ។",
+    "eyebrow": "cmux Browser",
+    "title": "ការទាញយក nightly",
+    "tagline": "កន្លែងធ្វើការ Chromium តែមួយសម្រាប់ Mac, Windows និង Linux។",
+    "subtitle": "កំណែ nightly អាប់ដេតដោយស្វ័យប្រវត្តិពីបណ្តាញ cmux-v2 សាធារណៈ។ វេទិកាមួយនឹងបើកឱ្យទាញយក បន្ទាប់ពីកញ្ចប់ ហត្ថលេខាប្រព័ន្ធ និងផ្លូវអាប់ដេតឆ្លងកាត់ការផ្ទៀងផ្ទាត់។",
+    "logoAlt": "រូបតំណាងកម្មវិធី cmux Browser",
+    "readyStatus": "រួចរាល់សម្រាប់ទាញយក",
+    "pendingStatus": "កំពុងផ្ទៀងផ្ទាត់ការចេញផ្សាយ",
+    "portableCta": "ZIP អាប់ដេតចល័ត",
+    "updatesTitle": "ការអាប់ដេតស្វ័យប្រវត្តិ",
+    "updatesBody": "cmux ពិនិត្យបញ្ជីដែលបានចុះហត្ថលេខាឌីជីថល ផ្ទៀងផ្ទាត់ទំហំកញ្ចប់ និង SHA-256 រៀបចំកំណែថ្មី ហើយប្តូរវាពេលអ្នកយល់ព្រមចាប់ផ្តើមឡើងវិញ។",
+    "licenseBody": "cmux Browser និងសម្ភារៈដើមក្នុងឃ្លាំង cmux-v2 ត្រូវបានផ្តល់អាជ្ញាប័ណ្ណក្រោម GPL-3.0-or-later។ ការចេញផ្សាយនីមួយៗរួមមានកូដប្រភពដែលត្រូវគ្នា និងសេចក្តីជូនដំណឹងភាគីទីបីដែលត្រូវការ។",
+    "releaseLink": "ព័ត៌មានលម្អិតការចេញផ្សាយ nightly",
+    "sourceLink": "កូដប្រភព និងព័ត៌មានអាជ្ញាប័ណ្ណ",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple silicon · macOS 14 ឬថ្មីជាង",
+      "primaryCta": "ទាញយក .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 ឬថ្មីជាង · x64",
+      "primaryCta": "ទាញយកកម្មវិធីដំឡើង"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian ឬ Ubuntu · x64 · ដំណើរការដោយ sh",
+      "primaryCta": "ទាញយកកម្មវិធីដំឡើងសម្រាប់អ្នកប្រើ"
     }
   }
 }

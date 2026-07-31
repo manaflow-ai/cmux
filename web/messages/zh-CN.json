@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "下载 Mac 版",
+    "browserNightly": "cmux 浏览器 nightly",
     "viewOnGitHub": "在 GitHub 上查看",
     "closeMenu": "关闭菜单",
     "openMenu": "打开菜单",
@@ -3601,6 +3602,38 @@
       "primaryCta": "下载 .deb",
       "requirements": "Debian 或 Ubuntu · x64",
       "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "下载 Mac、Windows 和 Linux 版 cmux 浏览器 nightly",
+    "metaDescription": "下载适用于 macOS、Windows 和 Linux 的已签名 cmux 浏览器 nightly 构建，并通过同一公开发布通道自动更新。",
+    "eyebrow": "cmux 浏览器",
+    "title": "Nightly 下载",
+    "tagline": "一个适用于 Mac、Windows 和 Linux 的 Chromium 工作区。",
+    "subtitle": "Nightly 构建会从公开的 cmux-v2 发布通道自动更新。只有在软件包、平台原生签名和更新路径通过发布验证后，该平台才会开放下载。",
+    "logoAlt": "cmux 浏览器应用图标",
+    "readyStatus": "可以下载",
+    "pendingStatus": "正在进行发布验证",
+    "portableCta": "便携更新 ZIP",
+    "updatesTitle": "自动更新",
+    "updatesBody": "cmux 会检查加密签名的清单，验证软件包大小和 SHA-256 摘要，暂存新版本，并在你批准重启时完成替换。",
+    "licenseBody": "cmux Browser 和 cmux-v2 仓库的原创材料均采用 GPL-3.0-or-later 许可证。每个版本都包含对应源代码和所需的第三方声明。",
+    "releaseLink": "Nightly 版本详情",
+    "sourceLink": "源代码与许可证披露",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple 芯片 · macOS 14 或更高版本",
+      "primaryCta": "下载 .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 或更高版本 · x64",
+      "primaryCta": "下载安装程序"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian 或 Ubuntu · x64 · 使用 sh 运行",
+      "primaryCta": "下载用户安装程序"
     }
   }
 }

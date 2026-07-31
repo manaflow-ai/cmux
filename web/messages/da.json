@@ -29,6 +29,7 @@
   },
   "common": {
     "downloadForMac": "Download til Mac",
+    "browserNightly": "cmux Browser-nightly",
     "viewOnGitHub": "Se på GitHub",
     "closeMenu": "Luk menu",
     "openMenu": "Åbn menu",
@@ -3598,6 +3599,38 @@
       "primaryCta": "Download .deb",
       "requirements": "Debian eller Ubuntu · x64",
       "installBody": "Download Debian-pakken, og installer den med din pakkehåndtering. Vælg den transportable ZIP til installation pr. bruger og opdateringer i appen."
+    }
+  },
+  "browserNightly": {
+    "metaTitle": "Download cmux Browser-nightly til Mac, Windows og Linux",
+    "metaDescription": "Download signerede nightly-versioner af cmux Browser til macOS, Windows og Linux med automatiske opdateringer fra én offentlig udgivelseskanal.",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly-downloads",
+    "tagline": "Ét Chromium-arbejdsområde til Mac, Windows og Linux.",
+    "subtitle": "Nightly-versioner opdateres automatisk fra den offentlige cmux-v2-kanal. En platform låses først op her, når pakke, indbygget signatur og opdateringsforløb har bestået udgivelseskontrollen.",
+    "logoAlt": "Appikon for cmux Browser",
+    "readyStatus": "Klar til download",
+    "pendingStatus": "Udgivelsen verificeres",
+    "portableCta": "Transportabel opdaterings-ZIP",
+    "updatesTitle": "Automatiske opdateringer",
+    "updatesBody": "cmux kontrollerer et kryptografisk signeret manifest, verificerer pakkestørrelsen og SHA-256-kontrolsummen, klargør den nye version og udskifter den, når du godkender genstart.",
+    "licenseBody": "cmux Browser og cmux-v2-repositoriets originale materiale er licenseret under GPL-3.0-or-later. Hver udgivelse indeholder den tilsvarende kildekode og de krævede tredjepartsmeddelelser.",
+    "releaseLink": "Oplysninger om nightly-udgivelsen",
+    "sourceLink": "Kildekode og licensoplysninger",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple-chip · macOS 14 eller nyere",
+      "primaryCta": "Download .dmg"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 eller nyere · x64",
+      "primaryCta": "Download installationsprogram"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian eller Ubuntu · x64 · kør med sh",
+      "primaryCta": "Download brugerinstallation"
     }
   }
 }

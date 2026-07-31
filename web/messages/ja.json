@@ -55,7 +55,7 @@
     "installTitle": "インストール",
     "releaseTitle": "リリースとアップデート",
     "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
-    "sourceLink": "GitHub でソースを見る",
+    "sourceLink": "ソースとライセンスの開示",
     "otherPlatform": "{platform} 版 cmux",
     "macLink": "Mac 版 cmux ターミナル",
     "windows": {
@@ -77,6 +77,38 @@
       "installBody": "Debian パッケージをダウンロードし、パッケージマネージャーでインストールしてください。ユーザー単位のインストールとアプリ内更新にはポータブル ZIP を選べます。"
     }
   },
+  "browserNightly": {
+    "metaTitle": "Mac・Windows・Linux 版 cmux Browser nightly をダウンロード",
+    "metaDescription": "macOS、Windows、Linux 向けの署名済み cmux Browser nightly ビルドを、ひとつの公開リリースチャンネルから自動更新付きでダウンロードできます。",
+    "eyebrow": "cmux Browser",
+    "title": "Nightly ダウンロード",
+    "tagline": "Mac、Windows、Linux で使える、ひとつの Chromium ワークスペース。",
+    "subtitle": "Nightly ビルドは公開 cmux-v2 リリースチャンネルから自動更新されます。パッケージ、ネイティブ署名、更新経路のリリース検証が完了したプラットフォームだけ、ここでダウンロード可能になります。",
+    "logoAlt": "cmux Browser アプリアイコン",
+    "readyStatus": "ダウンロード可能",
+    "pendingStatus": "リリース検証中",
+    "portableCta": "ポータブル更新 ZIP",
+    "updatesTitle": "自動更新",
+    "updatesBody": "cmux は暗号署名済みマニフェストを確認し、パッケージサイズと SHA-256 ダイジェストを検証して新しいバージョンをステージし、再起動を承認したときに入れ替えます。",
+    "licenseBody": "cmux Browser と cmux-v2 リポジトリのオリジナル素材は GPL-3.0-or-later でライセンスされています。各リリースには、対応するソースコードと必要なサードパーティ通知が含まれます。",
+    "releaseLink": "Nightly リリースの詳細",
+    "sourceLink": "ソースとライセンスの開示",
+    "macos": {
+      "name": "macOS",
+      "requirements": "Apple シリコン · macOS 14 以降",
+      "primaryCta": ".dmg をダウンロード"
+    },
+    "windows": {
+      "name": "Windows",
+      "requirements": "Windows 10 以降 · x64",
+      "primaryCta": "インストーラーをダウンロード"
+    },
+    "linux": {
+      "name": "Linux",
+      "requirements": "Debian または Ubuntu · x64 · sh で実行",
+      "primaryCta": "ユーザー用インストーラーをダウンロード"
+    }
+  },
   "meta": {
     "title": "cmux — マルチタスク、整理、プログラマビリティのために作られたターミナル",
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
@@ -91,7 +123,8 @@
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
     "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム"
+    "otherPlatforms": "その他のプラットフォーム",
+    "browserNightly": "cmux Browser nightly"
   },
   "dashboard": {
     "nav": {
