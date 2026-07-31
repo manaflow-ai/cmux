@@ -302,16 +302,21 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     public let revision: UInt64?
     public let binding: CmxIrohBrokerBinding
     public let relay: CmxIrohRegistrationRelay
+    /// The authoritative post-registration account snapshot when supplied by
+    /// connectivity v2. Older brokers omit it and retain the separate sync.
+    public let discovery: CmxIrohDiscoveryResponse?
 
     /// Creates a registration response for alternate brokers and tests.
     public init(
         revision: UInt64? = nil,
         binding: CmxIrohBrokerBinding,
-        relay: CmxIrohRegistrationRelay
+        relay: CmxIrohRegistrationRelay,
+        discovery: CmxIrohDiscoveryResponse? = nil
     ) {
         self.revision = revision
         self.binding = binding
         self.relay = relay
+        self.discovery = discovery
     }
 }
 

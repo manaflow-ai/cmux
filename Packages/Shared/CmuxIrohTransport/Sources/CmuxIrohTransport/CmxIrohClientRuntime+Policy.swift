@@ -96,7 +96,17 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            discovery = try await discoverAuthoritatively()
+            if let embedded = registration?.discovery {
+                guard let snapshotRevision = embedded.revision,
+                      let registrationRevision = registration?.revision,
+                      snapshotRevision >= registrationRevision else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                authoritativeDiscovery = embedded
+                discovery = embedded
+            } else {
+                discovery = try await discoverAuthoritatively()
+            }
         } catch {
             guard let registration,
                   Self.isConnectivity(error),

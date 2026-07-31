@@ -132,7 +132,17 @@ extension CmxIrohHostRuntime {
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            discovery = try await discoverAuthoritatively()
+            if let embedded = registration.discovery {
+                guard let snapshotRevision = embedded.revision,
+                      let registrationRevision = registration.revision,
+                      snapshotRevision >= registrationRevision else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                authoritativeDiscovery = embedded
+                discovery = embedded
+            } else {
+                discovery = try await discoverAuthoritatively()
+            }
         } catch {
             return try cachedPolicy(
                 after: error,
@@ -146,8 +156,13 @@ extension CmxIrohHostRuntime {
         guard discovery.routeContractVersion == payload.routeContractVersion else {
             throw CmxIrohHostRuntimeError.routeContractMismatch
         }
-        guard Set(discovery.relayFleet) == managedRelayURLs,
-              discovery.relayFleet.count == managedRelayURLs.count else {
+        // A missing verified relay policy disables relays but must not disable
+        // direct registration and discovery. Once policy is available, retain
+        // the exact fleet cross-check before admitting relay routes.
+        guard managedRelayURLs.isEmpty || (
+            Set(discovery.relayFleet) == managedRelayURLs
+                && discovery.relayFleet.count == managedRelayURLs.count
+        ) else {
             throw CmxIrohHostRuntimeError.relayFleetMismatch
         }
         guard let discovered = discovery.bindings.first(where: {
