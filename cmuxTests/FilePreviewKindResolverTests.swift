@@ -84,6 +84,34 @@ struct FilePreviewKindResolverTests {
         #expect(panel.textContent.isEmpty)
     }
 
+    @MainActor
+    @Test("File commands target the focused preview's file")
+    func fileCommandsTargetTheFocusedPreviewsFile() throws {
+        let url = try temporaryFile(extension: "md", contents: "# title\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path, startFileWatcher: false)
+        defer { panel.close() }
+
+        #expect(FilePreviewCommandTarget.fileURL(for: panel)?.path == url.path)
+    }
+
+    @MainActor
+    @Test("File commands ignore a preview whose file no longer exists")
+    func fileCommandsIgnoreAPreviewWhoseFileNoLongerExists() throws {
+        let url = try temporaryFile(extension: "md", contents: "# title\n")
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path, startFileWatcher: false)
+        defer { panel.close() }
+        try FileManager.default.removeItem(at: url)
+
+        #expect(FilePreviewCommandTarget.fileURL(for: panel) == nil)
+    }
+
+    @MainActor
+    @Test("File commands ignore panels that are not file previews")
+    func fileCommandsIgnorePanelsThatAreNotFilePreviews() {
+        #expect(FilePreviewCommandTarget.fileURL(for: nil) == nil)
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
         try temporaryFile(extension: fileExtension, data: Data(contents.utf8))
     }

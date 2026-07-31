@@ -58490,6 +58490,40 @@
         }
       }
     },
+    "command.filePreviewOpenExternally.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open File in Default App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをデフォルトのアプリで開く"
+          }
+        }
+      }
+    },
+    "command.filePreviewRevealInFinder.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal File in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをFinderで表示"
+          }
+        }
+      }
+    },
     "command.findInDirectory.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -71047,6 +71081,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "瀏覽器 • %@"
+          }
+        }
+      }
+    },
+    "commandPalette.subtitle.filePreviewWithName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File • %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル • %@"
           }
         }
       }
