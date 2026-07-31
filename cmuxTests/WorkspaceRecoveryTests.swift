@@ -567,4 +567,46 @@ struct WorkspaceRecoveryTests {
         #expect(laterManager.selectedWorkspace?.customColor == "#445566")
     }
 
+    @Test
+    func sessionRestoreKeepsDistinctTitlesForSameDirectoryWorkspaces() throws {
+        let directory = "/tmp/restore-distinct-title-project"
+        let manager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false
+        )
+        let first = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: first.id, title: "Task One"))
+        manager.setTabColor(tabId: first.id, color: "#111111")
+        let second = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(manager.setCustomTitle(tabId: second.id, title: "Task Two"))
+        manager.setTabColor(tabId: second.id, color: "#222222")
+        let third = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(manager.setCustomTitle(tabId: third.id, title: "Task Three"))
+        manager.setTabColor(tabId: third.id, color: "#333333")
+
+        // Sidebar order is an insertion-policy detail; the restore contract is
+        // that every workspace keeps its own identity, in the saved order.
+        let expectedTitles = manager.tabs.map(\.customTitle)
+        let expectedColors = manager.tabs.map(\.customColor)
+        #expect(
+            Set(expectedTitles.compactMap { $0 }) ==
+                ["Task One", "Task Two", "Task Three"]
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        #expect(restoredManager.tabs.map(\.customTitle) == expectedTitles)
+        #expect(restoredManager.tabs.map(\.customColor) == expectedColors)
+    }
+
 }
