@@ -36,17 +36,17 @@ extension TerminalSurface {
         promptInputLedger.synchronizeAgentScope(scope)
     }
 
-    /// Matches an agent `UserPromptSubmit` hook to the next known input
-    /// boundary. Callers use the origin to avoid recording an app-owned
-    /// submission twice when its hook arrives.
+    /// Matches an agent `UserPromptSubmit` hook to a known input boundary.
+    /// Callers use the origin to preserve the app-owned event source when the
+    /// hook confirms delivery.
     ///
     /// - Returns: The matched input origin.
     @MainActor
     @discardableResult
-    public func confirmPromptSubmission()
+    public func confirmPromptSubmission(message: String?)
         -> PromptSubmissionConfirmationOrigin
     {
-        promptInputLedger.confirmNextSubmission()
+        promptInputLedger.confirmSubmission(message: message)
     }
 
     /// Whether human terminal input may still be present in the current
@@ -233,8 +233,8 @@ extension TerminalSurface {
     ///   - submitKey: The agent-aware named key that commits the prompt.
     ///   - rejectIfHumanComposerBusy: Whether unconfirmed human input
     ///     rejects the transaction before any terminal write.
-    ///   - hookRecording: Whether the later agent hook should record the prompt,
-    ///     or `nil` when the target is not expected to emit an agent hook.
+    ///   - hookRecordingSource: Event source to apply when the later matching
+    ///     agent hook records the prompt, or `nil` when no hook is expected.
     /// - Returns: The definitive acceptance or rejection outcome.
     @MainActor
     @discardableResult
@@ -242,7 +242,7 @@ extension TerminalSurface {
         _ text: String,
         submitKey: String,
         rejectIfHumanComposerBusy: Bool = true,
-        hookRecording: ProgrammaticPromptHookRecording? =
+        hookRecordingSource: String? =
             nil
     ) -> PromptSubmissionSendResult {
         guard let data = text.data(using: .utf8), !data.isEmpty else {
@@ -267,7 +267,8 @@ extension TerminalSurface {
                 return .inputQueueFull
             }
             promptInputLedger.recordProgrammaticSubmission(
-                hookRecording: hookRecording
+                message: text,
+                source: hookRecordingSource
             )
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
@@ -290,7 +291,8 @@ extension TerminalSurface {
             mods: submitEvent.mods
         )
         promptInputLedger.recordProgrammaticSubmission(
-            hookRecording: hookRecording
+            message: text,
+            source: hookRecordingSource
         )
         return .sent
     }

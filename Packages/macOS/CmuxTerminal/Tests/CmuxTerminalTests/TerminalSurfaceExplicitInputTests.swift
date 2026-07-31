@@ -41,7 +41,7 @@ struct TerminalSurfaceExplicitInputTests {
             fixture.surface.sendPromptSubmission(
                 "first line\nsecond line",
                 submitKey: "return",
-                hookRecording: .recordWhenConfirmed
+                hookRecordingSource: "workspace.agent_submit"
             ) == .queued
         )
 
@@ -52,8 +52,9 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(pending.keyEvents == 0)
         #expect(fixture.paneHost.explicitInputCount == 1)
         #expect(
-            fixture.surface.confirmPromptSubmission()
-                == .programmatic(.recordWhenConfirmed)
+            fixture.surface.confirmPromptSubmission(
+                message: "first line second line"
+            ) == .programmatic(source: "workspace.agent_submit")
         )
     }
 

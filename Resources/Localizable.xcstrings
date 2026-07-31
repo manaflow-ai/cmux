@@ -222,6 +222,23 @@
         }
       }
     },
+    "socket.workspace.agentSubmit.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace cannot accept this submission right now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースは現在この送信を受け付けられません。"
+          }
+        }
+      }
+    },
     "socket.workspace.agentSubmit.workspaceNotFound": {
       "extractionState": "manual",
       "localizations": {

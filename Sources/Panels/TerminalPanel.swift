@@ -721,16 +721,18 @@ final class TerminalPanel: Panel, ObservableObject {
         submitKey: String,
         agentInputScope: String?,
         rejectIfHumanComposerBusy: Bool,
-        hookRecording: ProgrammaticPromptHookRecording?
+        hookRecordingSource: String?
     ) -> TerminalSurface.PromptSubmissionSendResult {
-        guard !hasHumanTextBoxDraft else { return .composerBusy }
+        if rejectIfHumanComposerBusy, hasHumanTextBoxDraft {
+            return .composerBusy
+        }
         surface.synchronizePromptInputAgentScope(agentInputScope)
         resumeForExplicitInputIfNeeded()
         return surface.sendPromptSubmission(
             text,
             submitKey: submitKey,
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
-            hookRecording: hookRecording
+            hookRecordingSource: hookRecordingSource
         )
     }
 

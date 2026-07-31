@@ -5820,13 +5820,16 @@ class TerminalController {
                    let terminalPanel = workspace.terminalInputTarget(
                        forPanelID: surfaceId
                    )?.panel {
-                    let origin =
-                        terminalPanel.surface.confirmPromptSubmission()
-                    if origin == .programmatic(.alreadyRecorded) {
-                        // `workspace.agent_submit` records the accepted message
-                        // immediately. Its later hook only confirms delivery
-                        // ordering; recording it again would duplicate the
-                        // sidebar event and reorder timestamp.
+                    let origin = terminalPanel.surface
+                        .confirmPromptSubmission(
+                            message: event.submittedPromptMessage
+                        )
+                    if case .programmatic(let source) = origin {
+                        _ = tabManager.handlePromptSubmit(
+                            workspaceId: workspaceId,
+                            message: event.submittedPromptMessage,
+                            source: source
+                        )
                         return
                     }
                 }

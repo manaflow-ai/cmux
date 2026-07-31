@@ -1,7 +1,10 @@
-/// One ordered prompt boundary awaiting confirmation from an agent hook.
+/// One bounded prompt boundary awaiting an agent hook.
 enum TerminalPromptSubmissionBoundary: Sendable {
-    /// Physical terminal input submitted at the given human-input generation.
+    /// Human input submitted at the given ownership generation.
     case human(generation: UInt64)
-    /// One complete app-owned prompt transaction.
-    case programmatic(ProgrammaticPromptHookRecording)
+    /// App-owned input matched by normalized prompt signature.
+    case programmatic(
+        messageSignature: TerminalPromptMessageSignature,
+        source: String
+    )
 }

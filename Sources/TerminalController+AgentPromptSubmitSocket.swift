@@ -10,9 +10,9 @@ extension TerminalController {
 
     /// Worker-lane handler for `workspace.agent_submit`.
     ///
-    /// The socket worker owns the definitive reply and waits for this request's
-    /// FIFO result. It never times out while leaving a live submission behind:
-    /// an ambiguous timeout would make a safe caller retry impossible.
+    /// The socket worker owns the definitive reply. One synchronous main hop
+    /// admits and drains the request's complete terminal transaction, so no
+    /// live submission remains after this method returns.
     nonisolated func v2WorkspaceAgentSubmit(params: [String: Any]) -> V2CallResult {
         guard let rawWorkspaceID = params["workspace_id"] as? String,
               let workspaceID = UUID(
@@ -62,9 +62,8 @@ extension TerminalController {
             requestedSurfaceID = nil
         }
 
-        let receipt = AgentPromptSubmissionReceipt()
-        v2MainSync {
-            agentPromptSubmissionService.enqueue(
+        let result = v2MainSync {
+            agentPromptSubmissionService.submit(
                 workspaceID: workspaceID,
                 delivery: {
                     self.deliverAgentPromptSubmission(
@@ -72,13 +71,10 @@ extension TerminalController {
                         requestedSurfaceID: requestedSurfaceID,
                         text: text
                     )
-                },
-                completion: { result in
-                    receipt.complete(with: result)
                 }
             )
         }
-        return Self.agentPromptSocketResult(receipt.wait())
+        return Self.agentPromptSocketResult(result)
     }
 
     nonisolated static func agentPromptSocketResult(
@@ -187,6 +183,18 @@ extension TerminalController {
                 data: [
                     "workspace_id": workspaceID.uuidString,
                     "surface_id": surfaceID.uuidString,
+                ]
+            )
+        case .serviceUnavailable(let workspaceID):
+            return .err(
+                code: "submission_unavailable",
+                message: String(
+                    localized: "socket.workspace.agentSubmit.unavailable",
+                    defaultValue: "The workspace cannot accept this submission right now."
+                ),
+                data: [
+                    "workspace_id": workspaceID.uuidString,
+                    "retryable": true,
                 ]
             )
         }

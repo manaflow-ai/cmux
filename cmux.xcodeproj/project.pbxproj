@@ -128,7 +128,6 @@
 		89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		A92490000000000000000011 /* AgentPromptFIFOProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92490000000000000000012 /* AgentPromptFIFOProbe.swift */; };
-		A92490000000000000000009 /* AgentPromptSubmissionReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9249000000000000000000A /* AgentPromptSubmissionReceipt.swift */; };
 		A92490000000000000000007 /* AgentPromptSubmissionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92490000000000000000008 /* AgentPromptSubmissionResult.swift */; };
 		A92490000000000000000001 /* AgentPromptSubmissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92490000000000000000002 /* AgentPromptSubmissionService.swift */; };
 		A92490000000000000000005 /* AgentPromptSubmissionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92490000000000000000006 /* AgentPromptSubmissionServiceTests.swift */; };
@@ -2755,7 +2754,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
 		89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessBindingResolution.swift; sourceTree = "<group>"; };
 		A92490000000000000000012 /* AgentPromptFIFOProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptFIFOProbe.swift; sourceTree = "<group>"; };
-		A9249000000000000000000A /* AgentPromptSubmissionReceipt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptSubmissionReceipt.swift; sourceTree = "<group>"; };
 		A92490000000000000000008 /* AgentPromptSubmissionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptSubmissionResult.swift; sourceTree = "<group>"; };
 		A92490000000000000000002 /* AgentPromptSubmissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptSubmissionService.swift; sourceTree = "<group>"; };
 		A92490000000000000000006 /* AgentPromptSubmissionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPromptSubmissionServiceTests.swift; sourceTree = "<group>"; };
@@ -6288,7 +6286,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A740000000000000000A2 /* AppDelegate+SimulatorShortcutRouting.swift */,
 				D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */,
 				D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */,
-				A9249000000000000000000A /* AgentPromptSubmissionReceipt.swift */,
 				A92490000000000000000008 /* AgentPromptSubmissionResult.swift */,
 				A92490000000000000000002 /* AgentPromptSubmissionService.swift */,
 				A9249000000000000000000E /* AgentPromptTerminalTarget.swift */,
@@ -8348,7 +8345,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */,
 				B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */,
 				89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */,
-				A92490000000000000000009 /* AgentPromptSubmissionReceipt.swift in Sources */,
 				A92490000000000000000007 /* AgentPromptSubmissionResult.swift in Sources */,
 				A92490000000000000000001 /* AgentPromptSubmissionService.swift in Sources */,
 				A9249000000000000000000D /* AgentPromptTerminalTarget.swift in Sources */,

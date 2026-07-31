@@ -2,7 +2,6 @@ import CmuxFoundation
 import CmuxWorkspaces
 import AppKit
 import CmuxTerminal
-import CmuxTerminalCore
 import Carbon.HIToolbox
 import CmuxSettingsUI
 import Observation
@@ -1140,18 +1139,6 @@ private extension TerminalSurface.NamedKeySendResult {
     }
 }
 
-private extension TerminalSurface.PromptSubmissionSendResult {
-    var acceptedForTextBoxSubmit: Bool {
-        switch self {
-        case .sent, .queued:
-            true
-        case .composerBusy, .unknownKey, .inputQueueFull,
-             .surfaceUnavailable, .processExited:
-            false
-        }
-    }
-}
-
 @MainActor
 enum TextBoxSubmit {
     struct CompletionContext: Equatable {
@@ -1317,11 +1304,11 @@ enum TextBoxSubmit {
                 TextBoxAgentDetection.supportsActiveAgentPrefixes(
                     context: terminalAgentContext
                 ),
-            hookRecording:
-                TextBoxAgentDetection.supportsAgentPrefixes(
+            hookRecordingSource:
+                TextBoxAgentDetection.supportsActiveAgentPrefixes(
                     context: terminalAgentContext
                 )
-                    ? .recordWhenConfirmed
+                    ? "workspace.prompt_submit"
                     : nil
         )
     }
@@ -1676,8 +1663,9 @@ private final class TextBoxSubmitEventRunner {
                 submitKey: atomicPromptSubmission.submitKey,
                 rejectIfHumanComposerBusy:
                     atomicPromptSubmission.rejectIfHumanComposerBusy,
-                hookRecording: atomicPromptSubmission.hookRecording
-            ).acceptedForTextBoxSubmit else {
+                hookRecordingSource:
+                    atomicPromptSubmission.hookRecordingSource
+            ).accepted else {
                 fail(.terminalWriteRejected)
                 return
             }

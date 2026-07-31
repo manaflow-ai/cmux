@@ -123,11 +123,11 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.send_key") == .socketWorker(mainThreadCallable: true))
     }
 
-    @Test func atomicAgentSubmitRunsOnTheWorkerAndWaitsForItsFIFO() {
+    @Test func atomicAgentSubmitRunsOnWorkerWithACallableMainHop() {
         #expect(
             ControlCommandExecutionPolicy(
                 forMethod: "workspace.agent_submit"
-            ) == .socketWorker(mainThreadCallable: false)
+            ) == .socketWorker(mainThreadCallable: true)
         )
     }
 

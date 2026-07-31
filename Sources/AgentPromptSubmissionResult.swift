@@ -22,4 +22,6 @@ nonisolated enum AgentPromptSubmissionResult: Equatable, Sendable {
     case processExited(workspaceID: UUID, surfaceID: UUID)
     /// The selected agent submit key could not be encoded.
     case invalidSubmitKey(workspaceID: UUID, surfaceID: UUID)
+    /// A same-workspace submission reentered the synchronous transaction.
+    case serviceUnavailable(workspaceID: UUID)
 }

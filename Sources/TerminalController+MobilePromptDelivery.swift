@@ -78,11 +78,11 @@ extension TerminalController {
                 submitKey: submitKeyName,
                 agentInputScope: agentInputScope,
                 rejectIfHumanComposerBusy: agentInputScope != nil,
-                hookRecording:
-                    TextBoxAgentDetection.supportsAgentPrefixes(
+                hookRecordingSource:
+                    TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
                     )
-                        ? .recordWhenConfirmed
+                        ? "workspace.prompt_submit"
                         : nil
             )
             switch result {

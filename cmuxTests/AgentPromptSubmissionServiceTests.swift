@@ -9,63 +9,95 @@ import Testing
 
 @Suite("Atomic agent prompt submission")
 struct AgentPromptSubmissionServiceTests {
-    @MainActor
     @Test func concurrentSubmissionsToOneWorkspaceStayIntactAndFIFO() async {
         let workspaceID = UUID()
         let surfaceID = UUID()
-        let service = AgentPromptSubmissionService()
+        let service = await MainActor.run {
+            AgentPromptSubmissionService()
+        }
         let probe = AgentPromptFIFOProbe(
             workspaceID: workspaceID,
             surfaceID: surfaceID
         )
-        let results = AsyncStream<AgentPromptSubmissionResult>.makeStream()
-        defer { results.continuation.finish() }
+        let first = Task { @MainActor in
+            service.submit(
+                workspaceID: workspaceID,
+                delivery: {
+                    probe.deliver("first", waitsForRelease: true)
+                }
+            )
+        }
+        await Task.detached {
+            probe.waitUntilFirstStarted()
+        }.value
 
-        service.enqueue(
-            workspaceID: workspaceID,
-            delivery: {
-                await probe.deliver("first", waitsForRelease: true)
-            },
-            completion: { result in
-                results.continuation.yield(result)
-            }
-        )
-        await probe.waitUntilFirstStarted()
+        let second = Task { @MainActor in
+            service.submit(
+                workspaceID: workspaceID,
+                delivery: {
+                    probe.deliver("second", waitsForRelease: false)
+                }
+            )
+        }
 
-        service.enqueue(
-            workspaceID: workspaceID,
-            delivery: {
-                await probe.deliver("second", waitsForRelease: false)
-            },
-            completion: { result in
-                results.continuation.yield(result)
-            }
-        )
+        #expect(probe.startedMessages == ["first"])
+        probe.releaseFirst()
 
-        let startedBeforeRelease = await probe.startedMessages
-        #expect(startedBeforeRelease == ["first"])
-        await probe.releaseFirst()
-
-        var resultIterator = results.stream.makeAsyncIterator()
-        #expect(await resultIterator.next() == .submitted(
+        #expect(await first.value == .submitted(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             queued: false
         ))
-        #expect(await resultIterator.next() == .submitted(
+        #expect(await second.value == .submitted(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             queued: false
         ))
-        let startedMessages = await probe.startedMessages
-        let completedMessages = await probe.completedMessages
-        let submittedWireMessages = await probe.submittedWireMessages
-        let maximumConcurrentDeliveries =
-            await probe.maximumConcurrentDeliveries
-        #expect(startedMessages == ["first", "second"])
-        #expect(completedMessages == ["first", "second"])
-        #expect(submittedWireMessages == ["first", "second"])
-        #expect(maximumConcurrentDeliveries == 1)
+        #expect(probe.startedMessages == ["first", "second"])
+        #expect(probe.completedMessages == ["first", "second"])
+        #expect(probe.submittedWireMessages == ["first", "second"])
+        #expect(probe.maximumConcurrentDeliveries == 1)
+    }
+
+    @MainActor
+    @Test func sameWorkspaceReentrancyRejectsWithoutLateDelivery() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let service = AgentPromptSubmissionService()
+        var delivered: [String] = []
+
+        let outer = service.submit(
+            workspaceID: workspaceID,
+            delivery: {
+                delivered.append("outer")
+                let inner = service.submit(
+                    workspaceID: workspaceID,
+                    delivery: {
+                        delivered.append("inner")
+                        return .submitted(
+                            workspaceID: workspaceID,
+                            surfaceID: surfaceID,
+                            queued: false
+                        )
+                    }
+                )
+                #expect(inner == .serviceUnavailable(
+                    workspaceID: workspaceID
+                ))
+                return .submitted(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    queued: false
+                )
+            }
+        )
+
+        #expect(outer == .submitted(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            queued: false
+        ))
+        #expect(delivered == ["outer"])
     }
 
     @MainActor
@@ -80,7 +112,7 @@ struct AgentPromptSubmissionServiceTests {
             submitKey: "return",
             agentInputScope: "agentPIDKey:codex.session",
             rejectIfHumanComposerBusy: true,
-            hookRecording: .alreadyRecorded
+            hookRecordingSource: "workspace.agent_submit"
         )
 
         #expect(result == .composerBusy)

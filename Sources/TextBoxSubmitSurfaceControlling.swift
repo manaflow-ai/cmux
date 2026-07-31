@@ -1,6 +1,5 @@
 import AppKit
 import CmuxTerminal
-import CmuxTerminalCore
 
 @MainActor
 protocol TextBoxSubmitSurfaceControlling: AnyObject {
@@ -20,7 +19,7 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
         _ text: String,
         submitKey: String,
         rejectIfHumanComposerBusy: Bool,
-        hookRecording: ProgrammaticPromptHookRecording?
+        hookRecordingSource: String?
     ) -> TerminalSurface.PromptSubmissionSendResult
     @discardableResult
     func performBindingAction(_ action: String) -> Bool
@@ -36,13 +35,13 @@ extension TextBoxSubmitSurfaceControlling {
         _ text: String,
         submitKey: String,
         rejectIfHumanComposerBusy: Bool,
-        hookRecording: ProgrammaticPromptHookRecording?
+        hookRecordingSource: String?
     ) -> TerminalSurface.PromptSubmissionSendResult {
         textBoxSubmitTerminalSurface?.sendPromptSubmission(
             text,
             submitKey: submitKey,
             rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
-            hookRecording: hookRecording
+            hookRecordingSource: hookRecordingSource
         ) ?? .surfaceUnavailable
     }
 

@@ -50,7 +50,7 @@ extension TerminalController {
             submitKey: submitKey,
             agentInputScope: target.agentInputScope,
             rejectIfHumanComposerBusy: true,
-            hookRecording: .alreadyRecorded
+            hookRecordingSource: "workspace.agent_submit"
         )
         switch result {
         case .sent, .queued:
@@ -59,11 +59,6 @@ extension TerminalController {
                     reason: "terminalController.agentPromptSubmission"
                 )
             }
-            _ = tabManager.handlePromptSubmit(
-                workspaceId: workspaceID,
-                message: text,
-                source: "workspace.agent_submit"
-            )
             return .submitted(
                 workspaceID: workspaceID,
                 surfaceID: target.surfaceID,

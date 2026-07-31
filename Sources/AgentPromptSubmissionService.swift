@@ -3,49 +3,61 @@ import Foundation
 /// App-owned per-workspace FIFO for complete agent prompt transactions.
 ///
 /// Queue admission is main-actor isolated so concurrent socket workers acquire
-/// one deterministic app-arrival order before any unstructured task can run.
-/// Explicit queues remain necessary because `drain` awaits delivery and the
-/// main actor is reentrant across that suspension. Different workspaces have
-/// independent drains.
+/// one deterministic app-arrival order. Delivery is deliberately synchronous
+/// and non-suspending: target resolution, the composer check, and the compound
+/// terminal write all complete inside the socket's existing main-actor hop.
+/// A same-workspace reentrant call is rejected before delivery.
 @MainActor
 final class AgentPromptSubmissionService {
     typealias Delivery =
-        @MainActor @Sendable () async -> AgentPromptSubmissionResult
-    typealias Completion = @Sendable (AgentPromptSubmissionResult) -> Void
-    private typealias PendingSubmission = (
-        delivery: Delivery,
-        completion: Completion
-    )
+        @MainActor @Sendable () -> AgentPromptSubmissionResult
+    private typealias PendingSubmission = (id: UInt64, delivery: Delivery)
 
     private var pendingByWorkspace: [UUID: [PendingSubmission]] = [:]
     private var drainingWorkspaces: Set<UUID> = []
+    private var nextSubmissionID: UInt64 = 0
 
-    /// Enqueues one complete delivery in the workspace's app-arrival order.
+    /// Enqueues and synchronously drains one complete delivery in app-arrival
+    /// order.
     ///
     /// - Parameters:
     ///   - workspaceID: The FIFO ownership key.
     ///   - delivery: The indivisible terminal transaction to execute.
-    ///   - completion: Receives the transaction's definitive result.
-    func enqueue(
+    /// - Returns: The transaction's definitive result.
+    func submit(
         workspaceID: UUID,
-        delivery: @escaping Delivery,
-        completion: @escaping Completion
-    ) {
+        delivery: @escaping Delivery
+    ) -> AgentPromptSubmissionResult {
+        nextSubmissionID &+= 1
+        if nextSubmissionID == 0 {
+            nextSubmissionID = 1
+        }
+        let submissionID = nextSubmissionID
         pendingByWorkspace[workspaceID, default: []].append(
-            (delivery: delivery, completion: completion)
+            (id: submissionID, delivery: delivery)
         )
-        guard drainingWorkspaces.insert(workspaceID).inserted else { return }
-        Task {
-            await self.drain(workspaceID: workspaceID)
+        guard drainingWorkspaces.insert(workspaceID).inserted else {
+            pendingByWorkspace[workspaceID]?.removeAll {
+                $0.id == submissionID
+            }
+            if pendingByWorkspace[workspaceID]?.isEmpty == true {
+                pendingByWorkspace.removeValue(forKey: workspaceID)
+            }
+            return .serviceUnavailable(workspaceID: workspaceID)
         }
-    }
-
-    private func drain(workspaceID: UUID) async {
+        defer {
+            drainingWorkspaces.remove(workspaceID)
+        }
+        var submissionResult: AgentPromptSubmissionResult?
         while let pending = dequeue(workspaceID: workspaceID) {
-            let result = await pending.delivery()
-            pending.completion(result)
+            let result = pending.delivery()
+            if pending.id == submissionID {
+                submissionResult = result
+            }
         }
-        drainingWorkspaces.remove(workspaceID)
+        return submissionResult ?? .serviceUnavailable(
+            workspaceID: workspaceID
+        )
     }
 
     private func dequeue(workspaceID: UUID) -> PendingSubmission? {

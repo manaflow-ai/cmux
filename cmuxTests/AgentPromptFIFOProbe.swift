@@ -1,12 +1,14 @@
+import Darwin
 import Foundation
 
-actor AgentPromptFIFOProbe {
+/// Thread-safe test probe that can hold the first synchronous delivery while a
+/// second caller queues on the main actor.
+nonisolated final class AgentPromptFIFOProbe: @unchecked Sendable {
     private let workspaceID: UUID
     private let surfaceID: UUID
-    private let firstStartedStream: AsyncStream<Void>
-    private let firstStartedContinuation: AsyncStream<Void>.Continuation
-    private let firstReleaseStream: AsyncStream<Void>
-    private let firstReleaseContinuation: AsyncStream<Void>.Continuation
+    private let condition = NSCondition()
+    private var firstStarted = false
+    private var firstReleased = false
     private var activeDeliveries = 0
     private var maximumActiveDeliveries = 0
     private var started: [String] = []
@@ -16,47 +18,48 @@ actor AgentPromptFIFOProbe {
     init(workspaceID: UUID, surfaceID: UUID) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
-        let firstStarted = AsyncStream<Void>.makeStream()
-        firstStartedStream = firstStarted.stream
-        firstStartedContinuation = firstStarted.continuation
-        let firstRelease = AsyncStream<Void>.makeStream()
-        firstReleaseStream = firstRelease.stream
-        firstReleaseContinuation = firstRelease.continuation
     }
 
     var startedMessages: [String] {
-        started
+        condition.withLock { started }
     }
 
     var completedMessages: [String] {
-        completed
+        condition.withLock { completed }
     }
 
     var submittedWireMessages: [String] {
-        wireBytes.split(separator: 0x0D).compactMap {
-            String(data: Data($0), encoding: .utf8)
+        condition.withLock {
+            wireBytes.split(separator: 0x0D).compactMap {
+                String(data: Data($0), encoding: .utf8)
+            }
         }
     }
 
     var maximumConcurrentDeliveries: Int {
-        maximumActiveDeliveries
+        condition.withLock { maximumActiveDeliveries }
     }
 
-    func waitUntilFirstStarted() async {
-        for await _ in firstStartedStream.prefix(1) {
-            return
+    func waitUntilFirstStarted() {
+        condition.lock()
+        while !firstStarted {
+            condition.wait()
         }
+        condition.unlock()
     }
 
     func releaseFirst() {
-        firstReleaseContinuation.yield()
-        firstReleaseContinuation.finish()
+        condition.withLock {
+            firstReleased = true
+            condition.broadcast()
+        }
     }
 
     func deliver(
         _ message: String,
         waitsForRelease: Bool
-    ) async -> AgentPromptSubmissionResult {
+    ) -> AgentPromptSubmissionResult {
+        condition.lock()
         activeDeliveries += 1
         maximumActiveDeliveries = max(
             maximumActiveDeliveries,
@@ -64,23 +67,38 @@ actor AgentPromptFIFOProbe {
         )
         started.append(message)
         if waitsForRelease {
-            firstStartedContinuation.yield()
-            firstStartedContinuation.finish()
-            for await _ in firstReleaseStream.prefix(1) {
-                break
+            firstStarted = true
+            condition.broadcast()
+            while !firstReleased {
+                condition.wait()
             }
         }
+        condition.unlock()
+
         for byte in message.utf8 {
-            wireBytes.append(byte)
-            await Task.yield()
+            condition.withLock {
+                wireBytes.append(byte)
+            }
+            sched_yield()
         }
-        wireBytes.append(0x0D)
-        completed.append(message)
-        activeDeliveries -= 1
+
+        condition.withLock {
+            wireBytes.append(0x0D)
+            completed.append(message)
+            activeDeliveries -= 1
+        }
         return .submitted(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             queued: false
         )
+    }
+}
+
+nonisolated private extension NSCondition {
+    func withLock<Result>(_ body: () -> Result) -> Result {
+        lock()
+        defer { unlock() }
+        return body()
     }
 }

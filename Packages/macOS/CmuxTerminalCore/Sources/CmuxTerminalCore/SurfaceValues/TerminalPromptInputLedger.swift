@@ -1,9 +1,5 @@
-/// Conservative input ownership used to keep programmatic prompt submissions
-/// from merging with a human's in-progress terminal-composer draft.
-///
-/// Normal typing only increments a counter. Submission-boundary bookkeeping is
-/// intentionally separate so a delayed agent hook can confirm the exact human
-/// input generation that preceded it without clearing newer typing.
+/// Conservative input ownership and bounded hook matching used to keep
+/// app-owned submissions separate from human terminal-composer drafts.
 public struct TerminalPromptInputLedger: Sendable {
     private static let maximumPendingBoundaries = 64
 
@@ -11,7 +7,7 @@ public struct TerminalPromptInputLedger: Sendable {
     private var humanInputGeneration: UInt64 = 0
     private var confirmedHumanInputGeneration: UInt64 = 0
     private var pendingBoundaries: [TerminalPromptSubmissionBoundary] = []
-    private var boundaryOrderingWasLost = false
+    private var humanBoundaryOrderingWasLost = false
 
     /// Creates an empty ledger with no human input or pending boundaries.
     public init() {}
@@ -27,7 +23,7 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration = 0
         confirmedHumanInputGeneration = 0
         pendingBoundaries.removeAll(keepingCapacity: false)
-        boundaryOrderingWasLost = false
+        humanBoundaryOrderingWasLost = false
     }
 
     /// True when human input occurred after the last safely matched human
@@ -36,67 +32,133 @@ public struct TerminalPromptInputLedger: Sendable {
         humanInputGeneration != confirmedHumanInputGeneration
     }
 
-    /// Records one physical terminal input event. The common typing path only
-    /// mutates integers; the small boundary queue grows only for submit keys.
+    /// Records one human terminal input event.
+    ///
+    /// A submit-capable Return records a boundary but does not clear ownership
+    /// until an agent hook confirms it. Return can also activate menus or
+    /// confirmations while leaving a draft intact, so clearing immediately
+    /// would permit a later app-owned prompt to clobber that draft.
     ///
     /// - Parameter maySubmitPrompt: Whether this event may create the next
     ///   agent prompt-submission hook.
     public mutating func recordHumanInput(maySubmitPrompt: Bool) {
         humanInputGeneration &+= 1
         if humanInputGeneration == 0 {
-            // A wrap cannot preserve generation ordering. Fail closed.
+            // A wrap cannot preserve generation ordering. Fail closed until
+            // the active agent scope changes.
             humanInputGeneration = 1
             confirmedHumanInputGeneration = 0
-            pendingBoundaries.removeAll(keepingCapacity: false)
-            boundaryOrderingWasLost = true
+            humanBoundaryOrderingWasLost = true
+            removeHumanBoundaries()
         }
-        guard maySubmitPrompt else { return }
-        appendBoundary(.human(generation: humanInputGeneration))
+        guard maySubmitPrompt, !humanBoundaryOrderingWasLost else { return }
+        appendHumanBoundary(generation: humanInputGeneration)
     }
 
-    /// Records an accepted app-owned prompt transaction. Its eventual hook
-    /// must not clear human input that arrived after this transaction.
+    /// Records an accepted app-owned prompt for later message-matched hook
+    /// confirmation.
     ///
-    /// - Parameter hookRecording: The hook's remaining recording ownership, or
-    ///   `nil` when this target is not expected to emit an agent hook.
+    /// The queue is bounded. When full, only another app-owned record may be
+    /// evicted; human boundaries are never discarded because doing so could
+    /// let an unrelated hook clear a newer draft.
     public mutating func recordProgrammaticSubmission(
-        hookRecording: ProgrammaticPromptHookRecording?
+        message: String,
+        source: String?
     ) {
-        guard let hookRecording else { return }
-        appendBoundary(.programmatic(hookRecording))
-    }
-
-    /// Matches the next agent `UserPromptSubmit` hook to its input boundary.
-    ///
-    /// If ordering was lost or the hook has no known boundary, human input is
-    /// deliberately left busy.
-    ///
-    /// - Returns: The boundary origin, including any remaining hook work.
-    @discardableResult
-    public mutating func confirmNextSubmission()
-        -> PromptSubmissionConfirmationOrigin
-    {
-        guard !boundaryOrderingWasLost, !pendingBoundaries.isEmpty else {
-            return .unmatched
-        }
-        switch pendingBoundaries.removeFirst() {
-        case .human(let generation):
-            confirmedHumanInputGeneration = generation
-            return .human
-        case .programmatic(let hookRecording):
-            return .programmatic(hookRecording)
-        }
-    }
-
-    private mutating func appendBoundary(
-        _ boundary: TerminalPromptSubmissionBoundary
-    ) {
-        guard !boundaryOrderingWasLost else { return }
-        guard pendingBoundaries.count < Self.maximumPendingBoundaries else {
-            pendingBoundaries.removeAll(keepingCapacity: false)
-            boundaryOrderingWasLost = true
+        guard let source,
+              let messageSignature = messageSignature(message) else {
             return
         }
-        pendingBoundaries.append(boundary)
+        if pendingBoundaries.count == Self.maximumPendingBoundaries {
+            guard let index = pendingBoundaries.firstIndex(where: {
+                if case .programmatic = $0 { return true }
+                return false
+            }) else {
+                return
+            }
+            pendingBoundaries.remove(at: index)
+        }
+        pendingBoundaries.append(.programmatic(
+            messageSignature: messageSignature,
+            source: source
+        ))
+    }
+
+    /// Matches an agent `UserPromptSubmit` hook to a known prompt boundary.
+    ///
+    /// App-owned records match by message rather than position. An unmatched
+    /// hook may confirm the oldest human boundary only when no earlier
+    /// app-owned record could own it, preserving newer human input.
+    @discardableResult
+    public mutating func confirmSubmission(message: String?)
+        -> PromptSubmissionConfirmationOrigin
+    {
+        if let message,
+           let messageSignature = messageSignature(message),
+           let index = pendingBoundaries.firstIndex(where: {
+               guard case .programmatic(
+                   let candidateSignature,
+                   _
+               ) = $0 else {
+                   return false
+               }
+               return candidateSignature == messageSignature
+           }) {
+            guard case .programmatic(
+                _,
+                let source
+            ) = pendingBoundaries.remove(at: index) else {
+                return .unmatched
+            }
+            return .programmatic(source: source)
+        }
+        guard !humanBoundaryOrderingWasLost,
+              let first = pendingBoundaries.first,
+              case .human(let generation) = first else {
+            return .unmatched
+        }
+        pendingBoundaries.removeFirst()
+        confirmedHumanInputGeneration = generation
+        return .human
+    }
+
+    private mutating func appendHumanBoundary(generation: UInt64) {
+        guard pendingBoundaries.count < Self.maximumPendingBoundaries else {
+            humanBoundaryOrderingWasLost = true
+            removeHumanBoundaries()
+            return
+        }
+        pendingBoundaries.append(.human(generation: generation))
+    }
+
+    private mutating func removeHumanBoundaries() {
+        pendingBoundaries.removeAll {
+            if case .human = $0 { return true }
+            return false
+        }
+    }
+
+    private func messageSignature(
+        _ message: String
+    ) -> TerminalPromptMessageSignature? {
+        let normalized = message
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return nil }
+        var primaryHash: UInt64 = 14_695_981_039_346_656_037
+        var secondaryHash: UInt64 = 7_809_847_782_469_553_657
+        var byteCount = 0
+        for byte in normalized.utf8 {
+            primaryHash ^= UInt64(byte)
+            primaryHash &*= 1_099_511_628_211
+            secondaryHash &*= 1_099_511_628_211
+            secondaryHash ^= UInt64(byte)
+            byteCount += 1
+        }
+        return TerminalPromptMessageSignature(
+            primaryHash: primaryHash,
+            secondaryHash: secondaryHash,
+            byteCount: byteCount
+        )
     }
 }
