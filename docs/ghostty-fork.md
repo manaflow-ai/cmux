@@ -12,11 +12,223 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `2258bea96` on the
-`manaflow-ai/ghostty` `issue-9092-drainmailbox-livelock` branch, based on
-`0b1734f1e`. It adds bounded app-mailbox turns to that baseline's `os/open`
-stderr drain fix, keyboard copy-mode selection, cursor geometry, bounded rich
-clipboard, and plain-text fallback fixes.
+The submodule pinned by this branch is `36a46414a`, the fork-main merge of
+https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
+reclamation and retry-deadline line through `4d6f0014f` with the resolved
+font-binding action callbacks originally ending at `80d7fb35a`.
+https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
+commits on current fork main and clarified the callback's non-reentrant
+contract. PR 172 then recorded the original font branch as ancestry without
+changing the integrated tree, so the final pin descends from both former
+gitlinks (`cd1f8e012` and `80d7fb35a`).
+
+The renderer line was reviewed in
+https://github.com/manaflow-ai/ghostty/pull/168, following the merged
+https://github.com/manaflow-ai/ghostty/pull/153,
+https://github.com/manaflow-ai/ghostty/pull/165, and
+https://github.com/manaflow-ai/ghostty/pull/166,
+https://github.com/manaflow-ai/ghostty/pull/167, then integrated by
+https://github.com/manaflow-ai/ghostty/pull/169. The combined head adds
+lossless hidden-tab renderer reclamation, forced renderer rebuild
+transactions, shared custom Metal pipelines, compile-attempt-owned failure
+backoff, one observation owner per native tab group, and bounded app-mailbox
+turns. Retry timers validate lifecycle generations immediately before xev
+reset, so a stale cross-thread handoff cannot replace a fresh 250 ms deadline.
+The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
+`2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
+The final font integration landed in merge commits `23003282d` and
+`36a46414a`.
+
+### Hidden macOS renderer reclamation
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/153
+  - https://github.com/manaflow-ai/ghostty/pull/165
+  - https://github.com/manaflow-ai/ghostty/pull/166
+  - https://github.com/manaflow-ai/ghostty/pull/167
+  - https://github.com/manaflow-ai/ghostty/pull/168
+  - Integration: https://github.com/manaflow-ai/ghostty/pull/169
+  - Retry deadline hardening: https://github.com/manaflow-ai/ghostty/pull/170
+- Commits:
+  - `1de584d1e` (test: require lossless renderer realization requests)
+  - `517a4c75a` (renderer: reclaim hidden macOS tab GPU memory)
+  - `cc4ac8141` (test: require shared standard Metal pipelines)
+  - `921d4efaa` (renderer: share standard Metal pipelines)
+  - `f9d7262e1` (test: prevent concurrent Metal pipeline compilation)
+  - `1e8aecd93` (renderer: serialize standard Metal pipeline creation)
+  - `267541adf` (test: preserve Metal pipelines across renderer handoffs)
+  - `b2c78d61a` (renderer: retain standard Metal pipelines across handoffs)
+  - `e5702c1ab` (test: keep selected key tabs renderer-visible)
+  - `19555c20f` (macos: keep selected key tab renderer visible)
+  - `9ee855755` (test: recycle Metal command queues on renderer release)
+  - `88fe92c27` (renderer: release hidden Metal command queues)
+  - `532bbb0a5` (test: reclaim deselected tab renderers synchronously)
+  - `7d0009af6` (macos: reclaim deselected tab renderers immediately)
+  - `68ffad656` (test: prevent main-queue renderer teardown deadlock)
+  - `7b24d1c5d` (renderer: avoid main-queue teardown deadlock)
+  - `0f2b10bad` (test: require renderer-owned Metal resource lifetimes)
+  - `232b24bf2` (renderer: release duplicate Metal resource retention)
+  - `99439d40e` (test: cover deferred IOSurface clear ordering)
+  - `24cf22453` (renderer: harden hidden-tab recovery)
+  - `5faee251a` (renderer: close recovery lifetime edges)
+  - `941791f5b` (test: cover renderer recovery failure edges)
+  - `2c48281d4` (renderer: close recovery allocation gaps)
+  - `1d7602ab3` (test: cover renderer restore lifecycle gaps)
+  - `978e08759` (renderer: complete restore transaction semantics)
+  - `970dbe093` (test: preserve forced renderer rebuild requests)
+  - `13a8b53d3` (renderer: preserve forced rebuild transactions)
+  - `735157526` (test: stop retrying missing renderer surfaces)
+  - `1968317a3` (macos: stop retrying missing renderer surfaces)
+  - `2907a1959` (test: preserve compositor-owned targets during clear)
+  - `5495e912d` (renderer: preserve compositor-owned targets through clear)
+  - `ce4d4842b` (test: require nonpurging target release)
+  - `288fa8cac` (renderer: release presented targets without purge)
+  - `bef29c98f` (test: hand external renderer retries to loop owner)
+  - `facfef23a` (renderer: hand external retries to loop owner)
+  - `bcc7fc4bd` (test: reject stale renderer retry delivery)
+  - `2013a9c3d` (renderer: reject stale realization retry delivery)
+  - `41aeef311` (test: invalidate retry while claiming request)
+  - `8b1781336` (renderer: invalidate retry while claiming request)
+  - `a255f34f2` (test: cover custom shader and tab observer reuse)
+  - `f010d69af` (renderer: share custom pipelines and tab observers)
+  - `7e783145b` (renderer: harden shared shader cache diagnostics)
+  - `357f582b3` (test: cover stale tab callbacks and shader retries)
+  - `074c0f7b7` (fix renderer cache and tab callback races)
+  - `b88d39586` (test: classify custom shader failures as recoverable)
+  - `ed67f2b59` (merge current fork main and preserve the Zig 0.16 port)
+  - `67e76e130` (test: cover failed shader restore backoff)
+  - `9fff00fc4` (fix: back off failed custom shader restores)
+  - `a1e727ad2` (fix: tolerate matching retained shader entries)
+  - `173623b9d` (test: cover live shader failure backoff)
+  - `78621f8ce` (fix: key shader retries to compile attempts)
+  - `29cbadf15` (test: reset resolved renderer retry deadlines)
+  - `f9b38609a` (test: replace obsolete renderer retry handoffs)
+  - `45abb8a2d` (fix: reset resolved renderer retry deadlines)
+  - `e7d06af34` (fix: generation-tag renderer retry timers)
+  - `cd1f8e012` (test: update renderer retry request assertion)
+- Files:
+  - `include/ghostty.h`
+  - `macos/Sources/Features/Terminal/BaseTerminalController.swift`
+  - `macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift`
+  - `macos/Tests/Ghostty/RendererTabSelectionTests.swift`
+  - `src/apprt/embedded.zig`
+  - `src/renderer.zig`
+  - `src/renderer/Metal.zig`
+  - `src/renderer/Thread.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/message.zig`
+  - `src/renderer/metal/IOSurfaceLayer.zig`
+  - `src/renderer/metal/Frame.zig`
+  - `src/renderer/metal/Target.zig`
+  - `src/renderer/metal/Texture.zig`
+  - `src/renderer/metal/api.zig`
+  - `src/renderer/metal/buffer.zig`
+  - `src/renderer/metal/shaders.zig`
+- Summary:
+  - Reclaims a deselected native tab's renderer while retaining its PTY,
+    terminal state, scrollback, and surface.
+  - Publishes renderer lifecycle state losslessly outside the bounded mailbox
+    and retries fallible GPU restoration with bounded backoff.
+  - Exposes one forced renderer rebuild transaction so an unrealize/realize
+    transition cannot be coalesced away when a hidden surface becomes ready.
+  - Drains outstanding frame leases and detaches the compositor layer before
+    releasing teardown-only Metal resources.
+  - Stops retrying reclamation when a native macOS surface no longer exists,
+    instead of waking the renderer indefinitely for a surface that cannot
+    return.
+  - Keeps compositor-owned IOSurfaces alive until the queued layer clear has
+    finished, and releases presented targets without making shared IOSurfaces
+    purgeable.
+  - Hands external-render retry scheduling back to the xev loop owner instead
+    of mutating loop timers from the iOS external render queue.
+  - Tags retries with publication generations and invalidates them atomically
+    while claiming newer requests, so stale retries cannot override the latest
+    external-render state.
+  - Validates generation-tagged timer requests immediately before xev reset,
+    rejects stale expirations, and resets the retry backoff after successful
+    resolution so delayed handoffs cannot inherit or overwrite fresh deadlines.
+  - Shares immutable standard shader pipelines by Metal device and pixel
+    format while preserving renderer-owned resources and transactional cleanup.
+  - Shares custom shader pipelines by device, pixel format, and source across
+    renderer handoffs, retains one idle custom configuration, evicts older
+    configurations, and retains one identical compiler-failure fallback for a
+    source-keyed, non-sliding 30-second retry window starting when compilation
+    fails, independent of renderer reference lifetime.
+  - Elects one native-tab observation owner per tab group and binds queued
+    callbacks to the group that emitted them, avoiding quadratic callbacks and
+    stale callbacks that could orphan observation ownership.
+  - Observes native tab selection conservatively and avoids synchronous
+    renderer-to-main waits during teardown.
+  - Conflict note: future renderer lifecycle work must preserve lossless
+    realization publication, forced rebuild transactions, bounded recovery,
+    compositor-owned IOSurface lifetimes, loop-owned retry timers,
+    generation-checked retry delivery, atomic request claiming, bounded shared
+    custom-pipeline retention, compile-attempt-owned compiler-failure backoff,
+    single-owner tab observation, conservative tab selection, and off-main
+    teardown without synchronous main-queue waits.
+
+### Resolved font-binding action callbacks
+
+- Commits:
+  - Original branch:
+    - `e6aa4fddb` (test: cover native font action callbacks)
+    - `80d7fb35a` (feat: emit resolved font binding actions)
+  - Reapplied on current fork main:
+    - `9242f2cec` (test: cover native font action callbacks)
+    - `bc1d15f1b` (feat: emit resolved font binding actions)
+    - `2803ccfe1` (docs: clarify font action callback reentrancy)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds a one-shot per-surface C callback for successfully performed increase,
+    decrease, reset, and absolute font-size binding actions.
+  - Reports the resolved action plus previous and current point sizes and
+    adjusted-state flags after Ghostty applies the native mutation.
+  - Keeps callback ownership on the exact embedded surface, with synchronous
+    GUI-thread delivery and userdata valid through surface teardown.
+  - Conflict note: future font-action routing must emit only after a successful
+    native mutation, preserve chained and custom binding semantics, keep
+    callback userdata alive until `ghostty_surface_free` returns, and never
+    destroy or otherwise reenter the surface from the synchronous callback.
+
+The pinned `36a46414a` universal ReleaseFast GhosttyKit archive was built with
+Zig 0.16.0. It is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-36a46414a7c5dc122ffbf2992fec6d4a73cf7c65-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again and matched SHA-256
+`8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
+
+### Ordered writes survive transient backpressure
+
+- Commits:
+  - `99335171e` (test: retain queued writes through backpressure)
+  - `2f6ee7b3d` (fix: preserve queued writes through backpressure)
+  - `d74e17608` (test: compile queued writes without WouldBlock)
+  - `982a723ff` (fix: accept backend-specific write errors)
+- Files:
+  - `vendor/libxev/src/watcher/stream.zig`
+  - `vendor/libxev/VENDORED.md`
+- Summary:
+  - Keeps the current ordered write request at the queue head when the backend
+    reports transient `error.WouldBlock`, resubmitting the same buffer without
+    notifying the client or advancing later requests.
+  - Preserves the existing partial-write behavior while making libxev's
+    ordered queue the single owner of both partial progress and transient
+    backpressure.
+  - Adds a deterministic fake-backend regression test with two queued writes.
+    It injects `WouldBlock` into the head request and verifies that neither a
+    client completion nor scheduling of the later request can occur.
+  - Instantiates the ordered-write path with a backend whose write error set
+    does not contain `WouldBlock`, preserving compilation and terminal-error
+    behavior for non-kqueue backends.
+  - Conflict note: future ordered-stream changes must retain the head request
+    across both short successful writes and transient `WouldBlock` results.
+    Only a complete write or terminal error may pop it and schedule its
+    successor. Keep the error discriminator widened to `anyerror` so the
+    `WouldBlock` branch remains valid for backend-specific error sets that
+    cannot produce that error.
 
 ### `os/open` stderr drain spin and zombie leak
 
@@ -98,9 +310,22 @@ and the product-main renderer/link fixes described below. It also bounds each
 renderer mailbox drain turn so continuous producers cannot starve lifecycle
 processing or rendering.
 
-The pinned `2258bea96` universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
+The mailbox line is integrated into the pinned `cd1f8e012` universal
+ReleaseFast GhosttyKit archive published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
 and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The ordered-write integration archive `dfe719016` and its component
+`982a723ff` and `2258bea96` universal ReleaseFast GhosttyKit archives remain
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-dfe719016d70140f2f6ffad54021b254b120d13e-crashsubdir-cmux-crash-v1,
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-982a723ffe5c239dd2d64e409366397135e3dab1-crashsubdir-cmux-crash-v1
+and
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1,
+with their SHA-256 values retained in `scripts/ghosttykit-checksums.txt`.
+
+The previous `0b1734f1e` universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0b1734f1eeca32ff6e0c17af2c95641639e682ba-crashsubdir-cmux-crash-v1.
 
 ### Bounded app mailbox turns
 
@@ -121,6 +346,19 @@ and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
   - Conflict note: future app-loop changes must preserve the finite
     start-of-turn snapshot and an explicit continuation for messages left
     behind. Do not restore a producer-refillable drain-until-empty loop.
+
+The issue-branch `2258bea96` universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2258bea96ddc005156beceb741b7dabb283ec615-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The integrated `cd1f8e012` universal ReleaseFast GhosttyKit archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cd1f8e0120f534cabc7d89257baccc42c166d369-crashsubdir-cmux-crash-v1
+and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. Verification
+covered the archive layout and plist, absence of AppleDouble entries, every
+declared architecture, and `_ghostty_surface_rebuild_renderer` plus
+`_ghostty_init` in all three static-library slices.
 
 ### PTY reader and child lifecycle teardown
 

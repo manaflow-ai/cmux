@@ -236,6 +236,8 @@ mod.default({
 });
 for (const name of [
   "session_start",
+  "session_before_compact",
+  "session_compact",
   "before_agent_start",
   "agent_end",
   "agent_settled",
@@ -268,6 +270,19 @@ async function completionHookCount() {
   const lines = (await Bun.file(path).text()).split("\\n");
   return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
 }
+async function waitForFeedEvent(eventName, expectedCount) {
+  const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const lines = path && Bun.file(path).size
+      ? (await Bun.file(path).text()).split("\\n")
+      : [];
+    const count = lines.filter((line) => line.includes(`hooks feed --source pi --event ${eventName}`)).length;
+    if (count >= expectedCount) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${expectedCount} ${eventName} Feed events`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
 await handlers.get("tool_execution_start")({
@@ -283,6 +298,57 @@ await handlers.get("tool_execution_end")({
   result: { content: [{ type: "text", text: "ok" }] },
   isError: false
 }, ctx);
+await handlers.get("session_before_compact")({
+  reason: "threshold",
+  willRetry: false,
+  preparation: { tokensBefore: 120000 },
+  branchEntries: []
+}, ctx);
+await waitForFeedEvent("PreCompact", 1);
+await handlers.get("session_compact")({
+  reason: "threshold",
+  willRetry: false,
+  fromExtension: false,
+  compactionEntry: { summary: "summary" }
+}, ctx);
+await waitForFeedEvent("PostCompact", 1);
+const subagentTools = [
+  { toolName: "subagent" },
+  { tool_name: "team_spawn" },
+  { name: "superpowers_dispatch" },
+  { toolName: "Task" },
+  { toolName: "review_subagent_batch" }
+];
+for (let index = 0; index < subagentTools.length; index += 1) {
+  const tool = subagentTools[index];
+  const toolCallId = `subagent-call-${index}`;
+  await handlers.get("tool_execution_start")({
+    ...tool,
+    toolCallId,
+    args: { task: `delegate ${index}` }
+  }, ctx);
+  await waitForFeedEvent("SubagentStart", index + 1);
+  await handlers.get("tool_execution_end")({
+    ...tool,
+    toolCallId,
+    result: { content: [{ type: "text", text: `delegated ${index}` }] },
+    isError: index === subagentTools.length - 1
+  }, ctx);
+  await waitForFeedEvent("SubagentStop", index + 1);
+}
+await handlers.get("tool_execution_start")({
+  toolCallId: "lowercase-task-call",
+  toolName: "task",
+  args: { task: "ordinary tool" }
+}, ctx);
+await waitForFeedEvent("PreToolUse", 2);
+await handlers.get("tool_execution_end")({
+  toolCallId: "lowercase-task-call",
+  toolName: "task",
+  result: { content: [{ type: "text", text: "ordinary result" }] },
+  isError: false
+}, ctx);
+await waitForFeedEvent("PostToolUse", 2);
 let completionCount = await completionHookCount();
 await handlers.get("agent_end")({
   messages: [
@@ -441,7 +507,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             text=True,
             check=False,
             env=check_env,
-            timeout=20,
+            timeout=60,
         )
         if check.returncode != 0:
             print("FAIL: generated Pi extension is not importable")
@@ -469,6 +535,10 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             "hooks pi stop",
             "hooks pi notification",
             "hooks feed --source pi --event PostToolUse",
+            "hooks feed --source pi --event PreCompact",
+            "hooks feed --source pi --event PostCompact",
+            "hooks feed --source pi --event SubagentStart",
+            "hooks feed --source pi --event SubagentStop",
             "surface resume get",
             "surface resume set",
             "surface resume clear",
@@ -614,15 +684,85 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         feed_events = [
             payload for payload in payloads if payload.get("hook_event_name") in {"PreToolUse", "PostToolUse"}
         ]
-        feed_event_names = {payload.get("hook_event_name") for payload in feed_events}
-        if feed_event_names not in (
-            {"PostToolUse"},
-            {"PreToolUse", "PostToolUse"},
-        ) or any(payload.get("tool_name") != "bash" for payload in feed_events):
-            print(f"FAIL: Pi Feed bridge payloads were incomplete: {feed_events!r}")
+        bash_feed_events = [
+            payload for payload in feed_events if payload.get("tool_name") == "bash"
+        ]
+        if [payload.get("hook_event_name") for payload in bash_feed_events] != [
+            "PreToolUse",
+            "PostToolUse",
+        ]:
+            print(f"FAIL: Pi Feed bridge payloads were incomplete: {bash_feed_events!r}")
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:
             print(f"FAIL: Pi Feed bridge did not use the active prompt turn id: {feed_events!r}")
+            return 1
+        compact_events = [
+            payload
+            for payload in payloads
+            if payload.get("hook_event_name") in {"PreCompact", "PostCompact"}
+        ]
+        if [payload.get("hook_event_name") for payload in compact_events] != [
+            "PreCompact",
+            "PostCompact",
+        ]:
+            print(f"FAIL: Pi compaction events were not routed in order: {compact_events!r}")
+            return 1
+        if {payload.get("turn_id") for payload in compact_events} != {prompt_turn_id}:
+            print(f"FAIL: Pi compaction events did not use the active prompt turn id: {compact_events!r}")
+            return 1
+        subagent_events = [
+            payload
+            for payload in payloads
+            if payload.get("hook_event_name") in {"SubagentStart", "SubagentStop"}
+        ]
+        expected_subagent_names = [
+            "subagent",
+            "team_spawn",
+            "superpowers_dispatch",
+            "Task",
+            "review_subagent_batch",
+        ]
+        for tool_name in expected_subagent_names:
+            lifecycle = [
+                payload
+                for payload in subagent_events
+                if payload.get("tool_name") == tool_name
+            ]
+            if [payload.get("hook_event_name") for payload in lifecycle] != [
+                "SubagentStart",
+                "SubagentStop",
+            ]:
+                print(f"FAIL: Pi subagent lifecycle was incomplete for {tool_name}: {lifecycle!r}")
+                return 1
+            if {payload.get("turn_id") for payload in lifecycle} != {prompt_turn_id}:
+                print(f"FAIL: Pi subagent lifecycle lost its active turn id for {tool_name}: {lifecycle!r}")
+                return 1
+        subagent_stop = next(
+            (
+                payload
+                for payload in subagent_events
+                if payload.get("tool_name") == "review_subagent_batch"
+                and payload.get("hook_event_name") == "SubagentStop"
+            ),
+            None,
+        )
+        if (
+            subagent_stop is None
+            or subagent_stop.get("is_error") is not True
+            or "tool_result" not in subagent_stop
+        ):
+            print(f"FAIL: Pi SubagentStop dropped result/error telemetry: {subagent_stop!r}")
+            return 1
+        lowercase_task_events = [
+            payload
+            for payload in payloads
+            if payload.get("tool_name") == "task"
+        ]
+        if [payload.get("hook_event_name") for payload in lowercase_task_events] != [
+            "PreToolUse",
+            "PostToolUse",
+        ]:
+            print(f"FAIL: lowercase task was misclassified as a subagent: {lowercase_task_events!r}")
             return 1
         notification_payload = next(
             (payload for payload in payloads if payload.get("hook_event_name") == "Notification"),

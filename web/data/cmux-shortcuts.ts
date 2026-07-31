@@ -249,7 +249,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       { id: "closeWorkspace", combos: [["⌘", "⇧", "W"]], description: { en: "Close workspace", ja: "ワークスペースを閉じる" } },
-      { id: "reopenClosedWorkspace", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed workspace", ja: "閉じたワークスペースを再度開く" } },
+      { id: "reopenClosedWorkspace", combos: [], description: { en: "Reopen closed workspace", ja: "閉じたワークスペースを再度開く" }, note: { en: "unbound by default", ja: "デフォルトでは未割り当て" } },
     ],
   },
   {
@@ -274,9 +274,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       {
         id: "reopenClosedBrowserPanel",
-        combos: [],
+        combos: [["⌘", "⇧", "T"]],
         description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" },
-        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
       },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
@@ -318,7 +317,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
-      { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      { id: "increaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "="]], description: { en: "Increase font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを大きくする" } },
+      { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを小さくする" } },
+      { id: "resetWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "0"]], description: { en: "Reset font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズをリセットする" } },
+      { id: "equalizeSplits", combos: [["⌃", "⌘", "⇧", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
     ],
   },
   {

@@ -32,6 +32,7 @@ extension WorkspaceListView {
             workspaces: workspaces,
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
+            foregroundInstanceTag: store?.connectedMacInstanceTag,
             aliasesFor: { store?.pairedMacAliasIDs(for: $0) ?? [] }
         )
     }

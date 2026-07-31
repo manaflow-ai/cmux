@@ -381,9 +381,93 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
-    func discoveryRejectsBindingsAboveDevelopmentQuota() async throws {
+    func discoveryTraversesMoreThanLegacyBindingLimitAcrossBoundedPages() async throws {
         let transport = RecordingBrokerTransport(responses: [
-            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 257)),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 257,
+                    nextCursor: "cursor-2"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 257 ..< 301,
+                    nextCursor: nil
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.bindings.count == 300)
+        #expect(Set(discovery.bindings.map(\.bindingID)).count == 300)
+        let requests = await transport.requests()
+        #expect(requests.count == 3)
+        #expect(requests.map { $0.url?.query } == [
+            "page_size=128",
+            "page_size=128&cursor=cursor-1",
+            "page_size=128&cursor=cursor-2",
+        ])
+    }
+
+    @Test
+    func discoveryKeepsLegacyUnpaginatedResponseBounded() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: try Self.discoveryResponse(bindingCount: 256)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.bindings.count == 256)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
+    func discoveryRejectsOversizedPaginatedResponse() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 130,
+                    nextCursor: "cursor-1"
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func discoveryRejectsRepeatedCursorWithoutTotalPageCap() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1"
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 257,
+                    nextCursor: "cursor-1"
+                )
+            ),
         ])
         let client = try makeClient(transport: transport)
 
@@ -444,8 +528,9 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private static let tokenSource = CmxIrohBrokerTokenSource(
-        accessToken: { "access" },
-        refreshToken: { "refresh" }
+        credentialPair: {
+            CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
+        }
     )
     private static let endpointID =
         "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
@@ -474,13 +559,23 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private static func discoveryResponse(bindingCount: Int) throws -> String {
+        try discoveryResponse(
+            bindingRange: 1 ..< (bindingCount + 1),
+            nextCursor: nil
+        )
+    }
+
+    private static func discoveryResponse(
+        bindingRange: Range<Int>,
+        nextCursor: String?
+    ) throws -> String {
         var object = try #require(
             JSONSerialization.jsonObject(
                 with: Data(discoveryResponse.utf8)
             ) as? [String: Any]
         )
         let template = try #require((object["bindings"] as? [[String: Any]])?.first)
-        object["bindings"] = (1 ... bindingCount).map { index in
+        object["bindings"] = bindingRange.map { index in
             var binding = template
             binding["binding_id"] = String(
                 format: "123e4567-e89b-42d3-a456-%012d",
@@ -492,6 +587,11 @@ struct CmxIrohTrustBrokerClientTests {
             )
             binding["endpoint_id"] = String(format: "%064llx", UInt64(index))
             return binding
+        }
+        if let nextCursor {
+            object["next_cursor"] = nextCursor
+        } else {
+            object["next_cursor"] = NSNull()
         }
         let data = try JSONSerialization.data(withJSONObject: object)
         return try #require(String(data: data, encoding: .utf8))

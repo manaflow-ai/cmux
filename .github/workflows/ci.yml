@@ -121,6 +121,9 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Install workflow guard Python dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
@@ -180,6 +183,12 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Initialize Ghostty for Zig version guard
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Validate Ghostty Zig version synchronization
+        run: ./tests/test_ghostty_zig_version_sync.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
@@ -230,6 +239,11 @@ jobs:
 
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
+
+      - name: Validate stored DispatchWorkItem ownership
+        run: |
+          python3 tests/test_lint_stored_dispatch_work_items.py
+          python3 scripts/lint-stored-dispatch-work-items.py
 
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
@@ -625,6 +639,26 @@ jobs:
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
             test
 
+      - name: Run five-tab renderer memory regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Use a dedicated app-host process so task_vm_info deltas only compare
+          # one versus five real Ghostty renderers in this workload. The focused
+          # invocation also makes footprint assertion failures non-tolerant.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          CMUX_RENDERER_MEMORY_REGRESSION=1 \
+            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
+            test
+
       - name: Run notification routing regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1008,9 +1042,16 @@ jobs:
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
+          python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
+          python3 tests/test_claude_teams_test_utils.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_codex_teams_informational.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_existing_shim.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_main_vertical.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_moved_surface.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_tmux_sequence.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py

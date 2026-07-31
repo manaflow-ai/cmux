@@ -98,7 +98,8 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return effectiveBinding.startupInputWithLauncherScript(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            restoringWorkingDirectory: nil
         )
     }
 
@@ -110,7 +111,8 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         promptForApproval: Bool = true,
         approvalStoreURL: URL,
         approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        restoringWorkingDirectory: String? = nil
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         guard let effectiveBinding = approvedSurfaceResumeBinding(
             resumeBinding,
@@ -124,7 +126,8 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         return surfaceResumeStartupLaunch(
             forApprovedBinding: effectiveBinding,
             allowLauncherScript: allowLauncherScript,
-            fileManager: fileManager
+            fileManager: fileManager,
+            restoringWorkingDirectory: restoringWorkingDirectory
         )
     }
 
@@ -132,12 +135,14 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
     public func surfaceResumeStartupLaunch(
         forApprovedBinding effectiveBinding: Binding,
         allowLauncherScript: Bool = true,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        restoringWorkingDirectory: String? = nil
     ) -> WorkspaceSurfaceResumeStartupLaunch? {
         guard let input = effectiveBinding.startupInputWithLauncherScript(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            restoringWorkingDirectory: restoringWorkingDirectory
         ) else {
             return nil
         }

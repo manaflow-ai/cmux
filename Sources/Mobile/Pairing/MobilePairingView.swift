@@ -422,7 +422,7 @@ struct MobilePairingView: View {
                 showsLegacyPairingCode
                     ? String(
                         localized: "mobile.pairing.codeMode.legacyDetail",
-                        defaultValue: "Compatibility code: the iPhone must be on the same Tailscale network."
+                        defaultValue: "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
                     )
                     : String(
                         localized: "mobile.pairing.codeMode.irohDetail",
@@ -441,7 +441,7 @@ struct MobilePairingView: View {
                     )
                     : String(
                         localized: "mobile.pairing.codeMode.useLegacy",
-                        defaultValue: "Pair an Older iPhone App"
+                        defaultValue: "Use Tailscale Pairing Code"
                     )
             ) {
                 showsLegacyPairingCode.toggle()

@@ -19,7 +19,8 @@ use std::time::{Duration, Instant};
 
 use ghostty_vt::{
     Callbacks, ClearHistoryOutcome, CursorShape, KeyEncoder, KeyInput, MouseEncoders, MouseInput,
-    RenderFrame, RenderState, Rgb, Screen, Terminal, TerminalColorOverrides,
+    RenderFrame, RenderState, Rgb, Screen, Scrollbar, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot,
 };
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
@@ -27,12 +28,58 @@ use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
-    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
+    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserFrameUpdate, BrowserSource,
+    BrowserStatus,
 };
-use crate::browser::{BrowserResizeWaiter, BrowserSurface, PendingBrowserResize};
+use crate::browser::{
+    BrowserMouseDispatch, BrowserPointerOwner, BrowserResizeWaiter, BrowserSurface,
+    PendingBrowserResize,
+};
 #[cfg(unix)]
 use crate::terminal_host_protocol::{FLAG_COLORS_FOLLOW, Frame, MessageKind, PROTOCOL_VERSION};
 use cmux_tui_cdp::BrowserMode;
+
+/// Result of encoding terminal mouse input against a previously observed
+/// pointer snapshot without blocking on terminal parsing.
+#[derive(Debug)]
+pub enum GuardedMouseEncode {
+    /// The guards still matched and the encoder returned this result.
+    Encoded(ghostty_vt::Result<()>),
+    /// The terminal's mouse protocol or reporting mode changed.
+    SemanticsChanged,
+    /// Terminal output changed the content generation used by the route.
+    ContentChanged,
+    /// Terminal parsing currently owns a required lock. The caller may retry
+    /// after the next surface update without changing the pointer route.
+    Contended,
+}
+
+/// Nonblocking probe for the terminal mouse protocol and reporting mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerSemanticProbe {
+    /// The semantic snapshot was read consistently.
+    Ready(TerminalPointerSemanticSnapshot),
+    /// Terminal parsing currently owns the semantic state lock.
+    Contended,
+}
+
+/// Terminal pointer state captured from one consistent rendered generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalPointerSnapshot {
+    /// Mouse protocol and reporting mode used to encode pointer input.
+    pub semantics: TerminalPointerSemanticSnapshot,
+    /// Terminal content generation that produced the rendered hit route.
+    pub content_generation: u64,
+}
+
+/// Nonblocking probe for a complete terminal pointer snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerSnapshotProbe {
+    /// Semantic and content-generation state were read consistently.
+    Ready(TerminalPointerSnapshot),
+    /// Terminal parsing currently owns a required state lock.
+    Contended,
+}
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -466,7 +513,9 @@ impl AttachTap {
 #[derive(Debug, Clone)]
 pub struct SurfaceRenderFrame {
     pub frame: RenderFrame,
+    pub content_generation: u64,
     pub scrollback_rows: u32,
+    pub pointer_semantics: TerminalPointerSemanticSnapshot,
     pub palette_colors: [Rgb; 256],
     pub palette_overridden: [bool; 256],
 }
@@ -2027,7 +2076,7 @@ impl Surface {
     pub fn encode_mouse(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -2037,10 +2086,66 @@ impl Surface {
         }
     }
 
+    /// Encode only when the terminal still matches the semantics captured
+    /// with the rendered frame. The terminal and encoder locks stay held
+    /// across comparison and encoding so parser updates cannot interleave.
+    pub fn encode_mouse_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode(input, output)))
+    }
+
+    /// Encode only when both terminal semantics and content still match the
+    /// immutable frame that admitted this uncaptured pointer event.
+    pub fn encode_mouse_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        input: MouseInput,
+        output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        if pty.render_generation.load(Ordering::Acquire) != expected.content_generation {
+            return Some(GuardedMouseEncode::ContentChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode(input, output)))
+    }
+
     pub fn encode_mouse_release(
         &self,
         input: MouseInput,
-        output: &mut Vec<u8>,
+        output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -2056,8 +2161,8 @@ impl Surface {
         &self,
         press: MouseInput,
         release: MouseInput,
-        press_output: &mut Vec<u8>,
-        release_output: &mut Vec<u8>,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
     ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
         match pty.mouse_encoders.try_lock() {
@@ -2074,6 +2179,76 @@ impl Surface {
         }
     }
 
+    /// Encode a press and its matching release against one rendered terminal
+    /// semantic snapshot, without a parser update between validation and
+    /// encoding either half.
+    pub fn encode_mouse_press_pair_if_semantics(
+        &self,
+        expected: TerminalPointerSemanticSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        )))
+    }
+
+    /// Encode a press and its matching release only while the terminal still
+    /// matches the immutable content frame that admitted the press.
+    pub fn encode_mouse_press_pair_if_snapshot(
+        &self,
+        expected: TerminalPointerSnapshot,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut impl Extend<u8>,
+        release_output: &mut impl Extend<u8>,
+    ) -> Option<GuardedMouseEncode> {
+        let pty = self.as_pty()?;
+        let term = match pty.term.try_lock() {
+            Ok(term) => term,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        if term.pointer_semantic_snapshot() != expected.semantics {
+            return Some(GuardedMouseEncode::SemanticsChanged);
+        }
+        if pty.render_generation.load(Ordering::Acquire) != expected.content_generation {
+            return Some(GuardedMouseEncode::ContentChanged);
+        }
+        let mut encoders = match pty.mouse_encoders.try_lock() {
+            Ok(encoders) => encoders,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(GuardedMouseEncode::Contended),
+        };
+        encoders.sync_from_terminal(&term);
+        Some(GuardedMouseEncode::Encoded(encoders.encode_press_pair(
+            press,
+            release,
+            press_output,
+            release_output,
+        )))
+    }
+
     pub fn reset_mouse_motion_dedupe(&self) {
         let Some(pty) = self.as_pty() else { return };
         pty.mouse_encoders.lock().unwrap().reset_motion_dedupe();
@@ -2087,29 +2262,52 @@ impl Surface {
     }
 
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
+        let _ = self.apply_scroll_delta(None, delta)?;
+        Ok(())
+    }
+
+    /// Apply a scroll only while the terminal still matches the rendered
+    /// scrollbar geometry that admitted the pointer gesture.
+    pub fn scroll_delta_if_scrollbar(
+        &self,
+        expected: Scrollbar,
+        delta: isize,
+    ) -> anyhow::Result<Option<Scrollbar>> {
+        self.apply_scroll_delta(Some(expected), delta)
+    }
+
+    fn apply_scroll_delta(
+        &self,
+        expected: Option<Scrollbar>,
+        delta: isize,
+    ) -> anyhow::Result<Option<Scrollbar>> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let changed = {
+        let (scrollbar, changed) = {
             let mut term = pty.term.lock().unwrap();
+            if expected.is_some_and(|expected| term.scrollbar() != Some(expected)) {
+                return Ok(None);
+            }
             let before = terminal_scroll_position(&term);
             term.scroll_delta(delta);
             let after = terminal_scroll_position(&term);
-            if before == after {
+            let changed = if before == after {
                 None
             } else {
                 broadcast_render_scroll_locked(pty, after);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let _ = pty.build_frame_locked(&mut term, generation, false);
                 Some(after)
-            }
+            };
+            (term.scrollbar(), changed)
         };
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
         {
             mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
         }
-        Ok(())
+        Ok(scrollbar)
     }
 
     pub fn scroll_to_bottom(&self) -> anyhow::Result<()> {
@@ -2322,6 +2520,38 @@ impl Surface {
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
+    }
+
+    /// Read current pointer-routing state without waiting behind terminal parsing.
+    /// Contention is distinct so discrete input can be retained for replay.
+    pub fn try_pointer_semantics(&self) -> Option<PointerSemanticProbe> {
+        let pty = self.as_pty()?;
+        match pty.term.try_lock() {
+            Ok(term) => Some(PointerSemanticProbe::Ready(term.pointer_semantic_snapshot())),
+            Err(TryLockError::Poisoned(error)) => {
+                Some(PointerSemanticProbe::Ready(error.into_inner().pointer_semantic_snapshot()))
+            }
+            Err(TryLockError::WouldBlock) => Some(PointerSemanticProbe::Contended),
+        }
+    }
+
+    /// Read terminal pointer semantics and content generation without waiting
+    /// behind terminal parsing. Returns `None` for non-PTY surfaces.
+    pub fn try_pointer_snapshot(&self) -> Option<PointerSnapshotProbe> {
+        let pty = self.as_pty()?;
+        match pty.term.try_lock() {
+            Ok(term) => Some(PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                semantics: term.pointer_semantic_snapshot(),
+                content_generation: pty.render_generation.load(Ordering::Acquire),
+            })),
+            Err(TryLockError::Poisoned(error)) => {
+                Some(PointerSnapshotProbe::Ready(TerminalPointerSnapshot {
+                    semantics: error.into_inner().pointer_semantic_snapshot(),
+                    content_generation: pty.render_generation.load(Ordering::Acquire),
+                }))
+            }
+            Err(TryLockError::WouldBlock) => Some(PointerSnapshotProbe::Contended),
+        }
     }
 
     /// Resize this surface. PTYs receive cell dimensions; browsers also
@@ -2644,6 +2874,47 @@ impl Surface {
         self.as_browser().and_then(BrowserSurface::latest_frame)
     }
 
+    pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
+        self.as_browser().and_then(BrowserSurface::latest_frame_update)
+    }
+
+    /// Return the opaque browser pointer-authority token for guarded input.
+    pub fn browser_frame_seq(&self) -> Option<u64> {
+        self.as_browser().and_then(BrowserSurface::latest_frame_seq)
+    }
+
+    /// Return whether the local renderer acknowledged this exact browser
+    /// bitmap as its current presentation.
+    pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
+        self.as_browser().is_some_and(|browser| browser.accepts_pointer_frame(frame_seq))
+    }
+
+    /// Return whether a browser bitmap belongs to the current document and
+    /// coordinate mapping without granting it input authority.
+    pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
+        self.as_browser()
+            .is_some_and(|browser| browser.pointer_frame_is_in_current_route(frame_seq))
+    }
+
+    pub fn browser_acknowledge_pointer_frame(&self, frame_seq: u64) -> bool {
+        self.as_browser().is_some_and(|browser| browser.acknowledge_pointer_frame(frame_seq))
+    }
+
+    pub(crate) fn browser_acknowledge_pointer_frame_from(
+        &self,
+        owner: BrowserPointerOwner,
+        frame_seq: u64,
+    ) -> bool {
+        self.as_browser()
+            .is_some_and(|browser| browser.acknowledge_pointer_frame_from(owner, frame_seq))
+    }
+
+    pub(crate) fn forget_browser_pointer_owner(&self, owner: BrowserPointerOwner) {
+        if let Some(browser) = self.as_browser() {
+            browser.forget_pointer_owner(owner);
+        }
+    }
+
     pub fn has_browser_frame(&self) -> bool {
         self.as_browser().is_some_and(BrowserSurface::has_latest_frame)
     }
@@ -2693,6 +2964,20 @@ impl Surface {
         browser.key_event(event_type, key, code, windows_virtual_key_code, modifiers, text)
     }
 
+    pub fn browser_key_press(
+        &self,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.key_press(key, code, windows_virtual_key_code, modifiers, text)
+    }
+
     pub fn browser_mouse_event(
         &self,
         event_type: &str,
@@ -2707,11 +2992,73 @@ impl Surface {
         browser.mouse_event(event_type, x, y, button, click_count)
     }
 
+    /// Queue browser mouse input admitted by a rendered frame sequence.
+    /// Returns `None` for non-browser surfaces.
+    pub fn browser_mouse_event_for_frame(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.mouse_event_for_frame(event_type, x, y, button, click_count, frame_seq)
+    }
+
+    pub(crate) fn browser_mouse_event_for_frame_from(
+        &self,
+        dispatch: BrowserMouseDispatch<'_>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.mouse_event_for_frame_from(dispatch)
+    }
+
+    pub(crate) fn wake_browser_pointer_cleanup(&self) {
+        if let Some(browser) = self.as_browser() {
+            browser.wake_pointer_cleanup();
+        }
+    }
+
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         let Some(browser) = self.as_browser() else {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.wheel(x, y, delta_y)
+    }
+
+    /// Queue browser wheel input only while its rendered frame remains live.
+    /// Returns `None` for non-browser surfaces.
+    pub fn browser_wheel_for_frame(
+        &self,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.wheel_for_frame(x, y, delta_y, frame_seq)
+    }
+
+    pub(crate) fn browser_wheel_for_frame_from(
+        &self,
+        owner: BrowserPointerOwner,
+        x: f64,
+        y: f64,
+        delta_y: f64,
+        frame_seq: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.wheel_for_frame_from(owner, x, y, delta_y, frame_seq)
     }
 
     pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {
@@ -2928,7 +3275,9 @@ impl PtySurface {
                     std::array::from_fn(|idx| render.state.palette_overridden(idx as u8));
                 let frame = Arc::new(SurfaceRenderFrame {
                     frame: render.state.build_frame()?,
+                    content_generation: generation,
                     scrollback_rows: term.history_rows(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
                     palette_colors,
                     palette_overridden,
                 });

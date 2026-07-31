@@ -62,7 +62,10 @@ struct MobileHostPickerView: View {
                 MobilePairingScannerSheet { code in
                     showingScanner = false
                     Task {
-                        let result = await store.connectPairingURLResult(code)
+                        let result = await store.connectPairingURLResult(
+                            code,
+                            userEnteredPairingCode: true
+                        )
                         if result != .needsUserApproval {
                             await store.loadPairedMacs()
                             dismiss()

@@ -64,24 +64,30 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(commandPaletteContext: palette))
     }
 
-    @Test("reopen workspace default yields to an explicit legacy browser binding")
-    func reopenWorkspaceDefaultYieldsToLegacyBrowserBinding() {
+    @Test("reopen last closed default yields to an explicit workspace binding")
+    func reopenLastClosedDefaultYieldsToExplicitWorkspaceBinding() {
         let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
-        let browserAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
-        let commandShiftT = workspaceAction.defaultShortcut
+        let reopenLastClosedAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = reopenLastClosedAction.defaultShortcut
 
         let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: workspaceAction,
+            for: reopenLastClosedAction,
             explicitlyConfiguredShortcut: { action in
-                action == browserAction ? commandShiftT : nil
+                action == workspaceAction ? commandShiftT : nil
             }
         )
 
         #expect(resolved == nil)
         #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: workspaceAction,
+            for: reopenLastClosedAction,
             explicitlyConfiguredShortcut: { _ in nil }
         ) == commandShiftT)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { action in
+                action == workspaceAction ? .unbound : nil
+            }
+        ) == nil)
     }
 
     @Test("markdown and view zoom contexts do not collide")

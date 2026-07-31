@@ -207,13 +207,18 @@ struct WorkspaceListView: View {
     var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let currentFilter = activeFilter
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
         let matches: [MobileWorkspacePreview]
         if query.isEmpty {
-            matches = workspaces.filter(currentFilter.matches)
+            matches = workspaces.filter {
+                currentFilter.matches($0, parsedMachines: parsedMachines)
+            }
         } else {
             let groupLookup = groupsByID
             matches = workspaces.filter { workspace in
-                currentFilter.matches(workspace)
+                currentFilter.matches(workspace, parsedMachines: parsedMachines)
                     && matchesQuery(workspace, query: query, groupsByID: groupLookup)
             }
         }
@@ -251,7 +256,12 @@ struct WorkspaceListView: View {
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
         let currentFilter = activeFilter
-        return workspaces.filter { currentFilter.matches($0) }
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
+        return workspaces.filter {
+            currentFilter.matches($0, parsedMachines: parsedMachines)
+        }
     }
 
     var body: some View {

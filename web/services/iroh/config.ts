@@ -82,8 +82,8 @@ export function challengeQuotaForUser(
     return { account: 120, deviceInstance: 6, outstanding: 32 };
   }
   return {
-    // Give every allowed dev binding the normal per-instance launch budget,
-    // while retaining one bounded account fence against a runaway client.
+    // Give tagged dev launch bursts the normal per-instance launch budget,
+    // while retaining one bounded account request-rate fence.
     account: Math.max(
       120,
       Math.min(

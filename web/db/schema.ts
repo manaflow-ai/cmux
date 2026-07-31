@@ -560,6 +560,7 @@ export const vaultCliAuthRequests = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     deviceCodeHash: text("device_code_hash").notNull(),
     userCode: text("user_code").notNull(),
+    client: text("client").notNull().default("cmux-vault"),
     status: text("status").notNull(),
     userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -569,6 +570,10 @@ export const vaultCliAuthRequests = pgTable(
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
+    check(
+      "vault_cli_auth_requests_client_check",
+      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+    ),
   ],
 );
 
@@ -760,6 +765,9 @@ export const irohEndpointBindings = pgTable(
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),

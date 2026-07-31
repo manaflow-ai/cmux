@@ -107,7 +107,6 @@ extension WorkspaceListView {
                 }
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-            requestWorkspaceClose: requestWorkspaceClose,
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
             setPinned: setPinned,

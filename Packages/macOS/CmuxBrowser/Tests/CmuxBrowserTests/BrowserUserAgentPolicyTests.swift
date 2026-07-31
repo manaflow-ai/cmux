@@ -10,8 +10,8 @@ struct BrowserUserAgentPolicyTests {
         let workspaceURL = URL(string: "https://workspace.google.com/")!
         let enterpriseSSOURL = URL(string: "https://sso.example.com/duo/")!
 
-        #expect(policy.customUserAgent(for: workspaceURL) == policy.safariCompatibleUserAgent)
-        #expect(policy.customUserAgent(for: enterpriseSSOURL) == policy.safariCompatibleUserAgent)
+        #expect(policy.resolution(for: workspaceURL) == .custom(policy.safariCompatibleUserAgent))
+        #expect(policy.resolution(for: enterpriseSSOURL) == .custom(policy.safariCompatibleUserAgent))
         #expect(policy.safariCompatibleUserAgent.contains("Version/26.6 Safari/605.1.15"))
     }
 
@@ -32,21 +32,28 @@ struct BrowserUserAgentPolicyTests {
         let sheetsRedirectURL = URL(string: "https://sheets.google.com/")!
         let legacyRedirectURL = URL(string: "https://spreadsheets.google.com/")!
 
-        #expect(policy.customUserAgent(for: sheetURL) == nil)
-        #expect(policy.customUserAgent(for: sheetsRedirectURL) == nil)
-        #expect(policy.customUserAgent(for: legacyRedirectURL) == nil)
+        #expect(policy.resolution(for: sheetURL) == .webKitDefault)
+        #expect(policy.resolution(for: sheetsRedirectURL) == .webKitDefault)
+        #expect(policy.resolution(for: legacyRedirectURL) == .webKitDefault)
     }
 
     @Test func otherGoogleWorkspaceEditorsRemainSafariCompatible() {
         let documentURL = URL(string: "https://docs.google.com/document/d/example/edit")!
         let presentationURL = URL(string: "https://docs.google.com/presentation/d/example/edit")!
 
-        #expect(policy.customUserAgent(for: documentURL) == policy.safariCompatibleUserAgent)
-        #expect(policy.customUserAgent(for: presentationURL) == policy.safariCompatibleUserAgent)
+        #expect(policy.resolution(for: documentURL) == .custom(policy.safariCompatibleUserAgent))
+        #expect(policy.resolution(for: presentationURL) == .custom(policy.safariCompatibleUserAgent))
     }
 
-    @Test func localDocumentsKeepEmbeddedWebKitIdentity() {
-        #expect(policy.customUserAgent(for: URL(string: "about:blank")!) == nil)
-        #expect(policy.customUserAgent(for: URL(fileURLWithPath: "/tmp/example.html")) == nil)
+    @Test func nonWebDestinationsHaveNoApplicableUserAgentPolicy() {
+        #expect(policy.resolution(for: URL(string: "about:blank")!) == .notApplicable)
+        #expect(policy.resolution(for: URL(fileURLWithPath: "/tmp/example.html")) == .notApplicable)
+    }
+
+    @Test func googleSheetsAndNonWebDestinationsHaveDistinctPolicyOutcomes() {
+        let sheetURL = URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        let fileURL = URL(fileURLWithPath: "/tmp/example.html")
+
+        #expect(policy.resolution(for: sheetURL) != policy.resolution(for: fileURL))
     }
 }

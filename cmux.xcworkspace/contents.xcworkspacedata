@@ -51,6 +51,9 @@
          location = "group:CmuxMobileBrowser">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileBrowserStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileCamera">
       </FileRef>
       <FileRef

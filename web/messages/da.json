@@ -957,7 +957,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
-          "autoRetryAgentSessions": "Genoptager automatisk en administreret agentsession, når dens aktive kommando afsluttes med en fejlkode, der ikke er nul og ikke skyldes et signal. Antallet af forsøg er begrænset og bruger eksponentiel ventetid; normal afslutning og udtrykkelig brugerafbrydelse forsøges aldrig igen.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",

@@ -32,6 +32,7 @@ jobs:
       version: "0.0.0"
       package_npm: false
       package_pypi: false
+      include_windows: true
 
   publish:
     name: publish to R2

@@ -214,6 +214,21 @@ verify_ipa_framework_minimum_os_versions() {
   return 0
 }
 
+# App Store Connect symbolicates TestFlight/App Store crashes from the
+# .symbols files that an app-store-connect export places in the IPA's
+# top-level Symbols/ directory (extracted from the archive's dSYMs when the
+# export options carry uploadSymbols=YES). Without them ASC reports "No dSYM
+# files available" and every crash arrives as raw `cmux + offset` frames.
+# Check the IPA that actually ships: a re-zip that packs only Payload/
+# silently drops Symbols/, which is exactly how every beta through build
+# 20260730090940 shipped unsymbolicatable.
+verify_ipa_contains_app_symbols() {
+  local ipa="$1"
+  # No `grep -q` here: under `set -o pipefail`, -q's early exit can kill
+  # zipinfo with SIGPIPE and fail a VALID IPA. Plain grep drains its input.
+  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/[^/]*\.symbols$' >/dev/null
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -889,6 +904,18 @@ if [[ "$ARCHIVE_MARKETING_VERSION" != "$EXPECTED_MARKETING_VERSION" ]]; then
   exit 1
 fi
 
+# The archive's dSYMs are the source of both symbol paths for this build: the
+# Symbols/ files the export embeds in the IPA for App Store Connect crash
+# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# local symbolication after ASC's copy is unavailable. An archive without
+# dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
+# download) would ship a build whose crashes can never be symbolicated by
+# anyone, so fail before the expensive export.
+if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 2>/dev/null | grep -q .; then
+  echo "error: archive has no dSYM bundles at $ARCHIVE_PATH/dSYMs; crashes for this build could never be symbolicated. Archive Release with DEBUG_INFORMATION_FORMAT=dwarf-with-dsym (or re-fetch the archive if it was downloaded)." >&2
+  exit 1
+fi
+
 # Now that the archive exists, its marketing version (CFBundleShortVersionString)
 # is the version testers will see. Re-run the notes preflight WITH that version so
 # a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
@@ -1159,11 +1186,24 @@ PY
   fi
   codesign --verify --strict --verbose=2 "$RESIGN_APP"
 
-  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
-  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  # Re-zip with the exact IPA layout and repoint $IPA_PATH so the existing
+  # upload step ships the re-signed IPA. Payload/ is not the only top-level
+  # member that matters: the export also produced Symbols/ (the .symbols files
+  # App Store Connect needs to symbolicate crash reports) and may produce
+  # SwiftSupport/. A Payload-only re-zip shipped every beta without symbols
+  # ("No dSYM files available" on ASC), so pack every Apple package directory
+  # the export put in the IPA. The include list stays explicit because this
+  # script also writes loose entitlements/profile plists into $RESIGN_DIR that
+  # must never ship.
   RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
   rm -f "$RESIGNED_IPA"
-  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$RESIGN_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" "${IPA_MEMBERS[@]}" )
 
   # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
   # silently, and the whole point is that aps-environment survives. Re-verify the
@@ -1207,6 +1247,12 @@ if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
   exit 1
 fi
 echo "signed IPA framework deployment metadata verified"
+
+if ! verify_ipa_contains_app_symbols "$IPA_PATH"; then
+  echo "error: final IPA carries no Symbols/*.symbols, so App Store Connect would report 'No dSYM files available' and every crash for this build would be unsymbolicatable; refusing to upload. The export must run with uploadSymbols=YES against an archive that has dSYMs, and any re-zip must preserve the Symbols/ directory." >&2
+  exit 1
+fi
+echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash symbolication)"
 
 echo "IPA_PATH=$IPA_PATH"
 

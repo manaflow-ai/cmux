@@ -83,8 +83,8 @@ extension ShortcutAction {
         case .newWorkspaceGroup: return ShortcutStroke(key: "g", command: true, control: true)
         case .groupSelectedWorkspaces: return ShortcutStroke(key: "g", command: true, shift: true)
         case .toggleFocusedWorkspaceGroupCollapsed: return ShortcutStroke(key: ".", command: true, control: true)
-        case .reopenClosedWorkspace: return ShortcutStroke(key: "t", command: true, shift: true)
-        case .reopenClosedBrowserPanel: return nil
+        case .reopenClosedWorkspace: return nil
+        case .reopenClosedBrowserPanel: return ShortcutStroke(key: "t", command: true, shift: true)
         case .focusLeft: return ShortcutStroke(key: "←", command: true, option: true)
         case .focusRight: return ShortcutStroke(key: "→", command: true, option: true)
         case .focusUp: return ShortcutStroke(key: "↑", command: true, option: true)
@@ -92,7 +92,13 @@ extension ShortcutAction {
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)
-        case .equalizeSplits: return ShortcutStroke(key: "=", command: true, control: true)
+        case .increaseWorkspaceTerminalFontSize:
+            return ShortcutStroke(key: "=", command: true, control: true)
+        case .decreaseWorkspaceTerminalFontSize:
+            return ShortcutStroke(key: "-", command: true, control: true)
+        case .resetWorkspaceTerminalFontSize:
+            return ShortcutStroke(key: "0", command: true, control: true)
+        case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)

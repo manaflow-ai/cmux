@@ -1361,142 +1361,6 @@
         }
       }
     },
-    "agent.autoRetry.log.exhausted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent exited with code %lld after %lld retries; automatic retries exhausted."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントは %2$lld 回の再試行後にコード %1$lld で終了しました。自動再試行の上限に達しました。"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.log.launchFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The agent resume command could not be sent; automatic retries stopped."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントの再開コマンドを送信できなかったため、自動再試行を停止しました。"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.log.scheduled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent exited with code %lld; retrying (attempt %lld/%lld)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントはコード %1$lld で終了しました。再試行します（%2$lld/%3$lld 回目）。"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.notification.exhausted.body.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The agent could not be resumed after 1 automatic retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 回の自動再試行後もエージェントを再開できませんでした。"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.notification.exhausted.body.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The agent could not be resumed after %lld automatic retries."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 回の自動再試行後もエージェントを再開できませんでした。"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.notification.exhausted.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent retries exhausted"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントの再試行上限に到達"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.status.exhausted": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent auto-retry exhausted"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントの自動再試行上限に到達"
-          }
-        }
-      }
-    },
-    "agent.autoRetry.status.retrying": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retrying agent (attempt %lld/%lld)…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントを再試行中（%1$lld/%2$lld 回目）…"
-          }
-        }
-      }
-    },
     "agent.campfire.capability.fallback": {
       "extractionState": "manual",
       "localizations": {
@@ -3208,6 +3072,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "PID は正の整数でなければなりません。"
+          }
+        }
+      }
+    },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
           }
         }
       }
@@ -34456,6 +34337,91 @@
         }
       }
     },
+    "cli.codexTeams.watcher.subagent.depthExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: depth %1$lld exceeds the automatic pane limit %2$lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: 深さ %1$lld がペイン自動作成の上限 %2$lld を超えています。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした（エラーコード: %@）。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.readinessFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは、再開されたスレッドの準備ができていないため Codex サブエージェントをアタッチできませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.statusNotAttachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: thread status %@ is not attachable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: スレッドの状態 %@ はアタッチ可能ではありません。"
+          }
+        }
+      }
+    },
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -50338,6 +50304,131 @@
         }
       }
     },
+    "cli.ssh.restore.lifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] توقف استعادة SSH لأن cmux لم يتمكن من تسجيل دورة حياة الاتصال. أعد فتح مساحة العمل البعيدة لإعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Vraćanje SSH-a je zaustavljeno jer cmux nije mogao registrirati životni ciklus veze. Ponovo otvorite udaljeni radni prostor za ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gendannelse blev stoppet, fordi cmux ikke kunne registrere forbindelsens livscyklus. Åbn fjernarbejdsområdet igen for at oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Die SSH-Wiederherstellung wurde beendet, weil cmux den Verbindungslebenszyklus nicht registrieren konnte. Öffnen Sie den Remote-Arbeitsbereich erneut, um die Verbindung wiederherzustellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauración de SSH se detuvo porque cmux no pudo registrar el ciclo de vida de la conexión. Vuelva a abrir este espacio de trabajo remoto para reconectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauration SSH s’est arrêtée, car cmux n’a pas pu enregistrer le cycle de vie de la connexion. Rouvrez cet espace de travail distant pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il ripristino SSH è stato interrotto perché cmux non ha potuto registrare il ciclo di vita della connessione. Riapri questo spazio di lavoro remoto per riconnetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が接続ライフサイクルを登録できなかったため、SSH の復元を停止しました。再接続するには、このリモートワークスペースを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការស្តារ SSH បានបញ្ឈប់ ព្រោះ cmux មិនអាចចុះឈ្មោះវដ្តជីវិតនៃការតភ្ជាប់បាន។ សូមបើកកន្លែងធ្វើការពីចម្ងាយនេះឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 연결 수명 주기를 등록하지 못해 SSH 복원이 중지되었습니다. 다시 연결하려면 이 원격 작업 공간을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gjenopprettingen stoppet fordi cmux ikke kunne registrere tilkoblingens livssyklus. Åpne det eksterne arbeidsområdet på nytt for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Przywracanie SSH zostało zatrzymane, ponieważ cmux nie mógł zarejestrować cyklu życia połączenia. Otwórz ponownie ten zdalny obszar roboczy, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A restauração do SSH foi interrompida porque o cmux não conseguiu registrar o ciclo de vida da conexão. Reabra este workspace remoto para se reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Восстановление SSH остановлено, потому что cmux не смог зарегистрировать жизненный цикл подключения. Повторно откройте удалённое рабочее пространство, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืน SSH หยุดลงเนื่องจาก cmux ไม่สามารถลงทะเบียนวงจรชีวิตการเชื่อมต่อได้ เปิดพื้นที่ทำงานระยะไกลนี้อีกครั้งเพื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bağlantı yaşam döngüsünü kaydedemediği için SSH geri yüklemesi durduruldu. Yeniden bağlanmak için bu uzak çalışma alanını yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Відновлення SSH зупинено, оскільки cmux не зміг зареєструвати життєвий цикл підключення. Повторно відкрийте віддалений робочий простір, щоб підключитися."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 无法注册连接生命周期，因此已停止恢复 SSH。请重新打开此远程工作区以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 無法註冊連線生命週期，因此已停止復原 SSH。請重新開啟此遠端工作區以重新連線。"
+          }
+        }
+      }
+    },
     "cli.ssh.transport.invalid": {
       "extractionState": "manual",
       "localizations": {
@@ -50463,6 +50554,74 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedWithoutProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: 新しい出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempt; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.remoteSessionLostRespawn": {
       "extractionState": "manual",
       "localizations": {
@@ -50476,6 +50635,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.downstreamTmuxMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux shim: no downstream tmux executable found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux シム: 後続の tmux 実行ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.managedTerminalRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux が管理するターミナルサーフェスから起動する必要があります。cmux でターミナルサーフェスを開き、そこでこのコマンドを実行してください。"
           }
         }
       }
@@ -131990,6 +132183,40 @@
         }
       }
     },
+    "mobile.pairing.codeMode.legacyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.codeMode.useLegacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Tailscale Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングコードを使用"
+          }
+        }
+      }
+    },
     "mobile.workspaceChanges.error.invalidContentRequest": {
       "extractionState": "manual",
       "localizations": {
@@ -139903,6 +140130,57 @@
           "stringUnit": {
             "state": "new",
             "value": "persistent SSH PTY session is no longer running"
+          }
+        }
+      }
+    },
+    "remoteSession.controlMaster.ownershipUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection is busy in another cmux process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.portUnavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay port unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーポートを利用できません。2秒後に再試行します"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.unavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーを利用できません。2秒後に再試行します"
           }
         }
       }
@@ -169524,6 +169802,23 @@
         }
       }
     },
+    "settings.config.status.reloadBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload queued; too many requests are pending to confirm completion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みをキューに追加しましたが、保留中のリクエストが多すぎるため完了を確認できません。"
+          }
+        }
+      }
+    },
     "settings.config.status.reloaded": {
       "extractionState": "manual",
       "localizations": {
@@ -188506,23 +188801,6 @@
         }
       }
     },
-    "settings.search.alias.setting.terminal.agent-auto-retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.autoRetryAgentSessions 自動 再試行 再開 エラー 失敗 通信 API レート制限 過負荷 エージェント claude codex"
-          }
-        }
-      }
-    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -194174,57 +194452,6 @@
         }
       }
     },
-    "settings.terminal.agentAutoRetry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry Failed Agent Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗したエージェントセッションを再試行"
-          }
-        }
-      }
-    },
-    "settings.terminal.agentAutoRetry.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Errored agent sessions stay stopped until you resume them manually."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーで停止したエージェントセッションは、手動で再開するまで停止したままになります。"
-          }
-        }
-      }
-    },
-    "settings.terminal.agentAutoRetry.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eligible managed agent sessions that fail during active work resume automatically with bounded backoff; normal and intentional exits are not retried."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中に失敗した再試行対象となる管理エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
-          }
-        }
-      }
-    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {
@@ -194367,13 +194594,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent terminals stay live until you close them or quit cmux."
+            "value": "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント端末は、閉じるか cmux を終了するまでライブのままです。"
+            "value": "通常の休止はオフです。メモリ負荷が危険な状態では、安全なアイドル中のバックグラウンドエージェントを cmux が休止する場合があります。"
           }
         }
       }
@@ -201969,6 +202196,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 설명 편집"
+          }
+        }
+      }
+    },
+    "shortcut.decreaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを小さくする"
+          }
+        }
+      }
+    },
+    "shortcut.increaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを大きくする"
+          }
+        }
+      }
+    },
+    "shortcut.resetWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズをリセット"
           }
         }
       }
@@ -232089,6 +232367,23 @@
         }
       }
     },
+    "surfaceResumeApproval.proposal.applyToPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to all commands starting with “%@” in this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダで「%@」から始まるすべてのコマンドに適用"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {
@@ -232174,6 +232469,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again for this command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドについて今後確認しない"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.message": {
       "extractionState": "manual",
       "localizations": {
@@ -232208,6 +232520,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.runAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて実行"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.skip": {
       "extractionState": "manual",
       "localizations": {
@@ -232221,6 +232550,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skipAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてスキップ"
           }
         }
       }
@@ -234622,6 +234968,40 @@
         }
       }
     },
+    "terminal.agentHibernation.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent shutdown needs attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの終了を確認してください"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing agent shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを終了しています"
+          }
+        }
+      }
+    },
     "terminal.agentHibernation.lastActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -234652,6 +235032,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再開"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了を再試行"
           }
         }
       }

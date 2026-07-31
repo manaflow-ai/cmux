@@ -13,7 +13,9 @@ public struct RPCTaskTimeout: Sendable {
         timeoutNanoseconds: UInt64
     ) async throws -> T {
         let race = RPCTaskTimeoutRace()
+        let cancellation = RPCTaskTimeoutCancellation<T>()
         let stream = AsyncThrowingStream<T, any Error> { continuation in
+            cancellation.install(continuation, race: race)
             let valueTask = Task {
                 do {
                     let value = try await task.value
@@ -39,13 +41,17 @@ public struct RPCTaskTimeout: Sendable {
                 timeoutTask.cancel()
             }
         }
-        for try await value in stream {
-            return value
+        return try await withTaskCancellationHandler {
+            for try await value in stream {
+                return value
+            }
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            throw MobileShellConnectionError.requestTimedOut
+        } onCancel: {
+            cancellation.cancel(race: race)
         }
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-        throw MobileShellConnectionError.requestTimedOut
     }
 
     func sleep(nanoseconds: UInt64) async throws {

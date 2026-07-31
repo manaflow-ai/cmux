@@ -226,6 +226,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 autoConnect: false
             )
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
+            source.updatePanelDirectory(
+                panelId: sourcePanelId,
+                directory: remoteWorkingDirectory
+            )
             let sourceIndex = try makeRestorableAgentIndex(
                 workspaceId: source.id,
                 panelId: sourcePanelId,
@@ -249,7 +254,20 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             XCTAssertTrue(input.contains("'resume'"), input)
             XCTAssertTrue(input.contains("codex-remote-running-session"), input)
             XCTAssertFalse(input.contains("cmux-agent-resume"), input)
-            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            let remoteCwdPrefix = try XCTUnwrap(
+                TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(
+                    for: remoteWorkingDirectory
+                )
+            )
+            XCTAssertTrue(
+                input.contains(remoteCwdPrefix),
+                input
+            )
+            XCTAssertFalse(input.contains("/tmp/repo"), input)
+            XCTAssertEqual(
+                restoredPanel.requestedWorkingDirectory,
+                remoteWorkingDirectory
+            )
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .awaitingAutoResumeCommand

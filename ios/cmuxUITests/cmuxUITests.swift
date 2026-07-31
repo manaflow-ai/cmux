@@ -338,6 +338,229 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regression: the iOS 26 workspace table must underlap the navigation
+    /// and tab bars so their native soft effects have content to process,
+    /// while UIKit keeps the first and last rows outside the bars' hit areas.
+    @MainActor
+    func testWorkspaceListBoundaryRowsClearToolbars() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The workspace toolbar layout regression requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let tableMatches = app.tables.matching(
+            NSPredicate(format: "identifier == %@", "MobileWorkspaceList")
+        )
+        guard let table = waitForVisibleElement(in: tableMatches, app: app, timeout: 8) else {
+            return XCTFail("The visible workspace table never appeared.")
+        }
+        let firstRow = table.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        let lastRow = table.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-59"
+        ]
+        let settingsButton = app.buttons["MobileWorkspaceSettingsMenu"]
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(
+            table.frame.minY,
+            settingsButton.frame.minY + 1,
+            "The workspace table must underlap the top toolbar so its native soft edge effect has content."
+        )
+        XCTAssertGreaterThanOrEqual(
+            table.frame.maxY,
+            workspacesTab.frame.maxY - 1,
+            "The workspace table must underlap the tab bar so its native soft edge effect has content."
+        )
+        XCTAssertTrue(
+            firstRow.isHittable,
+            "The first workspace row must be tappable at the top scroll position."
+        )
+        XCTAssertGreaterThanOrEqual(
+            firstRow.frame.minY,
+            settingsButton.frame.maxY - 1,
+            "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
+        )
+
+        for _ in 0..<20 where !lastRow.isHittable {
+            table.swipeUp(velocity: .fast)
+        }
+        table.swipeUp(velocity: .fast)
+        XCTAssertTrue(
+            lastRow.isHittable,
+            "The last workspace row must be tappable at the bottom scroll position."
+        )
+        XCTAssertLessThanOrEqual(
+            lastRow.frame.maxY,
+            workspacesTab.frame.minY + 1,
+            "The last workspace row \(lastRow.frame) must clear the bottom toolbar \(workspacesTab.frame)."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-bottom-edge-clear-of-tab-bar"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// The deterministic fixture uses the production table and row delegates.
+    /// Keep its native pan, context-menu, and swipe paths active so dogfood
+    /// exercises the same interactions as a connected workspace list.
+    @MainActor
+    func testWorkspaceListNativeScrollingAndRowInteractionsRemainAvailable() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The workspace toolbar layout regression requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let table = app.tables["MobileWorkspaceList"]
+        let firstRow = app.descendants(matching: .any)[
+            "MobileWorkspaceRow-workspace-seed-0"
+        ]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+
+        table.swipeUp(velocity: .fast)
+        XCTAssertFalse(firstRow.isHittable)
+        for _ in 0..<20 where !firstRow.isHittable {
+            table.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstRow.isHittable)
+
+        guard let visibleFirstRow = waitForVisibleElement(
+            identifier: "MobileWorkspaceRow-workspace-seed-0",
+            in: app,
+            timeout: 3
+        ) else {
+            XCTFail("The first workspace row did not become visibly interactive.")
+            return
+        }
+        visibleFirstRow.press(forDuration: 1)
+        let pinAction = app.descendants(matching: .any)[
+            "MobileWorkspacePinButton-workspace-seed-0"
+        ]
+        XCTAssertTrue(
+            pinAction.waitForExistence(timeout: 3),
+            "The production workspace context menu must remain attached to table rows."
+        )
+        let contextAttachment = XCTAttachment(screenshot: app.screenshot())
+        contextAttachment.name = "workspace-list-native-context-menu"
+        contextAttachment.lifetime = .keepAlways
+        add(contextAttachment)
+        pinAction.tap()
+
+        guard let secondRow = waitForVisibleElement(
+            identifier: "MobileWorkspaceRow-workspace-seed-1",
+            in: app,
+            timeout: 3
+        ) else {
+            XCTFail("The second workspace row did not become visibly interactive.")
+            return
+        }
+        secondRow.swipeLeft()
+        XCTAssertTrue(
+            app.buttons["Delete"].waitForExistence(timeout: 3),
+            "The production trailing swipe action must remain attached to table rows."
+        )
+        let swipeAttachment = XCTAttachment(screenshot: app.screenshot())
+        swipeAttachment.name = "workspace-list-native-trailing-swipe"
+        swipeAttachment.lifetime = .keepAlways
+        add(swipeAttachment)
+    }
+
+    @MainActor
+    func testWorkspaceListContextMenuDeleteRequiresRowConfirmation() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The native workspace context menu requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "workspace-seed-1"
+        let row = app.descendants(matching: .any)["MobileWorkspaceRow-\(rowID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.press(forDuration: 1)
+        let deleteMenuAction = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteMenuButton-\(rowID)"
+        ]
+        XCTAssertTrue(deleteMenuAction.waitForExistence(timeout: 3))
+        deleteMenuAction.tap()
+
+        let confirmation = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteConfirmation-\(rowID)"
+        ]
+        XCTAssertTrue(
+            confirmation.waitForExistence(timeout: 3),
+            "Context-menu Delete must request confirmation for its initiating row."
+        )
+        XCTAssertTrue(app.buttons["Delete"].exists)
+        XCTAssertTrue(
+            row.exists,
+            "The workspace must remain in the table until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-context-delete-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceListSwipeDeleteRequiresRowConfirmation() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The native workspace swipe action requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "workspace-seed-2"
+        let row = app.descendants(matching: .any)["MobileWorkspaceRow-\(rowID)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        let deleteSwipeAction = app.buttons["Delete"]
+        XCTAssertTrue(deleteSwipeAction.waitForExistence(timeout: 3))
+        deleteSwipeAction.tap()
+
+        let confirmation = app.descendants(matching: .any)[
+            "MobileWorkspaceDeleteConfirmation-\(rowID)"
+        ]
+        XCTAssertTrue(
+            confirmation.waitForExistence(timeout: 3),
+            "Swipe Delete must request confirmation for its initiating row."
+        )
+        XCTAssertTrue(
+            row.exists,
+            "The workspace must remain in the table until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-list-swipe-delete-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
@@ -491,6 +714,76 @@ final class cmuxUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "Search"))
         XCTAssertEqual(restoredMinimizedSearchMatches.count, 1)
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
+    }
+
+    /// Regression: the workspace list's New Task control must occupy the
+    /// trailing column directly above the system search tab pill. Keeping the
+    /// controls vertically aligned preserves the system tab bar's grouping.
+    @MainActor
+    func testWorkspaceListNewTaskButtonStacksAboveSearchControl() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The detached workspace search pill requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let composer = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        guard let composerFrame = waitForUsableFrame(of: composer, timeout: 3) else {
+            XCTFail("New Task button had no usable frame")
+            return
+        }
+        let searchPill = app.tabBars.buttons
+            .matching(NSPredicate(format: "label == %@", "Search"))
+            .firstMatch
+        XCTAssertTrue(searchPill.waitForExistence(timeout: 3))
+        guard let searchPillFrame = waitForUsableFrame(of: searchPill, timeout: 3) else {
+            XCTFail("Search pill had no usable frame")
+            return
+        }
+        XCTAssertFalse(
+            composerFrame.intersects(searchPillFrame),
+            "New Task \(composerFrame) must not overlap the search pill \(searchPillFrame)"
+        )
+        XCTAssertLessThanOrEqual(
+            composerFrame.maxY,
+            searchPillFrame.minY,
+            "New Task \(composerFrame) must sit above Search \(searchPillFrame)"
+        )
+        XCTAssertEqual(
+            composerFrame.midX,
+            searchPillFrame.midX,
+            accuracy: 2,
+            "New Task \(composerFrame) and Search \(searchPillFrame) must share one trailing column"
+        )
+        XCTAssertLessThanOrEqual(
+            searchPillFrame.minY - composerFrame.maxY,
+            24,
+            "New Task \(composerFrame) must remain visually attached to Search \(searchPillFrame)"
+        )
+        XCTAssertEqual(
+            composerFrame.width,
+            searchPillFrame.width,
+            accuracy: 2,
+            "New Task \(composerFrame) must match the Search control's width \(searchPillFrame)"
+        )
+        XCTAssertEqual(
+            composerFrame.height,
+            searchPillFrame.height,
+            accuracy: 2,
+            "New Task \(composerFrame) must match the Search control's height \(searchPillFrame)"
+        )
+        XCTAssertTrue(
+            waitForHittable(composer, timeout: 3),
+            "New Task must be tappable above the search pill"
+        )
+        XCTAssertTrue(
+            waitForHittable(searchPill, timeout: 3),
+            "The search pill must stay tappable below New Task"
+        )
     }
 
     @MainActor

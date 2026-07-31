@@ -77,10 +77,13 @@ lifecycle proof, including real Stack sign-in and the alarm-driven timeout, is
 
 ## Deploy
 
-Deploys run automatically from `.github/workflows/presence.yml` on push to
-main (path-filtered). `wrangler deploy` applies the `[[migrations]]` block in
-`wrangler.toml` atomically with the upload, so Durable Object storage classes
-can never lag the deployed code.
+Deploys run from `.github/workflows/presence.yml` via manual dispatch on
+main: `gh workflow run presence.yml` deploys production, and
+`gh workflow run presence.yml -f target=dev` deploys the shared
+`cmux-presence-dev` baseline, both with the repository's Cloudflare secrets
+(no personal Cloudflare account membership needed). `wrangler deploy` applies
+the `[[migrations]]` block atomically with the upload, so Durable Object
+storage classes can never lag the deployed code.
 
 Required GitHub repository secrets:
 
@@ -106,8 +109,10 @@ Stack project's Worker secrets:
 https://cmux-presence-dev.debussy.workers.dev
 ```
 
-Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
-(its `STACK_*` Worker secrets are already provisioned and survive deploys).
+Redeploy it with `gh workflow run presence.yml -f target=dev` (or locally with
+`bunx wrangler deploy --config wrangler.dev.toml` if your Cloudflare login has
+the account); its `STACK_*` Worker secrets are already provisioned and survive
+deploys.
 
 > [!IMPORTANT]
 > Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default

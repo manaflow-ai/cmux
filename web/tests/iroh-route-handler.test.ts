@@ -16,8 +16,12 @@ const USER: AuthedUser = {
   selectedTeamId: "selected-team-id",
   teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null }],
   teamIds: ["selected-team-id"],
-  userBillingPlanId: null,
-  billingPlanId: null,
+      userBillingPlanId: null,
+      billingPlanId: null,
+      resolveSubrouterPermissions: async () => ({
+        use: false,
+        manageAccounts: false,
+      }),
 };
 
 describe("Iroh route boundary", () => {
@@ -63,6 +67,48 @@ describe("Iroh route boundary", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ bindings: [] });
     expect(brokerCalled).toBe(true);
+  });
+
+  test("rejects malformed discovery cursors before broker work", async () => {
+    let brokerCalled = false;
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh?page_size=128&cursor=not-a-cursor"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({
+          discover: () => {
+            brokerCalled = true;
+            return Effect.succeed({ bindings: [] });
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_discovery_cursor" });
+    expect(brokerCalled).toBe(false);
+  });
+
+  test("rejects oversized discovery pages before broker work", async () => {
+    let brokerCalled = false;
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh?page_size=129"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({
+          discover: () => {
+            brokerCalled = true;
+            return Effect.succeed({ bindings: [] });
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_discovery_page_size" });
+    expect(brokerCalled).toBe(false);
   });
 
   test("fails closed for mutations when the firewall check rejects", async () => {

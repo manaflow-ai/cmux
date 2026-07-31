@@ -195,9 +195,6 @@ public protocol SettingsHostActions: AnyObject {
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
 
-    /// Publishes the committed auto-retry setting to live workspace coordinators.
-    func agentSessionAutoRetrySettingDidChange()
-
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
@@ -221,9 +218,6 @@ public extension SettingsHostActions {
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
-
-    /// Default no-op for previews and tests without agent retry coordination.
-    func agentSessionAutoRetrySettingDidChange() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}

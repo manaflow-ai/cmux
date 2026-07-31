@@ -210,6 +210,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
+        private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -333,18 +334,52 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
+                    #if DEBUG
+                    let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
+                        ?? chunk.endSequence
+                        ?? 0
+                    MobileLatencyTrace.stamp(
+                        "ap.yield",
+                        "s=\(surfaceID.prefix(8).lowercased()) seq=\(latencySequence)"
+                    )
+                    let latencyApplyStart = MobileLatencyTrace.captureTime()
+                    #endif
                     switch terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
                     ) {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else { return }
-                        await self.applyVerifiedRenderGrid(
+                        let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
                             surfaceView: surfaceView,
                             store: store
                         )
+                        if applied {
+                            #if DEBUG
+                            MobileLatencyTrace.stampElapsed(
+                                "ap.done",
+                                since: latencyApplyStart
+                            ) {
+                                "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq) " +
+                                    "path=verified us=\($0)"
+                            }
+                            // Verified replay has already submitted, read back,
+                            // and revealed its tokened presentation before
+                            // `applyVerifiedRenderGrid` returns. Stamp that exact
+                            // frame here, after `ap.done`, instead of associating
+                            // it with a later ordinary redraw.
+                            MobileLatencyTrace.stamp(
+                                "rd.present",
+                                "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
+                            )
+                            #endif
+                            store.terminalOutputDidProcess(
+                                surfaceID: surfaceID,
+                                streamToken: chunk.streamToken
+                            )
+                        }
                         continue
                     case .rejectUnverified:
                         let transactionID = self.verifiedReplayState.rejectUnverifiedOutput()
@@ -413,6 +448,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             continue
                         }
                     }
+                    #if DEBUG
+                    surfaceView.markLatencyAppliedSequence(latencySequence)
+                    MobileLatencyTrace.stampElapsed(
+                        "ap.done",
+                        since: latencyApplyStart
+                    ) {
+                        "s=\(surfaceID.prefix(8).lowercased()) seq=\(latencySequence) " +
+                            "path=legacy us=\($0)"
+                    }
+                    #endif
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
@@ -441,6 +486,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask?.cancel()
             outputTask = nil
             verifiedReplayState.invalidate()
+            pendingReplayViewportAnchor = nil
             liveFontTask?.cancel()
             liveFontTask = nil
             viewportReportScheduler?.cancel()
@@ -476,16 +522,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
-        ) async {
+        ) async -> Bool {
             if let chunkConfigTheme = chunk.terminalConfigTheme,
                chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
-                return
+                return false
             }
-            await applyThemeMatchedVerifiedRenderGrid(
+            return await applyThemeMatchedVerifiedRenderGrid(
                 frame,
                 chunk: chunk,
                 surfaceView: surfaceView,
@@ -498,33 +544,49 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
-        ) async {
+        ) async -> Bool {
             guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
-                return
+                return false
             }
 
             let frozen = await surfaceView.freezeVerifiedReplayPresentation(
                 transactionID: transaction.id
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             guard frozen else {
                 requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
-                return
+                return false
             }
             activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
             let resized = await surfaceView.applyViewSizeAndWait(
                 cols: frame.columns,
                 rows: frame.rows
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             guard resized else {
                 requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
-                return
+                return false
+            }
+
+            // Capture reads the post-reflow scrollbar, so Ghostty's resize pin
+            // remap is authoritative and anchor math never sees reflow as append drift.
+            let capturedViewportAnchor =
+                await surfaceView.captureVerifiedReplayViewportAnchor()
+            guard !Task.isCancelled else { return false }
+            let replayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
+            if frame.anchor == .screen, frame.activeScreen == .primary {
+                if let capturedViewportAnchor {
+                    pendingReplayViewportAnchor = capturedViewportAnchor
+                }
+                replayViewportAnchor = pendingReplayViewportAnchor
+            } else {
+                pendingReplayViewportAnchor = nil
+                replayViewportAnchor = nil
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
@@ -532,10 +594,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     chunk.data,
                     terminalConfigTheme: chunk.terminalConfigTheme
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 guard applied else {
                     requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
-                    return
+                    return false
                 }
             }
 
@@ -544,10 +606,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 configuredCursorColor: chunk.terminalConfigTheme?.cursor
                     ?? surfaceView.terminalConfigTheme.cursor
             )
-            guard !Task.isCancelled else { return }
-            finishVerifiedReplay(
+            guard !Task.isCancelled else { return false }
+            return await finishVerifiedReplay(
                 transactionID: transaction.id,
                 observed: observed,
+                viewportAnchor: replayViewportAnchor,
                 chunk: chunk,
                 surfaceView: surfaceView,
                 store: store
@@ -574,15 +637,29 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private func finishVerifiedReplay(
             transactionID: UInt64,
             observed: MobileTerminalRenderGridFrame?,
+            viewportAnchor: VerifiedReplayCapturedViewportAnchor?,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
-        ) {
+        ) async -> Bool {
             switch verifiedReplayState.complete(
                 transactionID: transactionID,
                 observedFrame: observed
             ) {
             case .reveal:
+                if let viewportAnchor {
+                    let restored = await surfaceView.restoreVerifiedReplayViewportAnchor(
+                        viewportAnchor
+                    )
+                    guard !Task.isCancelled else { return false }
+                    if restored {
+                        pendingReplayViewportAnchor = nil
+                        // Restore and re-fence happen under render suppression,
+                        // so the renderer identity cannot change before reveal.
+                        _ = await surfaceView.presentRestoredVerifiedReplayViewport()
+                        guard !Task.isCancelled else { return false }
+                    }
+                }
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID
                 ) else {
@@ -591,17 +668,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
                     )
-                    return
+                    return false
                 }
-                store.terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                return true
             case .keepFrozenAndRequestReplay, .ignoreStaleCompletion:
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
+                return false
             }
         }
 

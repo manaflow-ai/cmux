@@ -11,7 +11,6 @@ import {
 } from "../services/account/deletionLock";
 import type { PairGrantPeer } from "../services/iroh/crypto";
 import {
-  IROH_ACTIVE_BINDING_SANITY_CAP,
   IROH_RETENTION_BATCH_SIZE,
   IrohRepository,
   IrohRepositoryLive,
@@ -301,7 +300,7 @@ describe("Iroh trust broker database behavior", () => {
     const operations: Array<Effect.Effect<unknown, unknown>> = [
       repository.findActiveBindings(userId, [iosId, macId]),
       repository.revokeBinding({ userId, bindingId: macId, now: NOW }),
-      repository.discoverySnapshot({ userId, now: NOW }),
+      repository.discoveryPage({ userId, now: NOW, pageSize: 256 }),
       repository.pruneExpiredState({ userId, now: NOW }),
       repository.finalizeEndpointAttestation({
         userId,
@@ -1127,6 +1126,94 @@ describe("Iroh trust broker database behavior", () => {
     expect(row?.appInstanceId).toBe(newerApp);
   });
 
+  dbTest("rejects a stale challenge minted in the same millisecond as the applied one", async () => {
+    // 9071 review finding 2: the register gate is strict (`createdAt <
+    // registeredAt`), and challenge createdAt is a millisecond wall clock, so
+    // two serialized mints CAN tie. Without total ordering at mint time, the
+    // older-of-two-equal challenges completes after the newer and passes the
+    // gate, reversing the order the gate exists to enforce. Minting now bumps
+    // a tying createdAt strictly above the slot's latest challenge, so the
+    // delayed twin must be rejected as superseded.
+    const repo = requiredRepository();
+    const userId = "user-slot-equal-millis";
+    const deviceId = randomUUID();
+    const endpoint = "5c".repeat(32);
+    const tag = "stable";
+
+    const prepare = async (input: { appInstanceId: string; suffix: string; now: Date }) => {
+      const nonceHash = input.suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId: input.appInstanceId,
+        tag,
+        endpointId: endpoint,
+        identityGeneration: 1,
+        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now: input.now,
+        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
+      }));
+      return { id: challenge.id, nonceHash, appInstanceId: input.appInstanceId };
+    };
+    const register = (
+      prepared: { id: string; nonceHash: string; appInstanceId: string },
+      now: Date,
+    ) => repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: prepared.id,
+      nonceHash: prepared.nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId: prepared.appInstanceId,
+        tag,
+        platform: "ios",
+        endpointId: endpoint,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now,
+    });
+
+    // Establish the slot, then mint two challenges with the SAME wall-clock
+    // input. Serialized issuance must still order them.
+    const initial = await prepare({ appInstanceId: randomUUID(), suffix: "1", now: NOW });
+    expect((await Effect.runPromise(register(initial, new Date(NOW.getTime() + 500)))).created).toBe(true);
+
+    const tieInstant = new Date(NOW.getTime() + 1_000);
+    const olderApp = randomUUID();
+    const newerApp = randomUUID();
+    const older = await prepare({ appInstanceId: olderApp, suffix: "2", now: tieInstant });
+    const newer = await prepare({ appInstanceId: newerApp, suffix: "3", now: tieInstant });
+
+    // The NEWER twin lands first and refreshes the slot.
+    const newerResult = await Effect.runPromise(register(newer, new Date(NOW.getTime() + 2_000)));
+    expect(newerResult.created).toBe(false);
+    expect(newerResult.binding.appInstanceId).toBe(newerApp);
+
+    // The OLDER twin, delayed, must be rejected — not clobber the newer state.
+    const stale = await Effect.runPromiseExit(register(older, new Date(NOW.getTime() + 3_000)));
+    expect(stale._tag).toBe("Failure");
+    const causeError = stale._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(stale.cause))
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "challenge_superseded",
+    });
+
+    const [row] = await requiredSql()<Array<{ appInstanceId: string }>>`
+      select app_instance_id as "appInstanceId"
+      from iroh_endpoint_bindings
+      where user_id = ${userId} and device_uuid = ${deviceId}
+        and tag = ${tag} and revoked_at is null
+    `;
+    expect(row?.appInstanceId).toBe(newerApp);
+  });
+
   dbTest("revokes a retired incarnation's pair grants instead of reassigning them", async () => {
     const repo = requiredRepository();
     const initiatorUser = "user-rekey-grant-initiator";
@@ -1237,108 +1324,76 @@ describe("Iroh trust broker database behavior", () => {
     expect(grants?.staleRevoked).toBe(true);
   });
 
-  dbTest("rejects a genuinely-new slot once the account is at the active-binding sanity cap", async () => {
+  dbTest("registers and discovers more than 256 active bindings across bounded pages", async () => {
     const repo = requiredRepository();
-    const userId = "user-binding-cap";
+    const userId = "user-unbounded-bindings";
 
-    // Seed one deterministically-oldest active binding, then fill up to CAP - 1
-    // active rows that are all more recently seen than it.
-    const oldestEndpoint = "0f4240".padStart(64, "0");
-    const [oldest] = await requiredSql()<Array<{ id: string }>>`
-      insert into iroh_endpoint_bindings (
-        user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
-        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
-      ) values (
-        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios', ${oldestEndpoint},
-        1, true, '[]'::jsonb, '[]'::jsonb, ${new Date(NOW.getTime() - 10 * 60 * 60 * 1_000)}
-      ) returning id::text
-    `;
-    if (!oldest) throw new Error("oldest binding insert returned no row");
     await requiredSql()`
       insert into iroh_endpoint_bindings (
         user_id, device_uuid, app_instance_id, tag, platform, endpoint_id,
-        identity_generation, pairing_enabled, capabilities, path_hints, last_seen_at
+        identity_generation, pairing_enabled, capabilities, path_hints,
+        last_seen_at, registered_at
       )
       select
         ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', 'ios',
         lpad(to_hex(gs), 64, '0'), 1, true, '[]'::jsonb, '[]'::jsonb,
-        ${new Date(NOW.getTime() - 60 * 60 * 1_000)}::timestamptz + (gs * interval '1 second')
-      from generate_series(1, ${IROH_ACTIVE_BINDING_SANITY_CAP - 2}) as gs
+        ${NOW}::timestamptz + (gs * interval '1 second'),
+        ${NOW}::timestamptz + (gs * interval '1 second')
+      from generate_series(1, 300) as gs
     `;
 
-    const register = async (input: { endpointId: string; suffix: string; now: Date }) => {
-      const nonceHash = input.suffix.repeat(64);
-      const deviceId = randomUUID();
-      const appInstanceId = randomUUID();
-      const challenge = await Effect.runPromise(repo.issueChallenge({
-        userId,
-        deviceUuid: deviceId,
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const nonceHash = "8".repeat(64);
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId: "c1".repeat(32),
+      identityGeneration: 1,
+      payloadSha256: `8${"0".repeat(63)}`,
+      nonceHash,
+      now: new Date(NOW.getTime() + 301_000),
+      expiresAt: new Date(NOW.getTime() + 601_000),
+    }));
+    const registration = await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
         appInstanceId,
         tag: "stable",
-        endpointId: input.endpointId,
+        platform: "ios",
+        endpointId: "c1".repeat(32),
         identityGeneration: 1,
-        payloadSha256: `${input.suffix}${"0".repeat(63)}`,
-        nonceHash,
-        now: input.now,
-        expiresAt: new Date(input.now.getTime() + 5 * 60 * 1_000),
-      }));
-      return Effect.runPromiseExit(repo.consumeChallengeAndRegister({
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: new Date(NOW.getTime() + 301_000),
+    }));
+    expect(registration.created).toBe(true);
+
+    const pageCounts: number[] = [];
+    const bindingIds = new Set<string>();
+    let cursor: { generation: number; afterBindingId: string } | undefined;
+    do {
+      const page = await Effect.runPromise(repo.discoveryPage({
         userId,
-        challengeId: challenge.id,
-        nonceHash,
-        payload: {
-          route_contract_version: 1,
-          deviceId,
-          appInstanceId,
-          tag: "stable",
-          platform: "ios",
-          endpointId: input.endpointId,
-          identityGeneration: 1,
-          pairingEnabled: true,
-          capabilities: [],
-          pathHints: [],
-        },
-        now: input.now,
+        now: new Date(NOW.getTime() + 302_000),
+        pageSize: 128,
+        ...(cursor ? { cursor } : {}),
       }));
-    };
+      pageCounts.push(page.bindings.length);
+      page.bindings.forEach((binding) => bindingIds.add(binding.id));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
 
-    const countActive = async () => {
-      const [row] = await requiredSql()<Array<{ total: string }>>`
-        select count(*)::text as total from iroh_endpoint_bindings
-        where user_id = ${userId} and revoked_at is null
-      `;
-      return Number(row?.total ?? "-1");
-    };
-
-    // Exactly at the cap: a new slot fills the last free space and is admitted.
-    const atCap = await register({ endpointId: "c1".repeat(32), suffix: "8", now: NOW });
-    expect(atCap._tag).toBe("Success");
-    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
-
-    // Over the cap: a genuinely new slot is REJECTED rather than evicting an
-    // existing device, so a stuck client spamming fresh device/tag tuples cannot
-    // make its own churn the newest rows and shed the account's real, older hosts
-    // and phones. The active count holds and the oldest row stays live.
-    const overCap = await register({
-      endpointId: "c2".repeat(32),
-      suffix: "9",
-      now: new Date(NOW.getTime() + 1_000),
-    });
-    expect(overCap._tag).toBe("Failure");
-    const causeError = overCap._tag === "Failure"
-      ? Option.getOrUndefined(Cause.failureOption(overCap.cause))
-      : undefined;
-    expect(causeError).toMatchObject({
-      _tag: "IrohConflictError",
-      code: "active_binding_limit",
-    });
-    expect(await countActive()).toBe(IROH_ACTIVE_BINDING_SANITY_CAP);
-
-    const [oldestState] = await requiredSql()<Array<{ revoked: boolean }>>`
-      select revoked_at is not null as revoked
-      from iroh_endpoint_bindings where id = ${oldest.id}
-    `;
-    expect(oldestState).toEqual({ revoked: false });
+    expect(pageCounts).toEqual([128, 128, 45]);
+    expect(bindingIds.size).toBe(301);
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1424,10 +1479,15 @@ describe("Iroh trust broker database behavior", () => {
       endpointId: "46".repeat(32),
     });
 
-    const initial = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
-    const otherInitial = await Effect.runPromise(repo.discoverySnapshot({
+    const initial = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
+    const otherInitial = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(initial.lanDiscoveryGeneration).toBe(1);
     expect(initial.bindings.map((binding) => binding.id).sort()).toEqual([
@@ -1444,7 +1504,11 @@ describe("Iroh trust broker database behavior", () => {
       bindingId: firstBindingId,
       now: NOW,
     }))).toBe(true);
-    const afterFirstRevoke = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+    const afterFirstRevoke = await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }));
     expect(afterFirstRevoke.lanDiscoveryGeneration).toBe(2);
     expect(afterFirstRevoke.bindings.map((binding) => binding.id)).toEqual([secondBindingId]);
     expect(await Effect.runPromise(repo.revokeBinding({
@@ -1458,7 +1522,11 @@ describe("Iroh trust broker database behavior", () => {
       where id = ${firstBindingId}
     `;
     expect(retriedBinding?.revokedAt).toEqual(NOW);
-    expect((await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }))).lanDiscoveryGeneration).toBe(2);
+    expect((await Effect.runPromise(repo.discoveryPage({
+      userId,
+      now: NOW,
+      pageSize: 256,
+    }))).lanDiscoveryGeneration).toBe(2);
     expect(await Effect.runPromise(repo.revokeBinding({
       userId: "user-lan-other",
       bindingId: firstBindingId,
@@ -1486,7 +1554,11 @@ describe("Iroh trust broker database behavior", () => {
         set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+        userId,
+        now: NOW,
+        pageSize: 256,
+      }));
       await waitForAdvisoryLockWaiter();
     });
     if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
@@ -1495,9 +1567,10 @@ describe("Iroh trust broker database behavior", () => {
       lanDiscoveryGeneration: 3,
       bindings: [],
     });
-    const otherAfter = await Effect.runPromise(repo.discoverySnapshot({
+    const otherAfter = await Effect.runPromise(repo.discoveryPage({
       userId: "user-lan-other",
       now: NOW,
+      pageSize: 256,
     }));
     expect(otherAfter).toMatchObject({
       lanDiscoveryGeneration: 1,

@@ -118,6 +118,12 @@ export default {
         return json({ error: "invalid_client_scope" }, 400);
       }
       const clientScope = trimmedClientScope || null;
+      // Both responses echo the VERIFIED resolved team (never client input
+      // passed through) so the phone can persist which per-team DO its
+      // records were actually stored in: a nil-team request is resolved
+      // server-side, and the client needs that resolution to route a later
+      // delete tombstone to the same backup instead of re-resolving nil at
+      // delete time (which can drift to a different team's DO).
       if (request.method === "GET") {
         return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
       }

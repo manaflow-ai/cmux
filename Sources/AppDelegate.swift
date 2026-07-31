@@ -513,6 +513,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Composition-root lifetime owner shared by every window's font-size
+    /// queue. Window coordinators receive this dependency explicitly; no
+    /// coordinator reaches back through `AppDelegate.shared`.
+    let workspaceTerminalFontSizeArbiter =
+        WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -521,8 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
-    private var cmuxThemePreviewReloadGeneration = 0
-    private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
+    private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
@@ -544,6 +548,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        private let workspaceTerminalFontSizeArbiter:
+            WorkspaceTerminalFontSizeArbiter
+        /// Window-scoped font-size queue. Requests contain stable workspace ids;
+        /// teardown cancels the queue before any surface owner is released.
+        lazy var workspaceTerminalFontSizeCoordinator =
+            WorkspaceTerminalFontSizeCoordinator(
+                tabManager: tabManager,
+                arbiter: workspaceTerminalFontSizeArbiter
+            )
+#if DEBUG
+        var debugWorkspaceTerminalFontSizeEnqueueResultOverride: Bool?
+#endif
 
         init(
             windowId: UUID,
@@ -552,7 +568,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
-            window: NSWindow?
+            window: NSWindow?,
+            workspaceTerminalFontSizeArbiter:
+                WorkspaceTerminalFontSizeArbiter
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
@@ -561,6 +579,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
             self.window = window
+            self.workspaceTerminalFontSizeArbiter =
+                workspaceTerminalFontSizeArbiter
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
                 window: window,
@@ -3412,6 +3432,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
+            if !isApplyingSessionRestore {
+                SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+            }
             isApplyingSessionRestore = true
 #if DEBUG
             cmuxDebugLog(
@@ -3480,7 +3503,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
+        let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
+        if wasApplyingSessionRestore {
+            SurfaceResumeRunPromptBatch.shared.endRestorePass()
+        }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
             // skipped. Queue it now that restore is done
@@ -3517,6 +3544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard !snapshotWindows.isEmpty else { return false }
 
+        if !isApplyingSessionRestore {
+            SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+        }
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
@@ -4707,7 +4737,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
-                window: window
+                window: window,
+                workspaceTerminalFontSizeArbiter:
+                    workspaceTerminalFontSizeArbiter
             )
             mainWindowContexts[key] = context
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
@@ -8707,6 +8739,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         excludingWorkspaceIdsFromSessionSnapshot: Set<UUID> = [],
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
+        let isRestoringSessionWindowSnapshot = sessionWindowSnapshot != nil
+        if isRestoringSessionWindowSnapshot {
+            SurfaceResumeRunPromptBatch.shared.beginRestorePass()
+        }
+        defer {
+            if isRestoringSessionWindowSnapshot {
+                SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            }
+        }
+
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
@@ -12748,7 +12790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             GhosttyConfig.invalidateLoadCache()
-            MainActor.assumeIsolated {
+            _ = MainActor.assumeIsolated {
                 self?.reloadConfiguration(
                     source: "globalFontMagnificationDidChange",
                     reloadSettingsFromFile: false
@@ -12811,20 +12853,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return menu.items.first(where: { $0.title == reloadConfigurationTitle })
     }
 
+    @discardableResult
     func reloadConfiguration(
         soft: Bool = false,
         source: String,
         reloadSettingsFromFile: Bool = true,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil
+    ) -> Bool {
 #if DEBUG
         cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
 #endif
-        GhosttyApp.shared.reloadConfiguration(
+        return GhosttyApp.shared.reloadConfiguration(
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
-            preferredColorScheme: preferredColorScheme
+            preferredColorScheme: preferredColorScheme,
+            completion: completion
         )
     }
 
@@ -12842,60 +12888,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
-        guard let config = GhosttyApp.shared.config else {
-            ghosttyGotoSplitLeftShortcut = nil
-            ghosttyGotoSplitRightShortcut = nil
-            ghosttyGotoSplitUpShortcut = nil
-            ghosttyGotoSplitDownShortcut = nil
-            ghosttyGotoSplitPreviousShortcut = nil
-            ghosttyGotoSplitNextShortcut = nil
-            return
-        }
-
-        ghosttyGotoSplitLeftShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:left", UInt("goto_split:left".utf8.count))
+        ghosttyGotoSplitLeftShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:left"
         )
-        ghosttyGotoSplitRightShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:right", UInt("goto_split:right".utf8.count))
+        ghosttyGotoSplitRightShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:right"
         )
-        ghosttyGotoSplitUpShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:up", UInt("goto_split:up".utf8.count))
+        ghosttyGotoSplitUpShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:up"
         )
-        ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        ghosttyGotoSplitDownShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:down"
         )
-        ghosttyGotoSplitPreviousShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:previous", UInt("goto_split:previous".utf8.count))
+        ghosttyGotoSplitPreviousShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:previous"
         )
-        ghosttyGotoSplitNextShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:next", UInt("goto_split:next".utf8.count))
-        )
-    }
-
-    private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let tag: GhosttyTriggerInput.Tag
-        switch trigger.tag {
-        case GHOSTTY_TRIGGER_PHYSICAL:
-            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
-        case GHOSTTY_TRIGGER_UNICODE:
-            tag = .unicode(UnicodeScalar(trigger.key.unicode))
-        case GHOSTTY_TRIGGER_CATCH_ALL:
-            tag = .catchAll
-        default:
-            return nil
-        }
-
-        let input = GhosttyTriggerInput(
-            tag: tag,
-            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
-        )
-        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
-        return StoredShortcut(
-            key: shortcut.key,
-            command: shortcut.command,
-            shift: shortcut.shift,
-            option: shortcut.option,
-            control: shortcut.control
+        ghosttyGotoSplitNextShortcut = GhosttyApp.shared.storedShortcut(
+            forBindingAction: "goto_split:next"
         )
     }
 
@@ -13937,18 +13946,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific workspaces (9 = last workspace)
+        // Numeric shortcuts for visible workspace rows (9 = last visible row).
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
             if let manager = tabManagerForNumberedShortcut(event: event),
-               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+               let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG
                 cmuxDebugLog(
                     "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
                 )
 #endif
-                manager.selectTab(at: targetIndex)
             }
             return true
         }
@@ -14071,7 +14079,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        let workspaceTerminalFontSizeActions: [KeyboardShortcutSettings.Action] = [
+            .increaseWorkspaceTerminalFontSize,
+            .decreaseWorkspaceTerminalFontSize,
+            .resetWorkspaceTerminalFontSize,
+        ]
+        let workspaceTerminalFontSizeAction = preferredMatchingShortcutAction(
+            event: event,
+            actions: workspaceTerminalFontSizeActions
+        )
+        let equalizeSplitsMatches = matchConfiguredShortcut(event: event, action: .equalizeSplits)
+        // These defaults are new. If their stroke was already assigned to any
+        // explicit action that has not consumed the event earlier, keep routing
+        // so that action's existing handler below retains upgrade precedence.
+        let matchingExplicitActionShouldPreemptFontSizeDefault =
+            workspaceTerminalFontSizeAction.map {
+                explicitShortcutOverrideShouldPreemptImplicitDefault(
+                    event: event,
+                    matchedAction: $0,
+                    actionFamily: workspaceTerminalFontSizeActions
+                )
+            } ?? false
+        // Equalize moved to a previously free default. Preserve an older
+        // explicit binding on that stroke until the user explicitly assigns
+        // equalize there too.
+        let matchingExplicitActionShouldPreemptEqualizeDefault =
+            equalizeSplitsMatches
+            && explicitShortcutOverrideShouldPreemptImplicitDefault(
+                event: event,
+                matchedAction: .equalizeSplits,
+                actionFamily: [.equalizeSplits]
+            )
+        if let workspaceTerminalFontSizeAction,
+           !matchingExplicitActionShouldPreemptFontSizeDefault {
+            let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let routedTabs = routedContext?.tabManager ?? tabManager
+            if let selectedWorkspace = routedTabs?.selectedWorkspace {
+                let accepted =
+                    enqueueWorkspaceTerminalFontSizeChange(
+                        workspaceTerminalFontSizeAction,
+                        workspace: selectedWorkspace,
+                        tabManager: routedTabs,
+                        deferFlush: event.isARepeat
+                    )
+                if !accepted {
+                    NSSound.beep()
+                }
+            }
+            return true
+        }
+        if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
+            performEqualizeSplitsShortcut()
+            return true
+        }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
@@ -14366,6 +14426,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    private func enqueueWorkspaceTerminalFontSizeChange(
+        _ action: KeyboardShortcutSettings.Action,
+        workspace: Workspace,
+        tabManager: TabManager?,
+        deferFlush: Bool
+    ) -> Bool {
+        if action == .resetWorkspaceTerminalFontSize, deferFlush {
+            return true
+        }
+        let change: WorkspaceTerminalFontSizeChange
+        if action == .resetWorkspaceTerminalFontSize {
+            change = .resetThen([])
+        } else {
+            let delta: Float32 =
+                action == .increaseWorkspaceTerminalFontSize ? 1 : -1
+            change = .relative([delta])
+        }
+        guard let tabManager,
+              let context = mainWindowContext(for: tabManager) else {
+            return true
+        }
+#if DEBUG
+        if let override =
+                context
+                    .debugWorkspaceTerminalFontSizeEnqueueResultOverride {
+            return override
+        }
+#endif
+        return context.workspaceTerminalFontSizeCoordinator.enqueue(
+            change,
+            workspaceId: workspace.id,
+            deferFlush: deferFlush
+        )
     }
 
 
@@ -15801,6 +15896,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
     }
 
+    private func preferredMatchingShortcutAction(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action]
+    ) -> KeyboardShortcutSettings.Action? {
+        let matchingActions = actions.filter {
+            matchConfiguredShortcut(event: event, action: $0)
+        }
+        return matchingActions.first {
+            KeyboardShortcutSettings.hasExplicitShortcutOverride(for: $0)
+        } ?? matchingActions.first
+    }
+
+    private func explicitShortcutOverrideShouldPreemptImplicitDefault(
+        event: NSEvent,
+        matchedAction: KeyboardShortcutSettings.Action,
+        actionFamily: [KeyboardShortcutSettings.Action]
+    ) -> Bool {
+        guard !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: matchedAction) else {
+            return false
+        }
+        return KeyboardShortcutSettings.Action.allCases.contains { action in
+            guard !actionFamily.contains(action),
+                  KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action) else {
+                return false
+            }
+            return matchConfiguredShortcut(event: event, action: action)
+        }
+    }
+
     private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .fileExplorerOpenSelection && action != .fileExplorerOpenSelectionFinderAlias
     }
@@ -16807,29 +16931,17 @@ private extension AppDelegate {
 
     func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
         if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
-            cmuxThemePreviewReloadGeneration += 1
-            let generation = cmuxThemePreviewReloadGeneration
-            cmuxThemePreviewReloadWorkItem?.cancel()
-
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self,
-                      self.cmuxThemePreviewReloadGeneration == generation else { return }
-                self.cmuxThemePreviewReloadWorkItem = nil
-                self.reloadConfiguration(source: source)
-            }
-            cmuxThemePreviewReloadWorkItem = workItem
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + .milliseconds(
+            cmuxThemePreviewReloadScheduler.schedule(
+                after: .milliseconds(
                     GhosttySurfaceConfigurationRefresh.cmuxThemePreviewReloadDebounceMilliseconds
-                ),
-                execute: workItem
-            )
+                )
+            ) { [weak self] in
+                self?.reloadConfiguration(source: source)
+            }
             return
         }
 
-        cmuxThemePreviewReloadGeneration += 1
-        cmuxThemePreviewReloadWorkItem?.cancel()
-        cmuxThemePreviewReloadWorkItem = nil
+        cmuxThemePreviewReloadScheduler.cancel()
         reloadConfiguration(source: source)
     }
 }

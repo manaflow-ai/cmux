@@ -40,11 +40,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private static let section = 0
 
     var configuration: WorkspaceListTable
+    weak var tableViewController: WorkspaceListTableViewController?
     private var previousConfiguration: WorkspaceListTable?
     private var dataSource: UITableViewDiffableDataSource<Int, WorkspaceListTableItem>?
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    /// The order last applied to the native data source. Keeping this compact
+    /// value avoids materializing a full diffable snapshot on every live
+    /// workspace payload update merely to ask whether row identity moved.
+    private var appliedItems: [WorkspaceListTableItem] = []
+    private var pendingContextMenuWorkspaceClose: (
+        workspace: MobileWorkspacePreview,
+        sourceView: UIView
+    )?
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -55,7 +64,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         super.init()
     }
 
-    func attach(to tableView: WorkspaceListUITableView) {
+    func attach(
+        to tableView: WorkspaceListUITableView,
+        viewController: WorkspaceListTableViewController? = nil
+    ) {
+        tableViewController = viewController
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -84,7 +97,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         previousConfiguration = nil
+        appliedItems = []
         apply(configuration: configuration, in: tableView)
+    }
+
+    func detach() {
+        pendingContextMenuWorkspaceClose = nil
+        tableViewController = nil
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
@@ -105,10 +124,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
-        let currentSnapshot = dataSource.snapshot()
-        let structureChanged = currentSnapshot.sectionIdentifiers != [Self.section]
-            || currentSnapshot.itemIdentifiers != next.items
+        let structureChanged = appliedItems != next.items
         var changed: [WorkspaceListTableItem] = []
+        var changedRowHeightsStable = true
         if let previous {
             // This map already mirrors previousConfiguration. Reuse it instead
             // of rebuilding a second full index for every live row update.
@@ -121,6 +139,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     next: next
                 ) {
                     changed.append(item)
+                    if !structureChanged, changedRowHeightsStable,
+                       heightCacheKey(for: oldItem, tableView: tableView, configuration: previous)
+                           != heightCacheKey(for: item, tableView: tableView, configuration: next) {
+                        changedRowHeightsStable = false
+                    }
                 }
             }
         }
@@ -137,7 +160,34 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         previousConfiguration = next
 
-        guard structureChanged || !changed.isEmpty else { return }
+        guard structureChanged || !changed.isEmpty else {
+            #if DEBUG
+            recordPayloadApplyRoute(.noChange)
+            #endif
+            return
+        }
+
+        if !structureChanged, changedRowHeightsStable {
+            // Payload-only update: no row identity moved and no row height
+            // changed, so the snapshot has nothing to diff. Routing this
+            // through apply(_:animatingDifferences:) would still run the
+            // diffable apply queue plus UITableView's whole batch-update
+            // pass on every live preview/unread/chip tick while agents
+            // stream. Re-configure the visible changed cells in place (the
+            // exact work reconfigure performs); offscreen rows pick up the
+            // new payload from `configuredItemsByID` when they dequeue.
+            for item in changed {
+                guard
+                    let indexPath = dataSource.indexPath(for: item),
+                    let cell = tableView.cellForRow(at: indexPath)
+                else { continue }
+                configure(cell, for: configuredItemsByID[item.id] ?? item)
+            }
+            #if DEBUG
+            recordPayloadApplyRoute(.reconfiguredInPlace(changed.map(\.id)))
+            #endif
+            return
+        }
 
         var snapshot: NSDiffableDataSourceSnapshot<Int, WorkspaceListTableItem>
         if structureChanged {
@@ -145,10 +195,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             snapshot.appendSections([Self.section])
             snapshot.appendItems(next.items, toSection: Self.section)
         } else {
-            snapshot = currentSnapshot
+            snapshot = dataSource.snapshot()
         }
         snapshot.reconfigureItems(changed)
         dataSource.apply(snapshot, animatingDifferences: false)
+        if structureChanged {
+            appliedItems = next.items
+        }
+        #if DEBUG
+        recordPayloadApplyRoute(.snapshotApply)
+        #endif
     }
 
     func tableView(
@@ -243,6 +299,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         localSnapshot.appendSections([Self.section])
         localSnapshot.appendItems(movedItems, toSection: Self.section)
         dataSource?.apply(localSnapshot, animatingDifferences: false)
+        appliedItems = movedItems
 
         moveRows(IndexSet(integer: source), swiftUIDestination)
         coordinator.drop(
@@ -321,15 +378,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard
             let workspace = workspace(at: indexPath),
             workspace.actionCapabilities.supportsCloseActions,
-            let requestWorkspaceClose = configuration.requestWorkspaceClose
+            configuration.closeWorkspace != nil,
+            let sourceView = tableView.cellForRow(at: indexPath)?.contentView
         else { return nil }
 
         let action = UIContextualAction(
             style: .destructive,
             title: L10n.string("mobile.workspace.delete", defaultValue: "Delete")
-        ) { _, _, completion in
-            requestWorkspaceClose(workspace.id)
-            completion(true)
+        ) { [weak self, weak sourceView] _, _, completion in
+            // The destructive mutation has not happened yet. Reporting false
+            // keeps UIKit from treating the row as deleted while confirmation
+            // is on screen.
+            completion(false)
+            guard let self, let sourceView else { return }
+            requestWorkspaceCloseConfirmation(
+                for: workspace,
+                sourceView: sourceView,
+                waitsForContextMenuDismissal: false
+            )
         }
         action.image = UIImage(systemName: "trash")
         // UIKit likewise provides no identifier property for this contextual action.
@@ -343,14 +409,81 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         contextMenuConfigurationForRowAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard let workspace = workspace(at: indexPath) else { return nil }
-        let actions = contextMenuActions(for: workspace)
+        guard
+            let workspace = workspace(at: indexPath),
+            let sourceView = tableView.cellForRow(at: indexPath)?.contentView
+        else { return nil }
+        let actions = contextMenuActions(for: workspace, sourceView: sourceView)
         guard !actions.isEmpty else { return nil }
         return UIContextMenuConfiguration(
             identifier: workspace.id.rawValue as NSString,
             previewProvider: nil
         ) { _ in
             UIMenu(children: actions)
+        }
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        willEndContextMenuInteraction configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        guard
+            let pendingContextMenuWorkspaceClose,
+            let menuWorkspaceID = configuration.identifier as? NSString,
+            menuWorkspaceID as String
+                == pendingContextMenuWorkspaceClose.workspace.id.rawValue
+        else { return }
+
+        let present = { [weak self] in
+            guard let self else { return }
+            self.presentPendingContextMenuWorkspaceClose()
+        }
+        if let animator {
+            animator.addCompletion(present)
+        } else {
+            present()
+        }
+    }
+
+    func requestWorkspaceCloseConfirmation(
+        for workspace: MobileWorkspacePreview,
+        sourceView: UIView,
+        waitsForContextMenuDismissal: Bool
+    ) {
+        guard configuration.closeWorkspace != nil else { return }
+        if waitsForContextMenuDismissal {
+            pendingContextMenuWorkspaceClose = (workspace, sourceView)
+        } else {
+            presentWorkspaceCloseConfirmation(
+                for: workspace,
+                sourceView: sourceView
+            )
+        }
+    }
+
+    private func presentPendingContextMenuWorkspaceClose() {
+        guard let pending = pendingContextMenuWorkspaceClose else { return }
+        pendingContextMenuWorkspaceClose = nil
+        presentWorkspaceCloseConfirmation(
+            for: pending.workspace,
+            sourceView: pending.sourceView
+        )
+    }
+
+    private func presentWorkspaceCloseConfirmation(
+        for workspace: MobileWorkspacePreview,
+        sourceView: UIView
+    ) {
+        guard
+            let tableViewController,
+            let closeWorkspace = configuration.closeWorkspace
+        else { return }
+        tableViewController.presentWorkspaceCloseConfirmation(
+            workspaceID: workspace.id,
+            sourceView: sourceView
+        ) {
+            closeWorkspace(workspace.id)
         }
     }
 
@@ -413,7 +546,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard let workspace = workspace(at: indexPath) else { return false }
         return (workspace.actionCapabilities.supportsReadStateActions && configuration.setUnread != nil)
             || (workspace.actionCapabilities.supportsCloseActions
-                && configuration.requestWorkspaceClose != nil)
+                && configuration.closeWorkspace != nil)
     }
 
     fileprivate func canMoveRow(at indexPath: IndexPath) -> Bool {
@@ -611,11 +744,21 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         for item: WorkspaceListTableItem,
         tableView: UITableView
     ) -> HeightCacheKey {
+        heightCacheKey(for: item, tableView: tableView, configuration: configuration)
+    }
+
+    private func heightCacheKey(
+        for item: WorkspaceListTableItem,
+        tableView: UITableView,
+        configuration: WorkspaceListTable
+    ) -> HeightCacheKey {
         let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
         let kind: HeightKind
         switch item {
         case .workspace(let id, _):
-            let changesChipIdentity = workspaceChangesChipHeightIdentity(id: id)
+            let changesChipIdentity = workspaceChangesChipHeightIdentity(
+                id: id, configuration: configuration
+            )
             if configuration.wrapWorkspaceTitles,
                let workspace = configuration.workspacesByID[id] {
                 kind = .workspaceWrapped(
@@ -673,7 +816,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     /// Separates chip modes and bounded digit-count widths that may wrap.
     private func workspaceChangesChipHeightIdentity(
-        id: MobileWorkspacePreview.ID
+        id: MobileWorkspacePreview.ID,
+        configuration: WorkspaceListTable
     ) -> WorkspaceChangesChipHeightKey? {
         guard configuration.workspaceChangesCapable,
               let workspace = configuration.workspacesByID[id],
@@ -721,7 +865,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 previous.workspacesByID[id]?.macConnectionStatus ?? previous.connectionStatus
             let nextConnectionStatus =
                 next.workspacesByID[id]?.macConnectionStatus ?? next.connectionStatus
-            return previous.workspacesByID[id] != next.workspacesByID[id]
+            return !Self.workspaceRenderEquivalent(
+                previous.workspacesByID[id], next.workspacesByID[id]
+            )
                 || workspaceChangesChipChanged(id: id, previous: previous, next: next)
                 || oldItem.isIndentedWorkspace != item.isIndentedWorkspace
                 || wasSelected != isSelected
@@ -767,12 +913,51 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
+    /// Whether two snapshots of a workspace render identically in the row.
+    ///
+    /// Full struct equality decides — fail-closed for any field this list
+    /// does not special-case, including ones added later — except the
+    /// activity timestamps: the row renders them at minute granularity
+    /// (``MobileWorkspacePreview/activityTimestampLabel(referenceDate:calendar:)``),
+    /// while the Mac restamps `last_activity_at`/`preview_at` from the latest
+    /// notification on every list emission. Sub-minute restamps therefore
+    /// must not count as changes, or every agent-output notification
+    /// re-renders rows that look exactly the same (measured at ~9ms of
+    /// main-thread work per tick on an M-series simulator, worse on device —
+    /// the workspace-list scroll stutter).
+    static func workspaceRenderEquivalent(
+        _ previous: MobileWorkspacePreview?,
+        _ next: MobileWorkspacePreview?
+    ) -> Bool {
+        if previous == next { return true }
+        guard var normalizedPrevious = previous, let next else {
+            return previous == nil && next == nil
+        }
+        if Self.sameRenderedMinute(normalizedPrevious.previewAt, next.previewAt) {
+            normalizedPrevious.previewAt = next.previewAt
+        }
+        if Self.sameRenderedMinute(normalizedPrevious.lastActivityAt, next.lastActivityAt) {
+            normalizedPrevious.lastActivityAt = next.lastActivityAt
+        }
+        return normalizedPrevious == next
+    }
+
+    /// Whether the row's timestamp label renders the same for both dates.
+    /// The label shows a wall-clock minute (or month/day), so two dates in
+    /// the same calendar minute are indistinguishable. `nil` transitions are
+    /// render-relevant (the label source can change) and stay unequal.
+    private static func sameRenderedMinute(_ lhs: Date?, _ rhs: Date?) -> Bool {
+        if lhs == rhs { return true }
+        guard let lhs, let rhs else { return false }
+        return Int(lhs.timeIntervalSinceReferenceDate / 60)
+            == Int(rhs.timeIntervalSinceReferenceDate / 60)
+    }
+
     private func workspaceActionAvailabilityChanged(
         previous: WorkspaceListTable,
         next: WorkspaceListTable
     ) -> Bool {
-        (previous.requestWorkspaceClose != nil) != (next.requestWorkspaceClose != nil)
-            || (previous.closeWorkspace != nil) != (next.closeWorkspace != nil)
+        (previous.closeWorkspace != nil) != (next.closeWorkspace != nil)
             || (previous.setUnread != nil) != (next.setUnread != nil)
             || (previous.setPinned != nil) != (next.setPinned != nil)
             || (previous.renameRequest != nil) != (next.renameRequest != nil)

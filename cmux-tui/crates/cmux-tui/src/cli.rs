@@ -3,12 +3,14 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::transport;
-use cmux_tui_core::server::{
-    CLEAR_HISTORY_CAPABILITY, LAYOUT_UNDO_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+use cmux_tui_core::{
+    LayoutRatioError, LayoutUndoError, LayoutUndoResult, ViewportWidthError,
+    platform::transport,
+    server::{
+        CLEAR_HISTORY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
+        VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
+    },
 };
-use cmux_tui_core::{LayoutRatioError, LayoutUndoError, LayoutUndoResult, ViewportWidthError};
 use serde_json::{Value, json};
 
 use crate::localization::{Catalog, LayoutMessages};
@@ -678,7 +680,7 @@ fn run_command(args: CliArgs) -> i32 {
             }
         }
     }
-    if let Err(err) = write_json_line(reader.get_mut(), &request) {
+    if let Err(err) = write_socket_request_sequence(reader.get_mut(), &request) {
         eprintln!("transport error: {err}");
         return 3;
     }
@@ -723,6 +725,21 @@ fn required_capability_with_catalog(
 fn write_json_line(writer: &mut dyn Write, value: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
     writer.write_all(b"\n")
+}
+
+fn write_socket_request_sequence(writer: &mut dyn Write, request: &Value) -> io::Result<()> {
+    if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+        write_json_line(
+            writer,
+            &json!({
+                "id": CAPABILITY_REQUEST_ID,
+                "cmd": "set-client-info",
+                "kind": "cli",
+                "capabilities": [GUARDED_BROWSER_POINTER_CAPABILITY],
+            }),
+        )?;
+    }
+    write_json_line(writer, request)
 }
 
 fn server_supports_capability(
@@ -1983,6 +2000,32 @@ mod tests {
         assert_eq!(
             server_supports_capability(&mut reader, ATTACH_INITIAL_SIZE_CAPABILITY),
             Ok(true)
+        );
+    }
+
+    #[test]
+    fn attach_surface_advertises_guarded_pointer_input_on_the_same_socket() {
+        let request = json!({"id": 1, "cmd": "attach-surface", "surface": 9});
+        let mut wire = Vec::new();
+
+        write_socket_request_sequence(&mut wire, &request).unwrap();
+
+        let messages = String::from_utf8(wire)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            messages,
+            vec![
+                json!({
+                    "id": 0,
+                    "cmd": "set-client-info",
+                    "kind": "cli",
+                    "capabilities": ["browser-pointer-frame-guard-v1"],
+                }),
+                request,
+            ]
         );
     }
 

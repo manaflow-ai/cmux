@@ -327,6 +327,21 @@ actor CmxIrohClientSessionPool {
         releaseControlOwner(for: key, ownerID: ownerID)
     }
 
+    /// Reclassifies one live control owner without reconnecting its admitted
+    /// peer session. Path selection then follows the current shell role.
+    func updateControlSessionPurpose(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID,
+        purpose: CmxTransportSessionPurpose
+    ) {
+        guard let key = try? sessionKey(for: request),
+              controlOwners[key]?.id == ownerID else {
+            return
+        }
+        controlOwners[key] = ControlOwner(id: ownerID, purpose: purpose)
+        publishSelectedPathChangeIfEstablished(for: key)
+    }
+
     func invalidate(for request: CmxByteTransportRequest) async {
         guard let key = try? sessionKey(for: request) else { return }
         await invalidateSession(

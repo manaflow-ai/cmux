@@ -68,7 +68,8 @@ extension Workspace {
         }
         return SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
             relayPort: relayPort,
-            initialCommand: startupInput
+            initialCommand: startupInput,
+            configuredRemoteCommand: configuration.configuredRemoteCommand
         )
     }
 
