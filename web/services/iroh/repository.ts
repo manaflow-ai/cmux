@@ -22,7 +22,6 @@ import {
   IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
-import type { IrohChallengeQuota } from "./config";
 import type { IrohDiscoveryCursor } from "./discoveryPagination";
 import {
   nextPathHintExpiry,
@@ -35,7 +34,6 @@ import {
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
-export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
 export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 
 export type IrohRetentionCategory =
@@ -82,7 +80,6 @@ export type IrohRepositoryShape = {
     readonly nonceHash: string;
     readonly now: Date;
     readonly expiresAt: Date;
-    readonly challengeQuota?: IrohChallengeQuota;
   }) => Effect.Effect<IrohChallengeRecord, RepositoryError>;
   readonly findChallenge: (
     userId: string,
@@ -185,50 +182,8 @@ function makeLiveRepository(): IrohRepositoryShape {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        const challengeQuota = input.challengeQuota ?? {
-          account: IROH_ACCOUNT_CHALLENGE_LIMIT,
-          deviceInstance: 6,
-          outstanding: 32,
-        };
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
-        const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
-        const [recentForAccount] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
-          ));
-        if ((recentForAccount?.total ?? 0) >= challengeQuota.account) {
-          throw new IrohQuotaExceededError({
-            code: "challenge_account_rate_limited",
-            retryAfterSeconds: 600,
-          });
-        }
-        const [recentForDeviceInstance] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            eq(irohRegistrationChallenges.deviceUuid, input.deviceUuid),
-            eq(irohRegistrationChallenges.appInstanceId, input.appInstanceId),
-            gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
-          ));
-        if ((recentForDeviceInstance?.total ?? 0) >= challengeQuota.deviceInstance) {
-          throw new IrohQuotaExceededError({ code: "challenge_rate_limited", retryAfterSeconds: 600 });
-        }
-        const [outstanding] = await tx
-          .select({ total: count() })
-          .from(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            isNull(irohRegistrationChallenges.consumedAt),
-            gt(irohRegistrationChallenges.expiresAt, input.now),
-          ));
-        if ((outstanding?.total ?? 0) >= challengeQuota.outstanding) {
-          throw new IrohQuotaExceededError({ code: "too_many_outstanding_challenges", retryAfterSeconds: 300 });
-        }
         // The register gate rejects a challenge whose createdAt is strictly
         // below the slot's registeredAt high-water mark. Both are millisecond
         // wall clocks, so two serialized mints can carry EQUAL timestamps; a
@@ -790,23 +745,6 @@ function makeLiveRepository(): IrohRepositoryShape {
         if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
           throw new IrohForbiddenError({ code: "target_not_pairable" });
         }
-        const hourAgo = new Date(input.issuedAt.getTime() - 60 * 60 * 1_000);
-        const recent = await tx
-          .select({ issuedAt: irohPairGrantIssuances.issuedAt })
-          .from(irohPairGrantIssuances)
-          .where(and(
-            eq(irohPairGrantIssuances.userId, input.userId),
-            gt(irohPairGrantIssuances.issuedAt, hourAgo),
-          ))
-          .orderBy(asc(irohPairGrantIssuances.issuedAt));
-        if (recent.length >= 60) {
-          throw quotaFromOldest(
-            "pair_grant_hour_quota",
-            recent[recent.length - 60]!.issuedAt,
-            60 * 60,
-            input.issuedAt,
-          );
-        }
         await tx.insert(irohPairGrantIssuances).values({
           userId: input.userId,
           jti: input.jti,
@@ -859,37 +797,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRelayTokenIssuances.status, "pending"),
             lte(irohRelayTokenIssuances.requestedAt, reservationCutoff),
           ));
-
-        const dayAgo = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
-        const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
-        const endpointRows = await tx
-          .select({ requestedAt: irohRelayTokenIssuances.requestedAt })
-          .from(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.bindingId, binding.id),
-            ne(irohRelayTokenIssuances.status, "expired"),
-            gt(irohRelayTokenIssuances.requestedAt, dayAgo),
-          ))
-          .orderBy(asc(irohRelayTokenIssuances.requestedAt));
-        const recentRows = endpointRows.filter((row) => row.requestedAt > tenMinutesAgo);
-        if (recentRows.length >= 3) {
-          throw quotaFromOldest("relay_endpoint_10m_quota", recentRows[recentRows.length - 3]!.requestedAt, 10 * 60, input.now);
-        }
-        if (endpointRows.length >= 12) {
-          throw quotaFromOldest("relay_endpoint_day_quota", endpointRows[endpointRows.length - 12]!.requestedAt, 24 * 60 * 60, input.now);
-        }
-        const userRows = await tx
-          .select({ requestedAt: irohRelayTokenIssuances.requestedAt })
-          .from(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            ne(irohRelayTokenIssuances.status, "expired"),
-            gt(irohRelayTokenIssuances.requestedAt, dayAgo),
-          ))
-          .orderBy(asc(irohRelayTokenIssuances.requestedAt));
-        if (userRows.length >= 100) {
-          throw quotaFromOldest("relay_user_day_quota", userRows[userRows.length - 100]!.requestedAt, 24 * 60 * 60, input.now);
-        }
 
         const [issuance] = await tx
           .insert(irohRelayTokenIssuances)
