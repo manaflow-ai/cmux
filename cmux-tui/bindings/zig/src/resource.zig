@@ -2006,6 +2006,7 @@ pub const Client = struct {
     request_admission_mutex: std.Thread.Mutex = .{},
     request_admission_condition: std.Thread.Condition = .{},
     request_active: bool = false,
+    request_waiters: usize = 0,
     close_mutex: std.Thread.Mutex = .{},
     last_error: ?OwnedResourceError = null,
     last_mutation_uncertain: ?OwnedMutationTransportUncertain = null,
@@ -2188,7 +2189,15 @@ pub const Client = struct {
     ) !void {
         self.request_admission_mutex.lock();
         defer self.request_admission_mutex.unlock();
+        var waiting = false;
+        defer {
+            if (waiting) self.request_waiters -= 1;
+        }
         while (self.request_active) {
+            if (!waiting) {
+                self.request_waiters += 1;
+                waiting = true;
+            }
             if (try deadline.remainingNs()) |remaining_ns| {
                 self.request_admission_condition.timedWait(
                     &self.request_admission_mutex,
@@ -2200,6 +2209,10 @@ pub const Client = struct {
                 );
             }
         }
+        if (waiting) {
+            self.request_waiters -= 1;
+            waiting = false;
+        }
         _ = try deadline.remainingNs();
         self.request_active = true;
     }
@@ -2208,7 +2221,9 @@ pub const Client = struct {
         self.request_admission_mutex.lock();
         defer self.request_admission_mutex.unlock();
         self.request_active = false;
-        self.request_admission_condition.signal();
+        if (self.request_waiters > 0) {
+            self.request_admission_condition.signal();
+        }
     }
 
     fn sendRequest(
@@ -14201,6 +14216,93 @@ const SplitBudgetConnection = struct {
     }
 };
 
+const FullDispatchDeadlineConnection = struct {
+    allocator: std.mem.Allocator,
+    output: std.ArrayList(u8) = .empty,
+    write_calls: usize = 0,
+    closed: bool = false,
+
+    fn create() !*FullDispatchDeadlineConnection {
+        const state = try std.testing.allocator.create(
+            FullDispatchDeadlineConnection,
+        );
+        state.* = .{ .allocator = std.testing.allocator };
+        return state;
+    }
+
+    pub fn read(
+        self: *FullDispatchDeadlineConnection,
+        buffer: []u8,
+        timeout_ms: ?u32,
+    ) !usize {
+        _ = self;
+        _ = buffer;
+        _ = timeout_ms;
+        return error.UnexpectedRead;
+    }
+
+    pub fn writeAll(
+        self: *FullDispatchDeadlineConnection,
+        bytes: []const u8,
+        timeout_ms: ?u32,
+    ) !void {
+        try self.output.appendSlice(self.allocator, bytes);
+        self.write_calls += 1;
+        if (self.write_calls == 2) {
+            const delay_ms = @as(u64, timeout_ms orelse 10) + 2;
+            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+        }
+    }
+
+    pub fn close(self: *FullDispatchDeadlineConnection) void {
+        self.closed = true;
+    }
+
+    pub fn deinit(self: *FullDispatchDeadlineConnection) void {
+        const allocator = self.allocator;
+        self.output.deinit(allocator);
+        allocator.destroy(self);
+    }
+};
+
+const AdmissionWorker = struct {
+    client: *Client,
+    timeout_ms: u32,
+    acquired: bool = false,
+    failure: ?anyerror = null,
+
+    fn run(self: *AdmissionWorker) void {
+        var deadline = TimeoutDeadline.start(self.timeout_ms) catch |failure| {
+            self.failure = failure;
+            return;
+        };
+        self.client.acquireRequest(&deadline) catch |failure| {
+            self.failure = failure;
+            return;
+        };
+        self.acquired = true;
+        self.client.releaseRequest();
+    }
+};
+
+fn waitForRequestWaiters(
+    client: *Client,
+    expected: usize,
+    timeout_ms: u32,
+) !void {
+    var timer = try std.time.Timer.start();
+    while (true) {
+        client.request_admission_mutex.lock();
+        const count = client.request_waiters;
+        client.request_admission_mutex.unlock();
+        if (count >= expected) return;
+        if (timer.read() >= @as(u64, timeout_ms) * std.time.ns_per_ms) {
+            return error.Timeout;
+        }
+        std.Thread.sleep(std.time.ns_per_ms);
+    }
+}
+
 const StreamFactoryState = struct {
     shared: *FakeShared,
 
@@ -15116,6 +15218,138 @@ test "one request deadline covers admission send and receive" {
     );
     try std.testing.expect(split.read_timeout_ms != null);
     try std.testing.expect(split.read_timeout_ms.? < 30);
+}
+
+test "fully dispatched mutation timeout preserves uncertainty" {
+    const dispatched = try FullDispatchDeadlineConnection.create();
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(dispatched),
+        .{ .timeout_ms = 10 },
+    );
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.MutationTransportUncertain,
+        client.workspace(workspace_id).rename(
+            "fully-dispatched",
+            try MutationOptions.withKey("full-dispatch-timeout-key"),
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 2), dispatched.write_calls);
+    try std.testing.expect(std.mem.endsWith(u8, dispatched.output.items, "\n"));
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            dispatched.output.items,
+            "\"operation\":\"workspace.rename\"",
+        ),
+    );
+    const uncertainty = client.lastMutationTransportUncertain().?;
+    try std.testing.expectEqual(
+        MutationTransportCause.timeout,
+        uncertainty.cause,
+    );
+    try std.testing.expectEqualStrings(
+        "full-dispatch-timeout-key",
+        uncertainty.idempotency_key,
+    );
+    try std.testing.expect(dispatched.closed);
+}
+
+test "mutation framing failures before full dispatch stay determinate" {
+    for ([_]usize{ 1, 2 }) |fail_write_call| {
+        var shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .fail_write_call = fail_write_call,
+        };
+        defer shared.deinit();
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+        const workspace_id = try WorkspaceId.parse(
+            "ws_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            error.InjectedWriteFailure,
+            client.workspace(workspace_id).rename(
+                "not-dispatched",
+                try MutationOptions.withKey("pre-dispatch-failure-key"),
+            ),
+        );
+        try std.testing.expect(
+            client.lastMutationTransportUncertain() == null,
+        );
+    }
+}
+
+test "expired admission successor wakes three queued waiters" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    client.request_admission_mutex.lock();
+    client.request_active = true;
+    client.request_admission_mutex.unlock();
+
+    var workers = [_]AdmissionWorker{
+        .{ .client = &client, .timeout_ms = 1_000 },
+        .{ .client = &client, .timeout_ms = 1_000 },
+        .{ .client = &client, .timeout_ms = 1_000 },
+    };
+    var threads: [workers.len]std.Thread = undefined;
+    var thread_count: usize = 0;
+    var threads_joined = false;
+    defer {
+        if (!threads_joined) {
+            for (threads[0..thread_count]) |*thread| thread.join();
+        }
+    }
+    for (&workers, 0..) |*worker, index| {
+        threads[index] = try std.Thread.spawn(
+            .{},
+            AdmissionWorker.run,
+            .{worker},
+        );
+        thread_count += 1;
+    }
+    try waitForRequestWaiters(&client, workers.len, 250);
+
+    // Model the first signaled successor reaching the idle slot only after
+    // its deadline. The expired claimant must pass the wakeup onward.
+    var expired = try TimeoutDeadline.start(1);
+    std.Thread.sleep(2 * std.time.ns_per_ms);
+    client.request_admission_mutex.lock();
+    client.request_active = false;
+    client.request_admission_mutex.unlock();
+    try std.testing.expectError(
+        error.Timeout,
+        client.acquireRequest(&expired),
+    );
+
+    for (&threads) |*thread| thread.join();
+    threads_joined = true;
+    for (workers) |worker| {
+        try std.testing.expect(worker.acquired);
+        try std.testing.expect(worker.failure == null);
+    }
 }
 
 test "queued request admission expires without writing a frame" {
