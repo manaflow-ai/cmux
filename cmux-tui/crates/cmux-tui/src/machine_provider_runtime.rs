@@ -3915,7 +3915,7 @@ mod tests {
                 &protocol::ResponseEnvelope::success(
                     request.id,
                     protocol::ConnectExternalMachineResult {
-                        machine_id: id("machine-1"),
+                        machine_id: id("machine-2"),
                         revision: server_catalog.revision,
                         notice: None,
                     },
@@ -3957,7 +3957,7 @@ mod tests {
         controller.provider.reconnect_control().unwrap();
         let result = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
 
-        assert!(result.ui.request.is_some());
+        assert_eq!(result.ui.request, Some(MachineRequest::ReconnectProvider));
         controller.close();
         server.join().unwrap();
     }
