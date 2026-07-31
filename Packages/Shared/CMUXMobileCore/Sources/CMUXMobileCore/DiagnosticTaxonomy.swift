@@ -71,6 +71,11 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     /// event queue overflowed while the transport stopped draining (for
     /// example the peer's network path died mid-write).
     case sendQueueOverflow = 24
+    /// The connect-attempt registry refused a dial because the route was held
+    /// by an in-flight or recently abandoned dial, or hard-gated after
+    /// repeated abandoned attempts. Distinguishes gate refusals from genuine
+    /// dial timeouts in exports.
+    case routeGated = 25
     case unknown = 255
 
     /// Reduces a typed or system error to the bounded diagnostic vocabulary.
@@ -201,6 +206,12 @@ public enum DiagnosticSessionLifecycleKind: Int, Sendable, Codable, CaseIterable
     case runtimeReconfigured = 9
     /// A caller explicitly invalidated one exact peer session.
     case explicitlyInvalidated = 10
+    /// The pool evicted a session that reported no usable network path for a
+    /// full bounded grace window while its closure callback never fired.
+    case allPathsClosed = 11
+    /// Foreground validation found a pooled session with no usable path before
+    /// the first post-wake caller could reuse it.
+    case foregroundValidationFailed = 12
 }
 
 /// Which component produced a diagnostic report.

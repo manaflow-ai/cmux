@@ -1126,6 +1126,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "利用可能な経路がありません" } }
       }
     },
+    "mobile.iroh.diagnostics.failure.routeGated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が制限されています" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.credentialUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {

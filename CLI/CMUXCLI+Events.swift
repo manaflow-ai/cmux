@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 
 private struct EventStreamLimitReached: Error {}
+private struct EventStreamSnapshotCaptured: Error {}
 
 extension CMUXCLI {
     private struct EventsCommandOptions {
@@ -12,6 +13,8 @@ extension CMUXCLI {
         var categories: [String] = []
         var reconnect = false
         var limit: Int?
+        var timeout: TimeInterval?
+        var snapshotOnly = false
         var printAck = true
         var printHeartbeats = true
     }
@@ -28,15 +31,25 @@ extension CMUXCLI {
 
         var lastSeq = options.afterSeq
         var emittedEvents = 0
+        let deadline = options.timeout.map { Date.now.addingTimeInterval($0) }
 
         while true {
+            if let deadline, Date.now >= deadline {
+                throw CLIError(message: "Timed out waiting for a matching event")
+            }
             let client = SocketClient(path: socketPath)
             do {
-                try client.connect()
+                if let deadline {
+                    try client.connect(deadline: deadline)
+                } else {
+                    try client.connect()
+                }
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: explicitPassword,
-                    socketPath: socketPath
+                    socketPath: socketPath,
+                    responseTimeout: deadline?.timeIntervalSinceNow,
+                    deadline: deadline
                 )
 
                 var params: [String: Any] = [
@@ -52,7 +65,11 @@ extension CMUXCLI {
                     params["categories"] = options.categories
                 }
 
-                try client.streamV2(method: "events.stream", params: params) { line in
+                try client.streamV2(
+                    method: "events.stream",
+                    params: params,
+                    deadline: deadline
+                ) { line in
                     guard !line.isEmpty else { return }
                     let frame = try parseEventStreamFrame(line)
                     let type = frame["type"] as? String ?? ""
@@ -67,15 +84,17 @@ extension CMUXCLI {
                         eventSequence = nil
                     }
 
-                    if type == "ack", !options.printAck {
-                        return
-                    }
-                    if type == "heartbeat", !options.printHeartbeats {
-                        return
+                    let shouldPrint =
+                        (type != "ack" || options.printAck)
+                        && (type != "heartbeat" || options.printHeartbeats)
+                    if shouldPrint {
+                        print(line)
+                        fflush(stdout)
                     }
 
-                    print(line)
-                    fflush(stdout)
+                    if type == "ack", options.snapshotOnly {
+                        throw EventStreamSnapshotCaptured()
+                    }
 
                     if let eventSequence {
                         if let cursorFile = options.cursorFile {
@@ -88,15 +107,25 @@ extension CMUXCLI {
                         }
                     }
                 }
+            } catch is EventStreamSnapshotCaptured {
+                client.close()
+                return
             } catch is EventStreamLimitReached {
                 client.close()
                 return
             } catch {
                 client.close()
+                if let deadline, Date.now >= deadline {
+                    throw CLIError(message: "Timed out waiting for a matching event")
+                }
                 guard options.reconnect, isTransientEventStreamError(error) else {
                     throw error
                 }
-                waitBeforeReconnectingEventStream()
+                let remaining = deadline?.timeIntervalSinceNow ?? 1
+                guard remaining > 0 else {
+                    throw CLIError(message: "Timed out waiting for a matching event")
+                }
+                waitBeforeReconnectingEventStream(maximumDelay: remaining)
                 continue
             }
         }
@@ -133,10 +162,12 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream() {
-        let deadline = Date(timeIntervalSinceNow: 1.0)
+    func waitBeforeReconnectingEventStream(maximumDelay: TimeInterval = 1) {
+        let delay = min(1, max(0, maximumDelay))
+        guard delay > 0 else { return }
+        let deadline = Date(timeIntervalSinceNow: delay)
         var didFire = false
-        let timer = Timer(timeInterval: 1.0, repeats: false) { _ in
+        let timer = Timer(timeInterval: delay, repeats: false) { _ in
             didFire = true
         }
         RunLoop.current.add(timer, forMode: .default)
@@ -178,6 +209,16 @@ extension CMUXCLI {
                     throw CLIError(message: "--limit must be greater than 0")
                 }
                 options.limit = limit
+            case "--timeout":
+                let raw = try requireValue()
+                guard let timeout = TimeInterval(raw),
+                      timeout.isFinite,
+                      timeout > 0 else {
+                    throw CLIError(message: "--timeout must be greater than 0")
+                }
+                options.timeout = timeout
+            case "--snapshot":
+                options.snapshotOnly = true
             case "--no-ack":
                 options.printAck = false
             case "--no-heartbeat", "--no-heartbeats":

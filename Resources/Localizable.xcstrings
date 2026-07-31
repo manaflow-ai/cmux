@@ -172941,6 +172941,23 @@
         }
       }
     },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
+          }
+        }
+      }
+    },
     "settings.networking.diagnostics.failure.secureChannelFailed": {
       "extractionState": "manual",
       "localizations": {

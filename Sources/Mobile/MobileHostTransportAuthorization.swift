@@ -278,6 +278,18 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+        lock.lock()
+        irohRoute = try? CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(identity: binding.endpointID, pathHints: []),
+            priority: 0
+        )
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []

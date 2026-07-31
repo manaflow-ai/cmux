@@ -13,6 +13,11 @@ public actor CmxIrohHostRuntime {
         _ discovery: CmxIrohDiscoveryResponse,
         _ attestation: CmxIrohEndpointAttestationResponse?
     ) async -> Void
+    /// Publishes the binding selected for the active endpoint, including a
+    /// verified cached binding used during broker connectivity loss.
+    public typealias ResolvedBindingHandler = @Sendable (
+        _ binding: CmxIrohBrokerBindingMetadata
+    ) async -> Void
     /// Clears app-visible network state after the endpoint and accepts are closed.
     ///
     /// Persistent identity and credential deletion belongs to the caller and
@@ -70,6 +75,7 @@ public actor CmxIrohHostRuntime {
     let registrationRetryJitter: @Sendable () -> Double
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
+    let handleResolvedBinding: ResolvedBindingHandler
     let handleDeactivation: DeactivationHandler
     let handleRelayCredential: RelayCredentialHandler
     let handleLANRefresh: LANRefreshHandler
@@ -123,6 +129,7 @@ public actor CmxIrohHostRuntime {
         },
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
+        handleResolvedBinding: @escaping ResolvedBindingHandler = { _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLANRefresh: @escaping LANRefreshHandler = {},
@@ -140,6 +147,7 @@ public actor CmxIrohHostRuntime {
         self.registrationRetryJitter = registrationRetryJitter
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
+        self.handleResolvedBinding = handleResolvedBinding
         self.handleDeactivation = handleDeactivation
         self.handleRelayCredential = handleRelayCredential
         self.handleLANRefresh = handleLANRefresh
@@ -302,6 +310,8 @@ public actor CmxIrohHostRuntime {
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
             }
+            await handleResolvedBinding(publishedPolicy.binding)
+            try requireCurrent(revision)
             if let registration = publishedPolicy.registration,
                let discovery = publishedPolicy.discovery {
                 await handleBinding(registration, discovery, publishedPolicy.attestation)

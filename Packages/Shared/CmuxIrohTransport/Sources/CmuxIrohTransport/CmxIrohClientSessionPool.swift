@@ -64,10 +64,22 @@ actor CmxIrohClientSessionPool {
     private var controlOwners: [SessionKey: ControlOwner] = [:]
     private var controlWaiters: [SessionKey: [ControlWaiter]] = [:]
     private var selectedPathContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var allPathsClosedEvictions: [
+        SessionKey: (sessionID: UUID, task: Task<Void, Never>)
+    ] = [:]
 
     /// Never-hit safety bound for a dial that ignores cancellation, retained so
     /// one wedged dial can never become a permanent connect outage.
     static var retiredDialSettleWaitLimitSeconds: TimeInterval { 10 }
+
+    /// Grace a pooled session gets with no usable path before the pool
+    /// declares it dead. The iroh boundary normally reports closure itself
+    /// (dead-path failover, QUIC idle timeout), so this is the level-triggered
+    /// backstop for a session whose closure callback never fires; the
+    /// 2026-07-29 outage session lost both paths and stayed pooled for 73+s
+    /// (https://github.com/manaflow-ai/cmux/issues/9178). Sized above a normal
+    /// path migration, below the point where recovery visibly stalls.
+    static var allPathsClosedEvictionGraceSeconds: TimeInterval { 15 }
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
@@ -84,7 +96,10 @@ actor CmxIrohClientSessionPool {
     }
 
     func activate(runtimeGeneration: UInt64) async {
-        guard self.runtimeGeneration != runtimeGeneration else { return }
+        guard self.runtimeGeneration != runtimeGeneration else {
+            await validatePooledSessionsForForeground()
+            return
+        }
         await invalidateAll(reason: .runtimeReconfigured)
         self.runtimeGeneration = runtimeGeneration
     }
@@ -202,9 +217,10 @@ actor CmxIrohClientSessionPool {
             }
             let pathObservationTask = Task { [weak self] in
                 let changes = await connected.observedSelectedPathChanges()
-                for await _ in changes {
+                for await observed in changes {
                     guard !Task.isCancelled else { return }
-                    await self?.publishSelectedPathChange(
+                    await self?.handleObservedSelectedPathChange(
+                        observed,
                         key: key,
                         sessionID: sessionID
                     )
@@ -360,6 +376,10 @@ actor CmxIrohClientSessionPool {
         for key in Array(connectionTasks.keys) {
             retirePendingConnection(for: key)
         }
+        for pending in allPathsClosedEvictions.values {
+            pending.task.cancel()
+        }
+        allPathsClosedEvictions.removeAll(keepingCapacity: false)
         let closing = sessions
         let closingOwners = controlOwners
         sessions.removeAll(keepingCapacity: false)
@@ -381,6 +401,30 @@ actor CmxIrohClientSessionPool {
             )
         }
         publishSelectedPathChange()
+    }
+
+    private func validatePooledSessionsForForeground() async {
+        for key in Array(sessionOrder) {
+            guard let pooled = sessions[key] else { continue }
+            if await pooled.session.isClosed() {
+                await invalidateSession(
+                    for: key,
+                    matching: pooled.id,
+                    reason: .closedSessionEvicted,
+                    failure: .connectionClosed
+                )
+                continue
+            }
+            guard await pooled.session.observedSelectedPath() == .unavailable else {
+                continue
+            }
+            await invalidateSession(
+                for: key,
+                matching: pooled.id,
+                reason: .foregroundValidationFailed,
+                failure: .noRoute
+            )
+        }
     }
 
     func selectedObservedPath() async -> CmxIrohObservedConnectionPath {
@@ -412,9 +456,76 @@ actor CmxIrohClientSessionPool {
         return controlWaiters[key]?.count ?? 0
     }
 
+    /// Reacts to one session's selected-path evidence. `.unavailable` arms a
+    /// bounded eviction so a session whose closure callback never fires cannot
+    /// sit in the pool as a corpse; any usable path disarms it.
+    private func handleObservedSelectedPathChange(
+        _ observed: CmxIrohObservedConnectionPath,
+        key: SessionKey,
+        sessionID: UUID
+    ) {
+        if observed == .unavailable {
+            armAllPathsClosedEviction(for: key, sessionID: sessionID)
+        } else {
+            cancelAllPathsClosedEviction(for: key, sessionID: sessionID)
+        }
+        publishSelectedPathChange(key: key, sessionID: sessionID)
+    }
+
+    private func armAllPathsClosedEviction(for key: SessionKey, sessionID: UUID) {
+        guard sessions[key]?.id == sessionID else { return }
+        if let pending = allPathsClosedEvictions[key], pending.sessionID == sessionID {
+            return
+        }
+        allPathsClosedEvictions[key]?.task.cancel()
+        let clock = clock
+        let deadline = clock.now()
+            .addingTimeInterval(Self.allPathsClosedEvictionGraceSeconds)
+        let task = Task { [weak self] in
+            // Injected-clock sleep bounds the grace window; the task is
+            // cancelled when a usable path returns or the session leaves the
+            // pool, so a recovered connection never pays for this deadline.
+            try? await clock.sleep(until: deadline)
+            guard !Task.isCancelled else { return }
+            await self?.evictIfPathsStillClosed(for: key, sessionID: sessionID)
+        }
+        allPathsClosedEvictions[key] = (sessionID: sessionID, task: task)
+    }
+
+    private func cancelAllPathsClosedEviction(for key: SessionKey, sessionID: UUID) {
+        guard let pending = allPathsClosedEvictions[key],
+              pending.sessionID == sessionID else { return }
+        pending.task.cancel()
+        allPathsClosedEvictions[key] = nil
+    }
+
+    private func clearAllPathsClosedEviction(for key: SessionKey) {
+        allPathsClosedEvictions[key]?.task.cancel()
+        allPathsClosedEvictions[key] = nil
+    }
+
+    private func evictIfPathsStillClosed(for key: SessionKey, sessionID: UUID) async {
+        if let pending = allPathsClosedEvictions[key], pending.sessionID == sessionID {
+            allPathsClosedEvictions[key] = nil
+        }
+        guard let pooled = sessions[key], pooled.id == sessionID else { return }
+        // Level-triggered: re-read live path state at the deadline instead of
+        // trusting the event that armed this eviction.
+        guard await pooled.session.observedSelectedPath() == .unavailable else {
+            return
+        }
+        await invalidateSession(
+            for: key,
+            matching: sessionID,
+            reason: .allPathsClosed,
+            failure: .noRoute
+        )
+    }
+
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
         let owner = controlOwners[key]
+        clearAllPathsClosedEviction(for: key)
         sessions[key] = nil
         sessionOrder.removeAll { $0 == key }
         pooled.pathObservationTask.cancel()
@@ -457,6 +568,7 @@ actor CmxIrohClientSessionPool {
         if let expectedID, sessions[key]?.id != expectedID { return }
         let currentOwner = controlOwners[key]
         let owner = releasesControlOwner ? currentOwner : nil
+        clearAllPathsClosedEviction(for: key)
         retirePendingConnection(for: key)
         let pooled = sessions.removeValue(forKey: key)
         sessionOrder.removeAll { $0 == key }

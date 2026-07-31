@@ -34,19 +34,43 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
 /// session's access token with another's refresh token) is no longer
 /// expressible. The single-token accessors are derived from the pair for
 /// callers that need one token.
+///
+/// The pair read distinguishes two failure states. Returning `nil` means the
+/// credentials are DEFINITIVELY absent (signed out, account switched) and the
+/// broker fails closed with ``CmxIrohTrustBrokerClientError/missingAuthentication``.
+/// Throwing means the source could not read a coherent pair RIGHT NOW (the
+/// token store is owned by a launch/foreground revalidation, or an expired
+/// access token's re-mint is in flight or offline); the broker classifies
+/// that as ``CmxIrohTrustBrokerClientError/connectivity`` so callers retry and
+/// cached-policy fallbacks apply instead of tearing trusted state down.
 public struct CmxIrohBrokerTokenSource: Sendable {
-    public let accessToken: @Sendable () async -> String?
-    public let refreshToken: @Sendable () async -> String?
+    public let accessToken: @Sendable () async throws -> String?
+    public let refreshToken: @Sendable () async throws -> String?
     /// Both tokens from ONE snapshot, so a request can never mix an old access
     /// token with a rotated refresh token.
-    public let credentialPair: @Sendable () async -> CmxIrohBrokerCredentials?
+    public let credentialPair: @Sendable () async throws -> CmxIrohBrokerCredentials?
+    /// Replaces a pair the broker just rejected as unauthorized.
+    ///
+    /// A pair that was coherent at capture can still be rejected when another
+    /// lane rotates the session between capture and server validation (the
+    /// wake-time RPC force refresh, most commonly). Live sources force-mint
+    /// through their session owner and return the replacement pair; frozen
+    /// pinned sources (sign-out revocation) return nil so a destructive flow
+    /// never silently switches credentials. The client retries the rejected
+    /// request at most once with the recovered pair.
+    public let recoveredCredentialPair:
+        @Sendable (_ rejected: CmxIrohBrokerCredentials) async -> CmxIrohBrokerCredentials?
 
     public init(
-        credentialPair: @escaping @Sendable () async -> CmxIrohBrokerCredentials?
+        credentialPair: @escaping @Sendable () async throws -> CmxIrohBrokerCredentials?,
+        recoveredCredentialPair: @escaping @Sendable (
+            _ rejected: CmxIrohBrokerCredentials
+        ) async -> CmxIrohBrokerCredentials? = { _ in nil }
     ) {
         self.credentialPair = credentialPair
-        self.accessToken = { await credentialPair()?.accessToken }
-        self.refreshToken = { await credentialPair()?.refreshToken }
+        self.recoveredCredentialPair = recoveredCredentialPair
+        self.accessToken = { try await credentialPair()?.accessToken }
+        self.refreshToken = { try await credentialPair()?.refreshToken }
     }
 }
 
@@ -448,11 +472,64 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         // refresh through two independent calls lets a force refresh land
         // between them and pair a stale access token with a rotated refresh
         // token, which the broker rejects.
-        guard let pair = await tokenSource.credentialPair() else {
+        let capturedPair: CmxIrohBrokerCredentials?
+        do {
+            capturedPair = try await tokenSource.credentialPair()
+        } catch {
+            // The source could not read a coherent pair right now (token store
+            // mid-transition, re-mint in flight or offline). That is transient
+            // and indistinguishable from an unreachable broker for every
+            // caller policy (retry, cached-policy fallback, verified-policy
+            // preservation), so classify it as connectivity, not as a
+            // definitive authentication failure.
+            throw CmxIrohTrustBrokerClientError.connectivity
+        }
+        guard let pair = capturedPair else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
         }
-        let accessToken = pair.accessToken
-        let refreshToken = pair.refreshToken
+        do {
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: pair
+            )
+        } catch let error as CmxIrohTrustBrokerClientError
+            where Self.isUnauthorizedRejection(error) {
+            // A pair that was coherent at capture can be rejected when another
+            // lane rotated the session before the server validated it. Recover
+            // ONCE with a pair minted after the rejection; a second rejection
+            // is authoritative and propagates.
+            guard let recovered = await tokenSource.recoveredCredentialPair(pair) else {
+                throw error
+            }
+            return try await performAuthenticatedRequest(
+                path: path,
+                method: method,
+                body: body,
+                queryItems: queryItems,
+                credentials: recovered
+            )
+        }
+    }
+
+    private static func isUnauthorizedRejection(
+        _ error: CmxIrohTrustBrokerClientError
+    ) -> Bool {
+        guard case let .rejected(statusCode, _) = error else { return false }
+        return statusCode == 401
+    }
+
+    private func performAuthenticatedRequest<Response: Decodable & Sendable>(
+        path: String,
+        method: String,
+        body: Data?,
+        queryItems: [URLQueryItem],
+        credentials: CmxIrohBrokerCredentials
+    ) async throws -> Response {
+        let accessToken = credentials.accessToken
+        let refreshToken = credentials.refreshToken
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
