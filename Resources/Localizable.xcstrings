@@ -227417,6 +227417,23 @@
         }
       }
     },
+    "socket.surface.resume.launchCommandMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command must contain a non-empty string arguments array"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command には空でない文字列の arguments 配列が必要です"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {

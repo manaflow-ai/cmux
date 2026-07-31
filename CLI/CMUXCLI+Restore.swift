@@ -381,13 +381,13 @@ extension CMUXCLI {
     private func restoreCompatibilityShell(environment: [String: String]) -> String {
         if let shell = environment["SHELL"],
            shell.hasPrefix("/"),
-           FileManager.default.isExecutableFile(atPath: shell) {
+           isExecutableRegularFile(atPath: shell) {
             return shell
         }
         if let record = getpwuid(getuid()),
            let shellPointer = record.pointee.pw_shell {
             let shell = String(cString: shellPointer)
-            if FileManager.default.isExecutableFile(atPath: shell) {
+            if isExecutableRegularFile(atPath: shell) {
                 return shell
             }
         }
@@ -399,7 +399,7 @@ extension CMUXCLI {
         environment: [String: String]
     ) -> String? {
         if executable.contains("/") {
-            return FileManager.default.isExecutableFile(atPath: executable)
+            return isExecutableRegularFile(atPath: executable)
                 ? executable
                 : nil
         }
@@ -409,11 +409,20 @@ extension CMUXCLI {
             let candidate = URL(fileURLWithPath: root, isDirectory: true)
                 .appendingPathComponent(executable, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            if isExecutableRegularFile(atPath: candidate) {
                 return candidate
             }
         }
         return nil
+    }
+
+    private func isExecutableRegularFile(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 
     private func withCStringArray<Result>(

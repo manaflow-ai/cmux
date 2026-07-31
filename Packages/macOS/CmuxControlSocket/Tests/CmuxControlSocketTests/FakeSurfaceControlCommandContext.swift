@@ -10,7 +10,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeClearAgentSessionEnded: Bool?
     var resumeStrings = ControlSurfaceResumeStrings(
-        agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean"
+        agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
+        launchCommandMustBeValid: "launch_command must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?

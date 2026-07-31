@@ -252,6 +252,50 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test(
+        "surface resume set rejects malformed structured launch data",
+        arguments: [
+            JSONValue.string("codex"),
+            .object([:]),
+            .object(["arguments": .array([])]),
+            .object(["arguments": .array([.string("codex"), .int(1)])]),
+            .object([
+                "arguments": .array([.string("codex")]),
+                "environment": .object(["CODEX_HOME": .int(1)]),
+            ]),
+            .object([
+                "arguments": .array([.string("codex")]),
+                "captured_at": .string("now"),
+            ]),
+        ]
+    )
+    func surfaceResumeSetRejectsMalformedStructuredLaunchData(
+        launchCommand: JSONValue
+    ) {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeStrings = ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            launchCommandMustBeValid: "localized launch-command validation"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume legacy"),
+                "launch_command": launchCommand,
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "localized launch-command validation",
+            data: nil
+        ))
+        #expect(context.resumeSetInputs == nil)
+    }
+
     @Test func surfaceResumeGetEmitsStructuredRestoreRecord() throws {
         let context = FakeSurfaceControlCommandContext()
         let surfaceID = UUID()
@@ -331,7 +375,8 @@ struct ControlCommandCoordinatorSurfaceTests {
     func surfaceResumeClearRejectsMalformedSessionEndProvenance(value: JSONValue) {
         let context = FakeSurfaceControlCommandContext()
         context.resumeStrings = ControlSurfaceResumeStrings(
-            agentSessionEndedMustBeBoolean: "localized boolean validation"
+            agentSessionEndedMustBeBoolean: "localized boolean validation",
+            launchCommandMustBeValid: "localized launch-command validation"
         )
         let coordinator = ControlCommandCoordinator(context: context)
 

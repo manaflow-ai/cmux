@@ -33,10 +33,16 @@ public struct AgentRestoreLaunch: Sendable {
     ) -> String {
         guard let path = bundledCLIPath,
               !path.isEmpty,
+              path.rangeOfCharacter(from: .newlines) == nil,
               isExecutableFile(path) else {
             return "cmux"
         }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let unescapedScalars = CharacterSet.alphanumerics.union(
+            CharacterSet(charactersIn: "/._-")
+        )
+        return path.unicodeScalars.map { scalar in
+            unescapedScalars.contains(scalar) ? String(scalar) : "\\\(scalar)"
+        }.joined()
     }
 
     private enum Provider: String, Sendable {

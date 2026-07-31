@@ -37,7 +37,8 @@ public struct AgentRestorePlanner: Sendable {
         for request: AgentRestoreRequest,
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
-        guard let plannedArguments = plannedArguments(for: request),
+        let kind = normalizedKind(request.kind)
+        guard let plannedArguments = plannedArguments(for: request, kind: kind),
               !plannedArguments.values.isEmpty else {
             return nil
         }
@@ -67,7 +68,7 @@ public struct AgentRestorePlanner: Sendable {
         guard !sanitizedArguments.isEmpty else { return nil }
 
         var environment = ambientEnvironment
-        let restoredEnvironment = restoredEnvironment(for: request)
+        let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
         environment.merge(restoredEnvironment) { _, restored in restored }
 
         var routedArguments = sanitizedArguments
@@ -75,6 +76,7 @@ public struct AgentRestorePlanner: Sendable {
             routedArguments = routeManagedWrapper(
                 arguments: routedArguments,
                 request: request,
+                kind: kind,
                 environment: &environment
             )
         }
@@ -82,7 +84,7 @@ public struct AgentRestorePlanner: Sendable {
 
         let preflights = hermesPreflights(
             arguments: &routedArguments,
-            request: request,
+            kind: kind,
             environment: environment,
             ambientEnvironment: ambientEnvironment
         )
@@ -95,20 +97,24 @@ public struct AgentRestorePlanner: Sendable {
     }
 
     private func plannedArguments(
-        for request: AgentRestoreRequest
+        for request: AgentRestoreRequest,
+        kind: String
     ) -> (values: [String], removesCapturedWorkingDirectoryOptions: Bool)? {
+        let preparedArguments = request.preparedArguments.flatMap {
+            $0.isEmpty ? nil : $0
+        }
         switch request.mode {
         case .direct:
-            return (request.preparedArguments ?? request.launchCommand?.arguments).map {
+            return (preparedArguments ?? request.launchCommand?.arguments).map {
                 ($0, false)
             }
         case .relaunchAgent:
-            if let preparedArguments = request.preparedArguments, !preparedArguments.isEmpty {
+            if let preparedArguments {
                 return (preparedArguments, false)
             }
             guard let launchCommand = request.launchCommand else { return nil }
             return AgentResumeArgv().builtInRelaunchKind(
-                kind: request.kind,
+                kind: kind,
                 executablePath: launchCommand.executablePath,
                 arguments: launchCommand.arguments
             ).map { ($0, true) }
@@ -125,10 +131,10 @@ public struct AgentRestorePlanner: Sendable {
                 if let arguments {
                     return (arguments, true)
                 }
-                return request.preparedArguments.map { ($0, false) }
+                return preparedArguments.map { ($0, false) }
             case .passthrough:
                 if let arguments = AgentResumeArgv().builtInKind(
-                    kind: request.kind,
+                    kind: kind,
                     sessionId: checkpointID,
                     executablePath: launch?.executablePath,
                     arguments: launch?.arguments ?? [],
@@ -136,24 +142,25 @@ public struct AgentRestorePlanner: Sendable {
                 ) {
                     return (arguments, true)
                 }
-                return request.preparedArguments.map { ($0, false) }
+                return preparedArguments.map { ($0, false) }
             }
         }
     }
 
-    private func restoredEnvironment(for request: AgentRestoreRequest) -> [String: String] {
-        if request.mode == .direct {
-            var captured = request.launchCommand?.environment ?? [:]
-            captured.merge(request.environment) { _, binding in binding }
-            return captured
-        }
+    private func restoredEnvironment(
+        for request: AgentRestoreRequest,
+        kind: String
+    ) -> [String: String] {
         var captured = request.launchCommand?.environment ?? [:]
         captured.merge(request.environment) { _, binding in binding }
+        if request.mode == .direct {
+            return captured
+        }
         var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
             from: captured,
-            kind: request.kind
+            kind: kind
         )
-        if request.kind == "claude" {
+        if kind == "claude" {
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }
@@ -195,11 +202,12 @@ public struct AgentRestorePlanner: Sendable {
     private func routeManagedWrapper(
         arguments: [String],
         request: AgentRestoreRequest,
+        kind: String,
         environment: inout [String: String]
     ) -> [String] {
         guard let first = arguments.first,
               let restoreLaunch = AgentRestoreLaunch(
-                  kind: request.kind,
+                  kind: kind,
                   sessionID: request.checkpointID
               ),
               (first as NSString).lastPathComponent == restoreLaunch.executableName else {
@@ -210,7 +218,7 @@ public struct AgentRestorePlanner: Sendable {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
-        let shimKey = request.kind == "claude"
+        let shimKey = kind == "claude"
             ? "CMUX_CLAUDE_WRAPPER_SHIM"
             : "CMUX_CODEX_WRAPPER_SHIM"
         let routedExecutable =
@@ -223,11 +231,11 @@ public struct AgentRestorePlanner: Sendable {
 
     private func hermesPreflights(
         arguments: inout [String],
-        request: AgentRestoreRequest,
+        kind: String,
         environment: [String: String],
         ambientEnvironment: [String: String]
     ) -> [AgentRestorePreflightInvocation] {
-        guard request.kind == "hermes-agent" else { return [] }
+        guard kind == "hermes-agent" else { return [] }
         arguments = HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(arguments)
         guard !arguments.contains(where: { $0.contains("model.api_mode") }),
               hermesProvider(in: arguments).map({
@@ -281,5 +289,9 @@ public struct AgentRestorePlanner: Sendable {
     private func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func normalizedKind(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }

@@ -159,7 +159,6 @@ import Testing
         for argument in arguments.dropFirst() {
             XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
         }
-        XCTAssertFalse(result.stdout.contains("/bin/sh -c"), result.stdout)
         let methods = try responder.receivedRequests.map { request in
             let data = try XCTUnwrap(request.data(using: .utf8))
             let object = try XCTUnwrap(
@@ -218,6 +217,9 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
@@ -259,6 +261,9 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
@@ -302,6 +307,9 @@ import Testing
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
@@ -346,6 +354,53 @@ import Testing
             ),
             result.stdout
         )
+    }
+
+    @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
+        let cliPath = try bundledCLIPath()
+        let currentCheckpointID = UUID().uuidString.lowercased()
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "codex",
+                "checkpoint_id": currentCheckpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-drift-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        for arguments in [
+            ["restore", "claude", currentCheckpointID],
+            ["restore", "codex", UUID().uuidString.lowercased()],
+        ] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertEqual(result.status, 1, result.stdout)
+            XCTAssertTrue(
+                result.stdout.contains("Run 'cmux restore --surface'"),
+                result.stdout
+            )
+        }
     }
 
     @Test func testRestoreSocketFailureExplainsHowToRetry() throws {

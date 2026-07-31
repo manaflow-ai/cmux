@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CMUXAgentLaunch
 
@@ -35,10 +36,10 @@ import Testing
     @Test func bundledCLIStartupTokenQuotesAbsolutePathWithoutEnvironmentLookup() {
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
-                bundledCLIPath: "/Applications/cmux user's build.app/Contents/Resources/bin/cmux",
+                bundledCLIPath: "/Applications/cmux!dev user's 日本語 build.app/Contents/Resources/bin/cmux",
                 isExecutableFile: { _ in true }
             )
-                == "'/Applications/cmux user'\\''s build.app/Contents/Resources/bin/cmux'"
+                == "/Applications/cmux\\!dev\\ user\\'s\\ 日本語\\ build.app/Contents/Resources/bin/cmux"
         )
         #expect(
             AgentRestoreLaunch.bundledCLIStartupExecutableToken(
@@ -51,6 +52,49 @@ import Testing
                 isExecutableFile: { _ in false }
             ) == "cmux"
         )
+        #expect(
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: "/Applications/cmux\nDEV.app/Contents/Resources/bin/cmux",
+                isExecutableFile: { _ in true }
+            ) == "cmux"
+        )
+    }
+
+    @Test(arguments: [
+        "/bin/sh",
+        "/bin/zsh",
+        "/bin/csh",
+        "/bin/tcsh",
+        "/usr/local/bin/fish",
+        "/opt/homebrew/bin/fish",
+    ])
+    func bundledCLIStartupTokenExecutesAcrossSupportedShellFamilies(
+        shellPath: String
+    ) throws {
+        guard FileManager.default.isExecutableFile(atPath: shellPath) else { return }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux!dev user's 日本語 build \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("cmux", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: executable,
+            withDestinationURL: URL(fileURLWithPath: "/usr/bin/true")
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = [
+            "-c",
+            AgentRestoreLaunch.bundledCLIStartupExecutableToken(
+                bundledCLIPath: executable.path,
+                isExecutableFile: { _ in true }
+            ),
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
     }
 
     @Test func structuredCodexRestorePlansDirectArgvEnvironmentAndCwd() throws {
@@ -112,7 +156,7 @@ import Testing
     @Test func structuredClaudeRestoreAppliesObservedPermissionModeWithoutParsingShell() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
-            kind: "claude",
+            kind: " CLAUDE ",
             checkpointID: sessionID,
             source: "agent-hook",
             workingDirectory: "/tmp/work",
@@ -175,7 +219,7 @@ import Testing
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
     }
 
-    @Test func directBindingPreservesLongAndShortStructuredArgumentsIdentically() throws {
+    @Test func directBindingPreservesStructuredArgumentsBeyondFormerInlineBudget() throws {
         let hazards = [
             "space value",
             "quote'\"",
@@ -300,6 +344,55 @@ import Testing
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.base_url"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.api_mode"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("/bin/sh") == false)
+    }
+
+    @Test func structuredHermesRestoreUsesDefaultCodexBaseURLForPreflights() throws {
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-codex-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try """
+        openai_base_url = "http://default-subrouter:31415/v1"
+        model = "gpt-5.6-sol"
+        """.write(
+            to: codexHome.appendingPathComponent("config.toml", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: " HERMES-Agent ",
+            checkpointID: "hermes-default-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                arguments: ["hermes", "--provider", "openai-codex"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner().invocation(
+            for: request,
+            ambientEnvironment: [
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+        let baseURLPreflight = try #require(
+            invocation.preflightInvocations.first {
+                $0.arguments.dropFirst(3).first == "model.base_url"
+            }
+        )
+
+        #expect(baseURLPreflight.arguments.last == "http://default-subrouter:31415/v1")
+        #expect(
+            baseURLPreflight.environment[
+                HermesAgentCodexEnvironment.customBaseURLEnvironmentKey
+            ] == "http://default-subrouter:31415/v1"
+        )
+        #expect(baseURLPreflight.environment["CODEX_HOME"] == codexHome.path)
     }
 
     @Test func structuredHermesExplicitProviderSkipsCodexPreflights() throws {

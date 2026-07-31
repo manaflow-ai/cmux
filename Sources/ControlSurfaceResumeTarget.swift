@@ -336,14 +336,19 @@ extension TerminalController {
                 ?? binding.cwd
                 ?? binding.launchCommand?.workingDirectory,
             environment: binding.environment ?? [:],
-            launchCommand: binding.launchCommand.map(controlAgentLaunchCommand),
+            launchCommand: binding.launchCommand.map {
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: normalizedKind
+                )
+            },
             preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
             permissionMode: binding.permissionMode,
             legacyCommand: binding.inlineStartupInput
         )
     }
 
-    private func controlAgentLaunchCommand(
+    func controlAgentLaunchCommand(
         _ command: AgentLaunchCommandSnapshot,
         replaySafeEnvironmentFor kind: String? = nil
     ) -> ControlAgentLaunchCommand {

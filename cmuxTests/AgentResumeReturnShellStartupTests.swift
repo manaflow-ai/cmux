@@ -11,13 +11,7 @@ import Testing
 @Suite("Agent resume return shell startup")
 struct AgentResumeReturnShellStartupTests {
     @Test("local resume input is one short readable CLI command")
-    func localResumeInputUsesRestoreVerb() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-9258-input-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
+    func localResumeInputUsesRestoreVerb() {
         let sessionID = "019dad34-d218-7943-b81a-eddac5c87951"
         let agentBinding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -60,12 +54,6 @@ struct AgentResumeReturnShellStartupTests {
         #expect(
             snapshot.resumeStartupInput()
                 == " \(AgentRestoreLaunch.bundledCLIStartupExecutableToken()) restore codex \(sessionID)\n"
-        )
-        #expect(
-            try fileManager.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: nil
-            ).isEmpty
         )
     }
 

@@ -13,6 +13,10 @@ extension TerminalController {
             agentSessionEndedMustBeBoolean: String(
                 localized: "socket.surface.resume.agentSessionEndedMustBeBoolean",
                 defaultValue: "agent_session_ended must be a boolean"
+            ),
+            launchCommandMustBeValid: String(
+                localized: "socket.surface.resume.launchCommandMustBeValid",
+                defaultValue: "launch_command must contain a non-empty string arguments array"
             )
         )
     }

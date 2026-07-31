@@ -57,6 +57,20 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
+        let launchCommand: ControlAgentLaunchCommand?
+        switch params["launch_command"] {
+        case nil, .null:
+            launchCommand = nil
+        case let value?:
+            guard let parsed = controlAgentLaunchCommand(value) else {
+                return .err(
+                    code: "invalid_params",
+                    message: surfaceResumeStrings().launchCommandMustBeValid,
+                    data: nil
+                )
+            }
+            launchCommand = parsed
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -66,7 +80,7 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
-            launchCommand: controlAgentLaunchCommand(params["launch_command"]),
+            launchCommand: launchCommand,
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
@@ -143,7 +157,8 @@ extension ControlCommandCoordinator {
     /// The localized surface-resume strings supplied by the app bundle.
     private func surfaceResumeStrings() -> ControlSurfaceResumeStrings {
         context?.controlSurfaceResumeStrings() ?? ControlSurfaceResumeStrings(
-            agentSessionEndedMustBeBoolean: ""
+            agentSessionEndedMustBeBoolean: "",
+            launchCommandMustBeValid: ""
         )
     }
 
@@ -216,6 +231,33 @@ extension ControlCommandCoordinator {
     private func controlAgentLaunchCommand(_ value: JSONValue?) -> ControlAgentLaunchCommand? {
         guard case .object(let object)? = value,
               case .array(let rawArguments)? = object["arguments"] else {
+            return nil
+        }
+        for key in ["launcher", "executable_path", "working_directory", "source"] {
+            switch object[key] {
+            case nil, .null, .string:
+                break
+            default:
+                return nil
+            }
+        }
+        switch object["environment"] {
+        case nil, .null:
+            break
+        case .object(let environment):
+            guard environment.values.allSatisfy({
+                if case .string = $0 { return true }
+                return false
+            }) else {
+                return nil
+            }
+        default:
+            return nil
+        }
+        switch object["captured_at"] {
+        case nil, .null, .double, .int:
+            break
+        default:
             return nil
         }
         let arguments = rawArguments.compactMap { value -> String? in

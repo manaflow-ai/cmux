@@ -95,17 +95,7 @@ extension TerminalController: ControlSurfaceContext {
             checkpointID: effective.checkpointId,
             source: effective.source,
             environment: effective.environment,
-            launchCommand: effective.launchCommand.map {
-                ControlAgentLaunchCommand(
-                    launcher: $0.launcher,
-                    executablePath: $0.executablePath,
-                    arguments: $0.arguments,
-                    workingDirectory: $0.workingDirectory,
-                    environment: $0.environment,
-                    capturedAt: $0.capturedAt,
-                    source: $0.source
-                )
-            },
+            launchCommand: effective.launchCommand.map(controlAgentLaunchCommand),
             permissionMode: effective.permissionMode,
             autoResume: effective.allowsAutomaticResume,
             approvalPolicyRawValue: effective.approvalPolicy?.rawValue,

@@ -834,7 +834,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             launcher: "codex",
             executablePath: "/opt/current/codex",
             arguments: ["/opt/current/codex", "--model", "gpt-current"],
-            workingDirectory: "/tmp/current"
+            workingDirectory: "/tmp/current",
+            environment: [
+                "CODEX_HOME": "/tmp/current-codex-home",
+                "OPENAI_API_KEY": "must-not-cross-socket",
+            ]
         )
         XCTAssertTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
@@ -881,8 +885,48 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
         let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
         XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
+        let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
+        XCTAssertEqual(
+            launchEnvironment["CODEX_HOME"] as? String,
+            "/tmp/current-codex-home"
+        )
+        XCTAssertNil(launchEnvironment["OPENAI_API_KEY"])
         let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
         XCTAssertTrue(legacyCommand.contains("codex resume \(currentSessionID)"))
+
+        let ompSessionID = UUID().uuidString.lowercased()
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                kind: "omp",
+                command: "omp --session \(ompSessionID)",
+                checkpointId: ompSessionID,
+                source: "agent-hook",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "omp",
+                    executablePath: "/opt/current/omp",
+                    arguments: ["/opt/current/omp", "--session", ompSessionID],
+                    environment: [
+                        "PATH": "/opt/omp/bin:/usr/bin:/bin",
+                        "OPENAI_API_KEY": "must-not-cross-socket",
+                    ]
+                ),
+                autoResume: true
+            ),
+            panelId: panelId
+        ))
+        let ompResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let ompRecord = try XCTUnwrap(ompResult["restore_record"] as? [String: Any])
+        let ompLaunch = try XCTUnwrap(ompRecord["launch_command"] as? [String: Any])
+        let ompEnvironment = try XCTUnwrap(ompLaunch["environment"] as? [String: Any])
+        XCTAssertEqual(ompEnvironment["PATH"] as? String, "/opt/omp/bin:/usr/bin:/bin")
+        XCTAssertNil(ompEnvironment["OPENAI_API_KEY"])
 
         XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
         let snapshotResult = try v2Result(
