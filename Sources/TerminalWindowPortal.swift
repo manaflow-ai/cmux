@@ -19,7 +19,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
-    private var cachedSplitDividerStructure: [PortalStructureSnapshot]?
+    private var cachedSplitDividerStructure: PortalSplitStructureDigest?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
@@ -372,10 +372,10 @@ final class WindowTerminalHostView: NSView {
 
     private func splitDividerRegions() -> [DividerRegion] {
         guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; cachedSplitDividerStructure = nil; return [] }
-        if let regions = cachedSplitDividerRegions, let structure = cachedSplitDividerStructure, PortalSplitDividerRegion.structureSnapshotsMatch(structure), PortalSplitDividerRegion.allLive(regions) { return regions }
+        if let regions = cachedSplitDividerRegions, let structure = cachedSplitDividerStructure, PortalSplitDividerRegion.structureDigestMatches(structure, root: rootView), PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         cachedSplitDividerRegions = collected.regions
-        cachedSplitDividerStructure = PortalSplitDividerRegion.structureSnapshots(of: collected.structureObservedViews)
+        cachedSplitDividerStructure = PortalSplitDividerRegion.structureDigest(of: rootView)
         splitDividerCacheInvalidator.observe(
             geometryViews: collected.geometryObservedViews,
             structureViews: collected.structureObservedViews
