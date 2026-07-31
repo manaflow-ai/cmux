@@ -655,23 +655,58 @@ enum FilePreviewKindResolver {
     }
 
     private static let textFilenames: Set<String> = [
+        ".bash_profile",
+        ".bashrc",
+        ".dockerignore",
+        ".editorconfig",
         ".env",
-        ".gitignore",
+        ".envrc",
         ".gitattributes",
+        ".gitconfig",
+        ".gitignore",
+        ".gitmodules",
+        ".npmignore",
         ".npmrc",
+        ".nvmrc",
+        ".prettierrc",
+        ".profile",
+        ".tool-versions",
         ".zshrc",
+        "authors",
+        "berksfile",
+        "brewfile",
+        "changelog",
+        "codeowners",
+        "contributing",
+        "copying",
         "dockerfile",
-        "makefile",
         "gemfile",
-        "podfile"
+        "justfile",
+        "license",
+        "makefile",
+        "notice",
+        "podfile",
+        "procfile",
+        "rakefile",
+        "readme",
+        "vagrantfile"
     ]
 
+    /// Environment files are versioned by suffix (`.env.local`, `.env.production`).
+    private static let textFilenamePrefixes: Set<String> = [".env."]
+
     private static let textExtensions: Set<String> = [
-        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
-        "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
-        "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
-        "xml", "yaml", "yml", "zsh"
+        "adoc", "astro", "bash", "bat", "bib", "c", "cc", "cfg", "cjs", "clj",
+        "cmake", "conf", "cpp", "cs", "css", "csv", "cts", "dart", "ejs", "elm",
+        "env", "erb", "erl", "ex", "exs", "fish", "gd", "gleam", "go", "gql",
+        "gradle", "graphql", "groovy", "h", "hbs", "hcl", "hpp", "hs", "htm",
+        "html", "ini", "java", "jl", "js", "json", "jsonc", "jsonl", "jsx", "kt",
+        "kts", "less", "log", "lua", "m", "markdown", "md", "mdx", "mm", "mts",
+        "nim", "nix", "plist", "po", "properties", "proto", "ps1", "purs", "py",
+        "rb", "rs", "rst", "sass", "sbt", "scala", "scss", "sh", "sol", "sql",
+        "sty", "styl", "sv", "svelte", "swift", "tex", "tf", "tfvars", "toml",
+        "ts", "tsv", "tsx", "txt", "typ", "vim", "vue", "xcconfig", "xml",
+        "yaml", "yml", "zig", "zsh"
     ]
 
     static func mode(for url: URL) -> FilePreviewMode {
@@ -793,9 +828,14 @@ enum FilePreviewKindResolver {
         return types
     }
 
+    private static func isKnownTextFilename(_ filename: String) -> Bool {
+        textFilenames.contains(filename)
+            || textFilenamePrefixes.contains { filename.hasPrefix($0) }
+    }
+
     private static func knownTextFile(url: URL, includeResourceContentType: Bool) -> Bool {
         let filename = url.lastPathComponent.lowercased()
-        if textFilenames.contains(filename) {
+        if isKnownTextFilename(filename) {
             return true
         }
         let ext = url.pathExtension.lowercased()
@@ -818,7 +858,7 @@ enum FilePreviewKindResolver {
         let filename = url.lastPathComponent.lowercased()
         let ext = url.pathExtension.lowercased()
         guard ext != "plist",
-              textFilenames.contains(filename) || textExtensions.contains(ext) else {
+              isKnownTextFilename(filename) || textExtensions.contains(ext) else {
             return nil
         }
 
