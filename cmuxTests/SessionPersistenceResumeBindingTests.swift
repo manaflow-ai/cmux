@@ -9,6 +9,37 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test func localRestoreUsesOneShortCLICommandRegardlessOfBindingSize() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-restore-verb-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionId) " + String(repeating: "--config model_provider=subrouter ", count: 80),
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInputWithLauncherScript(
+            temporaryDirectory: temporaryDirectory
+        ))
+
+        #expect(startupInput == "cmux restore codex \(sessionId)\n")
+        #expect(
+            try FileManager.default.contentsOfDirectory(
+                at: temporaryDirectory,
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
+    }
+
     @Test(arguments: ["codex", "claude"])
     func agentHookRestoreBindingCarriesProviderAndSessionBoundAuthorization(kind: String) throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
