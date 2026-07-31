@@ -121,24 +121,26 @@ const UnixConnection = struct {
         };
     }
 
+    fn waitWritable(self: *UnixConnection, timeout_ms: ?u32) !void {
+        return self.wait(std.posix.POLL.OUT, timeout_ms);
+    }
+
+    fn writeSome(self: *UnixConnection, bytes: []const u8) !usize {
+        return self.stream.write(bytes) catch |err| switch (err) {
+            error.BrokenPipe,
+            error.ConnectionResetByPeer,
+            error.SocketNotConnected,
+            => error.ConnectionClosed,
+            else => err,
+        };
+    }
+
     fn writeAll(
         self: *UnixConnection,
         bytes: []const u8,
         timeout_ms: ?u32,
     ) !void {
-        var remaining = bytes;
-        while (remaining.len > 0) {
-            try self.wait(std.posix.POLL.OUT, timeout_ms);
-            const written = self.stream.write(remaining) catch |err| switch (err) {
-                error.BrokenPipe,
-                error.ConnectionResetByPeer,
-                error.SocketNotConnected,
-                => return error.ConnectionClosed,
-                else => return err,
-            };
-            if (written == 0) return error.ConnectionClosed;
-            remaining = remaining[written..];
-        }
+        return writeAllWithTimeout(self, bytes, timeout_ms);
     }
 
     fn close(self: *UnixConnection) void {
@@ -156,6 +158,20 @@ const UnixConnection = struct {
         allocator.destroy(self);
     }
 };
+
+fn writeAllWithTimeout(
+    state: anytype,
+    bytes: []const u8,
+    timeout_ms: ?u32,
+) !void {
+    var remaining = bytes;
+    while (remaining.len > 0) {
+        try state.waitWritable(timeout_ms);
+        const written = try state.writeSome(remaining);
+        if (written == 0) return error.ConnectionClosed;
+        remaining = remaining[written..];
+    }
+}
 
 pub fn connectUnix(
     allocator: std.mem.Allocator,
@@ -241,4 +257,35 @@ test "explicit socket discovery wins" {
     );
     defer std.testing.allocator.free(path);
     try std.testing.expectEqualStrings("/tmp/explicit.sock", path);
+}
+
+test "partial Unix writes share one absolute timeout" {
+    const SlowWriter = struct {
+        wait_calls: usize = 0,
+
+        fn waitWritable(self: *@This(), timeout_ms: ?u32) !void {
+            self.wait_calls += 1;
+            const delay_ms: u32 = 8;
+            if (timeout_ms) |remaining_ms| {
+                if (remaining_ms <= delay_ms) {
+                    std.Thread.sleep(
+                        @as(u64, remaining_ms) * std.time.ns_per_ms,
+                    );
+                    return error.Timeout;
+                }
+            }
+            std.Thread.sleep(delay_ms * std.time.ns_per_ms);
+        }
+
+        fn writeSome(_: *@This(), bytes: []const u8) !usize {
+            return @min(bytes.len, 1);
+        }
+    };
+    var writer = SlowWriter{};
+
+    try std.testing.expectError(
+        error.Timeout,
+        writeAllWithTimeout(&writer, "four", 20),
+    );
+    try std.testing.expect(writer.wait_calls >= 2);
 }

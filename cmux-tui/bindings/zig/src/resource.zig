@@ -13102,6 +13102,7 @@ const FakeShared = struct {
     delayed_stream_open_timeout_ms: ?u32 = null,
     delayed_stream_read_started: bool = false,
     delayed_stream_read_had_deadline: bool = false,
+    read_failure: ?anyerror = null,
     abandoned_request_id: ?[]u8 = null,
     request_cancel_count: usize = 0,
     request_cancel_route_ok: bool = false,
@@ -13979,6 +13980,7 @@ const FakeConnection = struct {
         buffer: []u8,
         timeout_ms: ?u32,
     ) !usize {
+        if (self.shared.read_failure) |failure| return failure;
         if (self.shared.mode == .delayed_stream_item and
             self.shared.delayed_stream_id != null and
             !self.shared.delayed_stream_open_read_observed and
@@ -14302,7 +14304,9 @@ const FullDispatchDeadlineConnection = struct {
 
 const PayloadBoundaryMode = enum {
     complete_then_deadline,
+    fail_before_payload,
     partial_then_timeout,
+    complete_then_custom_payload_failure,
     complete_then_custom_newline_failure,
     partial_then_custom_failure,
     complete_then_custom_read_failure,
@@ -14355,6 +14359,7 @@ const PayloadBoundaryConnection = struct {
                 const delay_ms = @as(u64, timeout_ms orelse 10) + 2;
                 std.Thread.sleep(delay_ms * std.time.ns_per_ms);
             },
+            .fail_before_payload => return error.InjectedTransportFailure,
             .partial_then_timeout => {
                 const partial_len = @max(@as(usize, 1), bytes.len / 2);
                 try self.output.appendSlice(
@@ -14362,6 +14367,10 @@ const PayloadBoundaryConnection = struct {
                     bytes[0..partial_len],
                 );
                 return error.Timeout;
+            },
+            .complete_then_custom_payload_failure => {
+                try self.output.appendSlice(self.allocator, bytes);
+                return error.InjectedTransportFailure;
             },
             .complete_then_custom_newline_failure => {
                 if (self.write_calls == 2) {
@@ -14414,6 +14423,52 @@ const AdmissionWorker = struct {
     }
 };
 
+const AtomicResourceConnection = struct {
+    allocator: std.mem.Allocator,
+    closed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    write_calls: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+
+    fn create() !*AtomicResourceConnection {
+        const state = try std.testing.allocator.create(
+            AtomicResourceConnection,
+        );
+        state.* = .{ .allocator = std.testing.allocator };
+        return state;
+    }
+
+    pub fn read(
+        self: *AtomicResourceConnection,
+        buffer: []u8,
+        timeout_ms: ?u32,
+    ) !usize {
+        _ = buffer;
+        _ = timeout_ms;
+        if (self.closed.load(.acquire)) return error.ConnectionClosed;
+        return error.UnexpectedRead;
+    }
+
+    pub fn writeAll(
+        self: *AtomicResourceConnection,
+        bytes: []const u8,
+        timeout_ms: ?u32,
+    ) !void {
+        _ = bytes;
+        _ = timeout_ms;
+        if (self.closed.load(.acquire)) return error.ConnectionClosed;
+        _ = self.write_calls.fetchAdd(1, .monotonic);
+    }
+
+    pub fn close(self: *AtomicResourceConnection) void {
+        self.closed.store(true, .release);
+    }
+
+    pub fn deinit(self: *AtomicResourceConnection) void {
+        const allocator = self.allocator;
+        self.close();
+        allocator.destroy(self);
+    }
+};
+
 fn waitForRequestWaiters(
     client: *Client,
     expected: usize,
@@ -14434,12 +14489,20 @@ fn waitForRequestWaiters(
 
 const StreamFactoryState = struct {
     shared: *FakeShared,
+    open_delay_ms: u32 = 0,
+    open_calls: usize = 0,
 
     fn open(
         context: *anyopaque,
         allocator: std.mem.Allocator,
     ) !raw.transport.Connection {
         const self: *StreamFactoryState = @ptrCast(@alignCast(context));
+        self.open_calls += 1;
+        if (self.open_delay_ms > 0) {
+            std.Thread.sleep(
+                @as(u64, self.open_delay_ms) * std.time.ns_per_ms,
+            );
+        }
         return fakeConnection(allocator, self.shared);
     }
 };
@@ -15476,7 +15539,7 @@ test "complete mutation payload without newline is uncertain" {
     try std.testing.expect(payload.closed);
 }
 
-test "partial mutation payload timeout stays determinate" {
+test "partial mutation payload timeout is conservatively uncertain" {
     const payload = try PayloadBoundaryConnection.create(
         .partial_then_timeout,
     );
@@ -15491,14 +15554,15 @@ test "partial mutation payload timeout stays determinate" {
     );
 
     try std.testing.expectError(
-        error.Timeout,
+        error.MutationTransportUncertain,
         client.workspace(workspace_id).rename(
             "payload-partial",
             try MutationOptions.withKey("payload-partial-key"),
         ),
     );
-    try std.testing.expect(
-        client.lastMutationTransportUncertain() == null,
+    try std.testing.expectEqual(
+        MutationTransportCause.timeout,
+        client.lastMutationTransportUncertain().?.cause,
     );
     try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
     try std.testing.expect(
@@ -15547,41 +15611,55 @@ test "nonstandard failures after a complete mutation payload are uncertain" {
             uncertainty.cause,
         );
         try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
-        if (mode == .complete_then_custom_newline_failure) {
-            try std.testing.expect(payload.closed);
-        }
+        try std.testing.expect(payload.closed);
     }
 }
 
-test "same nonstandard failure before a complete payload is determinate" {
-    const payload = try PayloadBoundaryConnection.create(
+test "payload write errors are conservatively uncertain" {
+    for ([_]PayloadBoundaryMode{
+        .fail_before_payload,
         .partial_then_custom_failure,
-    );
-    var client = Client.init(
-        std.testing.allocator,
-        raw.transport.Connection.from(payload),
-        .{ .timeout_ms = 1_000 },
-    );
-    defer client.deinit();
-    const workspace_id = try WorkspaceId.parse(
-        "ws_0123456789abcdef0123456789abcdef",
-    );
+        .complete_then_custom_payload_failure,
+    }) |mode| {
+        const payload = try PayloadBoundaryConnection.create(mode);
+        var client = Client.init(
+            std.testing.allocator,
+            raw.transport.Connection.from(payload),
+            .{ .timeout_ms = 1_000 },
+        );
+        defer client.deinit();
+        const workspace_id = try WorkspaceId.parse(
+            "ws_0123456789abcdef0123456789abcdef",
+        );
 
-    try std.testing.expectError(
-        error.InjectedTransportFailure,
-        client.workspace(workspace_id).rename(
-            "custom-transport-failure",
-            try MutationOptions.withKey("custom-transport-key"),
-        ),
-    );
-    try std.testing.expect(
-        client.lastMutationTransportUncertain() == null,
-    );
-    try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
-    try std.testing.expect(
-        payload.output.items.len < payload.attempted_payload_bytes,
-    );
-    try std.testing.expect(payload.closed);
+        try std.testing.expectError(
+            error.MutationTransportUncertain,
+            client.workspace(workspace_id).rename(
+                "custom-transport-failure",
+                try MutationOptions.withKey("custom-transport-key"),
+            ),
+        );
+        try std.testing.expectEqual(
+            MutationTransportCause.other,
+            client.lastMutationTransportUncertain().?.cause,
+        );
+        try std.testing.expectEqual(@as(usize, 1), payload.write_calls);
+        switch (mode) {
+            .fail_before_payload => try std.testing.expectEqual(
+                @as(usize, 0),
+                payload.output.items.len,
+            ),
+            .partial_then_custom_failure => try std.testing.expect(
+                payload.output.items.len < payload.attempted_payload_bytes,
+            ),
+            .complete_then_custom_payload_failure => try std.testing.expectEqual(
+                payload.attempted_payload_bytes,
+                payload.output.items.len,
+            ),
+            else => unreachable,
+        }
+        try std.testing.expect(payload.closed);
+    }
 }
 
 test "non-mutation post-payload failure retains its original error" {
@@ -15605,9 +15683,109 @@ test "non-mutation post-payload failure retains its original error" {
         client.lastMutationTransportUncertain() == null,
     );
     try std.testing.expectEqual(@as(usize, 2), payload.write_calls);
+    try std.testing.expect(payload.closed);
+    const writes_after_failure = payload.write_calls;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expectEqual(
+        writes_after_failure,
+        payload.write_calls,
+    );
 }
 
-test "mutation framing failures respect the payload dispatch boundary" {
+test "oversized inbound frame closes before connection reuse" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .limits = .{ .max_frame_bytes = 4 },
+    });
+    defer client.deinit();
+    try client.inbound.appendSlice(std.testing.allocator, "12345");
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.FrameTooLarge,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expect(shared.closed);
+    const writes_after_failure = shared.write_calls;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expectEqual(writes_after_failure, shared.write_calls);
+}
+
+test "malformed inbound JSON closes before connection reuse" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    try client.inbound.appendSlice(
+        std.testing.allocator,
+        "not-json\n",
+    );
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.SyntaxError,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expect(shared.closed);
+    const writes_after_failure = shared.write_calls;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expectEqual(writes_after_failure, shared.write_calls);
+}
+
+test "invalid response envelope closes before connection reuse" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    try client.inbound.appendSlice(
+        std.testing.allocator,
+        "{\"type\":\"response\",\"id\":\"zig-request-1\"," ++
+            "\"ok\":true,\"result\":{}}\n",
+    );
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.InvalidProtocolEnvelope,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expect(shared.closed);
+    const writes_after_failure = shared.write_calls;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expectEqual(writes_after_failure, shared.write_calls);
+}
+
+test "mutation payload write failures are conservatively uncertain" {
     for ([_]usize{ 1, 2 }) |fail_write_call| {
         var shared = FakeShared{
             .allocator = std.testing.allocator,
@@ -15629,27 +15807,17 @@ test "mutation framing failures respect the payload dispatch boundary" {
             "ws_0123456789abcdef0123456789abcdef",
         );
 
-        const expected_error: anyerror = if (fail_write_call == 1)
-            error.InjectedWriteFailure
-        else
-            error.MutationTransportUncertain;
         try std.testing.expectError(
-            expected_error,
+            error.MutationTransportUncertain,
             client.workspace(workspace_id).rename(
                 "not-dispatched",
                 try MutationOptions.withKey("pre-dispatch-failure-key"),
             ),
         );
-        if (fail_write_call == 1) {
-            try std.testing.expect(
-                client.lastMutationTransportUncertain() == null,
-            );
-        } else {
-            try std.testing.expectEqual(
-                MutationTransportCause.other,
-                client.lastMutationTransportUncertain().?.cause,
-            );
-        }
+        try std.testing.expectEqual(
+            MutationTransportCause.other,
+            client.lastMutationTransportUncertain().?.cause,
+        );
     }
 }
 
@@ -15751,6 +15919,42 @@ test "queued request admission expires without writing a frame" {
     try std.testing.expectEqual(
         error.ConnectionClosed,
         worker.failure orelse return error.MissingWorkerFailure,
+    );
+}
+
+test "close racing fresh request admission is synchronized" {
+    const transport = try AtomicResourceConnection.create();
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(transport),
+        .{ .timeout_ms = 1_000 },
+    );
+    defer client.deinit();
+    client.request_admission_mutex.lock();
+    client.request_active = true;
+    client.request_admission_mutex.unlock();
+    var worker = AdmissionWorker{
+        .client = &client,
+        .timeout_ms = 50,
+    };
+    const thread = try std.Thread.spawn(
+        .{},
+        AdmissionWorker.run,
+        .{&worker},
+    );
+
+    try waitForRequestWaiters(&client, 1, 250);
+    client.close();
+    thread.join();
+
+    try std.testing.expectEqual(
+        error.ConnectionClosed,
+        worker.failure orelse return error.MissingWorkerFailure,
+    );
+    try std.testing.expect(!worker.acquired);
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        transport.write_calls.load(.acquire),
     );
 }
 
@@ -16460,6 +16664,8 @@ test "dropped mutation response retains supplied key without retry" {
             "inspect_state_then_retry_with_new_key",
             borrowed.recovery.wireName(),
         );
+        try std.testing.expect(client.closed);
+        try std.testing.expect(shared.closed);
         break :blk client.takeMutationTransportUncertain() orelse
             return error.MissingMutationTransportUncertain;
     };
@@ -17264,6 +17470,51 @@ test "stream open requires an exact result and valid optional cursor" {
     }
 }
 
+test "stream connection setup consumes the open deadline" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{
+        .shared = &stream_shared,
+        .open_delay_ms = 25,
+    };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 10,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    const failure = blk: {
+        var stream = client.session(session_id).events() catch |err| {
+            break :blk err;
+        };
+        stream.deinit();
+        return error.ExpectedTimeout;
+    };
+    try std.testing.expectEqual(error.Timeout, failure);
+    try std.testing.expectEqual(@as(usize, 1), factory_state.open_calls);
+    try std.testing.expectEqual(@as(usize, 0), stream_shared.write_calls);
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
 test "stream open accepts a valid optional cursor" {
     var control_shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -17452,7 +17703,111 @@ test "stream items require exact canonical envelopes and known payloads" {
         try stream_shared.appendInput(encoded);
 
         try std.testing.expectError(case.expected, stream.next());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
     }
+}
+
+test "stream read transport failure closes its dedicated client" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    stream_shared.read_failure = error.InjectedTransportFailure;
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        stream.next(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    stream_shared.read_failure = null;
+    try std.testing.expectError(error.ConnectionClosed, stream.next());
+}
+
+test "stream control transport failure closes its dedicated client" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    stream_shared.read_failure = error.InjectedTransportFailure;
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    const writes_after_failure = stream_shared.write_calls;
+    stream_shared.read_failure = null;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expectEqual(
+        writes_after_failure,
+        stream_shared.write_calls,
+    );
 }
 
 test "known stream ends require exact canonical envelopes" {
