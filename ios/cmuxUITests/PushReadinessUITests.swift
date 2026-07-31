@@ -91,6 +91,23 @@ final class PushReadinessUITests: XCTestCase {
     }
 
     @MainActor
+    func testTestAlertReportsTheFurthestConfirmedStage() {
+        let app = launchPreview("healthy")
+        defer { app.terminate() }
+
+        let send = app.buttons["MobileSettingsPushSendTest"]
+        XCTAssertTrue(send.waitForExistence(timeout: 8))
+        send.tap()
+
+        let result = app.staticTexts["MobileSettingsPushTestResult"]
+        XCTAssertTrue(result.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            result.label,
+            "Queued on Mac. iOS delivery is still pending."
+        )
+    }
+
+    @MainActor
     private func assertPreview(
         _ state: String,
         status: String,
