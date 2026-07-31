@@ -5,6 +5,37 @@ import Testing
 @Suite
 struct CmxIrohClientRuntimeTests {
     @Test
+    func startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [discovery],
+            relay: fixture.relayResponse(),
+            embedInitialDiscovery: true
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 0)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func pushedRevisionReconcilesReadOnlyAndSkipsObsoleteHints() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let revisionOne = try ClientRuntimeTestFixture.discovery(
@@ -842,6 +873,7 @@ private actor TestRevisionedClientBroker:
     private var discoveries: [CmxIrohDiscoveryResponse]
     private let relay: CmxIrohRelayTokenResponse
     private let blockedSyncCount: Int?
+    private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
     private(set) var registrationCount = 0
     private(set) var syncCount = 0
     private var blockedSyncReleased = false
@@ -850,12 +882,16 @@ private actor TestRevisionedClientBroker:
         binding: CmxIrohBrokerBinding,
         discoveries: [CmxIrohDiscoveryResponse],
         relay: CmxIrohRelayTokenResponse,
-        blockedSyncCount: Int? = nil
+        blockedSyncCount: Int? = nil,
+        embedInitialDiscovery: Bool = false
     ) {
         self.binding = binding
         self.discoveries = discoveries
         self.relay = relay
         self.blockedSyncCount = blockedSyncCount
+        embeddedRegistrationDiscovery = embedInitialDiscovery
+            ? discoveries.first
+            : nil
     }
 
     func register(
@@ -864,9 +900,11 @@ private actor TestRevisionedClientBroker:
     ) -> CmxIrohRegistrationResponse {
         registrationCount += 1
         return CmxIrohRegistrationResponse(
-            revision: discoveries.first?.revision,
+            revision: embeddedRegistrationDiscovery?.revision
+                ?? discoveries.first?.revision,
             binding: binding,
-            relay: .issued(relay)
+            relay: .issued(relay),
+            discovery: embeddedRegistrationDiscovery
         )
     }
 

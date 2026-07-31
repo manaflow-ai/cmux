@@ -57,6 +57,34 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func registrationDecodesEmbeddedAuthoritativeDiscovery() async throws {
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["revision"] = 7
+        responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: try Self.jsonString(responseObject)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.revision == 7)
+        #expect(response.discovery?.revision == 7)
+        #expect(response.discovery?.bindings.count == 1)
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),

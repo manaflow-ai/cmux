@@ -5,6 +5,31 @@ import Testing
 
 @Suite
 struct CmxIrohHostRuntimeTests {
+    @Test
+    func startupConsumesEmbeddedDiscoveryWithoutAThirdBrokerRoundTrip() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            embedDiscoveryInRegistration: true
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await broker.observedDiscoveryCount() == 0)
+        await runtime.stop()
+    }
+
     @Test("direct-only startup does not wait for relay readiness")
     func directOnlyStartupSkipsRelayReadiness() async throws {
         let fixture = try HostRuntimeFixture()
@@ -29,6 +54,34 @@ struct CmxIrohHostRuntimeTests {
 
         #expect(await runtime.snapshot().state == .active)
         #expect(await broker.observedRelayIssueCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func unavailableRelayPolicyStillAllowsDirectDiscovery() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(
+                endpointRelayProfile: .unavailableManagedSelection,
+                managedRelayURLs: []
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            protocolConfiguration: .testDirectOnlyApplicationLanes,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await broker.observedDiscoveryCount() == 1)
         await runtime.stop()
     }
 
@@ -289,12 +342,14 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
+    private let embedDiscoveryInRegistration: Bool
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var preflightOperations: [CmxIrohBrokerOperation] = []
     private var registrationCount = 0
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var relayIssueCount = 0
+    private var discoveryCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
     private var registrationCountWaiters: [
@@ -312,6 +367,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
         relayIssueHook: (@Sendable () async -> Void)? = nil,
+        embedDiscoveryInRegistration: Bool = false,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
@@ -323,6 +379,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
         self.relayIssueHook = relayIssueHook
+        self.embedDiscoveryInRegistration = embedDiscoveryInRegistration
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
@@ -361,12 +418,19 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
             ? registrationBindings.removeFirst()
             : registrationBindings[0]
         return CmxIrohRegistrationResponse(
+            revision: embedDiscoveryInRegistration
+                ? discoveryResponses[0].revision
+                : nil,
             binding: binding,
-            relay: .unavailable
+            relay: .unavailable,
+            discovery: embedDiscoveryInRegistration
+                ? discoveryResponses[0]
+                : nil
         )
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
         if let discoveryError { throw discoveryError }
         guard discoveryResponses.count > 1 else {
             return discoveryResponses[0]
@@ -409,6 +473,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         preparedRegistrations
     }
     func observedRelayIssueCount() -> Int { relayIssueCount }
+    func observedDiscoveryCount() -> Int { discoveryCount }
 
     func enqueueSubsequentRegistrationError(
         _ error: CmxIrohTrustBrokerClientError

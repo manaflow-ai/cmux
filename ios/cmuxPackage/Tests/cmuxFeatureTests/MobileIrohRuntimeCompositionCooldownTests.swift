@@ -140,12 +140,30 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
 
         await settleActivation(fixture) {
-            fixture.composition.runtime != nil
+            guard fixture.composition.runtime != nil else { return false }
+            return await fixture.broker.bootstrapRequestCount() >= 1
         }
 
         #expect(fixture.composition.runtime != nil)
         #expect(await fixture.broker.bootstrapRequestCount() >= 1)
         #expect(await fixture.broker.relayTokenRequestCount() == 0)
+    }
+
+    @Test
+    func suspendedRelayRefreshCannotBlockDirectPathActivation() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap(
+            suspendRelayBootstrap: true
+        )
+
+        await settleActivation(fixture) {
+            await fixture.broker.bootstrapRequestCount() >= 1
+        }
+
+        #expect(fixture.composition.runtime != nil)
+        #expect((await fixture.diagnosticLog.snapshot()).events.contains {
+            $0.code == .endpointActive
+        })
+        await fixture.broker.resumeRelayBootstrap()
     }
 
     @Test
@@ -267,19 +285,23 @@ private struct MobileIrohCooldownFixture {
         )
     }
 
-    static func makeSuccessfulBootstrap() async throws -> Self {
+    static func makeSuccessfulBootstrap(
+        suspendRelayBootstrap: Bool = false
+    ) async throws -> Self {
         let policy = MobileIrohCooldownRelayPolicyFixture(now: now)
         return try await make(
             registrationError: nil,
             discoveryError: nil,
-            relayPolicy: policy
+            relayPolicy: policy,
+            suspendRelayBootstrap: suspendRelayBootstrap
         )
     }
 
     private static func make(
         registrationError: (any Error)?,
         discoveryError: (any Error)?,
-        relayPolicy: MobileIrohCooldownRelayPolicyFixture?
+        relayPolicy: MobileIrohCooldownRelayPolicyFixture?,
+        suspendRelayBootstrap: Bool = false
     ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionCooldownTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -325,7 +347,8 @@ private struct MobileIrohCooldownFixture {
             discoveryError: discoveryError,
             registration: registration,
             discovery: discovery,
-            bootstrap: try relayPolicy?.bootstrap()
+            bootstrap: try relayPolicy?.bootstrap(),
+            suspendRelayBootstrap: suspendRelayBootstrap
         )
         let credentialStore = MobileIrohCooldownCredentialStore()
         let clock = MobileIrohCooldownTestClock(now)
@@ -628,19 +651,23 @@ private actor MobileIrohCooldownBroker:
     private var discoveryRequests = 0
     private var bootstrapRequests = 0
     private var relayTokenRequests = 0
+    private var suspendRelayBootstrap: Bool
+    private var relayBootstrapContinuation: CheckedContinuation<Void, Never>?
 
     init(
         registrationError: (any Error)?,
         discoveryError: (any Error)?,
         registration: CmxIrohRegistrationResponse,
         discovery: CmxIrohDiscoveryResponse,
-        bootstrap: CmxIrohRelayBootstrapResponse?
+        bootstrap: CmxIrohRelayBootstrapResponse?,
+        suspendRelayBootstrap: Bool
     ) {
         self.registrationError = registrationError
         self.discoveryError = discoveryError
         self.registration = registration
         discoveryResponse = discovery
         self.bootstrap = bootstrap
+        self.suspendRelayBootstrap = suspendRelayBootstrap
     }
 
     func setRelayBootstrapRateLimit(retryAfterSeconds: Int) {
@@ -689,9 +716,14 @@ private actor MobileIrohCooldownBroker:
 
     func issueRelayBootstrap(
         endpointID _: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayBootstrapResponse {
+    ) async throws -> CmxIrohRelayBootstrapResponse {
         totalRequests += 1
         bootstrapRequests += 1
+        if suspendRelayBootstrap {
+            await withCheckedContinuation { continuation in
+                relayBootstrapContinuation = continuation
+            }
+        }
         if let relayBootstrapRetryAfterSeconds {
             throw CmxIrohTrustBrokerClientError.rateLimited(
                 code: nil,
@@ -700,6 +732,12 @@ private actor MobileIrohCooldownBroker:
         }
         guard let bootstrap else { throw MobileIrohCooldownTestError.unavailable }
         return bootstrap
+    }
+
+    func resumeRelayBootstrap() {
+        suspendRelayBootstrap = false
+        relayBootstrapContinuation?.resume()
+        relayBootstrapContinuation = nil
     }
 
     func relayPreference() throws -> CmxIrohRelayPreferenceResponse {

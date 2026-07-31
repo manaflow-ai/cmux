@@ -43,11 +43,19 @@ describe("Iroh trust broker registration", () => {
     const fixture = makeFixture();
     const request = await fixture.signedRegistration();
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
+      revision: number;
       binding: { endpoint_id: string };
       relay: { status: string; token: string };
+      discovery: {
+        revision: number;
+        bindings: Array<{ binding_id: string }>;
+      };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
+    expect(result.discovery.revision).toBe(result.revision);
+    expect(result.discovery.bindings.map((binding) => binding.binding_id))
+      .toEqual([fixture.repository.bindings[0]?.id]);
     expect(fixture.repository.bindings).toHaveLength(1);
     expect(fixture.repository.bindings[0]?.pathHints).toEqual([{
       kind: "direct_address",

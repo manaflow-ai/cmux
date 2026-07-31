@@ -52,7 +52,8 @@ struct HostRuntimeFixture {
     func configuration(
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil,
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
-        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
+        managedRelayURLs: Set<String>? = nil
     ) -> CmxIrohHostRuntimeConfiguration {
         CmxIrohHostRuntimeConfiguration(
             accountID: configuration.accountID,
@@ -64,7 +65,7 @@ struct HostRuntimeFixture {
             pairingEnabled: binding.pairingEnabled,
             capabilities: binding.capabilities,
             bindPolicy: bindPolicy,
-            managedRelayURLs: managedRelays,
+            managedRelayURLs: managedRelayURLs ?? managedRelays,
             endpointRelayProfile: endpointRelayProfile,
             cachedHostPolicy: cachedHostPolicy
         )
