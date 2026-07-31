@@ -72,8 +72,6 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "remote.tmux.test_exec", "remote.tmux.test_set_frame",
             "remote.tmux.test_perturb_divider",
-            // window is a DEBUG-only alias of mirror; it must share the worker lane.
-            "remote.tmux.window",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
 #if DEBUG
@@ -82,6 +80,14 @@ struct ControlCommandExecutionPolicyTests {
             #expect(policy == .mainActor, "\(method)")
 #endif
         }
+    }
+
+    @Test func remoteTmuxWindowRunsOnTheReleaseWorkerLane() {
+        #expect(ControlCommandExecutionPolicy.socketWorkerMethods.contains("remote.tmux.window"))
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "remote.tmux.window")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
