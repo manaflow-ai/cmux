@@ -2102,6 +2102,11 @@ mod unix {
                 return;
             }
             let _source_order = self.source_order_lock.lock().unwrap();
+            // Snapshot capture keeps `term` held from the dead check through
+            // tap insertion. Publish the terminal transition under that same
+            // lock so an attach either joins before Exit or observes `dead`;
+            // it can never advance its boundary past an Exit it did not see.
+            let _term = self.term.lock().unwrap();
             if claim_host_exit_after_drain(
                 &self.child_exit.0,
                 &self.pty_drained,
