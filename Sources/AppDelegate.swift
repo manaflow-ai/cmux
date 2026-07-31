@@ -20,6 +20,7 @@ import CMUXAgentLaunch
 import CoreServices
 import CoreGraphics
 import UserNotifications
+import CMUXMobileCore
 import Sentry
 import WebKit
 import Combine
@@ -527,6 +528,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
+    /// Bridges the Mac host's transport diagnostic ring into Sentry
+    /// (breadcrumbs, structured logs, throttled failure events with the ring
+    /// export attached). Created after `SentrySDK.start`; delivery no-ops when
+    /// the SDK is off.
+    private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
@@ -1410,13 +1416,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.attachStacktrace = true
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
+                // Structured logs power the transport diagnostics bridge
+                // (TransportSentryReporter on the host diagnostic ring below).
+                options.enableLogs = true
                 // Redact file paths, emails, and secrets from every outgoing
-                // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
-                // re-enabled) child performance span before it leaves the device.
+                // event, breadcrumb, structured log, and (belt-and-suspenders,
+                // if tracing is ever re-enabled) child performance span before
+                // it leaves the device.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in scrubber.scrub(event) }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }
+                options.beforeSendLog = { log in scrubber.scrub(log) }
+            }
+            // Bridge the Mac host's transport diagnostic ring into Sentry:
+            // every retained event becomes a breadcrumb + budget-limited log
+            // line, and gated failures become events carrying the ring export.
+            // The tap delivers on the ring's drain task, off the main thread.
+            let transportReporter = TransportSentryReporter(
+                role: .macHost,
+                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+            )
+            transportSentryReporter = transportReporter
+            MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in
+                transportReporter.ingest(event)
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }

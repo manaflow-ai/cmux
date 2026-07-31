@@ -2,11 +2,13 @@
 
 import PackageDescription
 
-// `CmuxSentryTelemetry` is the shared (macOS + iOS) Sentry privacy layer.
-// `CmuxSentryScrubbing` is the pure-Foundation value scrubber (no Sentry
-// dependency) so it stays testable without linking the SDK; `CmuxSentryReporting`
-// is the thin glue that routes Sentry `Event` / `Breadcrumb` / `Span` fields
-// through that scrubber and therefore links the Sentry SDK.
+// `CmuxSentryTelemetry` is the shared (macOS + iOS) Sentry privacy and
+// transport-telemetry layer. `CmuxSentryScrubbing` is the pure-Foundation
+// value scrubber (no Sentry dependency) so it stays testable without linking
+// the SDK; `CmuxSentryReporting` is the glue that routes Sentry `Event` /
+// `Breadcrumb` / `Span` / `SentryLog` fields through that scrubber and bridges
+// the CMUXMobileCore transport diagnostic stream into Sentry, so it links the
+// Sentry SDK.
 let package = Package(
     name: "CmuxSentryTelemetry",
     platforms: [
@@ -24,6 +26,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CMUXMobileCore"),
         .package(
             url: "https://github.com/getsentry/sentry-cocoa.git",
             .upToNextMajor(from: "9.3.0")
@@ -42,6 +45,7 @@ let package = Package(
             name: "CmuxSentryReporting",
             dependencies: [
                 "CmuxSentryScrubbing",
+                "CMUXMobileCore",
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             swiftSettings: [

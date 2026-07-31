@@ -154,6 +154,36 @@ public struct SentryEventScrubber: Sendable {
         return span
     }
 
+    /// Redacts a structured log line's body and string attributes in place.
+    ///
+    /// Suitable inside `beforeSendLog`. Attribute values typed as strings (and
+    /// string arrays) go through the free-text scrubber; keys named like
+    /// secrets are redacted wholesale via the key-aware dictionary rules.
+    /// Numeric and boolean attributes cannot carry free text and pass through.
+    ///
+    /// - Parameter log: The log entry Sentry is about to send.
+    /// - Returns: The scrubbed log entry.
+    @discardableResult
+    public func scrub(_ log: SentryLog) -> SentryLog {
+        log.body = scrubber.scrub(log.body)
+        // Collect string-typed attribute values and route them through the
+        // key-aware dictionary scrubber, so a secret-like key is redacted by
+        // name and a free-text value by pattern, matching tags/extra handling.
+        var stringValues: [String: Any] = [:]
+        for (key, attribute) in log.attributes {
+            if let value = attribute.value as? String {
+                stringValues[key] = value
+            }
+        }
+        guard !stringValues.isEmpty else { return log }
+        for (key, value) in scrubber.scrub(dictionary: stringValues) {
+            if let scrubbed = value as? String {
+                log.setAttribute(SentryAttribute(string: scrubbed), forKey: key)
+            }
+        }
+        return log
+    }
+
     /// Rebuilds a message with its rendered text, template, and params scrubbed.
     ///
     /// `SentryMessage.formatted` is read-only, so the message must be rebuilt

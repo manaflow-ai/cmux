@@ -188,4 +188,23 @@ import Testing
         #expect(scrubbed.exceptions?.first?.value == "fatal error: Index out of range")
         #expect(scrubbed.exceptions?.first?.type == "EXC_BAD_INSTRUCTION")
     }
+
+    @Test func scrubsStructuredLogBodyAndStringAttributes() {
+        let log = SentryLog(
+            level: .info,
+            body: "dial from /Users/lawrence/dev failed"
+        )
+        log.setAttribute(SentryLog.Attribute(string: "/Users/lawrence/dev"), forKey: "cwd")
+        log.setAttribute(SentryLog.Attribute(string: "s3cr3ts3cr3ts3cr3t"), forKey: "access_token")
+        log.setAttribute(SentryLog.Attribute(string: "iroh"), forKey: "transport.kind")
+        log.setAttribute(SentryLog.Attribute(integer: 42), forKey: "attempt")
+
+        let scrubbed = scrubber.scrub(log)
+        #expect(scrubbed.body == "dial from /Users/<redacted>/dev failed")
+        #expect(scrubbed.attributes["cwd"]?.value as? String == "/Users/<redacted>/dev")
+        // A secret-like attribute key is redacted by name.
+        #expect(scrubbed.attributes["access_token"]?.value as? String == "<redacted-secret>")
+        #expect(scrubbed.attributes["transport.kind"]?.value as? String == "iroh")
+        #expect(scrubbed.attributes["attempt"]?.value as? Int == 42)
+    }
 }
