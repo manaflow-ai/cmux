@@ -240,7 +240,7 @@ public final class AgentChatProseStreamer {
         if !turns.contains(where: { entry in
             let session = entry.key
             let candidate = entry.value
-            session != sessionID && !candidate.settled && candidate.surfaceID == turn.surfaceID
+            return session != sessionID && !candidate.settled && candidate.surfaceID == turn.surfaceID
         }) {
             pendingSurfaceIDs.remove(turn.surfaceID)
         }
