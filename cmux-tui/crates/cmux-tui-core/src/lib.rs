@@ -16,7 +16,13 @@ mod pairing;
 #[cfg(unix)]
 pub mod process_session;
 pub mod provider_management;
+pub mod resource;
+mod resource_api;
+mod resource_mutation;
+mod resource_router;
+mod resource_selector;
 mod short_id;
+mod sidebar_resource;
 mod spawned_pty_child;
 mod surface;
 mod workspace_registry;
@@ -44,12 +50,14 @@ pub use mux::{
     CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, Mux, MuxEvent, NotificationEvent, NotificationLevel,
     ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
-    ProviderWorkspaceAuthorityUpdateError, RunPlacement, ShutdownRequestWatch,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult, WorkspacePlacement,
-    ZoomMode, ZoomState,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement,
+    ShutdownRequestWatch, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
+    WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
+pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

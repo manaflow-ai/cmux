@@ -18474,6 +18474,7 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface,
+                terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
                 title: format!("pane {id}"),
@@ -18528,6 +18529,7 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface,
+                terminal_id: None,
                 short_id: format!("t{surface}"),
                 name: None,
                 title: format!("pane {id}"),
@@ -18594,6 +18596,7 @@ mod tests {
                     name: None,
                     tabs: vec![TabView {
                         surface: 100 + id,
+                        terminal_id: None,
                         short_id: format!("t{id}"),
                         name: None,
                         title: format!("pane {id}"),
@@ -18651,6 +18654,7 @@ mod tests {
             name: None,
             tabs: vec![TabView {
                 surface: 100 + id,
+                terminal_id: None,
                 short_id: format!("t{id}"),
                 name: None,
                 title: format!("pane {id}"),
@@ -18776,6 +18780,7 @@ mod tests {
                             name: None,
                             tabs: vec![TabView {
                                 surface: 11,
+                                terminal_id: None,
                                 short_id: "t1".to_string(),
                                 name: None,
                                 title: "left".to_string(),
@@ -18794,6 +18799,7 @@ mod tests {
                             name: None,
                             tabs: vec![TabView {
                                 surface: 12,
+                                terminal_id: None,
                                 short_id: "t2".to_string(),
                                 name: None,
                                 title: "right".to_string(),
@@ -27639,6 +27645,7 @@ mod tests {
     fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
         let tab = |surface| TabView {
             surface,
+            terminal_id: None,
             short_id: format!("{surface:06}"),
             name: None,
             title: String::new(),
@@ -31458,6 +31465,7 @@ mod tests {
                         focused_at: 0,
                         tabs: vec![TabView {
                             surface,
+                            terminal_id: None,
                             short_id: "000001".to_string(),
                             name: Some("tab".to_string()),
                             title: "shell".to_string(),

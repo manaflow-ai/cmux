@@ -240,14 +240,6 @@ impl SpawnedPtyChild {
         self.child.as_ref().expect("spawned PTY child is present").clone_killer()
     }
 
-    pub(crate) fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
-        let result = self.child.as_mut().expect("spawned PTY child is present").wait();
-        if result.is_ok() {
-            self.child.take();
-        }
-        result
-    }
-
     /// Release a child only after stable identity proves that this process no
     /// longer owns its wait handle and the numeric PID belongs to no live
     /// process from the original publication.

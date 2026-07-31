@@ -1,10 +1,17 @@
-# Control Socket Protocol
+# Raw control protocol v10
+
+This is the private implementation interface for cmux frontends and
+compatibility adapters. New applications should use
+[`cmux.protocol/1`](../spec/resource-api-v1.md), the
+[noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
+High-level packages expose protocol v10 only through their `raw` namespace.
 
 As of protocol v10, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
-Remote clients can carry the same JSON-lines stream through `cmux-tui relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
+Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
-For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
+For shell use, prefer the noun-first public CLI, such as
+`cmux workspace list --json`.
 
 Default socket path:
 
@@ -136,7 +143,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-Direct local clients require the server's distribution version, source build, terminal-engine build, and protocol to match exactly. Ordinary source builds derive both build identities automatically, including a deterministic fingerprint when the source tree is dirty. `identify`, `<launcher> server status`, and `<launcher> server stop` bypass that check so an upgraded client can inspect and stop an older server. `<launcher>` is the current invocation, including `cmux-tui` for native binaries and `cmux` for packaged npm and Python installs. All other local CLI commands and TUI attach paths reject a mismatch before loading or mutating session state.
+Direct local private frontends require the server's distribution version, source build, terminal-engine build, and raw protocol to match exactly. Ordinary source builds derive both build identities automatically, including a deterministic fingerprint when the source tree is dirty. Private `identify`, `<launcher> server status`, and `<launcher> server stop` bypass that check so an upgraded client can inspect and stop an older server. `<launcher>` is the current invocation, including `cmux-tui` for native binaries and `cmux` for packaged npm and Python installs. Local TUI attach paths reject a mismatch before loading or mutating session state. The noun-first CLI uses the separate `cmux.protocol/1` compatibility boundary, while explicit `raw command` calls carry no compatibility promise.
 
 Current servers apply one five-second deadline to fencing new surface creation, draining in-flight creation, tombstoning hosted terminals in one registry transaction, clearing topology in one state mutation, and terminating every tracked pane runtime. A successful shutdown response confirms that cleanup completed within the shared deadline. When an older local server lacks orderly shutdown, the replacement client starts a detached cleanup helper. The helper reconnects, verifies from the Unix socket that the same reported server PID is still the connected peer, closes every surface, and then signals only that verified process. Detaching lets cleanup finish when closing the caller's pane exits the original client.
 

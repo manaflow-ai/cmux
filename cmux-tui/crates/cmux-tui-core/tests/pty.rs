@@ -1403,8 +1403,14 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
     // Canonical creation commits the empty workspace before launching its
     // terminal. The later topology delta must not retroactively change the
     // immutable workspace event.
-    let topology = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
-        .expect("terminal topology event");
+    let topology = wait_for(
+        || {
+            let event = read_json_line(&mut deltas_reader)?;
+            (event["event"] == "screen-added").then_some(event)
+        },
+        Duration::from_secs(5),
+    )
+    .expect("terminal topology event");
     assert_eq!(topology["event"], "screen-added");
     assert_eq!(topology["workspace"], delta["workspace"]);
     assert!(

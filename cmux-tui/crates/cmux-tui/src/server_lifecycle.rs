@@ -629,10 +629,6 @@ pub(crate) struct ServerProbe {
 }
 
 impl ServerProbe {
-    pub(crate) fn inspect(reader: &mut TransportReader) -> anyhow::Result<Self> {
-        Self::inspect_until(reader, Instant::now() + RESPONSE_TIMEOUT)
-    }
-
     fn inspect_until(reader: &mut TransportReader, deadline: Instant) -> anyhow::Result<Self> {
         let previous_read_timeout = reader
             .get_ref()
