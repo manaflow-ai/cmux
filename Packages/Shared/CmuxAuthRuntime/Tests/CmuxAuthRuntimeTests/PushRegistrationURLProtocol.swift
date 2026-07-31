@@ -11,6 +11,8 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
         let headers: [String: String]
         let body: Data
         let error: URLError?
+        let started: TestPhaseSignal?
+        let blocker: TestContinuationBlocker?
 
         static func response(
             _ statusCode: Int,
@@ -21,7 +23,26 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
                 statusCode: statusCode,
                 headers: headers,
                 body: Data(json.utf8),
-                error: nil
+                error: nil,
+                started: nil,
+                blocker: nil
+            )
+        }
+
+        static func gatedResponse(
+            _ statusCode: Int,
+            started: TestPhaseSignal,
+            blocker: TestContinuationBlocker,
+            headers: [String: String] = [:],
+            json: String = #"{"ok":true}"#
+        ) -> Stub {
+            Stub(
+                statusCode: statusCode,
+                headers: headers,
+                body: Data(json.utf8),
+                error: nil,
+                started: started,
+                blocker: blocker
             )
         }
 
@@ -30,7 +51,9 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
                 statusCode: nil,
                 headers: [:],
                 body: Data(),
-                error: URLError(code)
+                error: URLError(code),
+                started: nil,
+                blocker: nil
             )
         }
     }
@@ -43,6 +66,8 @@ final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Task {
             let stub = await Self.script.take(request)
+            await stub.started?.markStarted()
+            await stub.blocker?.wait()
             if let error = stub.error {
                 client?.urlProtocol(self, didFailWithError: error)
                 return

@@ -20,7 +20,7 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
             headerFields: nil
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data())
+        client?.urlProtocol(self, didLoad: Data(#"{"ok":true}"#.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
 
@@ -43,6 +43,23 @@ actor RequestRecorder {
 struct FakeTokenProvider: TokenProviding {
     var access: String? = "access"
     var refresh: String? = "refresh"
+    var accountID: String = "push-user-1"
+    var generation: UInt64 = 1
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot {
+        guard let access, let refresh else { throw AuthError.unauthorized }
+        return AuthenticatedSessionSnapshot(
+            generation: generation,
+            accountID: accountID,
+            accessToken: access,
+            refreshToken: refresh
+        )
+    }
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool {
+        snapshot.generation == generation && snapshot.accountID == accountID
+    }
     func accessToken() async throws -> String {
         guard let access else { throw AuthError.unauthorized }
         return access
@@ -52,6 +69,74 @@ struct FakeTokenProvider: TokenProviding {
     func forceRefreshAccessToken() async throws -> String {
         guard let access else { throw AuthError.unauthorized }
         return access
+    }
+}
+
+actor MutablePushTokenProvider: TokenProviding {
+    private var value: AuthenticatedSessionSnapshot?
+
+    init(
+        accountID: String,
+        accessToken: String,
+        refreshToken: String,
+        generation: UInt64 = 1
+    ) {
+        self.value = AuthenticatedSessionSnapshot(
+            generation: generation,
+            accountID: accountID,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
+    func switchSession(
+        accountID: String,
+        accessToken: String,
+        refreshToken: String
+    ) {
+        value = AuthenticatedSessionSnapshot(
+            generation: (value?.generation ?? 0) + 1,
+            accountID: accountID,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
+    func clearSession() {
+        value = nil
+    }
+
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot {
+        guard let value else { throw AuthError.unauthorized }
+        return value
+    }
+
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool {
+        value?.generation == snapshot.generation
+            && value?.accountID == snapshot.accountID
+    }
+
+    func accessToken() async throws -> String {
+        guard let value else { throw AuthError.unauthorized }
+        return value.accessToken
+    }
+
+    func storedAccessToken() async -> String? { value?.accessToken }
+    func refreshToken() async -> String? { value?.refreshToken }
+
+    func forceRefreshAccessToken() async throws -> String {
+        try await accessToken()
+    }
+}
+
+actor RetryDelayRecorder {
+    private(set) var values: [Duration] = []
+
+    func record(_ value: Duration) {
+        values.append(value)
     }
 }
 
@@ -87,21 +172,36 @@ struct FakeTokenProvider: TokenProviding {
         tokenProvider: any TokenProviding = FakeTokenProvider(),
         retryDelays: [Duration] = [],
         suite: String = "push-scripted-\(UUID().uuidString)",
-        accountID: String? = "push-user-1"
+        accountID: String? = "push-user-1",
+        retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
     ) -> (PushRegistrationService, UserDefaults) {
         let defaults = UserDefaults(suiteName: suite)!
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PushRegistrationURLProtocol.self]
+        let provider: any TokenProviding
+        if let fake = tokenProvider as? FakeTokenProvider,
+           let accountID {
+            provider = FakeTokenProvider(
+                access: fake.access,
+                refresh: fake.refresh,
+                accountID: accountID,
+                generation: fake.generation
+            )
+        } else {
+            provider = tokenProvider
+        }
         let service = PushRegistrationService(
-            tokenProvider: tokenProvider,
+            tokenProvider: provider,
             apiBaseURL: "https://example.test",
             bundleID: "dev.cmux.ios.push1",
             apnsEnvironment: "sandbox",
             suiteName: suite,
             session: URLSession(configuration: configuration),
-            accountID: { accountID },
             retryDelays: retryDelays,
-            retryJitter: { _ in 1 }
+            retryJitter: { _ in 1 },
+            retrySleep: retrySleep
         )
         return (service, defaults)
     }
@@ -334,6 +434,29 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
     }
 
+    @Test func metadataFreeRateLimitUsesConfiguredBackoff() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(429, json: #"{"error":"rate_limited"}"#),
+            .response(200),
+        ])
+        let delays = RetryDelayRecorder()
+        let (service, _) = makeScriptedService(
+            retryDelays: [.seconds(30)],
+            retrySleep: { duration in
+                await delays.record(duration)
+            }
+        )
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        for _ in 0..<100 where await service.snapshot.backendState != .registered {
+            await Task.yield()
+        }
+
+        #expect(await delays.values.first == .seconds(30))
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+    }
+
     @Test func deviceCap429IsPermanentAndActionableWithoutRetry() async {
         await PushRegistrationURLProtocol.script.reset([
             .response(
@@ -437,6 +560,111 @@ struct FakeTokenProvider: TokenProviding {
         #expect(await relaunched.snapshot == .disabled)
     }
 
+    @Test func optOutWithoutLiveSessionPersistsOwnerBeforeAuthentication() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-optout-no-session-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(access: nil, refresh: nil),
+            suite: suite,
+            accountID: nil
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.setEnabled(false)
+
+        let persisted = try? JSONDecoder().decode(
+            [[String: String]].self,
+            from: defaults.data(
+                forKey: "cmux.notifications.pendingUnregisters.v2"
+            ) ?? Data()
+        )
+        #expect(persisted == [["tokenHex": "ab", "accountID": "account-a"]])
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+
+        let (returned, _) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "a-returned",
+                refresh: "a-returned-refresh"
+            ),
+            suite: suite,
+            accountID: "account-a"
+        )
+        await returned.syncTokenIfPossible()
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests.last?
+                .value(forHTTPHeaderField: "Authorization")
+                == "Bearer a-returned"
+        )
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+    }
+
+    @Test func accountBOwnedOptOutNeverDeletesAccountATokenWithBCredentials() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-optout-owner-mismatch-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "b-access",
+                refresh: "b-refresh"
+            ),
+            suite: suite,
+            accountID: "account-b"
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.setEnabled(false)
+
+        #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
+        let queueText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(queueText?.contains("account-a") == true)
+        #expect(queueText?.contains("account-b") == false)
+    }
+
+    @Test func malformedDeleteAcknowledgementKeepsDurableTombstone() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200, json: ""),
+        ])
+        let suite = "push-delete-ack-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a"
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.setEnabled(false)
+
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                != nil
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.registeredAccountID")
+                == "account-a"
+        )
+
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (returned, _) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a"
+        )
+        await returned.syncTokenIfPossible()
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+    }
+
     @Test func pendingOldAccountDeleteNeverUsesNextAccountsCredentials() async {
         await PushRegistrationURLProtocol.script.reset([
             .failure(.notConnectedToInternet),
@@ -499,6 +727,150 @@ struct FakeTokenProvider: TokenProviding {
             await PushRegistrationURLProtocol.script.requests.last?
                 .value(forHTTPHeaderField: "Authorization")
                 == "Bearer returned-access"
+        )
+    }
+
+    @Test func sessionSwitchDuringUploadCannotPublishReadyForOldAccount() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            accountID: nil
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+
+        let upload = Task {
+            await service.register(deviceToken: Data([0xAA]))
+        }
+        await started.waitUntilStarted()
+        await provider.switchSession(
+            accountID: "account-b",
+            accessToken: "b-access",
+            refreshToken: "b-refresh"
+        )
+        await blocker.release()
+        await upload.value
+
+        #expect(
+            await service.snapshot.backendState
+                == .failed(.authenticationRequired)
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.registeredAccountID")
+                == nil
+        )
+    }
+
+    @Test func sessionSwitchDuringDeleteCannotClearOldAccountTombstone() async {
+        let started = TestPhaseSignal()
+        let blocker = TestContinuationBlocker()
+        await PushRegistrationURLProtocol.script.reset([
+            .gatedResponse(200, started: started, blocker: blocker),
+        ])
+        let provider = MutablePushTokenProvider(
+            accountID: "account-a",
+            accessToken: "a-access",
+            refreshToken: "a-refresh"
+        )
+        let suite = "push-delete-session-switch-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: provider,
+            suite: suite,
+            accountID: nil
+        )
+        defaults.set(
+            try? JSONEncoder().encode([[
+                "tokenHex": "aa",
+                "accountID": "account-a",
+            ]]),
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        )
+
+        let cleanup = Task { await service.syncTokenIfPossible() }
+        await started.waitUntilStarted()
+        await provider.switchSession(
+            accountID: "account-b",
+            accessToken: "b-access",
+            refreshToken: "b-refresh"
+        )
+        await blocker.release()
+        await cleanup.value
+
+        let queueText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(queueText?.contains("account-a") == true)
+    }
+
+    @Test func tokenRotationRegistersNewTokenBeforeDurableOldTokenCleanup() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .failure(.notConnectedToInternet),
+        ])
+        let suite = "push-token-rotation-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a"
+        )
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("aa", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.register(deviceToken: Data([0xBB]))
+
+        let firstRequests = await PushRegistrationURLProtocol.script.requests
+        #expect(firstRequests.map(\.httpMethod) == ["POST", "DELETE"])
+        #expect(await service.snapshot.backendState == .registered)
+        let pendingText = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        ).flatMap { String(data: $0, encoding: .utf8) }
+        #expect(pendingText?.contains("aa") == true)
+
+        await PushRegistrationURLProtocol.script.reset([
+            .response(200),
+            .response(200),
+        ])
+        let (relaunched, _) = makeScriptedService(
+            suite: suite,
+            accountID: "account-a"
+        )
+        await relaunched.syncTokenIfPossible()
+        let recoveredRequests = await PushRegistrationURLProtocol.script.requests
+        #expect(recoveredRequests.map(\.httpMethod) == ["POST", "DELETE"])
+        let bodies = recoveredRequests.compactMap { request -> String? in
+            guard let data = request.httpBody,
+                  let body = try? JSONSerialization.jsonObject(with: data)
+                    as? [String: String] else { return nil }
+            return body["deviceToken"]
+        }
+        #expect(bodies == ["bb", "aa"])
+    }
+
+    @Test func repeatedSameDeviceTokenDoesNotQueueDuplicateDelete() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, defaults) = makeScriptedService(accountID: "account-a")
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        defaults.set("ab", forKey: "cmux.notifications.deviceTokenHex")
+        defaults.set("account-a", forKey: "cmux.notifications.registeredAccountID")
+
+        await service.register(deviceToken: Data([0xAB]))
+
+        #expect(
+            await PushRegistrationURLProtocol.script.requests
+                .map(\.httpMethod)
+                == ["POST"]
+        )
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
         )
     }
 
