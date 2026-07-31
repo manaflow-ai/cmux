@@ -119,6 +119,13 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
     body.correlationId == null
       ? ""
       : boundedString(body.correlationId, MAX_PUSH_CORRELATION_ID_CHARS);
+  const hasExpiration = Object.hasOwn(
+    body,
+    "expirationEpochSeconds",
+  );
+  const expirationEpochSeconds = hasExpiration
+    ? parseExpiration(body.expirationEpochSeconds)
+    : null;
 
   if (title == null) return { ok: false, error: "title_too_long" };
   if (subtitle == null) return { ok: false, error: "subtitle_too_long" };
@@ -135,6 +142,9 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
     )
   ) {
     return { ok: false, error: "invalid_correlation_id" };
+  }
+  if (hasExpiration && expirationEpochSeconds == null) {
+    return { ok: false, error: "invalid_expiration" };
   }
   // A dismiss push is banner-less by design; only the visible kind needs text.
   if (kind === "notify" && !title && !text) return { ok: false, error: "empty_notification" };
@@ -157,7 +167,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       macDeviceId: macDeviceId || null,
       notificationId: notificationId || null,
       correlationId: correlationId || null,
-      expirationEpochSeconds: parseExpiration(body.expirationEpochSeconds),
+      expirationEpochSeconds,
       dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
       badgeCount: parseBadgeCount(body.badgeCount),
       retargetsToLiveSurfaceOwner: kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
@@ -167,7 +177,6 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
 }
 
 function parseExpiration(value: unknown): number | null {
-  if (value == null) return null;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     return null;
   }

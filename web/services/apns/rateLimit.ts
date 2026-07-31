@@ -84,7 +84,7 @@ export async function recordPushSendOrThrow(
         expiresAt: existing.expiresAt,
         eventKind:
           existing.eventKind === "dismiss" ? "dismiss" : "notify",
-        initialTargets: existing.initialTargets ?? [],
+        initialTargets: existing.initialTargets ?? null,
       };
       if (
         existing.leaseUntil != null
@@ -145,7 +145,8 @@ export interface PushSendRecord {
   readonly outcomes: readonly ApnsSendResult[];
   readonly expiresAt: Date | null;
   readonly eventKind: "notify" | "dismiss";
-  readonly initialTargets: readonly ApnsTarget[];
+  /** `null` is a legacy row; `[]` is a deliberately frozen empty audience. */
+  readonly initialTargets: readonly ApnsTarget[] | null;
 }
 
 export type PushSendClaim =
@@ -185,7 +186,7 @@ export async function pushSendRecord(
     outcomes: existing.outcomes ?? [],
     expiresAt: existing.expiresAt,
     eventKind: existing.eventKind === "dismiss" ? "dismiss" : "notify",
-    initialTargets: existing.initialTargets ?? [],
+    initialTargets: existing.initialTargets ?? null,
   };
 }
 

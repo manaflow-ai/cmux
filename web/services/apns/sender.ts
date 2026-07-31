@@ -302,7 +302,6 @@ export async function sendApnsNotificationReliably(
       unresolved.map((target) => [target.deviceToken, target]),
     );
     const retryTargets: ApnsTarget[] = [];
-    let retryAfterSeconds: number | undefined;
     const providerTokenWasAlreadyRefreshed = didRefreshProviderToken;
 
     for (const rawResult of results) {
@@ -317,13 +316,9 @@ export async function sendApnsNotificationReliably(
           }
         : withDeferredRetryPolicy(rawResult);
       finalByToken.set(result.deviceToken, result);
-      if (isTransientApnsResult(result)) {
+      if (isImmediateRetryResult(result)) {
         const target = targetByToken.get(result.deviceToken);
         if (target) retryTargets.push(target);
-        retryAfterSeconds = maxDefined(
-          retryAfterSeconds,
-          result.retryAfterSeconds,
-        );
         if (
           result.status === 403
           && result.reason === "ExpiredProviderToken"
@@ -337,17 +332,8 @@ export async function sendApnsNotificationReliably(
 
     unresolved = retryTargets;
     if (unresolved.length === 0 || attempt === maxAttempts) break;
-    if (
-      retryAfterSeconds != null
-      && retryAfterSeconds * 1_000 > APNS_MAX_RETRY_DELAY_MS
-    ) {
-      // Persist the transient outcomes and let the caller schedule the same
-      // correlation later. Clamping a provider-requested delay would hammer
-      // APNs and still consume the in-request retry budget.
-      break;
-    }
     if (!forceProviderTokenRefresh) {
-      await retryDelay(attempt, retryAfterSeconds);
+      await retryDelay(attempt, undefined);
     }
   }
 
@@ -374,6 +360,13 @@ export function isTransientApnsResult(result: ApnsSendResult): boolean {
     || isExpiredProviderToken(result);
 }
 
+function isImmediateRetryResult(result: ApnsSendResult): boolean {
+  // Provider responses carry a durable retry policy and must not couple one
+  // device's backoff to another device's recovery. Only transport failures and
+  // one provider-token refresh stay inside this bounded request.
+  return result.status === 0 || isExpiredProviderToken(result);
+}
+
 function withDeferredRetryPolicy(
   result: ApnsSendResult,
 ): ApnsSendResult {
@@ -393,15 +386,6 @@ function withDeferredRetryPolicy(
     };
   }
   return result;
-}
-
-function maxDefined(
-  lhs: number | undefined,
-  rhs: number | undefined,
-): number | undefined {
-  if (lhs == null) return rhs;
-  if (rhs == null) return lhs;
-  return Math.max(lhs, rhs);
 }
 
 async function defaultRetryDelay(

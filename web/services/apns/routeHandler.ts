@@ -44,3 +44,14 @@ export function recordApnsRouteOutcome(
     "cmux.apns.permanent_failures": summary.permanentFailures,
   });
 }
+
+/** Correlates a safe expected-failure stage without payload or device data. */
+export function recordApnsRouteFailure(
+  correlationId: string,
+  stage: string,
+): void {
+  trace.getActiveSpan()?.setAttributes({
+    "cmux.push.correlation_id": correlationId,
+    "cmux.apns.failure_stage": stage,
+  });
+}
