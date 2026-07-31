@@ -1,0 +1,11 @@
+"app.title" = "TerminalBytes デモ";
+"field.invitation" = "登録用招待";
+"field.surface" = "サーフェス ID";
+"button.connect" = "接続";
+"button.connecting" = "接続中…";
+"button.disconnect" = "切断";
+"error.surface" = "数値のサーフェス ID を入力してください。";
+"error.invitation" = "登録用招待を貼り付けてください。";
+"diagnostics.title" = "診断";
+"diagnostics.disconnected" = "未接続";
+"diagnostics.copy" = "診断をコピー";

@@ -927,10 +927,7 @@ impl Surface {
             replace_ghostty_cursor_defaults(&mut term, colors);
         }
         term.vt_write(&snapshot.replay);
-        let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
-        if !initial_color_delta.is_empty() {
-            term.vt_write(&initial_color_delta);
-        }
+        apply_terminal_color_overrides(&mut term, &snapshot.colors);
         let title = term.title().unwrap_or_default();
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -2488,6 +2485,17 @@ fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> 
     let mut output = if next.cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
     output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
     output
+}
+
+/// Apply one complete terminal-host Colors state to a local libghostty parser.
+/// Snapshot replay intentionally leaves embedder defaults local while this
+/// helper restores application-authored dynamic colors, palette entries, and
+/// cursor semantics at the advertised sequence boundary.
+pub fn apply_terminal_color_overrides(terminal: &mut Terminal, colors: &TerminalColorOverrides) {
+    let transition = terminal_color_override_full_state(colors);
+    if !transition.is_empty() {
+        terminal.vt_write(&transition);
+    }
 }
 
 fn terminal_color_overrides_match_applied(

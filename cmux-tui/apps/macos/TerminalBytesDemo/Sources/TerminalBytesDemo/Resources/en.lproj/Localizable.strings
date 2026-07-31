@@ -1,0 +1,11 @@
+"app.title" = "TerminalBytes Demo";
+"field.invitation" = "Enrollment invitation";
+"field.surface" = "Surface ID";
+"button.connect" = "Connect";
+"button.connecting" = "Connecting…";
+"button.disconnect" = "Disconnect";
+"error.surface" = "Enter a numeric surface ID.";
+"error.invitation" = "Paste an enrollment invitation.";
+"diagnostics.title" = "Diagnostics";
+"diagnostics.disconnected" = "Disconnected";
+"diagnostics.copy" = "Copy Diagnostics";

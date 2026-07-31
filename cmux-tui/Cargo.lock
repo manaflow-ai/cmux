@@ -582,6 +582,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-tui-core",
  "diffy",
  "futures-util",
  "getrandom 0.3.4",
@@ -614,6 +615,25 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-terminal-client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "cmux-remote",
+ "cmux-remote-protocol",
+ "cmux-tui-core",
+ "getrandom 0.3.4",
+ "ghostty-vt",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

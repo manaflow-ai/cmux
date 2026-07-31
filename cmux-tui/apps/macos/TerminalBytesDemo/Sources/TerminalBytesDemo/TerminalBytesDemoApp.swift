@@ -1,0 +1,87 @@
+import AppKit
+import SwiftUI
+
+@main
+struct TerminalBytesDemoApp: App {
+    var body: some Scene {
+        WindowGroup(L10n.text("app.title", "TerminalBytes Demo")) {
+            ContentView()
+                .frame(minWidth: 780, minHeight: 520)
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var model = TerminalModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField(
+                    L10n.text("field.invitation", "Enrollment invitation"),
+                    text: $model.invitation
+                )
+                .textFieldStyle(.roundedBorder)
+                TextField(
+                    L10n.text("field.surface", "Surface ID"),
+                    text: $model.surface
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 110)
+                if model.isConnected {
+                    Button(L10n.text("button.disconnect", "Disconnect")) {
+                        model.disconnect()
+                    }
+                } else {
+                    Button(
+                        model.isConnecting
+                            ? L10n.text("button.connecting", "Connecting…")
+                            : L10n.text("button.connect", "Connect")
+                    ) {
+                        model.connect()
+                    }
+                    .disabled(model.isConnecting)
+                }
+            }
+            .padding(10)
+
+            if !model.errorMessage.isEmpty {
+                Text(model.errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
+            }
+
+            TerminalView(
+                text: model.frame,
+                send: model.send,
+                paste: model.paste,
+                resize: model.resize
+            )
+            .background(.black)
+
+            HStack(spacing: 8) {
+                Text(L10n.text("diagnostics.title", "Diagnostics"))
+                    .fontWeight(.semibold)
+                Text(model.diagnostics.isEmpty
+                     ? L10n.text("diagnostics.disconnected", "Disconnected")
+                     : model.diagnostics)
+                    .font(.system(size: 10, design: .monospaced))
+                    .textSelection(.enabled)
+                Spacer(minLength: 0)
+                Button(L10n.text("diagnostics.copy", "Copy Diagnostics")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(model.diagnostics, forType: .string)
+                }
+                .disabled(model.diagnostics.isEmpty)
+            }
+            .padding(8)
+            .background(.bar)
+        }
+        .task {
+            model.connectIfConfigured()
+        }
+    }
+}

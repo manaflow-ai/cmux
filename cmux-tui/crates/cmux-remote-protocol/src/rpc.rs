@@ -96,6 +96,13 @@ pub enum Service {
     MuxControl,
     WorkspaceRpc,
     ProcessStream,
+    /// A dedicated, ordered binary CMTH terminal renderer stream.
+    ///
+    /// Each service stream names exactly one cmux surface. The daemon uses a
+    /// short-lived renderer capability to bridge that surface's terminal host;
+    /// carriers, authentication, reconnect, and replay remain properties of
+    /// the enclosing remote session.
+    TerminalBytes,
     TcpTunnel,
     ComputerUse,
 }
