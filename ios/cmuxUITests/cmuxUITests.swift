@@ -616,6 +616,219 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceGroupRenameUsesAlert() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(groupHeader.waitForExistence(timeout: 8))
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 3))
+        groupName.press(forDuration: 1)
+
+        let rename = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupRenameButton-seed-group-1"
+        ]
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        guard rename.exists else { return }
+        rename.tap()
+
+        let renameAlert = app.alerts[
+            String(localized: "mobile.workspaceGroup.rename.title", defaultValue: "Rename Group")
+        ]
+        XCTAssertTrue(
+            renameAlert.waitForExistence(timeout: 3),
+            "Group rename must use a compact system alert instead of a sheet."
+        )
+        XCTAssertTrue(
+            renameAlert.textFields.firstMatch.exists,
+            "The rename alert must include an editable group-name field."
+        )
+        let renameField = renameAlert.textFields.firstMatch
+        renameField.tap()
+        renameField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
+        renameField.typeText("yu")
+        let save = renameAlert.buttons[
+            String(localized: "mobile.common.save", defaultValue: "Save")
+        ].firstMatch
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        save.tap()
+        XCTAssertTrue(
+            app.buttons["yu"].waitForExistence(timeout: 3),
+            "Saving Rename Group must update the visible group-row title."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-group-rename-alert"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceRenameFromGroupMenuUsesAlert() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+
+        let rename = app.descendants(matching: .any)[
+            "MobileWorkspaceRenameButton-workspace-seed-4"
+        ]
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        guard rename.exists else { return }
+        rename.tap()
+
+        let renameAlert = app.alerts[
+            String(localized: "mobile.workspace.rename.title", defaultValue: "Rename Workspace")
+        ]
+        XCTAssertTrue(
+            renameAlert.waitForExistence(timeout: 3),
+            "Workspace rename must use a compact system alert instead of a sheet."
+        )
+        XCTAssertTrue(
+            renameAlert.textFields.firstMatch.exists,
+            "The rename alert must include the shared editable workspace-name field."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-rename-alert-from-group-menu"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupContextMenuPreservesAnchorWorkspaceActions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        groupName.press(forDuration: 1)
+
+        for actionLabel in [
+            "New Workspace in Group",
+            "Pin Group",
+            "Rename Group",
+            "Pin",
+            "Customize",
+            "Rename Workspace",
+            "Mark as Read",
+            "Delete",
+            "Ungroup (Keep Workspaces)",
+            "Delete Group (Close Workspaces)",
+        ] {
+            XCTAssertTrue(
+                app.buttons[actionLabel].exists,
+                "Group context menu must preserve action \(actionLabel)."
+            )
+        }
+    }
+
+    @MainActor
+    func testWorkspaceListNewWorkspaceMenuPreservesGroupCreation() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let newWorkspaceButton = app.buttons["MobileNewWorkspaceButton"]
+        XCTAssertTrue(newWorkspaceButton.waitForExistence(timeout: 8))
+        newWorkspaceButton.press(forDuration: 1)
+
+        XCTAssertTrue(
+            app.buttons["MobileNewWorkspaceMenuItem"].waitForExistence(timeout: 3),
+            "Holding the plus button must preserve New Workspace."
+        )
+        XCTAssertTrue(
+            app.buttons["MobileNewWorkspaceGroupMenuItem"].exists,
+            "Holding the plus button must expose New Workspace Group."
+        )
+    }
+
+    @MainActor
+    func testWorkspaceGroupFullSwipeMarksRead() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupName = app.buttons["Group 2"]
+        XCTAssertTrue(groupName.waitForExistence(timeout: 8))
+        XCTAssertEqual(groupName.value as? String, "Unread")
+
+        let swipeStart = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)
+        )
+        let swipeEnd = groupName.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)
+        )
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        let groupBecameRead = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value != %@", "Unread"),
+            object: groupName
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [groupBecameRead], timeout: 3),
+            .completed,
+            "A full leading swipe must complete the group's Mark as Read action."
+        )
+    }
+
+    @MainActor
+    func testWorkspaceGroupTrailingSwipeRequestsAnchorDelete() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "12",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+        ])
+        defer { app.terminate() }
+
+        let groupHeader = app.descendants(matching: .any)[
+            "MobileWorkspaceGroupHeader-seed-group-1"
+        ]
+        XCTAssertTrue(waitForHittable(groupHeader, timeout: 8))
+        groupHeader.swipeLeft()
+
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(
+            delete.waitForExistence(timeout: 3),
+            "A trailing group swipe must expose the anchor workspace's Delete action."
+        )
+        delete.tap()
+
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceDeleteConfirmButton-workspace-seed-4"]
+                .waitForExistence(timeout: 3),
+            "The group swipe Delete action must request deletion of the group's anchor workspace."
+        )
+    }
+
+    @MainActor
     func testWorkspaceSearchIsMinimizedAndPreservesQueryAcrossRefresh() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")

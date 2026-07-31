@@ -41,6 +41,7 @@ struct WorkspaceNavigationRow: View {
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
+    @State private var renameDraft = ""
     @State private var isCustomizing = false
 
     var body: some View {
@@ -78,9 +79,10 @@ struct WorkspaceNavigationRow: View {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
                     isCustomizing = true
                 }
-            } else if renameWorkspace != nil {
+            }
+            if renameWorkspace != nil {
                 Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
-                    isRenaming = true
+                    presentRename()
                 }
             }
             if let setPinned {
@@ -93,10 +95,10 @@ struct WorkspaceNavigationRow: View {
                 }
             }
         }
-        .sheet(isPresented: $isRenaming) {
-            WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                renameWorkspace?(workspace.id, newName)
-            }
+        .workspaceRenameDialog(isPresented: $isRenaming, text: $renameDraft) {
+            let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            renameWorkspace?(workspace.id, trimmed)
         }
         .sheet(isPresented: $isCustomizing) {
             WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
@@ -198,9 +200,10 @@ struct WorkspaceNavigationRow: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)")
-        } else if renameWorkspace != nil {
+        }
+        if renameWorkspace != nil {
             Button {
-                isRenaming = true
+                presentRename()
             } label: {
                 Label(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"), systemImage: "pencil")
             }
@@ -232,5 +235,10 @@ struct WorkspaceNavigationRow: View {
 
     private var readStateActionSystemImage: String {
         workspace.hasUnread ? "envelope.open" : "envelope.badge"
+    }
+
+    private func presentRename() {
+        renameDraft = workspace.name
+        isRenaming = true
     }
 }
