@@ -19,9 +19,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var remoteHosts: [String: RemoteTmuxHost.IdentityOverride]?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, remoteHosts
     }
 
     init(
@@ -33,7 +34,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        remoteHosts: [String: RemoteTmuxHost.IdentityOverride]? = nil
     ) {
         self.actions = actions
         self.ui = ui
@@ -44,6 +46,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.remoteHosts = remoteHosts
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +98,10 @@ struct CmuxConfigFile: Codable, Sendable {
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
+        )
+        remoteHosts = try container.decodeIfPresent(
+            [String: RemoteTmuxHost.IdentityOverride].self,
+            forKey: .remoteHosts
         )
     }
 
@@ -1701,6 +1708,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    @Published private(set) var remoteTmuxHostIdentityOverrides: [String: RemoteTmuxHost.IdentityOverride] = [:]
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -1877,6 +1885,10 @@ final class CmuxConfigStore: ObservableObject {
             globalConfig: globalConfig,
             localConfigs: localConfigs
         )
+    }
+
+    func remoteTmuxVisualIdentity(for host: RemoteTmuxHost) -> RemoteTmuxHost.VisualIdentity {
+        host.visualIdentity(overrides: remoteTmuxHostIdentityOverrides)
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -2141,6 +2153,7 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
+        remoteTmuxHostIdentityOverrides = globalConfig?.remoteHosts ?? [:]
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {
@@ -2155,6 +2168,12 @@ final class CmuxConfigStore: ObservableObject {
             )
         }
         applySurfaceTabBarButtonsToCurrentManager()
+        if let tabManager {
+            AppDelegate.shared?.remoteTmuxController.refreshHostIdentities(
+                in: tabManager,
+                overrides: remoteTmuxHostIdentityOverrides
+            )
+        }
         configRevision &+= 1
     }
 

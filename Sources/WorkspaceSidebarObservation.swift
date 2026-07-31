@@ -171,6 +171,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let taskStatusOverride: WorkspaceTaskStatusOverride?
     let statusHidden: Bool
     let checklist: [WorkspaceChecklistItem]
+    let remoteTmuxHostIdentity: RemoteTmuxHost.VisualIdentity?
 }
 
 private struct SidebarObservationState: Equatable {
@@ -213,6 +214,7 @@ extension Workspace {
             $isPinned,
             $customColor
         )
+        .combineLatest($remoteTmuxHostIdentity)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -231,16 +233,17 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
+                    customTitle: workspaceFields.0.0,
+                    customDescription: workspaceFields.0.1,
+                    isPinned: workspaceFields.0.2,
+                    customColor: workspaceFields.0.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,
                     taskStatusOverride: todoFields.0,
                     statusHidden: todoFields.1,
-                    checklist: todoFields.2
+                    checklist: todoFields.2,
+                    remoteTmuxHostIdentity: workspaceFields.1
                 )
             }
             .removeDuplicates()

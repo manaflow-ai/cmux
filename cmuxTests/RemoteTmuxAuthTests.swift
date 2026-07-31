@@ -192,6 +192,42 @@ import Testing
         )
     }
 
+    @Test func hostVisualIdentityIsStableAcrossResolution() {
+        let host = RemoteTmuxHost(destination: "nixbox", port: 2222, identityFile: "/keys/work")
+        let first = host.visualIdentity()
+        let second = RemoteTmuxHost(
+            destination: "nixbox",
+            port: 2222,
+            identityFile: "/keys/work"
+        ).visualIdentity()
+
+        #expect(first == second)
+        #expect(first.fallbackHueIndex != nil)
+        #expect(first.symbolName == "server.rack")
+    }
+
+    @Test func fallbackHostVisualIdentitiesSpreadAcrossHueTable() {
+        let identities = ["nixbox", "h11", "mac", "alpha", "bravo", "charlie", "delta", "echo"]
+            .map { RemoteTmuxHost(destination: $0).visualIdentity() }
+        let hueIndices = Set(identities.compactMap(\.fallbackHueIndex))
+
+        #expect(hueIndices.count >= 5)
+        #expect(identities.allSatisfy { RemoteTmuxHost.fallbackTintHexTable.contains($0.tintHex) })
+    }
+
+    @Test func explicitHostVisualIdentityOverrideWins() {
+        let host = RemoteTmuxHost(destination: "deploy@nixbox")
+        let identity = host.visualIdentity(overrides: [
+            "*": .init(symbol: "network", tint: "#000000"),
+            "nixbox": .init(symbol: "server.rack", tint: " 5a9bd5 "),
+        ])
+
+        #expect(identity.symbolName == "server.rack")
+        #expect(identity.tintHex == "#5A9BD5")
+        #expect(identity.hostSlug == "deploy-nixbox")
+        #expect(identity.fallbackHueIndex == nil)
+    }
+
     @Test func controlSocketPathVariesByPortAndIdentity() {
         // Distinct endpoints (same destination, different port/identity) must NOT
         // share a ControlMaster socket — otherwise a destructive command could
@@ -472,6 +508,115 @@ import Testing
             process.terminationStatus,
             String(decoding: stdoutData, as: UTF8.self),
             String(decoding: stderrData, as: UTF8.self)
+        )
+    }
+}
+
+@Suite struct RemoteTmuxWorkspaceRoutingTests {
+    private let hostHash = "host-hash"
+    private let sessionName = "agents-main"
+
+    @Test func adoptsEmptyExactTitleInPlace() {
+        let workspaceId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: workspaceId, title: sessionName, isEmpty: true),
+                candidate(title: "other", isEmpty: true),
+            ]
+        )
+
+        #expect(route == .adopt(workspaceId: workspaceId))
+    }
+
+    @Test func adoptsPriorMirrorOfSameHostAndSessionEvenWhenOccupied() {
+        let workspaceId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(
+                    id: workspaceId,
+                    title: sessionName,
+                    priorMirrorIdentity: RemoteTmuxWorkspaceIdentity(
+                        connectionHash: hostHash,
+                        sessionName: sessionName
+                    )
+                ),
+            ]
+        )
+
+        #expect(route == .adopt(workspaceId: workspaceId))
+    }
+
+    @Test func doesNotAdoptOccupiedLocalOrDifferentHostWorkspace() {
+        let occupiedLocalId = UUID()
+        let differentHostId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: occupiedLocalId, title: sessionName),
+                candidate(
+                    id: differentHostId,
+                    title: sessionName,
+                    priorMirrorIdentity: RemoteTmuxWorkspaceIdentity(
+                        connectionHash: "other-host",
+                        sessionName: sessionName
+                    )
+                ),
+            ]
+        )
+
+        #expect(route == .insert(afterWorkspaceId: differentHostId))
+    }
+
+    @Test func insertsAfterLastBestMatchingTitlePrefix() {
+        let shortPrefixId = UUID()
+        let firstBestId = UUID()
+        let lastBestId = UUID()
+
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(id: shortPrefixId, title: "agents"),
+                candidate(id: firstBestId, title: "agents-main-api"),
+                candidate(id: lastBestId, title: "agents-main-worker"),
+            ]
+        )
+
+        #expect(route == .insert(afterWorkspaceId: lastBestId))
+    }
+
+    @Test func appendsWhenNoTitlePrefixMatches() {
+        let route = RemoteTmuxWorkspaceRoutingPolicy.route(
+            connectionHash: hostHash,
+            sessionName: sessionName,
+            candidates: [
+                candidate(title: "frontend", isEmpty: true),
+                candidate(title: "database"),
+            ]
+        )
+
+        #expect(route == .append)
+    }
+
+    private func candidate(
+        id: UUID = UUID(),
+        title: String,
+        isEmpty: Bool = false,
+        priorMirrorIdentity: RemoteTmuxWorkspaceIdentity? = nil
+    ) -> RemoteTmuxWorkspaceRoutingPolicy.Candidate {
+        RemoteTmuxWorkspaceRoutingPolicy.Candidate(
+            workspaceId: id,
+            title: title,
+            isEmpty: isEmpty,
+            priorMirrorIdentity: priorMirrorIdentity
         )
     }
 }

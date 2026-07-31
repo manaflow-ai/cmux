@@ -22,6 +22,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             isPinned: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
+            remoteTmuxHostIdentity: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,

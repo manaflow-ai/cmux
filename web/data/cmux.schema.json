@@ -36,6 +36,28 @@
       "type": "object",
       "additionalProperties": true
     },
+    "remoteHosts": {
+      "title": "remoteHosts",
+      "description": "Per-host visual identity overrides for remote tmux mirror workspaces. Keys are case-insensitive SSH destination patterns supporting * and ? wildcards.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["symbol", "tint"],
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "description": "SF Symbol name used for the host badge."
+          },
+          "tint": {
+            "type": "string",
+            "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+            "description": "Badge tint as RGB or RGBA hex."
+          }
+        }
+      }
+    },
     "ui": {
       "title": "ui",
       "description": "UI action wiring, including surface tab bar buttons and plus-button behavior. The plus-button context menu shows ui.newWorkspace.contextMenu (or the default items) followed by actions that opt in via newWorkspaceMenu.",

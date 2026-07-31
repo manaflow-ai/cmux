@@ -27,6 +27,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
+    private let remoteHostIdentityImageView = NSImageView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
@@ -193,6 +194,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         pinImageView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(pinImageView)
+        remoteHostIdentityImageView.imageScaling = .scaleProportionallyDown
+        contentContainer.addSubview(remoteHostIdentityImageView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
@@ -378,6 +381,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         // Title line
+        remoteHostIdentityImageView.isHidden = snapshot.remoteTmuxHostIdentity == nil
+        if let identity = snapshot.remoteTmuxHostIdentity {
+            remoteHostIdentityImageView.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: identity.symbolName, pointSize: model.scaled(10), weight: .semibold
+            ) ?? RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "server.rack", pointSize: model.scaled(10), weight: .semibold
+            )
+            remoteHostIdentityImageView.contentTintColor =
+                NSColor(hex: identity.tintHex) ?? palette.secondary(0.8)
+            remoteHostIdentityImageView.toolTip = identity.hostSlug
+            remoteHostIdentityImageView.setAccessibilityLabel(identity.hostSlug)
+        }
         pinImageView.isHidden = !snapshot.isPinned
         if snapshot.isPinned {
             pinImageView.image = RenderableSystemSymbol.configuredAppKitImage(
@@ -1096,6 +1111,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if !pinImageView.isHidden {
             let side = model.scaled(9) + 4
             place(pinImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + titleRowSpacing
+        }
+        if !remoteHostIdentityImageView.isHidden {
+            let side = model.scaled(10) + 4
+            place(
+                remoteHostIdentityImageView,
+                size: NSSize(width: side, height: side),
+                centerY: firstLineCenter
+            )
             x += side + titleRowSpacing
         }
         for view in [mediaAudioView, mediaMicView, mediaCameraView] where !view.isHidden {
