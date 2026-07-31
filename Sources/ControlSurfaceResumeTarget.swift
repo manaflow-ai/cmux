@@ -271,8 +271,12 @@ extension TerminalController {
         ) else {
             return .resolved(effectiveBinding)
         }
-        let policy = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
+        let approval = surfacePromptForResumeApproval(binding: effectiveBinding)
+        guard let record = SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: approval.policy,
+            commandPrefix: approval.commandPrefix
+        ) else {
             return .resolved(effectiveBinding)
         }
         effectiveBinding.approvalPolicy = record.policy
@@ -290,7 +294,7 @@ extension TerminalController {
 
     private func surfacePromptForResumeApproval(
         binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeApprovalPolicy {
+    ) -> (policy: SurfaceResumeApprovalPolicy, commandPrefix: [String]?) {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(
@@ -309,16 +313,40 @@ extension TerminalController {
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
+        let generalizedPrefix = SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
+            forCommand: binding.command
+        )
+        let folderScopedGeneralizedPrefix =
+            SurfaceResumeCommandCanonicalizer.normalizedCWD(binding.cwd) == nil
+            ? nil
+            : generalizedPrefix
+        if let generalizedPrefix = folderScopedGeneralizedPrefix {
+            let renderedPrefix = generalizedPrefix
+                .map(SurfaceResumeCommandCanonicalizer.shellQuoted)
+                .joined(separator: " ")
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = String(
+                format: String(
+                    localized: "surfaceResumeApproval.proposal.applyToPrefix",
+                    defaultValue: "Apply to all commands starting with “%@” in this folder"
+                ),
+                renderedPrefix
+            )
+        }
         let content = CmuxAlertContent(
             flattenedText: informativeText,
             separatingScrollableDetails: binding.command
         )
         content.apply(to: alert, presentingWindow: nil)
 
-        return switch alert.runModal() {
-        case .alertFirstButtonReturn: .auto
-        case .alertSecondButtonReturn: .prompt
-        default: .manual
+        let response = alert.runModal()
+        let commandPrefix = alert.suppressionButton?.state == .on
+            ? folderScopedGeneralizedPrefix
+            : nil
+        return switch response {
+        case .alertFirstButtonReturn: (.auto, commandPrefix)
+        case .alertSecondButtonReturn: (.prompt, commandPrefix)
+        default: (.manual, commandPrefix)
         }
     }
 
