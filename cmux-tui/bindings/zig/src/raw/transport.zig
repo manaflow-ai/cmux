@@ -135,7 +135,14 @@ const UnixConnection = struct {
         buffer: []u8,
         timeout_ms: ?u32,
     ) !usize {
-        try self.wait(std.posix.POLL.IN, timeout_ms);
+        return readWithTimeout(self, buffer, timeout_ms);
+    }
+
+    fn waitReadable(self: *UnixConnection, timeout_ms: ?u32) !void {
+        return self.wait(std.posix.POLL.IN, timeout_ms);
+    }
+
+    fn readSome(self: *UnixConnection, buffer: []u8) !usize {
         return self.stream.read(buffer) catch |err| switch (err) {
             error.ConnectionResetByPeer,
             error.SocketNotConnected,
@@ -181,6 +188,15 @@ const UnixConnection = struct {
         allocator.destroy(self);
     }
 };
+
+fn readWithTimeout(
+    state: anytype,
+    buffer: []u8,
+    timeout_ms: ?u32,
+) !usize {
+    try state.waitReadable(timeout_ms);
+    return state.readSome(buffer);
+}
 
 fn writeAllWithTimeout(
     state: anytype,
@@ -374,6 +390,35 @@ test "partial Unix writes share one absolute timeout" {
         writeAllWithTimeout(&writer, "four", 20),
     );
     try std.testing.expect(writer.wait_calls >= 2);
+}
+
+test "read retries readiness races instead of surfacing WouldBlock" {
+    const RacingReader = struct {
+        wait_calls: usize = 0,
+        read_calls: usize = 0,
+
+        fn waitReadable(self: *@This(), timeout_ms: ?u32) !void {
+            _ = timeout_ms;
+            self.wait_calls += 1;
+        }
+
+        fn readSome(self: *@This(), buffer: []u8) !usize {
+            self.read_calls += 1;
+            if (self.read_calls == 1) return error.WouldBlock;
+            buffer[0] = 'x';
+            return 1;
+        }
+    };
+    var reader = RacingReader{};
+    var buffer: [1]u8 = undefined;
+
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        try readWithTimeout(&reader, &buffer, 20),
+    );
+    try std.testing.expectEqual(@as(usize, 2), reader.wait_calls);
+    try std.testing.expectEqual(@as(usize, 2), reader.read_calls);
+    try std.testing.expectEqual(@as(u8, 'x'), buffer[0]);
 }
 
 test "large Unix write to a nonreading peer honors its deadline" {
