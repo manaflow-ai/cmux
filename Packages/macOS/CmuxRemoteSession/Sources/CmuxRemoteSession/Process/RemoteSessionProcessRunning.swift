@@ -15,8 +15,8 @@ public protocol RemoteSessionProcessRunning: Sendable {
     ///   - operation: Optional transfer-cancellation token; when it cancels,
     ///     the process is terminated and `operation.cancellationError` is
     ///     thrown.
-    /// - Throws: The legacy launch-failure (`cmux.remote.process` code 1) and
-    ///   timeout (code 2) errors, or `operation.cancellationError`.
+    /// - Throws: Launch-failure (`cmux.remote.process` code 1), timeout
+    ///   (code 2), stdin-write (code 3), or `operation.cancellationError`.
     func run(
         _ request: RemoteProcessRequest,
         operation: (any RemoteTransferCancelling)?
