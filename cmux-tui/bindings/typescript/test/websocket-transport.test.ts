@@ -234,6 +234,53 @@ test("resource WebSocket transport pairs before flushing requests", () => {
   transport.close();
 });
 
+for (const preamble of [
+  { name: "pairing", authToken: undefined, frame: '"pair"' },
+  { name: "authentication", authToken: "secret", frame: '"auth"' },
+] as const) {
+  test(`resource WebSocket ${preamble.name} preamble failure closes and settles`, async () => {
+    const credentials: string[] = [];
+    const errors: Error[] = [];
+    let closes = 0;
+    const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+      WebSocket: ResourceConstructor,
+      authToken: preamble.authToken,
+      onPairingCredential: (credential) => credentials.push(credential),
+    });
+    const client = new Client({ transport, timeoutMs: 0 });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.sendFailure = (data) => data.includes(preamble.frame)
+      ? new Error(`${preamble.name} preamble exploded`)
+      : undefined;
+    transport.onError((error) => errors.push(error));
+    transport.onClose(() => closes += 1);
+    const ping = client.session(RESOURCE_SESSION).ping();
+    const rejected = assert.rejects(() => ping, CmuxConnectionError);
+
+    try {
+      assert.doesNotThrow(() => socket.open());
+      assert.deepEqual(socket.sent, []);
+      assert.match(
+        errors[0]?.message ?? "",
+        new RegExp(`WebSocket ${preamble.name} preamble failed.*preamble exploded`),
+      );
+      assert.equal(errors.length, 1);
+      assert.equal(closes, 1);
+      assert.equal(socket.readyState, 3);
+      assert.deepEqual(credentials, []);
+      await Promise.race([
+        rejected,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("request remained pending")), 50);
+        }),
+      ]);
+    } finally {
+      client.close();
+      await rejected;
+    }
+  });
+}
+
 test("resource WebSocket drops a request that expires before pairing", async () => {
   const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
     WebSocket: ResourceConstructor,
