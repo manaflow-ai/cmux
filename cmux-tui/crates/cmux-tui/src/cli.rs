@@ -611,14 +611,21 @@ fn print_server_status(output: OutputMode, probe: &crate::server_lifecycle::Serv
 }
 
 fn resolve_server_socket(global: &GlobalArgs) -> PathBuf {
+    resolve_server_socket_with(global, |name| std::env::var_os(name).map(PathBuf::from))
+}
+
+fn resolve_server_socket_with(
+    global: &GlobalArgs,
+    ambient_socket: impl Fn(&str) -> Option<PathBuf>,
+) -> PathBuf {
     if let Some(path) = &global.socket {
         return path.clone();
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
-            && !path.is_empty()
+        if let Some(path) = ambient_socket(name)
+            && !path.as_os_str().is_empty()
         {
-            return PathBuf::from(path);
+            return path;
         }
     }
     cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
@@ -656,6 +663,18 @@ mod tests {
         assert_eq!(
             command,
             strings(&["workspace", "current", "run", "--", "tool", "--session", "literal",])
+        );
+    }
+
+    #[test]
+    fn explicit_session_overrides_ambient_server_socket() {
+        let global =
+            GlobalArgs { session: Some("explicit-session".into()), ..GlobalArgs::default() };
+        let ambient = PathBuf::from("/tmp/cmux-ambient-session.sock");
+
+        assert_eq!(
+            resolve_server_socket_with(&global, |_| Some(ambient.clone())),
+            cmux_tui_core::server::default_socket_path("explicit-session")
         );
     }
 
