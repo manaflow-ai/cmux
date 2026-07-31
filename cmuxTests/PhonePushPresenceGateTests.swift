@@ -479,8 +479,17 @@ import Testing
                 result: .retryableFailure,
                 retryAfterSeconds: 600,
                 nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 2_000
+            ) == 600
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 1,
+                result: .retryableFailure,
+                retryAfterSeconds: 900,
+                nowEpochSeconds: 1_000,
                 expirationEpochSeconds: 1_120
-            ) == 30
+            ) == nil
         )
         #expect(
             PhonePushRetryPolicy.delaySeconds(
