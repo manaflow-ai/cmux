@@ -421,6 +421,60 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func paginatedDiscoveryPreservesOneAccountRevision() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 41
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 41)
+    }
+
+    @Test
+    func paginatedDiscoveryRejectsAnAccountRevisionChange() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
     func discoveryKeepsLegacyUnpaginatedResponseBounded() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: try Self.discoveryResponse(bindingCount: 256)),
@@ -658,7 +712,8 @@ struct CmxIrohTrustBrokerClientTests {
 
     private static func discoveryResponse(
         bindingRange: Range<Int>,
-        nextCursor: String?
+        nextCursor: String?,
+        revision: Int? = nil
     ) throws -> String {
         var object = try #require(
             JSONSerialization.jsonObject(
@@ -683,6 +738,9 @@ struct CmxIrohTrustBrokerClientTests {
             object["next_cursor"] = nextCursor
         } else {
             object["next_cursor"] = NSNull()
+        }
+        if let revision {
+            object["revision"] = revision
         }
         let data = try JSONSerialization.data(withJSONObject: object)
         return try #require(String(data: data, encoding: .utf8))
