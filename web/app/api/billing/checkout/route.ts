@@ -20,7 +20,10 @@ import {
   resolveTeamPrice,
   stripe,
 } from "../../../../services/billing/stripe";
-import { billingInterval } from "../../../../services/billing/plans";
+import {
+  billingInterval,
+  type BillingInterval,
+} from "../../../../services/billing/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -63,16 +66,22 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (!plan) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
+  const interval = checkoutBillingInterval(
+    request.nextUrl.searchParams.get("interval"),
+  );
+  if (!interval) {
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+  }
 
   if (!isStripeBillingConfigured()) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
   if (plan === "pro") {
-    return stripeProCheckout(request, stackServerApp);
+    return stripeProCheckout(request, stackServerApp, interval);
   }
   if (plan === "team") {
-    return stripeTeamCheckout(request, stackServerApp);
+    return stripeTeamCheckout(request, stackServerApp, interval);
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
   // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
@@ -82,6 +91,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
 async function stripeProCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -100,7 +110,6 @@ async function stripeProCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
-  const interval = billingInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
@@ -145,6 +154,7 @@ async function stripeProCheckout(
 async function stripeTeamCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  interval: BillingInterval,
 ) {
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
@@ -162,7 +172,6 @@ async function stripeTeamCheckout(
     request.nextUrl.searchParams.get("cmux_scheme"),
     request,
   );
-  const interval = billingInterval(request.nextUrl.searchParams.get("interval"));
   const successUrl =
     `${request.nextUrl.origin}/api/billing/complete` +
     `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
@@ -307,6 +316,11 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
   const plan = raw.trim().toLowerCase();
   if (plan === "pro" || plan === "team") return plan;
   return null;
+}
+
+function checkoutBillingInterval(raw: string | null): BillingInterval | null {
+  if (raw === null) return billingInterval(raw);
+  return raw === "month" || raw === "year" ? raw : null;
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
