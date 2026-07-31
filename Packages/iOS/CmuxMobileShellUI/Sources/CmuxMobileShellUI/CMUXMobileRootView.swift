@@ -35,6 +35,7 @@ struct CMUXMobileRootView: View {
     @State private var didExceedStartupRestoringGate = false
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
+    @State private var injectedAttachTask: Task<Void, Never>?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -177,6 +178,9 @@ struct CMUXMobileRootView: View {
             updateOnboardingMacDiscoveryKeepAlive()
             #endif
         }
+        .onDisappear {
+            cancelInjectedAttachTask()
+        }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
         // targets is loaded (cold launch, or attach still in flight); re-apply
@@ -231,6 +235,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             if !isAuthenticated {
+                cancelInjectedAttachTask()
                 startupConnectionCoordinator.reset()
             } else if !consumePendingURLIfReady() {
                 reconnectStoredMacIfNeeded()
@@ -704,6 +709,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        cancelInjectedAttachTask()
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
@@ -748,9 +754,17 @@ struct CMUXMobileRootView: View {
         guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
             return true
         }
-        Task {
+        injectedAttachTask = Task { @MainActor in
             let result = await dogfoodAttachPreparation.run {
                 await store.connectPairingURLResult(attachURL)
+            }
+            guard !Task.isCancelled else {
+                _ = startupConnectionCoordinator.finishInjectedAttach(
+                    startupAttempt,
+                    outcome: .failed
+                )
+                injectedAttachTask = nil
+                return
             }
             let outcome: MobileStartupConnectionCoordinator.InjectedAttachOutcome =
                 switch result {
@@ -765,10 +779,16 @@ struct CMUXMobileRootView: View {
             ) {
                 reconnectStoredMacIfNeeded()
             }
+            injectedAttachTask = nil
         }
         return true
         #else
         return false
         #endif
+    }
+
+    private func cancelInjectedAttachTask() {
+        injectedAttachTask?.cancel()
+        injectedAttachTask = nil
     }
 }

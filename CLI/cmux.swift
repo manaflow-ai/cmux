@@ -2951,6 +2951,7 @@ final class SocketClient {
     func streamV2(
         method: String,
         params: [String: Any] = [:],
+        deadline: Date? = nil,
         onLine: (String) throws -> Void
     ) throws {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
@@ -2972,14 +2973,27 @@ final class SocketClient {
         )
 
         while true {
-            let line = try readStreamLine()
+            let line = try readStreamLine(deadline: deadline)
             try onLine(line)
         }
     }
 
-    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
+    private func readStreamLine(
+        maxBytes: Int = 4 * 1024 * 1024,
+        deadline: Date? = nil
+    ) throws -> String {
         var data = Data()
-        try configureReceiveTimeout(45)
+        let receiveTimeout: TimeInterval
+        if let deadline {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            receiveTimeout = min(45, remaining)
+        } else {
+            receiveTimeout = 45
+        }
+        try configureReceiveTimeout(receiveTimeout)
         while data.count < maxBytes {
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
@@ -2988,6 +3002,9 @@ final class SocketClient {
                     continue
                 }
                 if errno == EAGAIN || errno == EWOULDBLOCK {
+                    if deadline != nil {
+                        throw CLIError(message: "Event stream deadline exceeded")
+                    }
                     throw CLIError(message: "Timed out waiting for event stream frame")
                 }
                 throw CLIError(message: "Event stream socket read error")
@@ -15516,6 +15533,8 @@ struct CMUXCLI {
               --category <name>      Filter by category, repeatable
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
+              --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline
+              --snapshot             Print the subscription snapshot and exit
               --no-ack               Do not print the subscription ack frame
               --no-heartbeat         Do not print heartbeat frames
 

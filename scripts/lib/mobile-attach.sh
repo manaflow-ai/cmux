@@ -165,42 +165,47 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
-# Reads the tagged Mac's privacy-safe Iroh diagnostic ring. Callers use its
-# monotonic event cursor to prove that one exact mobile launch reached host
-# admission instead of treating process launch as connection readiness.
-cmux_attach_iroh_diag() {
+# Opens the tagged Mac's event stream. The stream itself is the readiness
+# contract, so launch tooling does not infer connection state from diagnostics.
+cmux_attach_events() {
   local tag="$1" repo_root="$2" slug
+  shift 2
   slug="$(cmux_attach__slug "$tag")"
-  CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" iroh-diag
+  CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" events "$@"
 }
 
-# Returns the newest monotonic timestamp in a diagnostic report, or zero when
-# the ring is empty. Report rows are `<tNanos>,<code>,...`.
+# Captures the event sequence before launch. A subsequent wait can replay an
+# admission that raced between process launch and event-stream subscription.
 cmux_attach_admission_cursor() {
-  local tag="$1" repo_root="$2" report
-  report="$(cmux_attach_iroh_diag "$tag" "$repo_root")" || return 1
-  printf '%s\n' "$report" | awk -F, '
-    $1 ~ /^[0-9]+$/ && ($1 + 0) > newest { newest = $1 + 0 }
-    END { printf "%.0f", newest }
-  '
+  local tag="$1" repo_root="$2" snapshot cursor
+  snapshot="$(cmux_attach_events "$tag" "$repo_root" --snapshot --no-heartbeat)" || return 1
+  cursor="$(printf '%s\n' "$snapshot" \
+    | sed -nE 's/.*"latest_seq"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
+    | head -1)"
+  [[ -n "$cursor" ]] || {
+    echo "error: tagged Mac did not return an event-stream cursor" >&2
+    return 1
+  }
+  printf '%s' "$cursor"
 }
 
-# Waits for a host `admissionSucceeded` event newer than the launch baseline.
-# Args: <tag> <repo_root> <baseline_t_nanos> <max_attempts> <interval_seconds>.
+# Waits on the host's explicit admission event after the launch baseline.
+# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>.
 cmux_attach_wait_for_admission() {
-  local tag="$1" repo_root="$2" baseline="$3" max="$4" interval="$5"
-  local report _i
-  for _i in $(seq 1 "$max"); do
-    report="$(cmux_attach_iroh_diag "$tag" "$repo_root" 2>/dev/null || true)"
-    if printf '%s\n' "$report" | awk -F, -v baseline="$baseline" '
-      $1 ~ /^[0-9]+$/ && ($1 + 0) > (baseline + 0) && $2 == 47 { found = 1 }
-      END { exit found ? 0 : 1 }
-    '; then
-      return 0
-    fi
-    sleep "$interval"
-  done
-  echo "error: mobile app launched but did not establish a new connection to tagged Mac '$tag'" >&2
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
+  if cmux_attach_events \
+    "$tag" \
+    "$repo_root" \
+    --after "$baseline" \
+    --name mobile.iroh.admission.succeeded \
+    --limit 1 \
+    --timeout "$timeout" \
+    --no-ack \
+    --no-heartbeat \
+    >/dev/null; then
+    return 0
+  fi
+  echo "error: mobile app launched but did not establish a connection to tagged Mac '$tag' before the readiness deadline" >&2
   echo "error: dogfood setup is not ready; inspect the phone transport diagnostics before handoff" >&2
   return 1
 }

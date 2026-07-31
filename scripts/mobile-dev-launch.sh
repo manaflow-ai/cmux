@@ -53,8 +53,7 @@ IROH_RELEASE_GATE_MODE=""
 AUTH_CREDENTIALS_FILE=""
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-ATTACH_READY_MAX_ATTEMPTS="${CMUX_ATTACH_READY_MAX_ATTEMPTS:-60}"
-ATTACH_READY_INTERVAL_SECONDS="${CMUX_ATTACH_READY_INTERVAL_SECONDS:-0.5}"
+ATTACH_READY_TIMEOUT_SECONDS=30
 
 usage() { sed -n '2,30p' "$0"; }
 
@@ -85,14 +84,6 @@ done
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
 if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_ATTACH_MINT_MAX_ATTEMPTS must be a positive integer" >&2
-  exit 2
-fi
-if [[ ! "$ATTACH_READY_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_ATTACH_READY_MAX_ATTEMPTS must be a positive integer" >&2
-  exit 2
-fi
-if [[ ! "$ATTACH_READY_INTERVAL_SECONDS" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]]; then
-  echo "error: CMUX_ATTACH_READY_INTERVAL_SECONDS must be a nonnegative number" >&2
   exit 2
 fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
@@ -264,7 +255,6 @@ if [[ -n "$ADMISSION_CURSOR" ]]; then
     "$TAG" \
     "$REPO_ROOT" \
     "$ADMISSION_CURSOR" \
-    "$ATTACH_READY_MAX_ATTEMPTS" \
-    "$ATTACH_READY_INTERVAL_SECONDS"
+    "$ATTACH_READY_TIMEOUT_SECONDS"
   echo "==> connected $BUNDLE_ID to tagged Mac '$TAG'"
 fi
