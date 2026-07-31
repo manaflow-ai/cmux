@@ -202,6 +202,9 @@ struct BrowserWebContentProcessTests {
         let destinationURL = try #require(
             URL(string: "https://cmux.test/dashboard/testflight")
         )
+        let operationStarted = AsyncStream<Void>.makeStream()
+        let operationRelease = AsyncStream<Void>.makeStream()
+        var operationStartedIterator = operationStarted.stream.makeAsyncIterator()
         var startCount = 0
 
         #expect(registry.start(
@@ -209,7 +212,8 @@ struct BrowserWebContentProcessTests {
             destinationURL: destinationURL
         ) {
             startCount += 1
-            try? await Task.sleep(for: .seconds(30))
+            operationStarted.continuation.yield()
+            for await _ in operationRelease.stream {}
         })
         #expect(!registry.start(
             sourcePanelID: sourcePanelID,
@@ -217,13 +221,13 @@ struct BrowserWebContentProcessTests {
         ) {
             startCount += 1
         })
-        await Task.yield()
+        _ = await operationStartedIterator.next()
 
         #expect(startCount == 1)
         #expect(registry.activeCount == 1)
 
         registry.cancel(sourcePanelID: sourcePanelID)
-        await Task.yield()
+        operationRelease.continuation.finish()
         #expect(registry.activeCount == 0)
     }
 
