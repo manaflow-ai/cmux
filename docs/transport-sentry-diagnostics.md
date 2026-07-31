@@ -1,12 +1,17 @@
 # Transport Sentry diagnostics
 
-Every iroh/transport failure a user can hit is diagnosable from Sentry alone,
-on both macOS (host) and iOS (client). The pipeline turns the existing
-`DiagnosticLog` ring (`Packages/Shared/CMUXMobileCore`) into three Sentry
-surfaces without adding any new PII egress: the ring's vocabulary is fixed
-integer codes (`DiagnosticEventCode`, `DiagnosticFailureKind`, ...), so the
-bridge ships decoded case names and integers, never error strings, peers,
-addresses, accounts, or terminal content.
+Iroh/transport failures are diagnosable from Sentry telemetry alone, on both
+macOS (host) and iOS (client), without pulling logs off the device. Coverage
+is policy-shaped, not a per-event guarantee: telemetry requires the SDK to be
+started (telemetry consent on), error-event captures pass cooldown and hourly
+budgets, and structured logs pass their own budget. Breadcrumbs are the widest
+net (every retained transport event, attached to whatever ships next). The
+pipeline turns the existing `DiagnosticLog` ring
+(`Packages/Shared/CMUXMobileCore`) into three Sentry surfaces without adding
+any new PII egress: the ring's vocabulary is fixed integer codes
+(`DiagnosticEventCode`, `DiagnosticFailureKind`, ...), so the bridge ships
+decoded case names and integers, never error strings, peers, addresses,
+accounts, or terminal content.
 
 ## Pipeline
 

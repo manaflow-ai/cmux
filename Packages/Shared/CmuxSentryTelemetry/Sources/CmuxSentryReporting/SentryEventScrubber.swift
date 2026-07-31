@@ -166,19 +166,30 @@ public struct SentryEventScrubber: Sendable {
     @discardableResult
     public func scrub(_ log: SentryLog) -> SentryLog {
         log.body = scrubber.scrub(log.body)
-        // Collect string-typed attribute values and route them through the
-        // key-aware dictionary scrubber, so a secret-like key is redacted by
-        // name and a free-text value by pattern, matching tags/extra handling.
+        // Route string-typed attribute values (including string arrays)
+        // through the key-aware dictionary scrubber, so a secret-like key is
+        // redacted by name and a free-text value by pattern, matching
+        // tags/extra handling. Numbers and booleans cannot carry free text.
         var stringValues: [String: Any] = [:]
         for (key, attribute) in log.attributes {
-            if let value = attribute.value as? String {
+            switch attribute.value {
+            case let value as String:
                 stringValues[key] = value
+            case let values as [String]:
+                stringValues[key] = values
+            default:
+                break
             }
         }
         guard !stringValues.isEmpty else { return log }
         for (key, value) in scrubber.scrub(dictionary: stringValues) {
-            if let scrubbed = value as? String {
-                log.setAttribute(SentryAttribute(string: scrubbed), forKey: key)
+            switch value {
+            case let scrubbed as String:
+                log.setAttribute(SentryLog.Attribute(string: scrubbed), forKey: key)
+            case let scrubbed as [String]:
+                log.setAttribute(SentryLog.Attribute(stringArray: scrubbed), forKey: key)
+            default:
+                break
             }
         }
         return log

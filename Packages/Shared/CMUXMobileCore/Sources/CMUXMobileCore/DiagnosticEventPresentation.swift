@@ -120,8 +120,8 @@ public enum DiagnosticEventPresentation {
 
     /// Event codes whose `a` slot carries a ``DiagnosticTransportKind``.
     static let codesWithTransportA: Set<DiagnosticEventCode> = [
-        .transportDialStarted, .transportDialConnected, .transportDialFailed,
-        .sessionClosed,
+        .pairFail, .transportDialStarted, .transportDialConnected,
+        .transportDialFailed, .sessionClosed, .routeUnavailable,
     ]
 
     private static func msKey(for code: DiagnosticEventCode) -> String {
@@ -151,8 +151,8 @@ public enum DiagnosticEventPresentation {
 
     private static func decodeA(_ a: Int, code: DiagnosticEventCode) -> Field {
         switch code {
-        case .transportDialStarted, .transportDialConnected, .transportDialFailed,
-             .sessionClosed:
+        case .pairFail, .transportDialStarted, .transportDialConnected,
+             .transportDialFailed, .sessionClosed, .routeUnavailable:
             return enumField(key: "transport", raw: a) { DiagnosticTransportKind(rawValue: $0).map(name) }
         case .selectedPathChanged:
             return enumField(key: "path", raw: a) { DiagnosticPathKind(rawValue: $0).map(name) }

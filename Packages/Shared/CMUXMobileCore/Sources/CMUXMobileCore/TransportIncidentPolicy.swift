@@ -116,9 +116,11 @@ public struct TransportIncidentPolicy: Sendable {
     private var reachable: Bool?
     private var appPhase: DiagnosticAppLifecyclePhase?
 
-    /// Per-signature capture gate state.
+    /// Per-signature capture gate state. `lastCaptureTNanos` is `nil` while the
+    /// signature has been seen but never actually captured (for example when
+    /// the hourly budget dropped it), so a budget drop never starts a cooldown.
     private struct SignatureState {
-        var lastCaptureTNanos: UInt64
+        var lastCaptureTNanos: UInt64?
         var pendingCount: Int
         var firstPendingTNanos: UInt64?
     }
@@ -282,8 +284,8 @@ public struct TransportIncidentPolicy: Sendable {
         failure: DiagnosticFailureKind?,
         transport: DiagnosticTransportKind?
     ) -> Incident? {
-        if var state = signatureStates[signature] {
-            let sinceCapture = elapsedSeconds(from: state.lastCaptureTNanos, to: event.tNanos)
+        if var state = signatureStates[signature], let lastCapture = state.lastCaptureTNanos {
+            let sinceCapture = elapsedSeconds(from: lastCapture, to: event.tNanos)
             if sinceCapture < configuration.signatureCooldown {
                 state.pendingCount += 1
                 if state.firstPendingTNanos == nil {
@@ -296,7 +298,7 @@ public struct TransportIncidentPolicy: Sendable {
 
         guard admitCaptureWithinBudget(at: event.tNanos) else {
             var state = signatureStates[signature]
-                ?? SignatureState(lastCaptureTNanos: event.tNanos, pendingCount: 0, firstPendingTNanos: nil)
+                ?? SignatureState(lastCaptureTNanos: nil, pendingCount: 0, firstPendingTNanos: nil)
             state.pendingCount += 1
             if state.firstPendingTNanos == nil {
                 state.firstPendingTNanos = event.tNanos

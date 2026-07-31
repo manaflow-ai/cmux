@@ -207,4 +207,24 @@ import Testing
         #expect(scrubbed.attributes["transport.kind"]?.value as? String == "iroh")
         #expect(scrubbed.attributes["attempt"]?.value as? Int == 42)
     }
+
+    @Test func scrubsStringArrayLogAttributes() {
+        let log = SentryLog(level: .info, body: "roots")
+        log.setAttribute(
+            SentryLog.Attribute(stringArray: ["/Users/lawrence/a", "/Users/lawrence/b"]),
+            forKey: "paths"
+        )
+        log.setAttribute(
+            SentryLog.Attribute(stringArray: ["c0ffeec0ffeec0ffee"]),
+            forKey: "session_cookie"
+        )
+
+        let scrubbed = scrubber.scrub(log)
+        #expect(
+            scrubbed.attributes["paths"]?.value as? [String]
+                == ["/Users/<redacted>/a", "/Users/<redacted>/b"]
+        )
+        // A sensitive-keyed array collapses to the wholesale redaction string.
+        #expect(scrubbed.attributes["session_cookie"]?.value as? String == "<redacted-secret>")
+    }
 }

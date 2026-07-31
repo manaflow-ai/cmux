@@ -173,6 +173,34 @@ import Testing
         #expect(later?.droppedByBudget == 2)
     }
 
+    @Test func budgetDropDoesNotStartASignatureCooldown() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 600,
+                hourlyCaptureLimit: 1,
+                outageFailureThreshold: 100,
+                outageMinimumDuration: 10_000
+            )
+        )
+        // Exhaust the hourly budget with one signature...
+        #expect(policy.decide(dialFailed(at: 10)) != nil)
+        // ...then a brand-new signature arrives while the budget is empty.
+        let unreachable = DiagnosticEvent(
+            code: .pairUnreachable,
+            tNanos: 20 * Self.second
+        )
+        #expect(policy.decide(unreachable) == nil)
+        // Once the window slides, the never-captured signature must capture
+        // immediately: a budget drop is not a capture, so no cooldown applies.
+        let afterWindow = DiagnosticEvent(
+            code: .pairUnreachable,
+            tNanos: (10 + 3700) * Self.second
+        )
+        let captured = policy.decide(afterWindow)
+        #expect(captured != nil)
+        #expect(captured?.coalescedCount == 2)
+    }
+
     @Test func environmentRidesOnIncidents() {
         var policy = TransportIncidentPolicy()
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 1))

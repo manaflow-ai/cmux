@@ -638,6 +638,32 @@ import os
         #expect(received.withLock { $0 } == [relay])
     }
 
+    @Test func eventTapNeverDeliversEventsQueuedBeforeInstallation() async {
+        // Regression: record() admits events onto the drain stream before the
+        // drain task delivers them. Installing the tap in that window must not
+        // deliver the already-admitted events: the tap floor is the ingress
+        // admission sequence, not the drain position. Recording a burst and
+        // installing the tap immediately (no drain sync) makes the pre-fix
+        // race overwhelmingly likely to deliver stale events.
+        let log = DiagnosticLog(capacity: 4096)
+        let burst = 500
+        for index in 1...burst {
+            log.record(DiagnosticEvent(code: .connect, tNanos: UInt64(index)))
+        }
+        let received = OSAllocatedUnfairLock<[DiagnosticEvent]>(initialState: [])
+        log.setEventTap { event in
+            received.withLock { $0.append(event) }
+        }
+        await waitForProcessed(log, burst)
+        #expect(received.withLock { $0.isEmpty })
+
+        // Events admitted after installation still flow.
+        let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
+        log.record(live)
+        await waitForProcessed(log, burst + 1)
+        #expect(received.withLock { $0 } == [live])
+    }
+
     @Test func eventTapDoesNotReplayHistoryAndCanBeRemoved() async {
         let log = DiagnosticLog(capacity: 8)
         log.record(DiagnosticEvent(code: .connect, tNanos: 1))
