@@ -2,8 +2,10 @@ import Testing
 @testable import CmuxTerminalCore
 
 @Suite struct TerminalPromptInputLedgerTests {
-    @Test func submitCapableReturnStaysBusyUntilItsHookArrives() {
+    @Test func unknownInputStaysBusyUntilNextConfirmedHumanSubmission() {
         var ledger = TerminalPromptInputLedger()
+        // Unknown input includes cancellation and delete-to-empty paths. They
+        // cannot clear ownership without rendered-screen inference.
         ledger.recordHumanInput(.unknown)
 
         ledger.recordHumanInput(.submissionBoundary)

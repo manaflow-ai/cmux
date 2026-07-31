@@ -1,3 +1,6 @@
+internal import CryptoKit
+internal import Foundation
+
 /// Conservative input ownership and bounded hook matching used to keep
 /// app-owned submissions separate from human terminal-composer drafts.
 public struct TerminalPromptInputLedger: Sendable {
@@ -52,7 +55,9 @@ public struct TerminalPromptInputLedger: Sendable {
     /// until an actual agent `UserPromptSubmit` hook confirms that boundary.
     /// This means agent-specific key handling can conservatively produce a
     /// false negative without weakening draft safety: a later known boundary
-    /// and hook can still recover the ledger.
+    /// and hook can still recover the ledger. Unknown cancellation or
+    /// delete-to-empty input deliberately stays busy until that proof or an
+    /// agent-process transition; state alone cannot prove the TUI is empty.
     public mutating func recordHumanInput(
         _ mutation: HumanPromptInputMutation
     ) {
@@ -271,20 +276,10 @@ public struct TerminalPromptInputLedger: Sendable {
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         guard !normalized.isEmpty else { return nil }
-        var primaryHash: UInt64 = 14_695_981_039_346_656_037
-        var secondaryHash: UInt64 = 7_809_847_782_469_553_657
-        var byteCount = 0
-        for byte in normalized.utf8 {
-            primaryHash ^= UInt64(byte)
-            primaryHash &*= 1_099_511_628_211
-            secondaryHash &*= 1_099_511_628_211
-            secondaryHash ^= UInt64(byte)
-            byteCount += 1
-        }
+        let bytes = Data(normalized.utf8)
         return TerminalPromptMessageSignature(
-            primaryHash: primaryHash,
-            secondaryHash: secondaryHash,
-            byteCount: byteCount
+            digest: Array(SHA256.hash(data: bytes)),
+            byteCount: bytes.count
         )
     }
 }

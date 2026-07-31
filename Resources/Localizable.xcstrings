@@ -75,13 +75,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nSubmit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If a human draft is present, the command fails with rejected_composer_busy and leaves the draft unchanged. agent_scope_unavailable means the agent process identity is not ready yet.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Agent surface when the workspace has more than one\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
+            "value": "Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nSubmit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If uncertain human input may remain in the terminal TUI, the command fails with rejected_composer_busy and leaves it unchanged. Native TextBox drafts are preserved as separate future submissions. agent_scope_unavailable means the agent terminal is not ready for automation yet.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Agent surface when the workspace has more than one\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nエージェントのターミナルに1件の完全なプロンプトを送信します。同じワークスペースへの同時呼び出しは順番に処理されます。人間の下書きがある場合、コマンドは rejected_composer_busy で失敗し、下書きは変更されません。agent_scope_unavailable は、エージェントのプロセス識別情報がまだ準備できていないことを示します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     ワークスペースに複数のエージェントがある場合の対象サーフェス\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウ\n\n例:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
+            "value": "使い方: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>\n\nエージェントのターミナルに1件の完全なプロンプトを送信します。同じワークスペースへの同時呼び出しは順番に処理されます。ターミナル TUI に人間の未確定の入力が残っている可能性がある場合、コマンドは rejected_composer_busy で失敗し、その入力は変更されません。ネイティブのテキストボックスの下書きは、後で別のメッセージとして送信できるよう保持されます。agent_scope_unavailable は、エージェントのターミナルがまだ自動操作の準備ができていないことを示します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     ワークスペースに複数のエージェントがある場合の対象サーフェス\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウ\n\n例:\n  cmux agent-submit --workspace workspace:2 \"Run the focused tests\""
           }
         }
       }
@@ -143,13 +143,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent composer is not ready for automation yet. Retry after its process identity is available."
+            "value": "The agent terminal is not ready for automation yet. Retry when the agent terminal is ready."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの入力欄はまだ自動操作の準備ができていません。プロセス識別情報が利用可能になった後に再試行してください。"
+            "value": "エージェントのターミナルはまだ自動操作の準備ができていません。ターミナルの準備ができたら再試行してください。"
           }
         }
       }

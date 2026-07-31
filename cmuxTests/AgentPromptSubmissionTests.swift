@@ -114,6 +114,44 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func exactMobileSendPreservesDeliveryBeforeAgentScopeBinding() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        _ = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+        let result = TerminalController.shared.v2MobileTerminalPaste(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelID.uuidString,
+                "text": "mobile message",
+            ],
+            rejectIfHumanComposerBusy: true
+        )
+
+        guard case .ok(let payload) = result else {
+            Issue.record("Expected pre-binding mobile send to remain available")
+            return
+        }
+        #expect(payload["submitted"] as? Bool == true)
+    }
+
+    @MainActor
     @Test func preBindingHumanInputRejectsGuardedAgentSubmission() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
@@ -384,7 +422,7 @@ struct AgentPromptSubmissionTests {
         #expect(data["retryable"] as? Bool == true)
         #expect(
             data["retry_after"] as? String
-                == "agent_process_identity_available"
+                == "agent_terminal_ready"
         )
     }
 

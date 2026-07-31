@@ -11,7 +11,7 @@ extension TerminalController {
     nonisolated static var agentPromptScopeUnavailableMessage: String {
         String(
             localized: "socket.workspace.agentSubmit.scopeUnavailable",
-            defaultValue: "The agent composer is not ready for automation yet. Retry after its process identity is available."
+            defaultValue: "The agent terminal is not ready for automation yet. Retry when the agent terminal is ready."
         )
     }
 
@@ -113,7 +113,7 @@ extension TerminalController {
                     "workspace_id": workspaceID.uuidString,
                     "surface_id": surfaceID.uuidString,
                     "retryable": true,
-                    "retry_after": "agent_process_identity_available",
+                    "retry_after": "agent_terminal_ready",
                 ]
             )
         case .workspaceNotFound(let workspaceID):

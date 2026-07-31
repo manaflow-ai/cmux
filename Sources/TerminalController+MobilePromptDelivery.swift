@@ -76,14 +76,22 @@ extension TerminalController {
         var submitted = false
         var queued = false
         if let submitKeyName {
+            // Mobile chat is an existing human-owned send surface. Preserve its
+            // prior delivery behavior during a transient process-identity gap,
+            // while still rejecting a tracked Mac-side draft whenever an
+            // authoritative scope exists. workspace.agent_submit remains
+            // strictly fail-closed when that scope is unavailable.
+            let rejectTrackedHumanComposer =
+                rejectIfHumanComposerBusy && agentInputScope != nil
             let result = terminalPanel.sendPromptSubmissionResult(
                 text,
                 submitKey: submitKeyName,
                 agentInputScope: agentInputScope,
                 // Low-level mobile.terminal.paste is the human-owned composer
-                // itself. Exact-message callers such as mobile.chat.send opt
-                // into rejection so they cannot concatenate with that draft.
-                rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
+                // itself. Exact-message callers such as mobile.chat.send
+                // reject a tracked draft without making a transient tracking
+                // gap a regression in the existing human-owned send flow.
+                rejectIfHumanComposerBusy: rejectTrackedHumanComposer,
                 hookRecordingSource:
                     TextBoxAgentDetection.supportsActiveAgentPrefixes(
                         context: agentContext
@@ -122,7 +130,7 @@ extension TerminalController {
                     data: [
                         "surface_id": surfaceID.uuidString,
                         "retryable": true,
-                        "retry_after": "agent_process_identity_available",
+                        "retry_after": "agent_terminal_ready",
                     ]
                 )
             case .unknownKey:

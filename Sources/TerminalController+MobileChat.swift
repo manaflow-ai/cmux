@@ -329,12 +329,15 @@ extension TerminalController {
             )
         }
 
-        var promptComponents = attachmentFileURLs.map {
-            $0.path.terminalShellEscaped
-        }
+        var promptComponents: [String] = []
         promptComponents.reserveCapacity(
             attachments.count + (text.isEmpty ? 0 : 1)
         )
+        for attachmentFileURL in attachmentFileURLs {
+            promptComponents.append(
+                attachmentFileURL.path.terminalShellEscaped
+            )
+        }
         if !text.isEmpty {
             promptComponents.append(text)
         }
@@ -352,8 +355,12 @@ extension TerminalController {
     }
 
     /// Decodes and writes mobile attachments away from the main actor.
+    #if compiler(>=6.2)
     @concurrent
-    static func prepareMobileChatAttachments(
+    #else
+    @Sendable
+    #endif
+    nonisolated static func prepareMobileChatAttachments(
         _ attachments: [MobileChatAttachmentPayload],
         pasteboard: TerminalPasteboardService
     ) async -> [URL]? {

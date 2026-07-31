@@ -137,7 +137,7 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-screen` | Read terminal text from a surface. |
 | `send` | Send text to a terminal surface. |
-| `agent-submit` | Submit one complete prompt to a workspace's agent terminal through the app's serialized main-queue transaction boundary (a global FIFO, and therefore FIFO per workspace). The call either accepts the whole paste-and-submit transaction or fails without changing input; `rejected_composer_busy` means a human draft was preserved, while `agent_scope_unavailable` means the agent process identity is not bound yet. Both are retryable. Use `--surface` when a workspace has multiple agent terminals. |
+| `agent-submit` | Submit one complete prompt to a workspace's agent terminal through the app's serialized main-queue transaction boundary (a global FIFO, and therefore FIFO per workspace). The call either accepts the whole paste-and-submit transaction or fails without changing input. `rejected_composer_busy` means uncertain terminal-TUI input was preserved and returns `retry_after: "human_prompt_submit_or_agent_restart"`; native TextBox drafts remain separate future submissions. `agent_scope_unavailable` means the agent terminal is not ready for automation and returns `retry_after: "agent_terminal_ready"`. Both errors also return `retryable: true`. Use `--surface` when a workspace has multiple agent terminals. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
