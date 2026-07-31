@@ -35,7 +35,7 @@ describe("app pro welcome page", () => {
         appearance: "dark",
         background: "#112233",
         foreground: "#ddeeff",
-        accent: "#44cc88",
+        accent: "#0091ff",
       }),
     });
     const html = renderToStaticMarkup(element);
@@ -51,6 +51,6 @@ describe("app pro welcome page", () => {
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
     expect(html).toContain("--ghostty-foreground:#ddeeff");
-    expect(html).toContain("--ghostty-accent:#44cc88");
+    expect(html).toContain("--cmux-product-blue:#0091ff");
   });
 });

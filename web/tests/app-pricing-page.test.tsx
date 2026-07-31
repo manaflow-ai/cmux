@@ -105,7 +105,7 @@ describe("app pricing page", () => {
         appearance: "dark",
         background: "#112233",
         foreground: "#ddeeff",
-        accent: "#44cc88",
+        accent: "#0091ff",
         interval: "year",
       }),
     });
@@ -122,9 +122,9 @@ describe("app pricing page", () => {
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
     expect(html).toContain("--ghostty-foreground:#ddeeff");
-    expect(html).toContain("--ghostty-accent:#44cc88");
+    expect(html).toContain("--cmux-product-blue:#0091ff");
     expect(html).toContain("mx-auto mt-6 flex w-fit");
-    expect(html).toContain("var(--pricing-accent-inverse, var(--background))");
+    expect(html).toContain("var(--cmux-product-blue, #0088ff)");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 

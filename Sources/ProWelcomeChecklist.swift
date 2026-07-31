@@ -21,28 +21,23 @@ struct AppWebThemeSnapshot: Equatable {
         let foregroundColor =
             (userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)
             ?? GhosttyApp.shared.defaultForegroundColor
-        let config = GhosttyConfig.load(
-            preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference
-        )
         return resolved(
             backgroundColor: backgroundColor,
-            foregroundColor: foregroundColor,
-            palette: config.palette
+            foregroundColor: foregroundColor
         )
     }
 
     static func resolved(
         backgroundColor: NSColor,
-        foregroundColor: NSColor,
-        palette: [Int: NSColor]
+        foregroundColor: NSColor
     ) -> AppWebThemeSnapshot {
-        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark ? "dark" : "light"
+        let colorScheme = cmuxReadableColorScheme(for: backgroundColor)
+        let appearance = colorScheme == .dark ? "dark" : "light"
         return AppWebThemeSnapshot(
             appearance: appearance,
             background: backgroundColor.hexString(),
             foreground: foregroundColor.hexString(),
-            accent: vividAccent(palette: palette, foregroundColor: foregroundColor, against: backgroundColor)
-                .hexString()
+            accent: cmuxAccentNSColor(for: colorScheme).hexString()
         )
     }
 
@@ -73,7 +68,7 @@ struct AppWebThemeSnapshot: Equatable {
           const theme = \(json);
           root.style.setProperty('--ghostty-background', theme.background);
           root.style.setProperty('--ghostty-foreground', theme.foreground);
-          root.style.setProperty('--ghostty-accent', theme.accent);
+          root.style.setProperty('--cmux-product-blue', theme.accent);
           root.style.backgroundColor = theme.background;
           root.style.colorScheme = theme.appearance;
           root.dataset.cmuxAppThemeAppearance = theme.appearance;
@@ -102,30 +97,6 @@ struct AppWebThemeSnapshot: Equatable {
         return url.path == "/app-pricing" || url.path == "/app-pro-welcome"
     }
 
-    private static func vividAccent(
-        palette: [Int: NSColor],
-        foregroundColor: NSColor,
-        against target: NSColor
-    ) -> NSColor {
-        let paletteOrder = [12, 14, 13, 10, 11, 9, 4, 6, 5, 2, 3, 1]
-        let candidates = paletteOrder.compactMap { palette[$0] } + [foregroundColor]
-        return candidates.max { accentScore($0, against: target) < accentScore($1, against: target) }
-            ?? foregroundColor
-    }
-
-    private static func accentScore(_ color: NSColor, against target: NSColor) -> Double {
-        let contrast = color.markdownContrastRatio(with: target)
-        let saturation = color.usingColorSpace(.sRGB).map { rgb -> CGFloat in
-            var hue: CGFloat = 0
-            var saturation: CGFloat = 0
-            var brightness: CGFloat = 0
-            var alpha: CGFloat = 0
-            rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-            return saturation
-        } ?? 0
-        let contrastTier = contrast >= 4.5 ? 2.0 : (contrast >= 3.0 ? 1.0 : 0.0)
-        return (contrastTier * 100.0) + (Double(saturation) * 10.0) + min(contrast, 10.0)
-    }
 }
 
 /// Presents the one-time "Welcome to cmux Pro" checklist after a user becomes

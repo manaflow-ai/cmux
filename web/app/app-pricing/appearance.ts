@@ -43,7 +43,7 @@ export function appPricingTheme(params: SearchParams): AppPricingTheme {
     ),
     accent: appPricingColorParam(
       params.accent,
-      appearance === "dark" ? "#a6e22e" : "#d20f39",
+      appearance === "dark" ? "#0091ff" : "#0088ff",
     ),
   };
 }
@@ -52,7 +52,7 @@ export function appPricingStyle(theme: AppPricingTheme): CSSProperties {
   return {
     "--ghostty-background": theme.background,
     "--ghostty-foreground": theme.foreground,
-    "--ghostty-accent": theme.accent,
+    "--cmux-product-blue": theme.accent,
     "--foreground": "var(--ghostty-foreground)",
     "--muted":
       "color-mix(in srgb, var(--ghostty-foreground) 62%, var(--ghostty-background))",
@@ -62,9 +62,6 @@ export function appPricingStyle(theme: AppPricingTheme): CSSProperties {
       "color-mix(in srgb, var(--ghostty-foreground) 8%, var(--ghostty-background))",
     "--background": "var(--ghostty-background)",
     "--pricing-sticky-bg": "var(--ghostty-background)",
-    "--pricing-accent": "var(--ghostty-accent)",
-    "--pricing-accent-inverse":
-      "color-mix(in srgb, var(--ghostty-accent) 35%, var(--ghostty-background))",
     "--button-foreground": "var(--ghostty-background)",
     backgroundColor: "var(--ghostty-background)",
     colorScheme: theme.appearance,

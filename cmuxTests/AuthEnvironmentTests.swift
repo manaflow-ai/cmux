@@ -311,14 +311,14 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
     }
 
-    @Test("app web URLs carry the current Ghostty theme palette")
-    func appWebURLsCarryCurrentGhosttyThemePalette() throws {
+    @Test("app web URLs carry the Ghostty colors and cmux product accent")
+    func appWebURLsCarryGhosttyColorsAndCmuxProductAccent() throws {
         let base = try #require(URL(string: "https://cmux.com/app-pricing?interval=year&accent=%23000000"))
         let theme = AppWebThemeSnapshot(
             appearance: "dark",
             background: "#112233",
             foreground: "#DDEEFF",
-            accent: "#44CC88"
+            accent: "#0091FF"
         )
 
         let url = ProUpgradePresenter.decoratedAppWebURL(base, theme: theme)
@@ -331,22 +331,29 @@ struct AuthEnvironmentTests {
         #expect(values["appearance"] == "dark")
         #expect(values["background"] == "#112233")
         #expect(values["foreground"] == "#DDEEFF")
-        #expect(values["accent"] == "#44CC88")
+        #expect(values["accent"] == "#0091FF")
         #expect(values["cmux_app"] == "1")
     }
 
-    @Test("app web theme appearance follows the Ghostty background")
-    func appWebThemeAppearanceFollowsGhosttyBackground() throws {
-        let snapshot = AppWebThemeSnapshot.resolved(
+    @Test("app web appearance and product accent follow the Ghostty background")
+    func appWebAppearanceAndProductAccentFollowGhosttyBackground() throws {
+        let darkSnapshot = AppWebThemeSnapshot.resolved(
             backgroundColor: try #require(NSColor(hex: "#101010")),
-            foregroundColor: try #require(NSColor(hex: "#F0F0F0")),
-            palette: [12: try #require(NSColor(hex: "#66CCFF"))]
+            foregroundColor: try #require(NSColor(hex: "#F0F0F0"))
+        )
+        let lightSnapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#F0F0F0")),
+            foregroundColor: try #require(NSColor(hex: "#101010"))
         )
 
-        #expect(snapshot.appearance == "dark")
-        #expect(snapshot.background == "#101010")
-        #expect(snapshot.foreground == "#F0F0F0")
-        #expect(snapshot.accent == "#66CCFF")
+        #expect(darkSnapshot.appearance == "dark")
+        #expect(darkSnapshot.background == "#101010")
+        #expect(darkSnapshot.foreground == "#F0F0F0")
+        #expect(darkSnapshot.accent == "#0091FF")
+        #expect(lightSnapshot.appearance == "light")
+        #expect(lightSnapshot.background == "#F0F0F0")
+        #expect(lightSnapshot.foreground == "#101010")
+        #expect(lightSnapshot.accent == "#0088FF")
     }
 
     @Test("app web theme JavaScript updates every shared theme variable")
@@ -355,14 +362,14 @@ struct AuthEnvironmentTests {
             appearance: "light",
             background: "#FAFAFA",
             foreground: "#171717",
-            accent: "#0066AA"
+            accent: "#0088FF"
         )
         let script = try #require(theme.applyingJavaScript())
 
         #expect(script.contains("[data-cmux-app-theme]"))
         #expect(script.contains("--ghostty-background"))
         #expect(script.contains("--ghostty-foreground"))
-        #expect(script.contains("--ghostty-accent"))
+        #expect(script.contains("--cmux-product-blue"))
         #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pricing")))
         #expect(AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/app-pro-welcome")))
         #expect(!AppWebThemeSnapshot.supports(url: URL(string: "https://cmux.com/pricing")))
