@@ -89,7 +89,14 @@ extension MobileShellComposite {
                 break
             }
         }
-        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+        // A disconnected foreground recovery owns the first route admission.
+        // Aggregating while its ticket probe is in flight can make a secondary
+        // client for that same saved Mac win the shared route lease, causing the
+        // user-visible reconnect to fail as busy. A successful foreground dial
+        // schedules aggregation from `reconnectActiveMacOutcome` instead.
+        if multiMacAggregationEnabled,
+           trigger.reschedulesSecondaryAggregation,
+           hasActiveMacConnection {
             scheduleSecondaryAggregation()
         }
         if connectionState == .connected,
