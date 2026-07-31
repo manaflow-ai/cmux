@@ -64,7 +64,8 @@ final class MobileIrohConnectionReadinessOwner {
         revision: UInt64,
         outcome: MobileIrohConnectionReadinessOutcome = .ready
     ) -> Bool {
-        guard let pendingRevision, pendingRevision <= revision else {
+        guard let activeRevision = pendingRevision,
+              activeRevision <= revision else {
             return false
         }
         pendingRevision = nil
