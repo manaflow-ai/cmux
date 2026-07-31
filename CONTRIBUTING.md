@@ -40,7 +40,7 @@
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
 
-## Team dogfood setup
+## Team Dogfood Setup
 
 DEBUG builds can auto-sign-in as you and auto-attach an iOS build to your Mac with no manual steps. Each developer does a one-time setup with their own Stack account.
 
