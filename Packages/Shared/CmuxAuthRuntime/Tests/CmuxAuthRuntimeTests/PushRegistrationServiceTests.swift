@@ -203,13 +203,21 @@ struct FakeTokenProvider: TokenProviding {
             refreshToken: "captured-refresh"
         )
 
+        let queueData = defaults.data(
+            forKey: "cmux.notifications.pendingUnregisters.v2"
+        )
+        let queue = queueData.flatMap {
+            try? JSONSerialization.jsonObject(with: $0)
+                as? [[String: String]]
+        }
+        #expect(queue == [["tokenHex": "ab", "accountID": "old-user"]])
         #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterToken")
-                == "ab"
+                == nil
         )
         #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
-                == "old-user"
+                == nil
         )
         #expect(await PushRegistrationURLProtocol.script.requests.isEmpty)
 
@@ -570,11 +578,45 @@ struct FakeTokenProvider: TokenProviding {
                 == "new-user"
         )
         #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
+                == nil
+        )
+        #expect(
+            defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
+                == nil
+        )
+    }
+
+    @Test func legacySingleTombstoneMigratesOnceAndIsRemovedAfterSuccess() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let suite = "push-legacy-tombstone-\(UUID().uuidString)"
+        let (service, defaults) = makeScriptedService(
+            tokenProvider: FakeTokenProvider(
+                access: "returned-access",
+                refresh: "returned-refresh"
+            ),
+            suite: suite,
+            accountID: "old-user"
+        )
+        defaults.set("ab", forKey: "cmux.notifications.pendingUnregisterToken")
+        defaults.set(
+            "old-user",
+            forKey: "cmux.notifications.pendingUnregisterAccountID"
+        )
+
+        await service.syncTokenIfPossible()
+
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 1)
+        #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterToken")
                 == nil
         )
         #expect(
             defaults.string(forKey: "cmux.notifications.pendingUnregisterAccountID")
+                == nil
+        )
+        #expect(
+            defaults.data(forKey: "cmux.notifications.pendingUnregisters.v2")
                 == nil
         )
     }
