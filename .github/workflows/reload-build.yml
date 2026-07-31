@@ -83,6 +83,7 @@ jobs:
           ./scripts/select-ci-xcode.sh
 
       - name: Install zig
+        if: ${{ inputs.platform != 'ios-shellui-test' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Provision GhosttyKit (macOS)
