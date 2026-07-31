@@ -5,6 +5,11 @@ import Foundation
 
 extension PortScanner {
     static let processScanTimeout: TimeInterval = 3
+    /// Bounds the retry loop that drops terminals `ps` reports as gone, so a
+    /// pty churning during a scan cannot spin the scanner.
+    static let maximumProcessScanAttempts = 3
+    private static let deviceDirectoryPrefix = "/dev/"
+    private static let missingDeviceDiagnosticSuffix = ": No such file or directory"
 
     static func combinedCompleteness(
         _ lhs: PortScanCompleteness,
@@ -307,25 +312,93 @@ extension PortScanner {
     }
 
     func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {
-        let result = await commandRunner.run(
-            directory: "/",
-            executable: "/bin/ps",
-            arguments: ["-t", ttyList, "-o", "pid=,tty="],
-            timeout: Self.processScanTimeout
-        )
+        var remaining = Self.orderedTTYNames(in: ttyList)
+        guard !remaining.isEmpty else { return ([:], .complete) }
 
-        var mapping: [Int: String] = [:]
-        var parsedEveryRow = true
-        for line in (result.stdout ?? "").split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count == 2, let pid = Int(parts[0]), pid > 0 else {
-                parsedEveryRow = false
-                continue
+        for attempt in 0..<Self.maximumProcessScanAttempts {
+            let result = await commandRunner.run(
+                directory: "/",
+                executable: "/bin/ps",
+                arguments: ["-t", remaining.joined(separator: ","), "-o", "pid=,tty="],
+                timeout: Self.processScanTimeout
+            )
+
+            var mapping: [Int: String] = [:]
+            var parsedEveryRow = true
+            for line in (result.stdout ?? "").split(separator: "\n") {
+                let parts = line.split(whereSeparator: \.isWhitespace)
+                guard parts.count == 2, let pid = Int(parts[0]), pid > 0 else {
+                    parsedEveryRow = false
+                    continue
+                }
+                mapping[pid] = String(parts[1])
             }
-            mapping[pid] = String(parts[1])
+            if Self.isCompletePSResult(result) && parsedEveryRow {
+                return (mapping, .complete)
+            }
+
+            let vanished = Self.vanishedTTYNames(
+                inStderr: result.stderr,
+                requested: Set(remaining)
+            )
+            guard !vanished.isEmpty else { return (mapping, .incomplete) }
+            remaining.removeAll { vanished.contains($0) }
+            // Every terminal is gone, which is authoritative emptiness rather
+            // than a failed scan: no process can be attached to a freed pty.
+            // Emptiness outranks the retry budget so the verdict does not
+            // depend on which attempt the last pty happened to close during.
+            guard !remaining.isEmpty else { return ([:], .complete) }
+            guard attempt < Self.maximumProcessScanAttempts - 1 else {
+                return (mapping, .incomplete)
+            }
         }
-        let complete = Self.isCompletePSResult(result) && parsedEveryRow
-        return (mapping, complete ? .complete : .incomplete)
+        return ([:], .incomplete)
+    }
+
+    private static func orderedTTYNames(in ttyList: String) -> [String] {
+        var seen: Set<String> = []
+        return ttyList.split(separator: ",").compactMap { field in
+            let name = String(field)
+            guard !name.isEmpty, seen.insert(name).inserted else { return nil }
+            return name
+        }
+    }
+
+    /// Terminals that `ps` reported as no longer present on the filesystem.
+    ///
+    /// BSD `ps` abandons the whole `-t` query when any listed device is gone,
+    /// naming each one on stderr and writing nothing to stdout. Retrying
+    /// without them keeps one closed pty from erasing every other panel's
+    /// evidence. Only ENOENT is treated as absence; any other diagnostic
+    /// leaves the scan incomplete so ports are retained rather than dropped.
+    static func vanishedTTYNames(inStderr stderr: String?, requested: Set<String>) -> Set<String> {
+        guard let stderr, !stderr.isEmpty else { return [] }
+        // Terminals are registered verbatim, so both `ttys1` and `/dev/ttys1`
+        // can reach `ps`; match on the device name either form names.
+        let requestedByDeviceName = requested.reduce(into: [String: Set<String>]()) { result, name in
+            result[Self.deviceName(in: name), default: []].insert(name)
+        }
+        var vanished: Set<String> = []
+        for line in stderr.split(separator: "\n") {
+            guard line.hasSuffix(Self.missingDeviceDiagnosticSuffix) else { continue }
+            let paths = String(line.dropLast(Self.missingDeviceDiagnosticSuffix.count))
+            // For a name that does not already start with `tty`, `ps` stats
+            // both candidate devices and names them in one diagnostic:
+            // "ps: /dev/ttyfoo and /dev/foo: No such file or directory".
+            for path in paths.components(separatedBy: " and ") {
+                guard let devicePrefix = path.range(of: Self.deviceDirectoryPrefix) else { continue }
+                let deviceName = String(path[devicePrefix.upperBound...])
+                if let names = requestedByDeviceName[deviceName] {
+                    vanished.formUnion(names)
+                }
+            }
+        }
+        return vanished
+    }
+
+    private static func deviceName(in ttyName: String) -> String {
+        guard ttyName.hasPrefix(Self.deviceDirectoryPrefix) else { return ttyName }
+        return String(ttyName.dropFirst(Self.deviceDirectoryPrefix.count))
     }
 
     func runAllProcesses() async -> (values: [Int: Int], completeness: PortScanCompleteness) {

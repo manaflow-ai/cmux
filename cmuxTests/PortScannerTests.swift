@@ -121,6 +121,29 @@ struct PortScannerProcessCaptureTests {
         #expect(AgentPIDProcessIdentity(pid: 999_999) == nil)
     }
 
+    @Test("An exited but unreaped process has no readable identity")
+    func zombieProcessHasNoReadableIdentity() throws {
+        // `sysctl` still describes a zombie, and reports its original birth
+        // timestamp, so a caller comparing identities would decide the dead
+        // process is the one it recorded and treat the agent as running.
+        var pid: pid_t = 0
+        var arguments: [UnsafeMutablePointer<CChar>?] = [strdup("/usr/bin/true"), nil]
+        defer { arguments.compactMap { $0 }.forEach { free($0) } }
+        try #require(posix_spawn(&pid, "/usr/bin/true", nil, nil, &arguments, environ) == 0)
+        defer {
+            var status: Int32 = 0
+            waitpid(pid, &status, 0)
+        }
+
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline, Self.processStatus(pid: pid) != SZOMB {
+            usleep(10_000)
+        }
+
+        try #require(Self.processStatus(pid: pid) == SZOMB, "the child never became a zombie")
+        #expect(AgentPIDProcessIdentity(pid: pid) == nil)
+    }
+
     @Test("A zombie on a panel's TTY does not withhold negative port evidence")
     func zombieProcessIsAuthoritativeAbsence() async throws {
         // Rejecting zombies as identities is only half the story: a zombie is
@@ -300,6 +323,48 @@ struct PortScannerProcessCaptureTests {
         #expect(arguments == [["-t", "ttys011,ttys091", "-o", "pid=,tty="]])
     }
 
+    @Test("A diagnostic that names no requested TTY stays incomplete without retrying")
+    func unrecognizedPSDiagnosticsStayIncomplete() async {
+        let runner = ScriptedCommandRunner(results: [
+            CommandResult(
+                stdout: "123 ttys001\n",
+                stderr: "ps: unable to obtain kernel process table\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        ])
+
+        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
+        let arguments = await runner.recordedArguments
+
+        #expect(scan.values == [123: "ttys001"])
+        #expect(scan.completeness == .incomplete)
+        #expect(arguments == [["-t", "ttys001,ttys011", "-o", "pid=,tty="]])
+    }
+
+    @Test("A diagnostic that names a requested TTY with another errno stays incomplete")
+    func nonMissingDeviceDiagnosticStaysIncomplete() async {
+        let runner = ScriptedCommandRunner(results: [
+            CommandResult(
+                stdout: "123 ttys001\n",
+                stderr: "ps: /dev/ttys011: Permission denied\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        ])
+
+        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
+        let arguments = await runner.recordedArguments
+
+        // A device that exists but cannot be read is missing evidence, not
+        // absence: dropping it would retire live ports.
+        #expect(scan.values == [123: "ttys001"])
+        #expect(scan.completeness == .incomplete)
+        #expect(arguments == [["-t", "ttys001,ttys011", "-o", "pid=,tty="]])
+    }
+
     @Test("The two-device diagnostic form still identifies the vanished TTY")
     func combinedDeviceDiagnosticIdentifiesVanishedTTY() async {
         // `ps` stats both /dev/tty<name> and /dev/<name> for a name that does
@@ -398,6 +463,45 @@ struct PortScannerProcessCaptureTests {
         // evidence rather than a failed scan.
         #expect(scan.values.isEmpty)
         #expect(scan.completeness == .complete)
+    }
+
+    @Test("A TTY that stays unscannable after the retry budget stays incomplete")
+    func repeatedlyVanishingTTYsExhaustTheRetryBudget() async {
+        let runner = ScriptedCommandRunner(results: [
+            CommandResult(
+                stdout: "",
+                stderr: "ps: /dev/ttys011: No such file or directory\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            ),
+            CommandResult(
+                stdout: "",
+                stderr: "ps: /dev/ttys012: No such file or directory\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            ),
+            CommandResult(
+                stdout: "",
+                stderr: "ps: /dev/ttys013: No such file or directory\n",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        ])
+
+        let scan = await PortScanner(commandRunner: runner)
+            .runPS(ttyList: "ttys001,ttys011,ttys012,ttys013")
+        let arguments = await runner.recordedArguments
+
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness == .incomplete)
+        #expect(arguments == [
+            ["-t", "ttys001,ttys011,ttys012,ttys013", "-o", "pid=,tty="],
+            ["-t", "ttys001,ttys012,ttys013", "-o", "pid=,tty="],
+            ["-t", "ttys001,ttys013", "-o", "pid=,tty="]
+        ])
     }
 
     @Test("Process scan timeout is bounded and incomplete")
