@@ -469,6 +469,20 @@ describe("apns route policy", () => {
     expect(value(MAX_PUSH_BADGE_COUNT + 100)).toBe(MAX_PUSH_BADGE_COUNT);
   });
 
+  test("rejects a present invalid expiration instead of minting a fresh TTL", () => {
+    for (const expirationEpochSeconds of [null, -1, 1.5, "1700000120"]) {
+      expect(
+        parsePushPayload({
+          title: "agent",
+          body: "done",
+          expirationEpochSeconds,
+        }),
+      ).toEqual({ ok: false, error: "invalid_expiration" });
+    }
+    const absent = parsePushPayload({ title: "agent", body: "done" });
+    expect(absent.ok && absent.value.expirationEpochSeconds).toBeNull();
+  });
+
   test("reads only bounded JSON objects from requests", async () => {
     await expect(
       readBoundedJsonObject(
@@ -1032,6 +1046,133 @@ describe("apns sender transport", () => {
           permanentFailures: 1,
         });
       }
+    }
+  });
+
+  test("a deferred target never blocks other targets' immediate recovery", async () => {
+    const { privateKey } = crypto.generateKeyPairSync(
+      "ec",
+      { namedCurve: "P-256" },
+    );
+    const p8 = privateKey.export({
+      type: "pkcs8",
+      format: "pem",
+    }) as string;
+    const correlationId = "b4b436c4-ee9b-473d-a36c-239a3dd02412";
+
+    for (const deferredStatus of [429, 503]) {
+      const attempts = new Map<string, number>();
+      class FakeRequest extends EventEmitter {
+        constructor(
+          private readonly deviceToken: string,
+          private readonly attempt: number,
+        ) {
+          super();
+        }
+        setTimeout() {
+          return this;
+        }
+        close() {
+          return this;
+        }
+        end() {
+          if (this.deviceToken.startsWith("a")) {
+            this.emit("response", { ":status": deferredStatus });
+            this.emit("data", Buffer.from(JSON.stringify({
+              reason: deferredStatus === 429
+                ? "TooManyRequests"
+                : "ServiceUnavailable",
+            })));
+          } else if (
+            this.deviceToken.startsWith("b")
+            && this.attempt === 1
+          ) {
+            this.emit("error", new Error("connection reset"));
+            return this;
+          } else if (
+            this.deviceToken.startsWith("c")
+            && this.attempt === 1
+          ) {
+            this.emit("response", { ":status": 403 });
+            this.emit("data", Buffer.from(JSON.stringify({
+              reason: "ExpiredProviderToken",
+            })));
+          } else {
+            this.emit("response", { ":status": 200 });
+          }
+          this.emit("end");
+          return this;
+        }
+      }
+      class FakeSession extends EventEmitter {
+        request(headers: http2.OutgoingHttpHeaders) {
+          const token = String(headers[":path"]).split("/").at(-1)!;
+          const attempt = (attempts.get(token) ?? 0) + 1;
+          attempts.set(token, attempt);
+          expect(headers["apns-id"]).toBe(correlationId);
+          return new FakeRequest(token, attempt);
+        }
+        close() {}
+      }
+      const transport = {
+        connect: () => new FakeSession(),
+      } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+      const results = await sendApnsNotificationReliably(
+        {
+          keyP8: p8,
+          keyId: `KID-MIXED-${deferredStatus}`,
+          teamId: "TEAM456",
+        },
+        [
+          {
+            deviceToken: "a".repeat(64),
+            bundleId: "com.cmux.app",
+            environment: "production",
+          },
+          {
+            deviceToken: "b".repeat(64),
+            bundleId: "dev.cmux.ios.push1",
+            environment: "sandbox",
+          },
+          {
+            deviceToken: "c".repeat(64),
+            bundleId: "com.cmux.app",
+            environment: "production",
+          },
+        ],
+        {
+          title: "agent",
+          body: "done",
+          correlationId,
+          expirationEpochSeconds: Math.floor(Date.now() / 1_000) + 120,
+        },
+        {
+          maxAttempts: 3,
+          retryDelay: async () => {},
+        },
+        1_000,
+        transport,
+      );
+
+      expect(results.map((result) => result.status)).toEqual([
+        deferredStatus,
+        200,
+        200,
+      ]);
+      expect(attempts.get("a".repeat(64))).toBe(1);
+      expect(attempts.get("b".repeat(64))).toBe(2);
+      expect(attempts.get("c".repeat(64))).toBe(2);
+      expect(results[0]?.retryAfterSeconds).toBe(
+        deferredStatus === 503
+          ? APNS_SERVER_ERROR_RETRY_SECONDS
+          : APNS_RATE_LIMIT_FALLBACK_SECONDS,
+      );
+      expect(summarizeApnsSendResults(results)).toMatchObject({
+        sent: 2,
+        transientFailures: 1,
+        permanentFailures: 0,
+      });
     }
   });
 
