@@ -475,7 +475,13 @@ extension MobileShellComposite {
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscalePreference: connectionMethodStore?.method == .tailscale
+                ? Self.TailscaleRoutePreference(
+                    macDeviceID: pairedMacDeviceID,
+                    grantRoutes: legacyTailscaleRoutes
+                )
+                : nil
         )
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
