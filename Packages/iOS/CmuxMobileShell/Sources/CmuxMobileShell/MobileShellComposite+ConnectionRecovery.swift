@@ -360,7 +360,7 @@ extension MobileShellComposite {
         ))
     }
 
-    func recordSuccessfulTerminalSubscription() {
+    func recordSuccessfulTerminalSubscription(connectionGeneration: UUID) {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
