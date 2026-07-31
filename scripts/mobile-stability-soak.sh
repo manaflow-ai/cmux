@@ -298,6 +298,8 @@ screen -dmS "${session_prefix}-resources" bash -lc "
   export RESOURCE_PID_CHANGE_ALLOWED_LABELS='$resource_pid_change_allowed_labels'
   export RESOURCE_STARTUP_GRACE_SECONDS=120
   export RESOURCE_MAX_RSS_KB=1258291 RESOURCE_MAX_CPU_PERCENT=220 RESOURCE_CPU_STREAK_LIMIT=6
+  export RESOURCE_MAX_FD_COUNT=4096 RESOURCE_MAX_FD_GROWTH=512
+  export RESOURCE_MAX_THREAD_COUNT=1024 RESOURCE_MAX_THREAD_GROWTH=256
   exec '$helper_dir/resource-monitor.py' >'$root/resources.console.log' 2>&1
 "
 
