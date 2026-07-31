@@ -2731,6 +2731,15 @@ mod tests {
 
     static RESOLVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    fn scaled_test_duration(duration: Duration) -> Duration {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|scale| *scale > 0)
+            .unwrap_or(1);
+        duration.saturating_mul(scale)
+    }
+
     struct TestHostResolverCommandGuard(Option<TestHostResolverCommand>);
 
     impl TestHostResolverCommandGuard {
@@ -4312,32 +4321,34 @@ mod tests {
         let _guard = RESOLVE_TEST_LOCK.lock().unwrap();
         warm_resolver();
         let _command = TestHostResolverCommandGuard::install(Arc::new(resolver_fixture_command));
-        NEXT_RESOLVE_DELAY_MS.store(300, Ordering::Release);
+        let slow_delay = scaled_test_duration(Duration::from_millis(300));
+        NEXT_RESOLVE_DELAY_MS.store(
+            u64::try_from(slow_delay.as_millis()).expect("test delay exceeds u64 milliseconds"),
+            Ordering::Release,
+        );
 
         let first = resolve_socket_addr_until(
             "cmux-expired-first.invalid",
             1,
-            Instant::now() + Duration::from_millis(50),
+            Instant::now() + scaled_test_duration(Duration::from_millis(50)),
         );
         let started = Instant::now();
         let second = resolve_socket_addr_until(
             "cmux-expired-second.invalid",
             2,
-            Instant::now() + Duration::from_millis(100),
+            Instant::now() + scaled_test_duration(Duration::from_millis(100)),
         );
         let elapsed = started.elapsed();
 
-        // Unblock the old single-worker implementation before failing so the
-        // process-wide test resolver cannot contaminate a later test.
-        if second.is_err() {
-            thread::sleep(Duration::from_millis(250));
-        }
         NEXT_RESOLVE_DELAY_MS.store(0, Ordering::Release);
+        // Let the deliberately expired request leave its worker before the
+        // process-wide resolver is shared with the next test.
+        thread::sleep(slow_delay);
 
         assert!(first.is_err(), "injected slow resolution unexpectedly completed");
         assert!(second.is_ok(), "expired DNS work blocked the next request: {second:?}");
         assert!(
-            elapsed < Duration::from_millis(200),
+            elapsed < scaled_test_duration(Duration::from_millis(200)),
             "the next DNS request waited behind expired work: {elapsed:?}"
         );
     }

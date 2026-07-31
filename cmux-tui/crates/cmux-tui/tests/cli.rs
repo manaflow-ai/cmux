@@ -950,6 +950,14 @@ fn open_test_pty() -> (File, File) {
     let master_fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
     assert_ne!(master_fd, -1, "posix_openpt failed: {}", std::io::Error::last_os_error());
     let master = unsafe { File::from_raw_fd(master_fd) };
+    let master_flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFD) };
+    assert_ne!(
+        master_flags,
+        -1,
+        "fcntl(F_GETFD) failed for PTY master: {}",
+        std::io::Error::last_os_error()
+    );
+    assert_ne!(master_flags & libc::FD_CLOEXEC, 0, "PTY master was created without close-on-exec");
     assert_eq!(
         unsafe { libc::grantpt(master.as_raw_fd()) },
         0,
@@ -1026,13 +1034,14 @@ impl Drop for PtyChild {
 #[cfg(unix)]
 struct DisconnectablePtyChild {
     child: Child,
-    master: Option<File>,
+    disconnect: Option<mpsc::Sender<()>>,
+    master_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
-        let (master, slave) = open_test_pty();
+        let (mut master, slave) = open_test_pty();
         let child = Command::new(bin())
             .args(args)
             .env_remove("CMUX_TUI_SOCKET")
@@ -1041,18 +1050,59 @@ impl DisconnectablePtyChild {
             .stderr(Stdio::from(slave))
             .spawn()
             .unwrap();
-        Self { child, master: Some(master) }
+        let status_flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFL) };
+        assert_ne!(
+            status_flags,
+            -1,
+            "fcntl(F_GETFL) failed for PTY master: {}",
+            std::io::Error::last_os_error()
+        );
+        assert_ne!(
+            unsafe {
+                libc::fcntl(master.as_raw_fd(), libc::F_SETFL, status_flags | libc::O_NONBLOCK)
+            },
+            -1,
+            "fcntl(F_SETFL) failed for PTY master: {}",
+            std::io::Error::last_os_error()
+        );
+        let (disconnect, disconnected) = mpsc::channel();
+        let master_drain = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                if disconnected.try_recv().is_ok() {
+                    break;
+                }
+                match master.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        match disconnected.recv_timeout(Duration::from_millis(10)) {
+                            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self { child, disconnect: Some(disconnect), master_drain: Some(master_drain) }
     }
 
     fn disconnect_host_terminal(&mut self) {
-        self.master.take();
+        if let Some(disconnect) = self.disconnect.take() {
+            let _ = disconnect.send(());
+        }
+        if let Some(master_drain) = self.master_drain.take() {
+            master_drain.join().unwrap();
+        }
     }
 }
 
 #[cfg(unix)]
 impl Drop for DisconnectablePtyChild {
     fn drop(&mut self) {
-        self.master.take();
+        self.disconnect_host_terminal();
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
