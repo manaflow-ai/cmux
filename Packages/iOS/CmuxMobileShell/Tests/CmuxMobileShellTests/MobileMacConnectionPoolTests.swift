@@ -154,6 +154,33 @@ import Testing
         #expect(candidates.isEmpty)
     }
 
+    @Test func inFlightRecoveryTargetIsExcludedFromSecondaryAggregation() throws {
+        let shell = MobileShellComposite(
+            isSignedIn: false,
+            presence: IdlePresence()
+        )
+        let mac = try Self.pairedMac(
+            id: "mac-recovering",
+            instanceTag: "tag-recovering"
+        )
+        // A bounded redial records the recovery target through the live
+        // foreground assignment, then clears the foreground context before
+        // dialing. The Mac being redialed must not become a "secondary"
+        // aggregation candidate in that window: the duplicate
+        // background-control session would have to be drained by the very
+        // redial that is trying to reconnect it.
+        shell.foregroundMacDeviceID = mac.macDeviceID
+        shell.foregroundMacDeviceID = nil
+        shell.isReconnectingStoredMac = true
+
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac]).isEmpty)
+
+        // Once the reconnect attempt settles the Mac is aggregable again.
+        shell.isReconnectingStoredMac = false
+        #expect(shell.secondaryAggregationCandidateMacs(from: [mac])
+            .map(\.macDeviceID) == [mac.macDeviceID])
+    }
+
     @Test func onlineAliasKeepsLogicalMacInPool() async throws {
         let route = try CmxAttachRoute(
             id: "alias-route",

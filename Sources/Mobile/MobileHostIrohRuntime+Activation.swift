@@ -133,6 +133,29 @@ extension MobileHostIrohRuntime {
                         accessToken: session.accessToken,
                         refreshToken: session.refreshToken
                     )
+                },
+                recoveredCredentialPair: { [weak auth] rejected in
+                    guard let auth else { return nil }
+                    // Re-capture first: when another lane already rotated the
+                    // session, the fresh snapshot differs from the rejected
+                    // pair and no extra mint is needed. Only an unchanged
+                    // access token forces a mint; the SDK store dedups
+                    // concurrent refreshes.
+                    if let session = try? await auth.authenticatedSessionSnapshot(),
+                       session.accountID == accountID,
+                       session.accessToken != rejected.accessToken {
+                        return CmxIrohBrokerCredentials(
+                            accessToken: session.accessToken,
+                            refreshToken: session.refreshToken
+                        )
+                    }
+                    guard (try? await auth.forceRefreshAccessToken()) != nil,
+                          let session = try? await auth.authenticatedSessionSnapshot(),
+                          session.accountID == accountID else { return nil }
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
                 }
             ),
             backpressureMode: .callerOwned
