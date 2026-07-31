@@ -2895,6 +2895,11 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
+            let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID
+            tabManager.workspaceSwitchCoordinator.noteInteractionReady(
+                workspaceID: tabId,
+                surfaceID: surfaceId
+            )
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
@@ -2948,6 +2953,11 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
+            let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID
+            tabManager.workspaceSwitchCoordinator.noteInteractionReady(
+                workspaceID: tabId,
+                surfaceID: surfaceId
+            )
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
                 ?? tabManager.selectedWorkspace?.activeFocusTransactionId
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
@@ -2961,6 +2971,10 @@ struct ContentView: View {
                   let focusedPanelId = selectedWorkspace.focusedPanelId,
                   let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
                   focusedBrowser.webView === webView else { return }
+            tabManager.workspaceSwitchCoordinator.noteBrowserInteractionReady(
+                workspaceID: selectedTabId,
+                webView: webView
+            )
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedPanelId,
@@ -2976,6 +2990,10 @@ struct ContentView: View {
                   let selectedWorkspace = tabManager.selectedWorkspace,
                   let focusedBrowser = selectedWorkspace.panels.values.compactMap({ $0 as? BrowserPanel })
                     .first(where: { $0.webView === webView }) else { return }
+            tabManager.workspaceSwitchCoordinator.noteBrowserInteractionReady(
+                workspaceID: selectedTabId,
+                webView: webView
+            )
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: focusedBrowser.id,
@@ -2989,6 +3007,10 @@ struct ContentView: View {
                   let selectedWorkspace = tabManager.selectedWorkspace,
                   selectedWorkspace.focusedPanelId == panelId,
                   let focusedBrowser = selectedWorkspace.browserPanel(for: panelId) else { return }
+            tabManager.workspaceSwitchCoordinator.noteBrowserInteractionReady(
+                workspaceID: selectedTabId,
+                webView: focusedBrowser.webView
+            )
             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                 workspaceId: selectedTabId,
                 panelId: panelId,
@@ -2996,6 +3018,43 @@ struct ContentView: View {
             )
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
             attemptCommandPaletteFocusRestoreIfNeeded()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: .terminalPortalVisibilityDidChange
+        )) { notification in
+            guard let hostedView = notification.object as? GhosttySurfaceScrollView,
+                  hostedView.isVisibleInUI,
+                  let surface = hostedView.surfaceView.terminalSurface else {
+                return
+            }
+            tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
+                surfaceID: surface.id,
+                rendererPresented: surface.isRendererPresented
+            )
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: .ghosttyDidRenderFrame
+        )) { notification in
+            guard let surfaceView = notification.object as? GhosttyNSView,
+                  let surfaceID = surfaceView.terminalSurface?.id else {
+                return
+            }
+            tabManager.workspaceSwitchCoordinator.noteFirstFrame(surfaceID: surfaceID)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: .browserPortalRegistryDidChange
+        )) { notification in
+            guard let webView = notification.object as? WKWebView,
+                  let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: webView),
+                  snapshot.visibleInUI,
+                  !snapshot.containerHidden,
+                  webView.window != nil else {
+                return
+            }
+            tabManager.workspaceSwitchCoordinator.noteBrowserPortalPresented(webView: webView)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(
@@ -3032,6 +3091,7 @@ struct ContentView: View {
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
                 workspaceHandoffFallbackScheduler.cancel()
+                tabManager.workspaceSwitchCoordinator.cancel()
             }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -3564,6 +3624,7 @@ struct ContentView: View {
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
+            tabManager.workspaceSwitchCoordinator.cancel()
             retiringWorkspaceId = nil
             workspaceHandoffFallbackScheduler.cancel()
             return
@@ -3571,6 +3632,9 @@ struct ContentView: View {
 
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackScheduler.cancel()
+        tabManager.workspaceSwitchCoordinator.beginPresentation(
+            workspaceSwitchPresentationTarget(for: newSelectedId)
+        )
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -3624,6 +3688,7 @@ struct ContentView: View {
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackScheduler.cancel()
         let retiring = retiringWorkspaceId
+        tabManager.workspaceSwitchCoordinator.sourceWillRetire()
 
         // Disable before clearing retiringWorkspaceId: unmount teardown does not
         // hide portals during transient rebuilds or cancel stale layout follow-ups.
@@ -3634,6 +3699,7 @@ struct ContentView: View {
 
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
+        tabManager.workspaceSwitchCoordinator.sourceDidRetire()
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3644,6 +3710,89 @@ struct ContentView: View {
             cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
         }
 #endif
+    }
+
+    private func workspaceSwitchPresentationTarget(
+        for workspaceID: UUID
+    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return passiveWorkspaceSwitchPresentationTarget(workspaceID: workspaceID)
+        }
+
+        let window = observedWindow ?? tabManager.window
+        let requiresInteraction = window?.isKeyWindow == true
+        if let focusedPanelID = workspace.focusedPanelId,
+           let browserPanel = workspace.browserPanel(for: focusedPanelID) {
+            let webView = browserPanel.webView
+            let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: webView)
+            let portalPresented =
+                snapshot?.visibleInUI == true &&
+                snapshot?.containerHidden == false &&
+                webView.window != nil
+            return WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: workspaceID,
+                contentKind: .browser,
+                terminalSurfaceID: nil,
+                terminalView: nil,
+                browserWebView: webView,
+                nativeSurfaceLoaded: true,
+                rendererPresented: true,
+                portalPresented: portalPresented,
+                firstFramePresented: portalPresented,
+                interactionReady: Self.firstResponder(in: window, belongsTo: webView),
+                requiresInteraction: requiresInteraction
+            )
+        }
+
+        if let target = workspace.focusedTerminalInputTarget() {
+            let surface = target.panel.surface
+            let hostedView = target.panel.hostedView
+            let portalPresented =
+                hostedView.isVisibleInUI &&
+                !hostedView.isHidden &&
+                hostedView.window != nil &&
+                hostedView.superview != nil &&
+                hostedView.bounds.width > 1 &&
+                hostedView.bounds.height > 1
+            return WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: workspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: target.surfaceID,
+                terminalView: hostedView.surfaceView,
+                browserWebView: nil,
+                nativeSurfaceLoaded: surface.surface != nil,
+                rendererPresented: surface.isRendererPresented,
+                portalPresented: portalPresented,
+                firstFramePresented: portalPresented && surface.isRendererPresented,
+                interactionReady: Self.firstResponder(in: window, belongsTo: hostedView),
+                requiresInteraction: requiresInteraction
+            )
+        }
+
+        return passiveWorkspaceSwitchPresentationTarget(workspaceID: workspaceID)
+    }
+
+    private func passiveWorkspaceSwitchPresentationTarget(
+        workspaceID: UUID
+    ) -> WorkspaceSwitchCoordinator.PresentationTarget {
+        WorkspaceSwitchCoordinator.PresentationTarget(
+            workspaceID: workspaceID,
+            contentKind: .passive,
+            terminalSurfaceID: nil,
+            terminalView: nil,
+            browserWebView: nil,
+            nativeSurfaceLoaded: true,
+            rendererPresented: true,
+            portalPresented: true,
+            firstFramePresented: true,
+            interactionReady: true,
+            requiresInteraction: false
+        )
+    }
+
+    private static func firstResponder(in window: NSWindow?, belongsTo view: NSView) -> Bool {
+        guard let responderView = window?.firstResponder as? NSView else { return false }
+        return responderView === view || responderView.isDescendant(of: view)
     }
 
     private var commandPaletteOverlay: some View {

@@ -50,6 +50,7 @@ final class RendererRealizationController {
     private var portalVisibilityObserver: NSObjectProtocol?
     private var portalVisibilityEvaluationTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
+    private var workspaceSwitchPresentationSurfaceByRequestID: [UUID: UUID] = [:]
 
     private convenience init() {
         self.init(
@@ -142,6 +143,7 @@ final class RendererRealizationController {
         portalVisibilityEvaluationTask = nil
         systemMemoryPressureRetryTask?.cancel()
         systemMemoryPressureRetryTask = nil
+        workspaceSwitchPresentationSurfaceByRequestID.removeAll(keepingCapacity: false)
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
             self.settingsObserver = nil
@@ -179,6 +181,27 @@ final class RendererRealizationController {
         surface.retryRendererPresentationAfterActivity()
     }
 
+    /// Protects a selected destination from renderer reclamation during the
+    /// selection-to-portal gap. Portal visibility becomes authoritative as soon
+    /// as the destination is shown, at which point the coordinator releases
+    /// this request-scoped lease.
+    func beginWorkspaceSwitchPresentationProtection(
+        surfaceID: UUID,
+        requestID: UUID
+    ) {
+        workspaceSwitchPresentationSurfaceByRequestID[requestID] = surfaceID
+    }
+
+    func endWorkspaceSwitchPresentationProtection(requestID: UUID) {
+        guard workspaceSwitchPresentationSurfaceByRequestID.removeValue(forKey: requestID) != nil else {
+            return
+        }
+        // If an interrupted switch left the destination hidden, restore its
+        // normal deadline asynchronously with the existing visibility
+        // coalescer. Never add a registry scan to the synchronous switch path.
+        schedulePortalVisibilityEvaluation()
+    }
+
     @discardableResult
     func reclaimForSystemMemoryPressure(
         now: Date,
@@ -211,6 +234,7 @@ final class RendererRealizationController {
         guard settings.enabled else { return nil }
         var earliestDeadline: TimeInterval?
         for input in inputs where input.isRealized && !input.isVisible {
+            guard !input.isProtectedForPresentation else { continue }
             let deadline = input.lastVisibleAt + settings.idleSeconds
             guard deadline > now else { continue }
             earliestDeadline = min(earliestDeadline ?? deadline, deadline)
@@ -226,6 +250,7 @@ final class RendererRealizationController {
         let batchLimit = earliestDeadline + coalescingWindow
         var batchDeadline = earliestDeadline
         for input in inputs where input.isRealized && !input.isVisible {
+            guard !input.isProtectedForPresentation else { continue }
             let deadline = input.lastVisibleAt + settings.idleSeconds
             if deadline > earliestDeadline, deadline <= batchLimit {
                 batchDeadline = max(batchDeadline, deadline)
@@ -276,7 +301,9 @@ final class RendererRealizationController {
                 surfaceId: surface.id,
                 isVisible: surface.isRendererEffectivelyVisible,
                 isRealized: surface.isRendererRealized,
-                lastVisibleAt: surface.rendererLastVisibleAt
+                lastVisibleAt: surface.rendererLastVisibleAt,
+                isProtectedForPresentation: workspaceSwitchPresentationSurfaceByRequestID.values
+                    .contains(surface.id)
             )
         }
 

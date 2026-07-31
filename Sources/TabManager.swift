@@ -221,6 +221,7 @@ class TabManager: ObservableObject {
     var liveWindowDockStores: [DockSplitStore] {
         (windowDockTitleRoutingStores.objectEnumerator()?.allObjects as? [DockSplitStore]) ?? []
     }
+    let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -285,6 +286,18 @@ class TabManager: ObservableObject {
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        if !isRestoringSessionSnapshot {
+            let targetSurfaceID = newValue
+                .flatMap { workspacesById[$0] }
+                .flatMap { $0.focusedTerminalInputTarget()?.surfaceID }
+            workspaceSwitchCoordinator.selectionWillCommit(
+                from: selectedTabId,
+                to: newValue,
+                targetSurfaceID: targetSurfaceID
+            )
+        } else {
+            workspaceSwitchCoordinator.cancel()
+        }
         objectWillChange.send()
         selectedTabIdPublisher.send(newValue)
 #if DEBUG
@@ -318,6 +331,12 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            defer {
+                workspaceSwitchCoordinator.selectionDidCommit(
+                    from: oldValue,
+                    to: selectedTabId
+                )
+            }
             pendingProjectedNotificationFocusRequestID = nil
             if !isRestoringSessionSnapshot {
                 workspaces.expandWorkspaceGroupForSelectionIfNeeded()
