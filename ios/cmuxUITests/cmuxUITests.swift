@@ -562,6 +562,58 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let rowID = "preview-mac-1"
+        let row = app.staticTexts["Preview Mac"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+
+        row.swipeLeft()
+        let forgetSwipeAction = app.buttons["MobileComputerForgetSwipeButton-\(rowID)"]
+        XCTAssertTrue(forgetSwipeAction.waitForExistence(timeout: 3))
+        forgetSwipeAction.tap()
+
+        // The Forget tap is confirm-first: it must only present the dialog. A
+        // destructive-role swipe button here makes SwiftUI batch-delete the row
+        // while the model still contains it, which aborts in UIKit's
+        // item-count assertion (TestFlight crash on build 20260731052644) or
+        // ghosts the row out of the list on runtimes that tolerate it.
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "Tapping Forget must not crash the app."
+        )
+        let confirmButton = app.buttons["MobileComputerForgetConfirmButton-\(rowID)"]
+        XCTAssertTrue(
+            confirmButton.waitForExistence(timeout: 3),
+            "Forget must request confirmation before revoking."
+        )
+        XCTAssertTrue(
+            row.exists,
+            "The hidden computer must stay listed until the confirmation action runs."
+        )
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "hidden-computers-forget-swipe-confirmation"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // The dialog's destructive confirm is the tap that actually removes
+        // the row; the model-driven removal must animate out cleanly.
+        // firstMatch: action-sheet buttons surface twice in the accessibility
+        // tree (button plus its sheet wrapper), so a bare tap is ambiguous.
+        confirmButton.firstMatch.tap()
+        XCTAssertTrue(
+            row.waitForNonExistence(timeout: 3),
+            "Confirming Forget must remove the row."
+        )
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+    }
+
+    @MainActor
     func testWorkspaceListRapidDirectionChangesAndBoundariesRemainResponsive() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
