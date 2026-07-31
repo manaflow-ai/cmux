@@ -37,16 +37,7 @@ extension RemoteTmuxSizingUITests {
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
         }
-        // Activation can fail on a headless or lock-screen session
-        // ("Running Background"). The suite is socket-driven end to end and
-        // the sizing oracle follows view LAYOUT (which advances for
-        // background apps), not visible painting — so treat activation as
-        // best-effort, exactly like the browser-fixture suites.
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        XCTExpectFailure("App activation may fail on headless/locked sessions", options: activationOptions) {
-            app.launch()
-        }
+        app.launchAllowingHeadlessBackgroundActivation()
         _ = app.wait(for: .runningForeground, timeout: 10)
         XCTAssertTrue(
             waitForSocket(timeout: 12),

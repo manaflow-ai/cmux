@@ -63,22 +63,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             app.launchEnvironment["PATH"] = path
         }
         self.app = app
-        // On headless CI runners (no GUI session), XCUIApplication.launch()
-        // blocks ~60s then fails with "Failed to activate application
-        // (current state: Running Background)". Mark this as an expected
-        // failure so the test can continue: these tests are socket-driven and
-        // browser webviews mount in the app windows regardless of activation.
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
-            app.launch()
-        }
-        if app.state != .runningForeground {
-            XCTAssertTrue(
-                app.state == .runningBackground,
-                "Expected app to be running for browser fixture test. state=\(app.state.rawValue)"
-            )
-        }
+        app.launchAllowingHeadlessBackgroundActivation()
         XCTAssertTrue(
             waitForSocketPong(timeout: 12.0),
             "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
