@@ -1814,6 +1814,7 @@ struct ComputerUseUXTests {
             ("permission_required", .permissionRequired),
             ("window_unavailable", .windowUnavailable),
             ("point_outside_content", .pointOutsideContent),
+            ("capture_unavailable", .captureUnavailable),
             ("session_unavailable", .helperUnavailable),
         ]
         for (code, expectedError) in cases {
