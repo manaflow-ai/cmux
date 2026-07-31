@@ -90,6 +90,107 @@ import Testing
         #expect(params["surface_id"] == nil)
     }
 
+    @Test func testRestoreExecutesStructuredArgvEnvironmentAndCwdDirectly() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore 项目 'space' \(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("工作 dir", isDirectory: true)
+        let executable = root.appendingPathComponent("fake agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'pwd=%s\\n' "$PWD"
+        printf 'env=%s\\n' "$RESTORE_VALUE"
+        for argument in "$@"; do
+          printf 'arg=%s\\n' "$argument"
+        done
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "checkpoint-\(UUID().uuidString)"
+        let arguments = [executable.path, "space value", "quote'\"", "日本語", String(repeating: "x", count: 4_000)]
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "source": "test",
+                "working_directory": workingDirectory.path,
+                "environment": ["RESTORE_VALUE": "値 with spaces"],
+                "launch_command": [
+                    "arguments": arguments,
+                    "executable_path": executable.path,
+                    "working_directory": workingDirectory.path,
+                    "environment": ["RESTORE_VALUE": "値 with spaces"],
+                ],
+                "prepared_arguments": arguments,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("pwd=\(workingDirectory.path)\n"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("env=値 with spaces\n"), result.stdout)
+        for argument in arguments.dropFirst() {
+            XCTAssertTrue(result.stdout.contains("arg=\(argument)\n"), result.stdout)
+        }
+        XCTAssertFalse(result.stdout.contains("/bin/sh -c"), result.stdout)
+    }
+
+    @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux legacy restore \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "legacy-\(UUID().uuidString)"
+        let response = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "codex",
+                "checkpoint_id": checkpointID,
+                "working_directory": root.path,
+                "environment": ["LEGACY_RESTORE_VALUE": "kept"],
+                "legacy_command": #"printf 'legacy=%s|%s\n' "$PWD" "$LEGACY_RESTORE_VALUE""#,
+            ],
+        ])
+        let socketPath = "/tmp/cmux-legacy-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["SHELL"] = "/bin/sh"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "codex", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("legacy=\(root.path)|kept"), result.stdout)
+    }
+
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -1319,6 +1420,14 @@ import Testing
         let home = URL(fileURLWithPath: "/tmp/cmxh-\(shortID)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
+    }
+
+    private func jsonResponse(result: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(
+            withJSONObject: ["ok": true, "result": result],
+            options: []
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
     }
 
     /// The stable control-socket path under an injected (temp) home, resolved via

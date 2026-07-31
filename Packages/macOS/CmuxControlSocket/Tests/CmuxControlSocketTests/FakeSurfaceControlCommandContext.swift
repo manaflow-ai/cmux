@@ -7,6 +7,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
+    var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeClearAgentSessionEnded: Bool?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean"
@@ -54,11 +55,20 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeSetInputs = inputs
+        return resumeResolution
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         resumeStrings
+    }
+
+    func controlSurfaceResumeGet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
     }
 
     func controlSurfaceResumeClear(

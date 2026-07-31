@@ -46,40 +46,38 @@ extension SurfaceResumeBindingSnapshot {
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
     }
 
-    func startupInputWithLauncherScript(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        restoringWorkingDirectory: String? = nil,
+    func restoreStartupInput(
         repairPortableAgentExecutable: Bool
     ) -> String? {
-        if !allowLauncherScript {
-            return inlineStartupInput(
-                repairPortableAgentExecutable: repairPortableAgentExecutable
-            )
+        if usesLocalRestoreVerb {
+            return localRestoreCLIInput
         }
-        guard let inlineInput = inlineStartupInput(
-            repairPortableAgentExecutable: repairPortableAgentExecutable,
-            includeWorkingDirectoryPrefix: false
-        ) else { return nil }
-        guard let scriptInput = OneShotTerminalLauncherStore(
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        ).writeInvocationInput(
-            command: inlineInput,
-            workingDirectory: restoringWorkingDirectory ?? cwd
-        ) else {
-            return nil
-        }
-
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        return inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable
+        )
     }
 
-    func remoteStartupInputWithLauncherScript(allowLauncherScript: Bool = false) -> String? {
-        startupInputWithLauncherScript(
-            allowLauncherScript: allowLauncherScript,
-            repairPortableAgentExecutable: false
-        )
+    func remoteStartupInput() -> String? {
+        inlineStartupInput(repairPortableAgentExecutable: false)
+    }
+
+    private var localRestoreCLIInput: String {
+        if let kind = Self.restoreCLIArgument(kind),
+           let checkpointId = Self.restoreCLIArgument(checkpointId) {
+            return "cmux restore \(kind) \(checkpointId)\n"
+        }
+        return "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+    }
+
+    private static func restoreCLIArgument(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        if value.range(of: "^[A-Za-z0-9._:+-]+$", options: .regularExpression) != nil {
+            return value
+        }
+        return nil
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {

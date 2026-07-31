@@ -57,6 +57,11 @@ public struct AgentRestoreLaunch: Sendable {
         }
     }
 
+    /// The provider- and session-bound authorization value passed to the wrapper.
+    public var authorizationEnvironmentValue: String {
+        "\(provider.rawValue):\(sessionID)"
+    }
+
     /// Wraps a provider-specific wrapper command so every supported login shell can dispatch it.
     ///
     /// - Parameter posixCommand: The command containing ``wrapperShellExecutableToken``.
@@ -80,7 +85,7 @@ public struct AgentRestoreLaunch: Sendable {
     ///   - routedCommand: The command beginning at its executable after wrapper routing.
     /// - Returns: Startup input carrying provider- and session-bound authorization.
     public func authorizing(leadingShell: String, routedCommand: String) -> String {
-        let assignment = "CMUX_AGENT_RESTORE_LAUNCH=\(provider.rawValue):\(sessionID)"
+        let assignment = "CMUX_AGENT_RESTORE_LAUNCH=\(authorizationEnvironmentValue)"
         return leadingShell + "/usr/bin/env '\(assignment)' " + routedCommand
     }
 }

@@ -211,6 +211,100 @@ struct ControlCommandCoordinatorSurfaceTests {
         ))
     }
 
+    @Test func surfaceResumeSetKeepsStructuredLaunchDataStructured() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeResolution = .setFailed
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("codex resume legacy"),
+                "kind": .string("codex"),
+                "permission_mode": .string("never"),
+                "launch_command": .object([
+                    "launcher": .string("codex"),
+                    "executable_path": .string("/opt/Codex Tools/codex"),
+                    "arguments": .array([
+                        .string("/opt/Codex Tools/codex"),
+                        .string("space value"),
+                        .string("引用"),
+                    ]),
+                    "working_directory": .string("/tmp/项目"),
+                    "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "captured_at": .double(42.5),
+                    "source": .string("test"),
+                ]),
+            ]
+        ))
+
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.permissionMode == "never")
+        #expect(inputs.launchCommand == ControlAgentLaunchCommand(
+            launcher: "codex",
+            executablePath: "/opt/Codex Tools/codex",
+            arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
+            workingDirectory: "/tmp/项目",
+            environment: ["CODEX_HOME": "/tmp/配置"],
+            capturedAt: 42.5,
+            source: "test"
+        ))
+    }
+
+    @Test func surfaceResumeGetEmitsStructuredRestoreRecord() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let surfaceID = UUID()
+        let command = ControlAgentLaunchCommand(
+            launcher: nil,
+            executablePath: "/usr/bin/printf",
+            arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
+            workingDirectory: "/tmp/日本語",
+            environment: ["RESTORE_VALUE": "space value"],
+            capturedAt: 21,
+            source: "test"
+        )
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: surfaceID,
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "direct",
+                kind: "custom",
+                checkpointID: "checkpoint",
+                source: "test",
+                workingDirectory: "/tmp/日本語",
+                environment: ["RESTORE_VALUE": "space value"],
+                launchCommand: command,
+                preparedArguments: command.arguments,
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: [:]
+        ))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+
+        #expect(record["mode"] == .string("direct"))
+        #expect(record["working_directory"] == .string("/tmp/日本語"))
+        #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
+        #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(record["legacy_command"] == .null)
+    }
+
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

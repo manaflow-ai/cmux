@@ -1,0 +1,256 @@
+import Foundation
+
+/// Builds shell-free restore invocations from structured persisted records.
+public struct AgentRestorePlanner: Sendable {
+    private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CONFIG_DIR",
+    ]
+
+    private let isExecutableFile: @Sendable (String) -> Bool
+
+    /// Creates a restore planner.
+    ///
+    /// - Parameter isExecutableFile: Testable executable-path lookup used for
+    ///   optional wrapper shims.
+    public init(
+        isExecutableFile: @escaping @Sendable (String) -> Bool = {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }
+    ) {
+        self.isExecutableFile = isExecutableFile
+    }
+
+    /// Produces the final direct process invocation for a persisted restore request.
+    ///
+    /// - Parameters:
+    ///   - request: Structured restore data.
+    ///   - ambientEnvironment: The current CLI environment inherited by the child.
+    /// - Returns: A direct invocation, or `nil` when the record cannot be restored safely.
+    public func invocation(
+        for request: AgentRestoreRequest,
+        ambientEnvironment: [String: String]
+    ) -> AgentRestoreInvocation? {
+        guard let plannedArguments = plannedArguments(for: request),
+              !plannedArguments.values.isEmpty else {
+            return nil
+        }
+
+        let workingDirectory = normalized(
+            request.workingDirectory ?? request.launchCommand?.workingDirectory
+        )
+        let sanitizedArguments: [String]
+        if plannedArguments.removesCapturedWorkingDirectoryOptions {
+            let workingDirectories = [
+                workingDirectory,
+                normalized(request.launchCommand?.workingDirectory),
+            ].compactMap { $0 }
+            sanitizedArguments = workingDirectories.reduce(plannedArguments.values) {
+                AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                    from: $0,
+                    workingDirectory: $1
+                )
+            }
+        } else {
+            sanitizedArguments = plannedArguments.values
+        }
+        guard !sanitizedArguments.isEmpty else { return nil }
+
+        var environment = ambientEnvironment
+        let restoredEnvironment = restoredEnvironment(for: request)
+        environment.merge(restoredEnvironment) { _, restored in restored }
+
+        var routedArguments = sanitizedArguments
+        if request.mode != .direct {
+            routedArguments = routeManagedWrapper(
+                arguments: routedArguments,
+                request: request,
+                environment: &environment
+            )
+        }
+        guard !routedArguments.isEmpty else { return nil }
+
+        let preflights = hermesPreflights(
+            arguments: &routedArguments,
+            request: request,
+            environment: environment,
+            ambientEnvironment: ambientEnvironment
+        )
+        return AgentRestoreInvocation(
+            arguments: routedArguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            preflightInvocations: preflights
+        )
+    }
+
+    private func plannedArguments(
+        for request: AgentRestoreRequest
+    ) -> (values: [String], removesCapturedWorkingDirectoryOptions: Bool)? {
+        switch request.mode {
+        case .direct:
+            return (request.preparedArguments ?? request.launchCommand?.arguments).map {
+                ($0, false)
+            }
+        case .relaunchAgent:
+            if let preparedArguments = request.preparedArguments, !preparedArguments.isEmpty {
+                return (preparedArguments, false)
+            }
+            guard let launchCommand = request.launchCommand else { return nil }
+            return AgentResumeArgv().builtInRelaunchKind(
+                kind: request.kind,
+                executablePath: launchCommand.executablePath,
+                arguments: launchCommand.arguments
+            ).map { ($0, true) }
+        case .resumeAgent:
+            guard let checkpointID = normalized(request.checkpointID) else { return nil }
+            let launch = request.launchCommand
+            switch AgentResumeArgv().launcherResolution(
+                launcher: launch?.launcher,
+                sessionId: checkpointID,
+                executablePath: launch?.executablePath,
+                arguments: launch?.arguments ?? []
+            ) {
+            case .resolved(let arguments):
+                if let arguments {
+                    return (arguments, true)
+                }
+                return request.preparedArguments.map { ($0, false) }
+            case .passthrough:
+                if let arguments = AgentResumeArgv().builtInKind(
+                    kind: request.kind,
+                    sessionId: checkpointID,
+                    executablePath: launch?.executablePath,
+                    arguments: launch?.arguments ?? [],
+                    observedPermissionMode: request.observedPermissionMode
+                ) {
+                    return (arguments, true)
+                }
+                return request.preparedArguments.map { ($0, false) }
+            }
+        }
+    }
+
+    private func restoredEnvironment(for request: AgentRestoreRequest) -> [String: String] {
+        if request.mode == .direct {
+            var captured = request.launchCommand?.environment ?? [:]
+            captured.merge(request.environment) { _, binding in binding }
+            return captured
+        }
+        var captured = request.launchCommand?.environment ?? [:]
+        captured.merge(request.environment) { _, binding in binding }
+        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: captured,
+            kind: request.kind
+        )
+        if request.kind == "pi" || request.kind == "omp",
+           let path = normalized(captured["PATH"]) {
+            selected["PATH"] = path
+        }
+        if request.kind == "claude" {
+            let keys = selected.keys.sorted().filter {
+                Self.claudeAuthSelectionEnvironmentKeys.contains($0)
+            }
+            if !keys.isEmpty {
+                selected["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+                selected["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = keys.joined(separator: ",")
+            }
+        }
+        return selected
+    }
+
+    private func routeManagedWrapper(
+        arguments: [String],
+        request: AgentRestoreRequest,
+        environment: inout [String: String]
+    ) -> [String] {
+        guard let first = arguments.first,
+              let restoreLaunch = AgentRestoreLaunch(
+                  kind: request.kind,
+                  sessionID: request.checkpointID
+              ),
+              (first as NSString).lastPathComponent == restoreLaunch.executableName else {
+            return arguments
+        }
+
+        if first != restoreLaunch.executableName {
+            environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
+        }
+        environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+        let shimKey = request.kind == "claude"
+            ? "CMUX_CLAUDE_WRAPPER_SHIM"
+            : "CMUX_CODEX_WRAPPER_SHIM"
+        let routedExecutable = normalized(environment[shimKey])
+            .flatMap { isExecutableFile($0) ? $0 : nil }
+            ?? restoreLaunch.executableName
+        return [routedExecutable] + Array(arguments.dropFirst())
+    }
+
+    private func hermesPreflights(
+        arguments: inout [String],
+        request: AgentRestoreRequest,
+        environment: [String: String],
+        ambientEnvironment: [String: String]
+    ) -> [AgentRestorePreflightInvocation] {
+        guard request.kind == "hermes-agent" else { return [] }
+        arguments = HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(arguments)
+        guard !arguments.contains(where: { $0.contains("model.api_mode") }),
+              hermesProvider(in: arguments).map({
+                  $0 == HermesAgentCodexEnvironment.defaultProvider || $0 == "openai-codex"
+              }) ?? true else {
+            return []
+        }
+        let resolvedEnvironment = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+            to: environment,
+            ambientEnvironment: ambientEnvironment
+        )
+        guard let baseURL = normalized(
+            resolvedEnvironment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]
+        ), let executable = arguments.first else {
+            return []
+        }
+        var settings = [
+            ("model.provider", HermesAgentCodexEnvironment.defaultProvider),
+            ("model.base_url", baseURL),
+            ("model.api_mode", HermesAgentCodexEnvironment.codexResponsesAPIMode),
+        ]
+        if let model = HermesAgentCodexEnvironment.defaultCodexModel(
+            environment: resolvedEnvironment,
+            ambientEnvironment: ambientEnvironment
+        ) {
+            settings.append(("model.default", model))
+        }
+        return settings.map { key, value in
+            AgentRestorePreflightInvocation(
+                arguments: [executable, "config", "set", key, value],
+                environment: resolvedEnvironment
+            )
+        }
+    }
+
+    private func hermesProvider(in arguments: [String]) -> String? {
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if argument == "--provider", arguments.indices.contains(index + 1) {
+                return arguments[index + 1]
+            }
+            if argument.hasPrefix("--provider=") {
+                return String(argument.dropFirst("--provider=".count))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}

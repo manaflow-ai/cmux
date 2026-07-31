@@ -509,7 +509,7 @@ enum AgentResumeCommandBuilder {
         return environmentParts
     }
 
-    private static func resumeArguments(
+    static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -773,7 +773,7 @@ enum AgentResumeCommandBuilder {
 }
 
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
-    static let maxInlineStartupInputBytes = 900
+    private static let maxInlineForkInputBytes = 900
 
     var kind: RestorableAgentKind
     var sessionId: String
@@ -785,31 +785,31 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var permissionMode: String? = nil
 
     func resumeStartupInput(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
+        useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
+        if useLocalRestoreVerb {
+            guard Self.isSafeRestoreCLIArgument(kind.rawValue),
+                  Self.isSafeRestoreCLIArgument(sessionId) else {
+                return "cmux restore --surface \"$CMUX_SURFACE_ID\"\n"
+            }
+            return "cmux restore \(kind.rawValue) \(sessionId)\n"
+        }
         let effectiveWorkingDirectory = resumeWorkingDirectory(
             preferred: restoringWorkingDirectory
         )
         let restoreCommand = resumeCommand(
-            includeWorkingDirectoryPrefix: !allowLauncherScript,
+            includeWorkingDirectoryPrefix: true,
             restoringWorkingDirectory: effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
-        return startupInput(
-            command: restoreCommand,
-            workingDirectory: allowLauncherScript ? effectiveWorkingDirectory : nil,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput,
-            alwaysUseLauncherScript: allowLauncherScript
-        )
+        return restoreCommand.map { $0 + "\n" }
+    }
+
+    private static func isSafeRestoreCLIArgument(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9._:+-]+$", options: .regularExpression) != nil
     }
 
     func forkStartupInput(
@@ -831,16 +831,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
-        alwaysUseLauncherScript: Bool = false
+        allowLauncherScript: Bool = true
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard alwaysUseLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard alwaysUseLauncherScript || !allowOversizedInlineInput else {
+        guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -853,7 +848,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         ) else {
             return nil
         }
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
     }
 
     private func resumeWorkingDirectory(preferred: String?) -> String? {

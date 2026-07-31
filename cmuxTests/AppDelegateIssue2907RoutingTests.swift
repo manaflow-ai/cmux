@@ -779,6 +779,13 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
         XCTAssertNil(getEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
+        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
+        XCTAssertEqual(restoreRecord["mode"] as? String, "direct")
+        XCTAssertEqual(restoreRecord["kind"] as? String, "command")
+        XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
+        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
+        XCTAssertTrue(legacyCommand.contains("tmux attach -t dogfood"), legacyCommand)
+        XCTAssertTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
     }
 
     func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {

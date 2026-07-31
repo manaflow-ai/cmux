@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
@@ -41,6 +42,15 @@ enum ControlSurfaceResumeTarget {
             workspace.surfaceResumeBinding(panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
             dock.surfaceResumeBinding(panelId: surfaceID)
+        }
+    }
+
+    var restorableAgent: SessionRestorableAgentSnapshot? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.restoredAgentSnapshotsByPanelId[surfaceID]
+        case .dock(_, let dock, let surfaceID):
+            dock.restoredAgentLifecycle.snapshotsByPanelId[surfaceID]
         }
     }
 
@@ -239,7 +249,75 @@ extension TerminalController {
             paneID: target.paneID,
             surfaceID: target.surfaceID,
             cleared: cleared,
-            binding: controlResumeBinding(from: binding)
+            binding: controlResumeBinding(from: binding),
+            restoreRecord: cleared
+                ? nil
+                : controlSurfaceRestoreRecord(target: target, binding: binding)
+        )
+    }
+
+    private func controlSurfaceRestoreRecord(
+        target: ControlSurfaceResumeTarget,
+        binding: SurfaceResumeBindingSnapshot?
+    ) -> ControlSurfaceRestoreRecord? {
+        if let agent = target.restorableAgent {
+            let mode: AgentRestoreRequestMode = agent.kind.restoreMode == .relaunchCommand
+                ? .relaunchAgent
+                : .resumeAgent
+            let preparedArguments = agent.kind.restoreMode == .resumeSession
+                ? AgentResumeCommandBuilder.resumeArguments(
+                    kind: agent.kind,
+                    sessionId: agent.sessionId,
+                    launchCommand: agent.launchCommand,
+                    workingDirectory: agent.workingDirectory,
+                    customRegistration: agent.registration,
+                    observedPermissionMode: agent.permissionMode
+                )
+                : nil
+            return ControlSurfaceRestoreRecord(
+                modeRawValue: mode.rawValue,
+                kind: agent.kind.rawValue,
+                checkpointID: agent.sessionId,
+                source: "session-snapshot",
+                workingDirectory: agent.workingDirectory ?? agent.launchCommand?.workingDirectory,
+                environment: [:],
+                launchCommand: agent.launchCommand.map(controlAgentLaunchCommand),
+                preparedArguments: preparedArguments,
+                permissionMode: agent.permissionMode,
+                legacyCommand: nil
+            )
+        }
+        guard let binding else { return nil }
+        let trimmedKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedKind = trimmedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "command"
+        let mode: AgentRestoreRequestMode = binding.isAgentHookBinding
+            ? .resumeAgent
+            : .direct
+        return ControlSurfaceRestoreRecord(
+            modeRawValue: mode.rawValue,
+            kind: normalizedKind,
+            checkpointID: binding.checkpointId,
+            source: binding.source,
+            workingDirectory: binding.cwd ?? binding.launchCommand?.workingDirectory,
+            environment: binding.environment ?? [:],
+            launchCommand: binding.launchCommand.map(controlAgentLaunchCommand),
+            preparedArguments: mode == .direct ? binding.launchCommand?.arguments : nil,
+            permissionMode: binding.permissionMode,
+            legacyCommand: binding.launchCommand == nil ? binding.inlineStartupInput : nil
+        )
+    }
+
+    private func controlAgentLaunchCommand(
+        _ command: AgentLaunchCommandSnapshot
+    ) -> ControlAgentLaunchCommand {
+        ControlAgentLaunchCommand(
+            launcher: command.launcher,
+            executablePath: command.executablePath,
+            arguments: command.arguments,
+            workingDirectory: command.workingDirectory,
+            environment: command.environment,
+            capturedAt: command.capturedAt,
+            source: command.source
         )
     }
 
@@ -367,6 +445,18 @@ extension TerminalController {
             checkpointId: inputs.checkpointID,
             source: inputs.source,
             environment: inputs.environment,
+            launchCommand: inputs.launchCommand.map {
+                AgentLaunchCommandSnapshot(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            permissionMode: inputs.permissionMode,
             autoResume: inputs.autoResume,
             updatedAt: Date.now.timeIntervalSince1970
         )

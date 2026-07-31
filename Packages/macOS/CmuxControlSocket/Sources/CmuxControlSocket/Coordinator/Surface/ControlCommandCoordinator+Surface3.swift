@@ -66,6 +66,8 @@ extension ControlCommandCoordinator {
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             source: source,
             environment: stringMap(params, "environment"),
+            launchCommand: controlAgentLaunchCommand(params["launch_command"]),
+            permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteRelayParameters: remoteWorkspaceID == nil ? nil : params
@@ -176,6 +178,7 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
+                "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]))
         }
     }
@@ -197,6 +200,8 @@ extension ControlCommandCoordinator {
             "checkpoint_id": orNull(binding.checkpointID),
             "source": orNull(binding.source),
             "environment": environment,
+            "launch_command": controlAgentLaunchCommandPayload(binding.launchCommand),
+            "permission_mode": orNull(binding.permissionMode),
             "auto_resume": .bool(binding.autoResume),
             "approval_policy": orNull(binding.approvalPolicyRawValue),
             "approval_record_id": orNull(binding.approvalRecordID),
@@ -206,6 +211,73 @@ extension ControlCommandCoordinator {
             "remote_pty_session_id": orNull(binding.remotePTYSessionID),
             "updated_at": .double(binding.updatedAt),
         ])
+    }
+
+    private func controlAgentLaunchCommand(_ value: JSONValue?) -> ControlAgentLaunchCommand? {
+        guard case .object(let object)? = value,
+              case .array(let rawArguments)? = object["arguments"] else {
+            return nil
+        }
+        let arguments = rawArguments.compactMap { value -> String? in
+            guard case .string(let argument) = value else { return nil }
+            return argument
+        }
+        guard arguments.count == rawArguments.count, !arguments.isEmpty else { return nil }
+        return ControlAgentLaunchCommand(
+            launcher: rawString(object, "launcher"),
+            executablePath: rawString(object, "executable_path"),
+            arguments: arguments,
+            workingDirectory: rawString(object, "working_directory"),
+            environment: stringMap(object, "environment"),
+            capturedAt: doubleValue(object["captured_at"]),
+            source: rawString(object, "source")
+        )
+    }
+
+    private nonisolated func controlAgentLaunchCommandPayload(
+        _ command: ControlAgentLaunchCommand?
+    ) -> JSONValue {
+        guard let command else { return .null }
+        let environment = command.environment.map {
+            JSONValue.object($0.mapValues(JSONValue.string))
+        } ?? .null
+        return .object([
+            "launcher": orNull(command.launcher),
+            "executable_path": orNull(command.executablePath),
+            "arguments": .array(command.arguments.map(JSONValue.string)),
+            "working_directory": orNull(command.workingDirectory),
+            "environment": environment,
+            "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
+            "source": orNull(command.source),
+        ])
+    }
+
+    private nonisolated func surfaceRestoreRecordPayload(
+        _ record: ControlSurfaceRestoreRecord?
+    ) -> JSONValue {
+        guard let record else { return .null }
+        return .object([
+            "mode": .string(record.modeRawValue),
+            "kind": .string(record.kind),
+            "checkpoint_id": orNull(record.checkpointID),
+            "source": orNull(record.source),
+            "working_directory": orNull(record.workingDirectory),
+            "environment": .object(record.environment.mapValues(JSONValue.string)),
+            "launch_command": controlAgentLaunchCommandPayload(record.launchCommand),
+            "prepared_arguments": record.preparedArguments.map {
+                .array($0.map(JSONValue.string))
+            } ?? .null,
+            "permission_mode": orNull(record.permissionMode),
+            "legacy_command": orNull(record.legacyCommand),
+        ])
+    }
+
+    private func doubleValue(_ value: JSONValue?) -> Double? {
+        switch value {
+        case .double(let value): value
+        case .int(let value): Double(value)
+        default: nil
+        }
     }
 
     // MARK: - report_tty
