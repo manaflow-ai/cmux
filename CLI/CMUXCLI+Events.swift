@@ -34,6 +34,9 @@ extension CMUXCLI {
         let deadline = options.timeout.map { Date.now.addingTimeInterval($0) }
 
         while true {
+            if let deadline, Date.now >= deadline {
+                throw CLIError(message: "Timed out waiting for a matching event")
+            }
             let client = SocketClient(path: socketPath)
             do {
                 if let deadline {
@@ -44,7 +47,9 @@ extension CMUXCLI {
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: explicitPassword,
-                    socketPath: socketPath
+                    socketPath: socketPath,
+                    responseTimeout: deadline?.timeIntervalSinceNow,
+                    deadline: deadline
                 )
 
                 var params: [String: Any] = [
@@ -116,7 +121,11 @@ extension CMUXCLI {
                 guard options.reconnect, isTransientEventStreamError(error) else {
                     throw error
                 }
-                waitBeforeReconnectingEventStream()
+                let remaining = deadline?.timeIntervalSinceNow ?? 1
+                guard remaining > 0 else {
+                    throw CLIError(message: "Timed out waiting for a matching event")
+                }
+                waitBeforeReconnectingEventStream(maximumDelay: remaining)
                 continue
             }
         }
@@ -153,10 +162,12 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream() {
-        let deadline = Date(timeIntervalSinceNow: 1.0)
+    func waitBeforeReconnectingEventStream(maximumDelay: TimeInterval = 1) {
+        let delay = min(1, max(0, maximumDelay))
+        guard delay > 0 else { return }
+        let deadline = Date(timeIntervalSinceNow: delay)
         var didFire = false
-        let timer = Timer(timeInterval: 1.0, repeats: false) { _ in
+        let timer = Timer(timeInterval: delay, repeats: false) { _ in
             didFire = true
         }
         RunLoop.current.add(timer, forMode: .default)

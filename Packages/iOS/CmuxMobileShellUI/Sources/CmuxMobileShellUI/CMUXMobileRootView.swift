@@ -36,6 +36,7 @@ struct CMUXMobileRootView: View {
     @State private var isShowingAddDeviceSheet = false
     @State private var pairingPresentation: PairingPresentation = .manual
     @State private var injectedAttachTask: Task<Void, Never>?
+    @State private var injectedAttachTaskAttempt: MobileStartupConnectionCoordinator.Attempt?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -754,32 +755,30 @@ struct CMUXMobileRootView: View {
         guard let startupAttempt = startupConnectionCoordinator.claimInjectedAttach() else {
             return true
         }
+        injectedAttachTaskAttempt = startupAttempt
         injectedAttachTask = Task { @MainActor in
             let result = await dogfoodAttachPreparation.run {
                 await store.connectPairingURLResult(attachURL)
             }
-            guard !Task.isCancelled else {
-                _ = startupConnectionCoordinator.finishInjectedAttach(
-                    startupAttempt,
-                    outcome: .failed
-                )
-                injectedAttachTask = nil
+            guard !Task.isCancelled,
+                  injectedAttachTaskAttempt == startupAttempt else {
                 return
             }
             let outcome: MobileStartupConnectionCoordinator.InjectedAttachOutcome =
                 switch result {
-                case .connected, .needsUserApproval:
+                case .connected:
                     .connected
-                case .failed, .superseded:
+                case .failed, .needsUserApproval, .superseded:
                     .failed
                 }
-            if startupConnectionCoordinator.finishInjectedAttach(
+            let shouldReconnect = startupConnectionCoordinator.finishInjectedAttach(
                 startupAttempt,
                 outcome: outcome
-            ) {
+            )
+            clearInjectedAttachTask(ifCurrent: startupAttempt)
+            if shouldReconnect {
                 reconnectStoredMacIfNeeded()
             }
-            injectedAttachTask = nil
         }
         return true
         #else
@@ -788,7 +787,19 @@ struct CMUXMobileRootView: View {
     }
 
     private func cancelInjectedAttachTask() {
-        injectedAttachTask?.cancel()
+        guard let attempt = injectedAttachTaskAttempt else { return }
+        let task = injectedAttachTask
         injectedAttachTask = nil
+        injectedAttachTaskAttempt = nil
+        _ = startupConnectionCoordinator.cancelInjectedAttach(attempt)
+        task?.cancel()
+    }
+
+    private func clearInjectedAttachTask(
+        ifCurrent attempt: MobileStartupConnectionCoordinator.Attempt
+    ) {
+        guard injectedAttachTaskAttempt == attempt else { return }
+        injectedAttachTask = nil
+        injectedAttachTaskAttempt = nil
     }
 }

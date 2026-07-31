@@ -2969,7 +2969,8 @@ final class SocketClient {
         try writeAll(
             Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
-            failureMessage: "Failed to write stream request"
+            failureMessage: "Failed to write stream request",
+            deadline: deadline
         )
 
         while true {
@@ -2983,18 +2984,13 @@ final class SocketClient {
         deadline: Date? = nil
     ) throws -> String {
         var data = Data()
-        let receiveTimeout: TimeInterval
-        if let deadline {
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else {
-                throw CLIError(message: "Event stream deadline exceeded")
-            }
-            receiveTimeout = min(45, remaining)
-        } else {
-            receiveTimeout = 45
+        if deadline == nil {
+            try configureReceiveTimeout(45)
         }
-        try configureReceiveTimeout(receiveTimeout)
         while data.count < maxBytes {
+            if let deadline {
+                try waitForReadableStream(deadline: deadline)
+            }
             var byte: UInt8 = 0
             let count = Darwin.read(socketFD, &byte, 1)
             if count < 0 {
@@ -3002,8 +2998,11 @@ final class SocketClient {
                     continue
                 }
                 if errno == EAGAIN || errno == EWOULDBLOCK {
-                    if deadline != nil {
-                        throw CLIError(message: "Event stream deadline exceeded")
+                    if let deadline {
+                        guard deadline.timeIntervalSinceNow > 0 else {
+                            throw CLIError(message: "Event stream deadline exceeded")
+                        }
+                        continue
                     }
                     throw CLIError(message: "Timed out waiting for event stream frame")
                 }
@@ -3021,6 +3020,34 @@ final class SocketClient {
             data.append(byte)
         }
         throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+    }
+
+    private func waitForReadableStream(deadline: Date) throws {
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = min(
+                max(Int(ceil(remaining * 1_000)), 0),
+                Int(Int32.max)
+            )
+            let ready = Darwin.poll(
+                &descriptor,
+                1,
+                Int32(timeoutMilliseconds)
+            )
+            if ready > 0 {
+                return
+            }
+            if ready == 0 {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            if errno != EINTR {
+                throw CLIError(message: "Event stream socket read error")
+            }
+        }
     }
 }
 

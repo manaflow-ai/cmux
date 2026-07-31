@@ -59,6 +59,13 @@ final class MobileStartupConnectionCoordinator {
         }
     }
 
+    /// Releases an in-flight explicit attach immediately. Late completion for
+    /// the cancelled attempt is ignored by ``finishInjectedAttach(_:outcome:)``.
+    @discardableResult
+    func cancelInjectedAttach(_ attempt: Attempt) -> Bool {
+        finishInjectedAttach(attempt, outcome: .failed)
+    }
+
     func claimStoredReconnect() -> Attempt? {
         guard owner == .unclaimed || owner == .injectedAttachFailed else {
             return nil
