@@ -101,8 +101,8 @@ final class MarkdownCodespanRenderingTests {
                 """
             )
             let raw = try #require(result as? [String: Any])
-            #expect(raw["paragraphText"] as? String == "Before <img src=x onerror=alert(1)> after.")
-            #expect(raw["codeText"] as? String == "<img src=x onerror=alert(1)>")
+            #expect(raw["paragraphText"] as? String == "Before [invalid code span] after.")
+            #expect(raw["codeText"] as? String == "[invalid code span]")
             #expect((raw["codeChildElementCount"] as? NSNumber)?.intValue == 0)
             #expect((raw["documentImageCount"] as? NSNumber)?.intValue == 0)
             #expect(raw["hasRenderError"] as? Bool == false)
