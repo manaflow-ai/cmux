@@ -2219,8 +2219,8 @@ pub const Client = struct {
             waiting = false;
         }
         _ = deadline.remainingNs() catch |failure| {
-            // A waiter can be signaled while the slot is idle, then expire
-            // before it reacquires this mutex. Hand the idle slot to the next
+            // A waiter can be signaled while the request permit is idle, then
+            // expire before it reacquires this mutex. Hand the permit to the next
             // waiter instead of consuming the only wakeup.
             if (self.request_waiters > 0) {
                 self.request_admission_condition.signal();
@@ -15368,7 +15368,7 @@ test "expired admission successor wakes three queued waiters" {
     }
     try waitForRequestWaiters(&client, workers.len, 250);
 
-    // Model the first signaled successor reaching the idle slot only after
+    // Model the first signaled successor reaching the idle permit only after
     // its deadline. The expired claimant must pass the wakeup onward.
     var expired = try TimeoutDeadline.start(1);
     std.Thread.sleep(2 * std.time.ns_per_ms);
