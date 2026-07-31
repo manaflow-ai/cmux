@@ -428,6 +428,19 @@ final class cmuxUITests: XCTestCase {
             renameAlert.textFields.firstMatch.exists,
             "The rename alert must include an editable group-name field."
         )
+        let renameField = renameAlert.textFields.firstMatch
+        renameField.tap()
+        renameField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
+        renameField.typeText("yu")
+        let save = renameAlert.buttons[
+            String(localized: "mobile.common.save", defaultValue: "Save")
+        ]
+        XCTAssertTrue(save.waitForExistence(timeout: 3))
+        save.tap()
+        XCTAssertTrue(
+            app.buttons["yu"].waitForExistence(timeout: 3),
+            "Saving Rename Group must update the visible group-row title."
+        )
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-group-rename-alert"
         attachment.lifetime = .keepAlways
@@ -492,7 +505,7 @@ final class cmuxUITests: XCTestCase {
             "Rename Group",
             "Pin",
             "Customize",
-            "Rename",
+            "Rename Workspace",
             "Mark as Read",
             "Delete",
             "Ungroup (Keep Workspaces)",
