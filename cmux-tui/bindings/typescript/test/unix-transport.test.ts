@@ -10,8 +10,10 @@ import {
   Client,
   CmuxAbortError,
   CmuxTimeoutError,
+  decimalString,
   NodeClient,
   sessionId,
+  terminalId,
   type Transport,
   workspaceId,
 } from "../src/node.js";
@@ -23,6 +25,7 @@ import { CmuxClient } from "../src/raw/node-client.js";
 
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
+const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
 
 interface DelayedUnixFixture {
   readonly transport: UnixSocketTransport;
@@ -86,6 +89,15 @@ async function delayedUnixFixture(
       await rm(directory, { recursive: true, force: true });
     },
   };
+}
+
+function unixResourceOperationCount(
+  fixture: DelayedUnixFixture,
+  operation: string,
+): number {
+  return fixture.received.filter((json) =>
+    (JSON.parse(json) as { operation?: unknown }).operation === operation
+  ).length;
 }
 
 test("Unix resource transport drops a read that expires before connect", async () => {
@@ -223,6 +235,98 @@ test("Unix connected sends ignore pre-connect pending byte limits", async () => 
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(fixture.received, ["connected-frame"]);
   } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix failure fans out throwing observers before destroying the socket", async () => {
+  const fixture = await delayedUnixFixture();
+  const transport = fixture.transport as unknown as {
+    readonly socket: Socket;
+    failAndClose(error: Error): void;
+  };
+  const calls: string[] = [];
+  const closed = new Promise<void>((resolve) => fixture.transport.onClose(resolve));
+  fixture.transport.onError(() => {
+    calls.push("error-one");
+    throw new Error("first Unix error observer failed");
+  });
+  fixture.transport.onError(() => calls.push("error-two"));
+
+  try {
+    assert.throws(
+      () => transport.failAndClose(new Error("transport failed")),
+      /first Unix error observer failed/,
+    );
+    assert.deepEqual(calls, ["error-one", "error-two"]);
+    assert.equal(transport.socket.destroyed, true);
+    await closed;
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix finish fans out throwing close observers after lifecycle cleanup", async () => {
+  const fixture = await delayedUnixFixture();
+  const transport = fixture.transport as unknown as { finish(): void };
+  const calls: string[] = [];
+  fixture.transport.onClose(() => {
+    calls.push("close-one");
+    fixture.transport.close();
+    throw new Error("first Unix close observer failed");
+  });
+  fixture.transport.onClose(() => calls.push("close-two"));
+
+  try {
+    assert.throws(
+      () => transport.finish(),
+      /first Unix close observer failed/,
+    );
+    assert.deepEqual(calls, ["close-one", "close-two"]);
+    assert.throws(() => fixture.transport.send("after-close"), /socket closed/);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Unix wait leases remain reserved until delayed dispatch", async () => {
+  const fixture = await delayedUnixFixture();
+  const client = new Client({ transport: fixture.transport, timeoutMs: 0 });
+  const terminal = client.session(RESOURCE_SESSION).terminal(RESOURCE_TERMINAL);
+  const wait = () => terminal.wait({
+    pattern: "never",
+    timeoutMs: decimalString("1"),
+  });
+  const pending = Array.from({ length: 8 }, wait);
+  let afterDispatch: ReturnType<typeof wait> | undefined;
+
+  try {
+    await new Promise<void>((resolve) => setTimeout(resolve, 130));
+    const ninth = wait();
+    pending.push(ninth);
+    await assert.rejects(
+      Promise.race([
+        ninth,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("ninth wait was queued")), 20);
+        }),
+      ]),
+      /terminal wait capacity is 8/,
+    );
+
+    await fixture.release();
+    assert.equal(unixResourceOperationCount(fixture, "terminal.wait"), 8);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 130));
+    afterDispatch = wait();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    assert.equal(unixResourceOperationCount(fixture, "terminal.wait"), 9);
+  } finally {
+    client.close();
+    await Promise.allSettled([
+      ...pending,
+      ...(afterDispatch ? [afterDispatch] : []),
+    ]);
     await fixture.close();
   }
 });

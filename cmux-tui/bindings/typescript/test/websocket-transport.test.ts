@@ -5,7 +5,9 @@ import {
   CmuxAbortError,
   CmuxConnectionError,
   CmuxTimeoutError,
+  decimalString,
   sessionId,
+  terminalId,
   workspaceId,
 } from "../src/index.js";
 import {
@@ -24,6 +26,7 @@ class FakeWebSocket implements WebSocketLike {
   readonly url: string;
   readonly protocols?: string | string[];
   readyState = 0;
+  sendFailure: ((data: string) => Error | undefined) | undefined;
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   constructor(url: string | URL, protocols?: string | string[]) {
@@ -32,7 +35,11 @@ class FakeWebSocket implements WebSocketLike {
     FakeWebSocket.instances.push(this);
   }
 
-  send(data: string): void { this.sent.push(data); }
+  send(data: string): void {
+    const failure = this.sendFailure?.(data);
+    if (failure) throw failure;
+    this.sent.push(data);
+  }
   close(): void { this.readyState = 3; this.emit("close", {}); }
   rejectAuthentication(): void {
     this.readyState = 3;
@@ -59,6 +66,17 @@ const ResourceConstructor =
   FakeWebSocket as unknown as ResourceWebSocketConstructor;
 const RESOURCE_SESSION = sessionId(`session_${"a".repeat(32)}`);
 const RESOURCE_WORKSPACE = workspaceId(`ws_${"b".repeat(32)}`);
+const RESOURCE_TERMINAL = terminalId(`term_${"c".repeat(32)}`);
+
+function resourceOperationCount(socket: FakeWebSocket, operation: string): number {
+  return socket.sent.filter((json) => {
+    try {
+      return (JSON.parse(json) as { operation?: unknown }).operation === operation;
+    } catch {
+      return false;
+    }
+  }).length;
+}
 
 test("WebSocketTransport pairs before flushing queued protocol frames", () => {
   const challenges: string[] = [];
@@ -319,6 +337,137 @@ test("resource WebSocket flushes queued frames before a reentrant paired callbac
     "callback",
   ]);
   transport.close();
+});
+
+test("resource WebSocket flush preserves FIFO across dispatch callback sends", () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.sendCancellable("first", () => transport.send("reentrant"));
+  transport.send("second");
+
+  socket.open();
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+
+  assert.deepEqual(socket.sent, [
+    '{"pair":{"request":true}}',
+    "first",
+    "second",
+    "reentrant",
+  ]);
+  transport.close();
+});
+
+test("resource WebSocket send failure during paired flush closes and settles", async () => {
+  const credentials: string[] = [];
+  const errors: Error[] = [];
+  let closes = 0;
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    onPairingCredential: (credential) => credentials.push(credential),
+  });
+  const client = new Client({ transport, timeoutMs: 0 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.onError((error) => errors.push(error));
+  transport.onClose(() => closes += 1);
+  const ping = client.session(RESOURCE_SESSION).ping();
+  const rejected = assert.rejects(() => ping, CmuxConnectionError);
+
+  try {
+    socket.open();
+    socket.sendFailure = (data) => data.includes('"operation":"session.ping"')
+      ? new Error("queued send exploded")
+      : undefined;
+    assert.doesNotThrow(() => {
+      socket.message('{"paired":{"credential":"resource-secret"}}');
+    });
+
+    assert.deepEqual(credentials, ["resource-secret"]);
+    assert.match(errors[0]?.message ?? "", /dispatch failed.*queued send exploded/);
+    assert.equal(socket.readyState, 3);
+    assert.equal(closes, 1);
+    await Promise.race([
+      rejected,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error("request remained pending")), 50);
+      }),
+    ]);
+  } finally {
+    client.close();
+    await rejected;
+  }
+});
+
+test("resource WebSocket fans out throwing observers before socket cleanup rethrows", () => {
+  const calls: string[] = [];
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    authToken: "test",
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.onError(() => {
+    calls.push("error-one");
+    throw new Error("first error observer failed");
+  });
+  transport.onError(() => calls.push("error-two"));
+  transport.onClose(() => {
+    calls.push("close-one");
+    throw new Error("first close observer failed");
+  });
+  transport.onClose(() => calls.push("close-two"));
+  socket.open();
+
+  assert.throws(
+    () => socket.message(Uint8Array.from([1, 2, 3])),
+    /first error observer failed/,
+  );
+  assert.deepEqual(calls, ["error-one", "error-two", "close-one", "close-two"]);
+  assert.equal(socket.readyState, 3);
+});
+
+test("resource WebSocket wait leases remain reserved until delayed dispatch", async () => {
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+  });
+  const client = new Client({ transport, timeoutMs: 0 });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  const terminal = client.session(RESOURCE_SESSION).terminal(RESOURCE_TERMINAL);
+  const wait = () => terminal.wait({
+    pattern: "never",
+    timeoutMs: decimalString("1"),
+  });
+  socket.open();
+  const pending = Array.from({ length: 8 }, wait);
+  let afterDispatch: ReturnType<typeof wait> | undefined;
+
+  try {
+    await new Promise<void>((resolve) => setTimeout(resolve, 130));
+    const ninth = wait();
+    pending.push(ninth);
+    await assert.rejects(
+      Promise.race([
+        ninth,
+        new Promise<never>((_resolve, reject) => {
+          setTimeout(() => reject(new Error("ninth wait was queued")), 20);
+        }),
+      ]),
+      /terminal wait capacity is 8/,
+    );
+
+    socket.message('{"paired":{"credential":"resource-secret"}}');
+    assert.equal(resourceOperationCount(socket, "terminal.wait"), 8);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 130));
+    afterDispatch = wait();
+    assert.equal(resourceOperationCount(socket, "terminal.wait"), 9);
+  } finally {
+    client.close();
+    await Promise.allSettled([
+      ...pending,
+      ...(afterDispatch ? [afterDispatch] : []),
+    ]);
+  }
 });
 
 test("resource WebSocket preserves paired state when the credential callback throws", () => {
