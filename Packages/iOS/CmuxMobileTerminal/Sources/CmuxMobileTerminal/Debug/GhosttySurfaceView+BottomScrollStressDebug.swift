@@ -19,11 +19,6 @@ extension GhosttySurfaceView {
         enqueueScrollToBottom()
     }
 
-    @MainActor
-    func recordBottomScrollStressScrollbar(total: Int, offset: Int, len: Int) {
-        debugLastScrollbar = (total: total, offset: offset, len: len)
-    }
-
     var bottomScrollDebugScrollbarAtBottom: Bool {
         guard let snapshot = debugLastScrollbar else { return false }
         return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
