@@ -22,6 +22,10 @@ describe("hosted Subrouter client", () => {
           provider: "codex",
           auth_mode: "apikey",
           email: "apikey:openai-apikey:work",
+          health: {
+            ok: false,
+            message: "refresh failed",
+          },
         },
       ]);
     };
@@ -47,6 +51,10 @@ describe("hosted Subrouter client", () => {
         id: "apikey:openai-apikey:work",
         kind: "openai-apikey",
         label: "work",
+        health: {
+          ok: false,
+          message: "refresh failed",
+        },
       },
     ]);
   });
