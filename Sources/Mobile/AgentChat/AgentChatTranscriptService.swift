@@ -677,7 +677,12 @@ final class AgentChatTranscriptService {
     }
 
     deinit {
-        proseWakeDriver?.stop()
-        proseStreamer?.stopAll()
+        // This app-owned service is created and released on the main actor.
+        // `isolated deinit` still has Xcode compatibility constraints in cmux,
+        // so keep teardown synchronous while asserting that owner invariant.
+        MainActor.assumeIsolated {
+            proseWakeDriver?.stop()
+            proseStreamer?.stopAll()
+        }
     }
 }
