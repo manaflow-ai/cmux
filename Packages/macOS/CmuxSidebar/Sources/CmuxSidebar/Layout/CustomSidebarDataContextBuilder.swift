@@ -46,14 +46,69 @@ public struct CustomSidebarDataContextBuilder {
             "weekday": .int(components.weekday ?? 0),
             "epoch": .int(Int(snapshot.now.timeIntervalSince1970)),
         ])
+        let agents: [SwiftValue] = snapshot.agents.map(agentValue(_:))
+        let workingCount = snapshot.agents.filter { $0.state == "working" }.count
+        let blockedCount = snapshot.agents.filter { $0.state == "blocked" }.count
         return [
             "workspaces": .array(workspaces),
             "workspaceCount": .int(snapshot.workspaces.count),
             "selectedTitle": .string(snapshot.selectedWorkspaceTitle),
             "selectedId": .string(snapshot.selectedWorkspaceId?.uuidString ?? ""),
             "unreadTotal": .int(snapshot.totalUnreadCount),
+            "agents": .array(agents),
+            "agentsCount": .int(snapshot.agents.count),
+            "agentsWorkingCount": .int(workingCount),
+            "agentsBlockedCount": .int(blockedCount),
             "clock": clock,
         ]
+    }
+
+    /// Projects one Claude Code agent session into the interpreter value tree.
+    ///
+    /// Always-present fields (`cwd`, `kind`) map straight through. Optional CLI
+    /// fields are omitted when absent so interpreted `if let` / ternary
+    /// truthiness behaves. Convenience booleans derived from `state`
+    /// (`working`, `blocked`, `done`, `failed`, `stopped`, `active`) and
+    /// `kind` (`background`) are always present so sidebar files can branch on
+    /// them without string comparisons.
+    public func agentValue(_ agent: CustomSidebarAgentSnapshot) -> SwiftValue {
+        let state = agent.state
+        var fields: [String: SwiftValue] = [
+            "cwd": .string(agent.cwd),
+            "kind": .string(agent.kind),
+            "background": .bool(agent.kind == "background"),
+            "working": .bool(state == "working"),
+            "blocked": .bool(state == "blocked"),
+            "done": .bool(state == "done"),
+            "failed": .bool(state == "failed"),
+            "stopped": .bool(state == "stopped"),
+            "active": .bool(state == "working" || state == "blocked"),
+        ]
+        if let id = agent.id, !id.isEmpty {
+            fields["id"] = .string(id)
+        }
+        if let name = agent.name, !name.isEmpty {
+            fields["name"] = .string(name)
+        }
+        if let sessionId = agent.sessionId, !sessionId.isEmpty {
+            fields["sessionId"] = .string(sessionId)
+        }
+        if let state, !state.isEmpty {
+            fields["state"] = .string(state)
+        }
+        if let status = agent.status, !status.isEmpty {
+            fields["status"] = .string(status)
+        }
+        if let pid = agent.pid {
+            fields["pid"] = .int(pid)
+        }
+        if let startedAt = agent.startedAt {
+            fields["startedAt"] = .int(startedAt)
+        }
+        if let waitingFor = agent.waitingFor, !waitingFor.isEmpty {
+            fields["waitingFor"] = .string(waitingFor)
+        }
+        return .object(fields)
     }
 
     /// Projects one workspace's snapshot into the interpreter value tree.

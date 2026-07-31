@@ -308,4 +308,113 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
     }
+
+    private func agent(
+        id: String? = nil,
+        cwd: String = "/repo",
+        kind: String = "background",
+        name: String? = nil,
+        state: String? = nil,
+        status: String? = nil,
+        pid: Int? = nil,
+        startedAt: Int? = nil,
+        waitingFor: String? = nil
+    ) -> CustomSidebarAgentSnapshot {
+        CustomSidebarAgentSnapshot(
+            id: id,
+            cwd: cwd,
+            kind: kind,
+            name: name,
+            sessionId: nil,
+            state: state,
+            status: status,
+            pid: pid,
+            startedAt: startedAt,
+            waitingFor: waitingFor
+        )
+    }
+
+    @Test("Agents array and counts are produced")
+    func agentsTopLevel() {
+        let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: [],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            agents: [
+                agent(state: "working"),
+                agent(state: "blocked"),
+                agent(state: "done"),
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let context = builder.dataContext(for: snapshot)
+
+        #expect(context["agentsCount"] == .int(3))
+        #expect(context["agentsWorkingCount"] == .int(1))
+        #expect(context["agentsBlockedCount"] == .int(1))
+        #expect(context["agents"]?.iterationValues?.count == 3)
+    }
+
+    @Test("Agents default to an empty array when none are provided")
+    func agentsDefaultEmpty() {
+        let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: [],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let context = builder.dataContext(for: snapshot)
+
+        #expect(context["agentsCount"] == .int(0))
+        #expect(context["agents"] == .array([]))
+    }
+
+    @Test("Agent value maps fields and derives state booleans")
+    func agentValueMapsFields() {
+        let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
+
+        let blocked = builder.agentValue(
+            agent(
+                id: "abc123",
+                cwd: "/repo/.claude/worktrees/x",
+                kind: "background",
+                name: "migrate config",
+                state: "blocked",
+                status: "waiting",
+                pid: 4242,
+                startedAt: 1_781_774_127_358,
+                waitingFor: "permission prompt"
+            )
+        )
+        #expect(blocked.member("cwd") == .string("/repo/.claude/worktrees/x"))
+        #expect(blocked.member("kind") == .string("background"))
+        #expect(blocked.member("background") == .bool(true))
+        #expect(blocked.member("id") == .string("abc123"))
+        #expect(blocked.member("name") == .string("migrate config"))
+        #expect(blocked.member("state") == .string("blocked"))
+        #expect(blocked.member("status") == .string("waiting"))
+        #expect(blocked.member("pid") == .int(4242))
+        #expect(blocked.member("startedAt") == .int(1_781_774_127_358))
+        #expect(blocked.member("waitingFor") == .string("permission prompt"))
+        #expect(blocked.member("blocked") == .bool(true))
+        #expect(blocked.member("active") == .bool(true))
+        #expect(blocked.member("working") == .bool(false))
+        #expect(blocked.member("done") == .bool(false))
+
+        // Optional fields are omitted; derived booleans stay present.
+        let minimal = builder.agentValue(agent(cwd: "/repo", kind: "interactive", status: "idle"))
+        #expect(minimal.member("id") == nil)
+        #expect(minimal.member("name") == nil)
+        #expect(minimal.member("state") == nil)
+        #expect(minimal.member("pid") == nil)
+        #expect(minimal.member("background") == .bool(false))
+        #expect(minimal.member("active") == .bool(false))
+        #expect(minimal.member("status") == .string("idle"))
+    }
 }
