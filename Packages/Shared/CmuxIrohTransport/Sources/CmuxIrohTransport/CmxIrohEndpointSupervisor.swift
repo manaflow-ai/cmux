@@ -7,6 +7,7 @@ import Foundation
 /// rejects stale async bind results with a lifecycle revision, and exposes
 /// non-sensitive state through ``events()``.
 public actor CmxIrohEndpointSupervisor {
+    private static let maximumBufferedObserverEventCount = 8
     private struct RelayReadinessWaiter {
         let generation: UInt64
         let continuation: CheckedContinuation<Void, any Error>
@@ -57,7 +58,13 @@ public actor CmxIrohEndpointSupervisor {
     public func events() -> AsyncStream<CmxIrohEndpointSupervisorEvent> {
         let observerID = UUID()
         let initialSnapshot = snapshot
-        return AsyncStream { continuation in
+        // Preserve short lifecycle sequences (starting, active, recovered) while
+        // bounding observers that stop consuming during a network-event storm.
+        return AsyncStream(
+            bufferingPolicy: .bufferingNewest(
+                Self.maximumBufferedObserverEventCount
+            )
+        ) { continuation in
             observers[observerID] = continuation
             continuation.yield(.snapshot(initialSnapshot))
             continuation.onTermination = { [weak self] _ in

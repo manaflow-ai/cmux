@@ -43,6 +43,7 @@ actor CmxConnectivityPeerSession {
     /// successor behind it. Once full, callers fail immediately until one
     /// retired attempt settles instead of creating an unbounded task chain.
     static var maximumRetiredDialCount: Int { 4 }
+    static var maximumControlWaiterCount: Int { 32 }
 
     let peerID: CmxConnectivityPeerID
     private let processIncarnation: UUID
@@ -50,6 +51,7 @@ actor CmxConnectivityPeerSession {
     private let buildSession: SessionBuilder
     private let handleSnapshot: SnapshotHandler
     private let diagnosticLog: DiagnosticLog?
+    private let maximumControlWaiterCount: Int
     private var lifecycleRevision: UInt64 = 0
     private var connectionGeneration: UInt64 = 0
     private var stateRevision: UInt64 = 0
@@ -69,15 +71,19 @@ actor CmxConnectivityPeerSession {
         buildSession: @escaping SessionBuilder,
         handleSnapshot: @escaping SnapshotHandler = { _ in },
         diagnosticLog: DiagnosticLog? = nil,
+        maximumControlWaiterCount: Int = CmxConnectivityPeerSession
+            .maximumControlWaiterCount,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.peerID = peerID
         precondition(engineGeneration > 0)
+        precondition(maximumControlWaiterCount > 0)
         self.processIncarnation = processIncarnation
         self.engineGeneration = engineGeneration
         self.buildSession = buildSession
         self.handleSnapshot = handleSnapshot
         self.diagnosticLog = diagnosticLog
+        self.maximumControlWaiterCount = maximumControlWaiterCount
         _ = clock
     }
 
@@ -90,6 +96,8 @@ actor CmxConnectivityPeerSession {
         ) async throws -> any CmxConnectivitySession,
         handleSnapshot: @escaping SnapshotHandler = { _ in },
         diagnosticLog: DiagnosticLog? = nil,
+        maximumControlWaiterCount: Int = CmxConnectivityPeerSession
+            .maximumControlWaiterCount,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
         self.init(
@@ -101,12 +109,22 @@ actor CmxConnectivityPeerSession {
             },
             handleSnapshot: handleSnapshot,
             diagnosticLog: diagnosticLog,
+            maximumControlWaiterCount: maximumControlWaiterCount,
             clock: clock
         )
     }
 
     func snapshot() -> CmxConnectivityPeerSnapshot {
         makeSnapshot()
+    }
+
+    /// Whether the engine can discard this actor without orphaning live work.
+    func isDormantForEviction() -> Bool {
+        pendingConnection == nil
+            && retiredDialDrains.isEmpty
+            && activeConnection == nil
+            && controlOwner == nil
+            && controlWaiters.isEmpty
     }
 
     func acquireControl(
@@ -491,6 +509,10 @@ actor CmxConnectivityPeerSession {
             controlOwner = ControlOwner(id: ownerID, purpose: purpose)
             publishSnapshot()
             return
+        }
+
+        guard controlWaiters.count < maximumControlWaiterCount else {
+            throw CmxConnectivityEngineError.superseded
         }
 
         let waiterID = UUID()

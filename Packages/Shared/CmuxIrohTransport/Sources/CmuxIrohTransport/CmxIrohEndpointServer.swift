@@ -4,6 +4,7 @@ public import Foundation
 /// Generation-scoped accept loop with bounded, timed admission work.
 public actor CmxIrohEndpointServer {
     private static let acceptRetryDelay: TimeInterval = 0.1
+    private static let maximumDormantAttemptHistoryCount = 64
 
     public typealias ConnectionHandler = @Sendable (
         _ connection: any CmxIrohConnection,
@@ -312,6 +313,7 @@ public actor CmxIrohEndpointServer {
             acceptSequence: acceptSequence,
             for: admission.remoteIdentity
         ) else {
+            pruneAttemptHistory()
             return false
         }
 
@@ -334,6 +336,7 @@ public actor CmxIrohEndpointServer {
             connection: admission.connection,
             handlerTask: admission.handlerTask
         )
+        pruneAttemptHistory()
         for connection in superseded.values {
             connection.handlerTask.cancel()
             await connection.connection.close(
@@ -395,9 +398,11 @@ public actor CmxIrohEndpointServer {
                 errorCode: 1,
                 reason: error == nil ? "admission_incomplete" : "admission_failed"
             )
+            pruneAttemptHistory()
             return
         }
         guard let active = activeConnections.removeValue(forKey: id) else {
+            pruneAttemptHistory()
             return
         }
         if error != nil {
@@ -406,6 +411,7 @@ public actor CmxIrohEndpointServer {
                 reason: "connection_failed"
             )
         }
+        pruneAttemptHistory()
     }
 
     private func timeOutAdmission(_ id: UUID) async {
@@ -417,6 +423,7 @@ public actor CmxIrohEndpointServer {
             errorCode: 1,
             reason: "admission_timeout"
         )
+        pruneAttemptHistory()
     }
 
     private func cancelConnections(
@@ -439,6 +446,33 @@ public actor CmxIrohEndpointServer {
         for connection in active.values {
             connection.handlerTask.cancel()
             await connection.connection.close(errorCode: 1, reason: reason)
+        }
+        pruneAttemptHistory()
+    }
+
+    private func pruneAttemptHistory() {
+        var protectedIdentities = Set(
+            pendingAdmissions.values.map(\.remoteIdentity)
+        )
+        protectedIdentities.formUnion(
+            activeConnections.values.map(\.remoteIdentity)
+        )
+        let dormant = attemptHighWater
+            .filter { !protectedIdentities.contains($0.key) }
+            .sorted { lhs, rhs in
+                if lhs.value.acceptSequence != rhs.value.acceptSequence {
+                    return lhs.value.acceptSequence < rhs.value.acceptSequence
+                }
+                return lhs.key.endpointID < rhs.key.endpointID
+            }
+        guard dormant.count > Self.maximumDormantAttemptHistoryCount else {
+            return
+        }
+        for entry in dormant.prefix(
+            dormant.count - Self.maximumDormantAttemptHistoryCount
+        ) {
+            attemptHighWater[entry.key] = nil
+            retiredProcessIncarnations[entry.key] = nil
         }
     }
 }

@@ -3,6 +3,8 @@ public import Foundation
 
 /// Process-wide owner of one Iroh endpoint and one session actor per remote peer.
 public actor CmxConnectivityEngine {
+    private static let maximumDormantPeerCount = 64
+
     /// Atomically installs one complete authoritative discovery snapshot.
     public typealias RouteSnapshotInstaller = @Sendable (
         _ snapshot: CmxIrohDiscoveryResponse
@@ -11,6 +13,17 @@ public actor CmxConnectivityEngine {
     private struct RouteSyncOperation {
         let id: UUID
         let task: Task<Void, any Error>
+    }
+
+    private struct LeasedPeer {
+        let id: CmxConnectivityPeerID
+        let session: CmxConnectivityPeerSession
+    }
+
+    private struct PeerEvictionOperation {
+        let id: UUID
+        let throughRequest: UInt64
+        let task: Task<Void, Never>
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -34,6 +47,13 @@ public actor CmxConnectivityEngine {
     private var backgroundRouteReconciliationTask: Task<Void, Never>?
     private var peers: [CmxConnectivityPeerID: CmxConnectivityPeerSession] = [:]
     private var peerSnapshots: [CmxConnectivityPeerID: CmxConnectivityPeerSnapshot] = [:]
+    private var peerRegistrationIDs: [CmxConnectivityPeerID: UUID] = [:]
+    private var peerOperationLeaseCounts: [CmxConnectivityPeerID: Int] = [:]
+    private var peerLastUseSequences: [CmxConnectivityPeerID: UInt64] = [:]
+    private var peerUseSequence: UInt64 = 0
+    private var peerEvictionRequest: UInt64 = 0
+    private var peerEvictionCompletedRequest: UInt64 = 0
+    private var peerEvictionOperation: PeerEvictionOperation?
     private var observers: [UUID: AsyncStream<CmxConnectivityEngineSnapshot>.Continuation] = [:]
     private var networkObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var phase = CmxConnectivityEngineSnapshot.Phase.stopped
@@ -128,7 +148,7 @@ public actor CmxConnectivityEngine {
     public func snapshots() -> AsyncStream<CmxConnectivityEngineSnapshot> {
         let observerID = UUID()
         let initial = makeSnapshot()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             observers[observerID] = continuation
             continuation.yield(initial)
             continuation.onTermination = { [weak self] _ in
@@ -140,7 +160,7 @@ public actor CmxConnectivityEngine {
     /// Observes endpoint network and recovery signals that require registration refresh.
     public func networkChanges() -> AsyncStream<Void> {
         let observerID = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             networkObservers[observerID] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeNetworkObserver(observerID) }
@@ -392,8 +412,9 @@ public actor CmxConnectivityEngine {
             return lhs.deviceID < rhs.deviceID
         }
         for peerID in orderedPeers {
-            guard let peer = peers[peerID] else { continue }
-            let candidate = await peer.observedSelectedPath()
+            guard let peer = leaseExistingPeer(peerID) else { continue }
+            let candidate = await peer.session.observedSelectedPath()
+            await releasePeerLease(peer)
             if candidate != .unavailable {
                 return CmxIrohSelectedTransportPathClassifier(policy: relayPolicy)
                     .classify(candidate)
@@ -412,18 +433,19 @@ public actor CmxConnectivityEngine {
         for request: CmxByteTransportRequest
     ) async -> CmxIrohSelectedPathHealth {
         guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
+              let peer = leaseExistingPeer(peerID) else {
             return .unknown
         }
-        let currentSnapshot = await peer.snapshot()
+        let currentSnapshot = await peer.session.snapshot()
         var currentSnapshots = peerSnapshots
         currentSnapshots[peerID] = currentSnapshot
         let observedPaths: [CmxConnectivityPeerID: CmxIrohObservedConnectionPath]
         if currentSnapshot.phase == .connected {
-            observedPaths = [peerID: await peer.observedSelectedPath()]
+            observedPaths = [peerID: await peer.session.observedSelectedPath()]
         } else {
             observedPaths = [:]
         }
+        await releasePeerLease(peer)
         return CmxIrohSelectedPathHealthClassifier().classify(
             request: request,
             snapshots: currentSnapshots,
@@ -434,7 +456,7 @@ public actor CmxConnectivityEngine {
     /// Emits when peer lifecycle or Iroh path selection can change path classification.
     public func selectedTransportPathChanges() -> AsyncStream<Void> {
         let snapshots = snapshots()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 for await _ in snapshots {
                     guard !Task.isCancelled else { return }
@@ -498,20 +520,34 @@ public actor CmxConnectivityEngine {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        let peer = try activePeer(for: request)
-        return try await peer.openBidirectionalLane(
-            for: request,
-            lane: lane,
-            priority: priority
-        )
+        let peer = try leaseActivePeer(for: request)
+        do {
+            let stream = try await peer.session.openBidirectionalLane(
+                for: request,
+                lane: lane,
+                priority: priority
+            )
+            await releasePeerLease(peer)
+            return stream
+        } catch {
+            await releasePeerLease(peer)
+            throw error
+        }
     }
 
     /// Returns the peer-owned server-event stream.
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
-        let peer = try activePeer(for: request)
-        return try await peer.serverEventByteStream(for: request)
+        let peer = try leaseActivePeer(for: request)
+        do {
+            let stream = try await peer.session.serverEventByteStream(for: request)
+            await releasePeerLease(peer)
+            return stream
+        } catch {
+            await releasePeerLease(peer)
+            throw error
+        }
     }
 
     /// Invalidates the exact peer connection. The next operation performs one fresh dial.
@@ -520,18 +556,29 @@ public actor CmxConnectivityEngine {
         failure: DiagnosticFailureKind = .none
     ) async {
         guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
+              let peer = leaseExistingPeer(peerID) else {
             return
         }
-        await peer.invalidate(failure: failure)
+        await peer.session.invalidate(failure: failure)
+        await releasePeerLease(peer)
     }
 
     func acquireControl(
         for request: CmxByteTransportRequest,
         ownerID: UUID
     ) async throws -> any CmxConnectivitySession {
-        let peer = try activePeer(for: request)
-        return try await peer.acquireControl(for: request, ownerID: ownerID)
+        let peer = try leaseActivePeer(for: request)
+        do {
+            let session = try await peer.session.acquireControl(
+                for: request,
+                ownerID: ownerID
+            )
+            await releasePeerLease(peer)
+            return session
+        } catch {
+            await releasePeerLease(peer)
+            throw error
+        }
     }
 
     func releaseControl(
@@ -541,14 +588,15 @@ public actor CmxConnectivityEngine {
         failure: DiagnosticFailureKind = .none
     ) async {
         guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
+              let peer = leaseExistingPeer(peerID) else {
             return
         }
-        await peer.releaseControl(
+        await peer.session.releaseControl(
             ownerID: ownerID,
             reason: reason,
             failure: failure
         )
+        await releasePeerLease(peer)
     }
 
     func updateControlPurpose(
@@ -557,10 +605,49 @@ public actor CmxConnectivityEngine {
         purpose: CmxTransportSessionPurpose
     ) async {
         guard let peerID = try? CmxConnectivityPeerID(request: request),
-              let peer = peers[peerID] else {
+              let peer = leaseExistingPeer(peerID) else {
             return
         }
-        await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
+        await peer.session.updateControlPurpose(
+            ownerID: ownerID,
+            purpose: purpose
+        )
+        await releasePeerLease(peer)
+    }
+
+    private func leaseActivePeer(
+        for request: CmxByteTransportRequest
+    ) throws -> LeasedPeer {
+        let session = try activePeer(for: request)
+        let peerID = session.peerID
+        peerOperationLeaseCounts[peerID, default: 0] += 1
+        touchPeer(peerID)
+        return LeasedPeer(id: peerID, session: session)
+    }
+
+    private func leaseExistingPeer(
+        _ peerID: CmxConnectivityPeerID
+    ) -> LeasedPeer? {
+        guard let session = peers[peerID] else { return nil }
+        peerOperationLeaseCounts[peerID, default: 0] += 1
+        touchPeer(peerID)
+        return LeasedPeer(id: peerID, session: session)
+    }
+
+    private func releasePeerLease(_ peer: LeasedPeer) async {
+        guard peers[peer.id] === peer.session else { return }
+        let remaining = (peerOperationLeaseCounts[peer.id] ?? 1) - 1
+        if remaining > 0 {
+            peerOperationLeaseCounts[peer.id] = remaining
+        } else {
+            peerOperationLeaseCounts[peer.id] = nil
+        }
+        await evictDormantPeersIfNeeded()
+    }
+
+    private func touchPeer(_ peerID: CmxConnectivityPeerID) {
+        peerUseSequence &+= 1
+        peerLastUseSequences[peerID] = peerUseSequence
     }
 
     private func activePeer(
@@ -582,6 +669,7 @@ public actor CmxConnectivityEngine {
         let clock = clock
         let clientProcessIncarnation = clientProcessIncarnation
         let clientEngineGeneration = clientEngineGeneration
+        let registrationID = UUID()
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             processIncarnation: clientProcessIncarnation,
@@ -615,12 +703,16 @@ public actor CmxConnectivityEngine {
                 }
             },
             handleSnapshot: { [weak self] snapshot in
-                await self?.peerDidChange(snapshot)
+                await self?.peerDidChange(
+                    snapshot,
+                    registrationID: registrationID
+                )
             },
             diagnosticLog: diagnosticLog,
             clock: clock
         )
         peers[peerID] = peer
+        peerRegistrationIDs[peerID] = registrationID
         let initial = CmxConnectivityPeerSnapshot(
             peerID: peerID,
             phase: .disconnected,
@@ -799,7 +891,9 @@ public actor CmxConnectivityEngine {
             routeRevision = revision
         }
         for peerID in invalidated {
-            await peers[peerID]?.invalidate(failure: .superseded)
+            guard let peer = leaseExistingPeer(peerID) else { continue }
+            await peer.session.invalidate(failure: .superseded)
+            await releasePeerLease(peer)
         }
         publishSnapshot()
     }
@@ -839,20 +933,110 @@ public actor CmxConnectivityEngine {
     private func invalidateAllPeers(
         failure: DiagnosticFailureKind
     ) async {
-        let activePeers = Array(peers.values)
-        for peer in activePeers {
-            await peer.invalidate(failure: failure)
+        let peerIDs = Array(peers.keys)
+        for peerID in peerIDs {
+            guard let peer = leaseExistingPeer(peerID) else { continue }
+            await peer.session.invalidate(failure: failure)
+            await releasePeerLease(peer)
         }
     }
 
-    private func peerDidChange(_ snapshot: CmxConnectivityPeerSnapshot) {
-        guard peers[snapshot.peerID] != nil else { return }
+    private func peerDidChange(
+        _ snapshot: CmxConnectivityPeerSnapshot,
+        registrationID: UUID
+    ) async {
+        guard peerRegistrationIDs[snapshot.peerID] == registrationID else {
+            return
+        }
         guard snapshot.stateRevision
             >= (peerSnapshots[snapshot.peerID]?.stateRevision ?? 0) else {
             return
         }
         peerSnapshots[snapshot.peerID] = snapshot
+        touchPeer(snapshot.peerID)
         publishSnapshot()
+        await evictDormantPeersIfNeeded()
+    }
+
+    private func evictDormantPeersIfNeeded() async {
+        peerEvictionRequest &+= 1
+        let requested = peerEvictionRequest
+
+        while peerEvictionCompletedRequest < requested {
+            let operation: PeerEvictionOperation
+            if let peerEvictionOperation {
+                operation = peerEvictionOperation
+            } else {
+                let operationID = UUID()
+                let throughRequest = peerEvictionRequest
+                let task = Task { [weak self] in
+                    guard let self else { return }
+                    await self.performDormantPeerEvictionPass()
+                }
+                operation = PeerEvictionOperation(
+                    id: operationID,
+                    throughRequest: throughRequest,
+                    task: task
+                )
+                peerEvictionOperation = operation
+            }
+
+            await operation.task.value
+            if peerEvictionOperation?.id == operation.id {
+                peerEvictionOperation = nil
+                peerEvictionCompletedRequest = max(
+                    peerEvictionCompletedRequest,
+                    operation.throughRequest
+                )
+            }
+        }
+    }
+
+    private func performDormantPeerEvictionPass() async {
+        var dormant: [(
+            id: CmxConnectivityPeerID,
+            session: CmxConnectivityPeerSession,
+            lastUse: UInt64
+        )] = []
+        for (peerID, session) in peers {
+            guard peerOperationLeaseCounts[peerID] == nil,
+                  await session.isDormantForEviction(),
+                  peerOperationLeaseCounts[peerID] == nil,
+                  peers[peerID] === session else {
+                continue
+            }
+            dormant.append((
+                id: peerID,
+                session: session,
+                lastUse: peerLastUseSequences[peerID] ?? 0
+            ))
+        }
+        guard dormant.count > Self.maximumDormantPeerCount else { return }
+        dormant.sort { lhs, rhs in
+            if lhs.lastUse != rhs.lastUse { return lhs.lastUse < rhs.lastUse }
+            if lhs.id.deviceID != rhs.id.deviceID {
+                return lhs.id.deviceID < rhs.id.deviceID
+            }
+            return lhs.id.identity.endpointID < rhs.id.identity.endpointID
+        }
+
+        var remainingToEvict = dormant.count - Self.maximumDormantPeerCount
+        var removedAny = false
+        for candidate in dormant where remainingToEvict > 0 {
+            guard peerOperationLeaseCounts[candidate.id] == nil,
+                  await candidate.session.isDormantForEviction(),
+                  peerOperationLeaseCounts[candidate.id] == nil,
+                  peers[candidate.id] === candidate.session else {
+                continue
+            }
+            peers[candidate.id] = nil
+            peerSnapshots[candidate.id] = nil
+            peerRegistrationIDs[candidate.id] = nil
+            peerLastUseSequences[candidate.id] = nil
+            remainingToEvict -= 1
+            removedAny = true
+        }
+        if removedAny { publishSnapshot() }
     }
 
     private func makeSnapshot() -> CmxConnectivityEngineSnapshot {

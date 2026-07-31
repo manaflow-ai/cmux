@@ -434,7 +434,7 @@ public actor CmxIrohRelayPolicyService {
     /// Observes redacted diagnostics changes, beginning with the current snapshot.
     public func diagnosticsSnapshots() -> AsyncStream<CmxIrohRelayDiagnosticsSnapshot> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             continuations[id] = continuation
             continuation.yield(currentDiagnostics)
             continuation.onTermination = { [weak self] _ in
