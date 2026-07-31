@@ -141,7 +141,7 @@ extension MobileShellComposite {
                 automaticReconnectBlocked: blocked,
                 consecutiveRepairAttempts: self.connectionRepairAttemptCount
             )
-            let action = MobileConnectionPolicy.action(
+            let action = MobileConnectionPolicy().action(
                 for: trigger.connectionEvidence,
                 in: context
             )

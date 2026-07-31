@@ -422,6 +422,21 @@ private extension MobileIrohSettingsView {
             )
         case .some(.cancelled):
             L10n.string("mobile.iroh.diagnostics.failure.cancelled", defaultValue: "Cancelled")
+        case .some(.brokerRateLimited):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.brokerRateLimited",
+                defaultValue: "Broker Rate Limited"
+            )
+        case .some(.brokerServerFailure):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.brokerServerFailure",
+                defaultValue: "Broker Server Failure"
+            )
+        case .some(.policyMismatch):
+            L10n.string(
+                "mobile.iroh.diagnostics.failure.policyMismatch",
+                defaultValue: "Policy Mismatch"
+            )
         case .some(.unknown):
             L10n.string("mobile.iroh.diagnostics.failure.unknown", defaultValue: "Unknown")
         }

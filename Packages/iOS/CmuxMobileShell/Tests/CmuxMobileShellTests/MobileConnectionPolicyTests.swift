@@ -28,7 +28,7 @@ struct MobileConnectionPolicyTests {
         ]
         for evidence in suspect {
             for repairs in 0...3 {
-                let action = MobileConnectionPolicy.action(
+                let action = MobileConnectionPolicy().action(
                     for: evidence,
                     in: context(health: .healthy, repairs: repairs)
                 )
@@ -47,7 +47,7 @@ struct MobileConnectionPolicyTests {
             .manualRetry, .backoffExpired,
         ]
         for evidence in opportunity {
-            let action = MobileConnectionPolicy.action(
+            let action = MobileConnectionPolicy().action(
                 for: evidence,
                 in: context(health: .healthy)
             )
@@ -58,28 +58,28 @@ struct MobileConnectionPolicyTests {
     // MARK: Suspect-evidence ladder
 
     @Test func livenessSilenceOnHealthyPathRepairsInPlaceFirst() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .livenessSilence, in: context(health: .healthy)
         ) == .resubscribe)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .eventStreamEnded, in: context(health: .healthy)
         ) == .resubscribe)
     }
 
     @Test func repeatedRepairsEscalateToProbeNotRedial() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .livenessSilence, in: context(health: .healthy, repairs: 1)
         ) == .probeThenEscalate)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .eventStreamEnded, in: context(health: .healthy, repairs: 2)
         ) == .probeThenEscalate)
     }
 
     @Test func controlPlaneFailuresOnHealthyPathProbeInsteadOfBlindRetry() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .subscriptionStartFailed, in: context(health: .healthy)
         ) == .probeThenEscalate)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .rpcWriteTimedOut, in: context(health: .healthy)
         ) == .probeThenEscalate)
     }
@@ -90,7 +90,7 @@ struct MobileConnectionPolicyTests {
             .subscriptionStartFailed, .rpcWriteTimedOut,
         ]
         for evidence in suspect {
-            #expect(MobileConnectionPolicy.action(
+            #expect(MobileConnectionPolicy().action(
                 for: evidence, in: context(health: .noPath)
             ) == .redial, "\(evidence)")
         }
@@ -99,16 +99,16 @@ struct MobileConnectionPolicyTests {
     // MARK: Unknown health preserves pre-gate behavior
 
     @Test func unknownHealthKeepsLegacyEscalation() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .livenessSilence, in: context(health: .unknown)
         ) == .probeThenEscalate)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .eventStreamEnded, in: context(health: .unknown)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .subscriptionStartFailed, in: context(health: .unknown)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .rpcWriteTimedOut, in: context(health: .unknown)
         ) == .redial)
     }
@@ -116,13 +116,13 @@ struct MobileConnectionPolicyTests {
     // MARK: Health-fatal and authorization evidence
 
     @Test func transportClosedRedialsWhileConnectedOnly() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .transportClosed, in: context(connected: true, health: .healthy)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .allPathsUnavailable, in: context(connected: true)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .transportClosed, in: context(connected: false)
         ) == .none)
     }
@@ -130,7 +130,7 @@ struct MobileConnectionPolicyTests {
     @Test func authorizationLossStopsRegardlessOfHealth() {
         for health in [MobileTransportPathHealth.healthy, .noPath, .unknown] {
             for connected in [true, false] {
-                #expect(MobileConnectionPolicy.action(
+                #expect(MobileConnectionPolicy().action(
                     for: .authorizationLost,
                     in: context(connected: connected, health: health)
                 ) == .stopUntilAuthorizationRepaired)
@@ -145,38 +145,38 @@ struct MobileConnectionPolicyTests {
             .foreground, .networkPathChanged, .presenceRoutePush, .backoffExpired,
         ]
         for evidence in automatic {
-            #expect(MobileConnectionPolicy.action(
+            #expect(MobileConnectionPolicy().action(
                 for: evidence, in: context(connected: false)
             ) == .redial, "\(evidence)")
-            #expect(MobileConnectionPolicy.action(
+            #expect(MobileConnectionPolicy().action(
                 for: evidence, in: context(connected: false, blocked: true)
             ) == .none, "\(evidence)")
         }
     }
 
     @Test func manualRetryIgnoresAutomaticBackoff() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .manualRetry, in: context(connected: false, blocked: true)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .manualRetry, in: context(connected: true, blocked: true)
         ) == .probeThenEscalate)
     }
 
     @Test func connectedOpportunitiesProbeOrNoop() {
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .foreground, in: context(health: .unknown)
         ) == .probeThenEscalate)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .networkPathChanged, in: context(health: .healthy)
         ) == .probeThenEscalate)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .presenceRoutePush, in: context(health: .healthy)
         ) == .none)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .presenceRoutePush, in: context(health: .noPath)
         ) == .redial)
-        #expect(MobileConnectionPolicy.action(
+        #expect(MobileConnectionPolicy().action(
             for: .backoffExpired, in: context(connected: true)
         ) == .none)
     }
@@ -186,7 +186,7 @@ struct MobileConnectionPolicyTests {
             MobileConnectionEvidence.foreground,
             .networkPathChanged,
         ] {
-            #expect(MobileConnectionPolicy.action(
+            #expect(MobileConnectionPolicy().action(
                 for: evidence, in: context(health: .noPath)
             ) == .redial, "\(evidence)")
         }
@@ -200,7 +200,7 @@ struct MobileConnectionPolicyTests {
             .subscriptionStartFailed, .rpcWriteTimedOut,
         ]
         for evidence in suspect {
-            #expect(MobileConnectionPolicy.action(
+            #expect(MobileConnectionPolicy().action(
                 for: evidence, in: context(connected: false)
             ) == .none, "\(evidence)")
         }
@@ -214,7 +214,7 @@ struct MobileConnectionPolicyTests {
                 for health in [MobileTransportPathHealth.healthy, .noPath, .unknown] {
                     for blocked in [true, false] {
                         for repairs in [0, 1, 5] {
-                            _ = MobileConnectionPolicy.action(
+                            _ = MobileConnectionPolicy().action(
                                 for: evidence,
                                 in: context(
                                     connected: connected,

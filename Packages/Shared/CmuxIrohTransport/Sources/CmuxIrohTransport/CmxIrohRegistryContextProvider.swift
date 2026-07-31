@@ -382,7 +382,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             credential: try .pairGrant(pairGrantToken),
             privateFallbackAuthorization: fallbackAuthorization,
             supportsControlRepair: targetBinding.capabilities.contains(
-                CmxIrohProtocolCapability.controlRepairV1
+                CmxIrohProtocolCapability.controlRepairV1.rawValue
             )
         )
     }

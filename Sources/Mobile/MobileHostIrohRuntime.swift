@@ -72,7 +72,7 @@ final class MobileHostIrohRuntime {
     static let capabilities = [
         "mobile-rpc-v1",
         "multistream-v1",
-        CmxIrohProtocolCapability.controlRepairV1,
+        CmxIrohProtocolCapability.controlRepairV1.rawValue,
     ]
     #if DEBUG
     static let debugRelayOnlyDefaultsKey = "cmux.iroh.debug.relay-only"

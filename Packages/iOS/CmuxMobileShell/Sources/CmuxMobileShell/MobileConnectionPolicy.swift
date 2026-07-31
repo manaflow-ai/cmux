@@ -79,8 +79,8 @@ struct MobileConnectionPolicyContext: Equatable, Sendable {
 /// invariant I1): app-level evidence never tears down a session the
 /// transport reports healthy; transport-health failure, authorization
 /// change, supersede, and user action remain the only close reasons.
-enum MobileConnectionPolicy {
-    static func action(
+struct MobileConnectionPolicy: Sendable {
+    func action(
         for evidence: MobileConnectionEvidence,
         in context: MobileConnectionPolicyContext
     ) -> MobileConnectionPolicyAction {
