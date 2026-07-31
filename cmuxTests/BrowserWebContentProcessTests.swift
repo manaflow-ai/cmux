@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxBrowser
 import Foundation
