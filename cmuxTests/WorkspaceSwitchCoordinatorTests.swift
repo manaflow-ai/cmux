@@ -20,11 +20,11 @@ struct WorkspaceSwitchCoordinatorTests {
             interactionReady: false
         )
 
-        #expect(!readiness.isReadyForSourceRetirement)
+        #expect(!readiness.presentationIsReady)
     }
 
     @Test
-    func terminalRequiresPortalFrameAndInteractionBeforeSourceRetirement() {
+    func terminalPresentationRequiresPortalAndFrame() {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: true,
@@ -34,17 +34,17 @@ struct WorkspaceSwitchCoordinatorTests {
         )
 
         readiness.portalPresented = true
-        #expect(!readiness.isReadyForSourceRetirement)
+        #expect(!readiness.presentationIsReady)
 
         readiness.interactionReady = true
-        #expect(!readiness.isReadyForSourceRetirement)
+        #expect(!readiness.presentationIsReady)
 
         readiness.firstFramePresented = true
-        #expect(readiness.isReadyForSourceRetirement)
+        #expect(readiness.presentationIsReady)
     }
 
     @Test
-    func sourceRetirementDoesNotWaitForTerminalFocusTransfer() {
+    func terminalPresentationDoesNotWaitForFocusTransfer() {
         let readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: true,
@@ -53,7 +53,7 @@ struct WorkspaceSwitchCoordinatorTests {
             interactionReady: false
         )
 
-        #expect(readiness.isReadyForSourceRetirement)
+        #expect(readiness.presentationIsReady)
     }
 
     @Test
@@ -89,17 +89,18 @@ struct WorkspaceSwitchCoordinatorTests {
                 portalPresented: false,
                 interactionReady: true,
                 requiresInteraction: true
-            )
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
         )
 
         coordinator.noteFirstFrame(surfaceID: targetSurfaceID)
-        #expect(!coordinator.isReadyForSourceRetirement)
+        #expect(!coordinator.isPresentationReady)
 
         coordinator.noteTerminalPortalPresented(
             surfaceID: targetSurfaceID,
             renderedFrameSequence: 0
         )
-        #expect(coordinator.isReadyForSourceRetirement)
+        #expect(coordinator.isPresentationReady)
         coordinator.cancel()
     }
 
@@ -132,25 +133,26 @@ struct WorkspaceSwitchCoordinatorTests {
                 portalPresented: false,
                 interactionReady: true,
                 requiresInteraction: true
-            )
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
         )
 
         coordinator.noteTerminalPortalPresented(
             surfaceID: targetSurfaceID,
             renderedFrameSequence: 4
         )
-        #expect(!coordinator.isReadyForSourceRetirement)
+        #expect(!coordinator.isPresentationReady)
 
         coordinator.noteTerminalPortalPresented(
             surfaceID: targetSurfaceID,
             renderedFrameSequence: 5
         )
-        #expect(coordinator.isReadyForSourceRetirement)
+        #expect(coordinator.isPresentationReady)
         coordinator.cancel()
     }
 
     @Test
-    func backgroundTerminalDoesNotRequireFirstResponder() {
+    func backgroundTerminalPresentationRequiresFrame() {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
             requiresInteraction: false,
@@ -159,13 +161,13 @@ struct WorkspaceSwitchCoordinatorTests {
             interactionReady: false
         )
 
-        #expect(!readiness.isReadyForSourceRetirement)
+        #expect(!readiness.presentationIsReady)
         readiness.firstFramePresented = true
-        #expect(readiness.isReadyForSourceRetirement)
+        #expect(readiness.presentationIsReady)
     }
 
     @Test
-    func browserRetiresSourceAtPortalWhileTrackingInteractionSeparately() {
+    func browserPresentationTracksInteractionSeparately() {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .browser,
             requiresInteraction: true,
@@ -174,16 +176,16 @@ struct WorkspaceSwitchCoordinatorTests {
             interactionReady: false
         )
 
-        #expect(!readiness.isReadyForSourceRetirement)
+        #expect(!readiness.presentationIsReady)
         readiness.portalPresented = true
-        #expect(readiness.isReadyForSourceRetirement)
+        #expect(readiness.presentationIsReady)
         #expect(!readiness.interactionIsReady)
         readiness.interactionReady = true
         #expect(readiness.interactionIsReady)
     }
 
     @Test
-    func rendererProtectionIsReleasedAtPortalPresentation() {
+    func rendererProtectionIsHeldUntilSourceRetires() {
         var protectedRequestIDs: [UUID] = []
         var releasedRequestIDs: [UUID] = []
         let sourceWorkspaceID = UUID()
@@ -220,7 +222,8 @@ struct WorkspaceSwitchCoordinatorTests {
                 portalPresented: false,
                 interactionReady: true,
                 requiresInteraction: true
-            )
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
         )
 
         coordinator.noteTerminalPortalPresented(
@@ -228,6 +231,9 @@ struct WorkspaceSwitchCoordinatorTests {
             renderedFrameSequence: 1
         )
 
+        #expect(releasedRequestIDs.isEmpty)
+        coordinator.sourceWillRetire(workspaceID: sourceWorkspaceID)
+        coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
         #expect(releasedRequestIDs == protectedRequestIDs)
         coordinator.cancel()
     }
@@ -300,17 +306,19 @@ struct WorkspaceSwitchCoordinatorTests {
                 portalPresented: true,
                 interactionReady: true,
                 requiresInteraction: false
-            )
+            ),
+            retiringWorkspaceID: sourceWorkspaceID
         )
 
-        #expect(coordinator.isReadyForSourceRetirement)
+        #expect(coordinator.isPresentationReady)
     }
 
     @Test
     func sourceRetirementReleasesRendererProtectionBeforePresentationReadiness() {
         var protectedRequestIDs: [UUID] = []
         var releasedRequestIDs: [UUID] = []
-        let sourceWorkspaceID = UUID()
+        let selectionSourceWorkspaceID = UUID()
+        let mountedSourceWorkspaceID = UUID()
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
@@ -323,7 +331,7 @@ struct WorkspaceSwitchCoordinatorTests {
         )
 
         coordinator.selectionWillCommit(
-            from: sourceWorkspaceID,
+            from: selectionSourceWorkspaceID,
             to: targetWorkspaceID,
             targetSurfaceID: targetSurfaceID,
             targetTerminalView: nil,
@@ -331,7 +339,7 @@ struct WorkspaceSwitchCoordinatorTests {
             targetRenderedFrameSequence: 0
         )
         coordinator.selectionDidCommit(
-            from: sourceWorkspaceID,
+            from: selectionSourceWorkspaceID,
             to: targetWorkspaceID
         )
         coordinator.beginPresentation(
@@ -346,11 +354,15 @@ struct WorkspaceSwitchCoordinatorTests {
                 portalPresented: false,
                 interactionReady: false,
                 requiresInteraction: true
-            )
+            ),
+            retiringWorkspaceID: mountedSourceWorkspaceID
         )
 
-        coordinator.sourceWillRetire()
-        coordinator.sourceDidRetire()
+        coordinator.sourceDidRetire(workspaceID: selectionSourceWorkspaceID)
+        #expect(releasedRequestIDs.isEmpty)
+
+        coordinator.sourceWillRetire(workspaceID: mountedSourceWorkspaceID)
+        coordinator.sourceDidRetire(workspaceID: mountedSourceWorkspaceID)
 
         #expect(protectedRequestIDs.count == 1)
         #expect(releasedRequestIDs == protectedRequestIDs)
