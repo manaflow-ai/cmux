@@ -74,6 +74,13 @@ struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
     let bundleIdentifier: String?
 
     func probe() -> SameDeviceEvidence {
+        #if targetEnvironment(simulator)
+        // The dev launcher seeds a deterministic UserDefaults mirror because
+        // unsigned Simulator apps cannot read Keychain. A Simulator cannot be
+        // the destination of an iPhone backup restore, so that mirror is local
+        // same-device evidence even before the development identity file exists.
+        return .present
+        #else
         let exists = CmxIrohDevelopmentFileIdentityStore(
             directory: MobileIrohRuntimeComposition.developmentStoreDirectory(
                 service: "identity",
@@ -81,6 +88,7 @@ struct MobileIrohDevelopmentFileEvidenceProbe: SameDeviceEvidenceProbing {
             )
         ).containsAnyRecord()
         return exists ? .present : .absent
+        #endif
     }
 }
 #endif
