@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import * as Effect from "effect/Effect";
 import {
-  challengeQuotaForUser,
-  developmentBindingQuotaAllowed,
   type IrohTrustBrokerConfigShape,
 } from "../services/iroh/config";
 import {
@@ -15,7 +13,6 @@ import {
   IrohConflictError,
   IrohForbiddenError,
   IrohNotFoundError,
-  IrohQuotaExceededError,
   IrohRelayMintError,
 } from "../services/iroh/errors";
 import {
@@ -693,24 +690,6 @@ describe("Iroh relay quotas", () => {
     expect(fixture.minter.calls).toBe(0);
   });
 
-  test("enforces three endpoint mints per ten minutes before provider work", async () => {
-    const fixture = makeFixture();
-    const active = binding({ userId: USER_A });
-    fixture.repository.bindings.push(active);
-    for (let index = 0; index < 3; index += 1) {
-      await Effect.runPromise(fixture.broker.issueRelayToken(
-        USER_A,
-        { bindingId: active.id },
-        new Date(NOW.getTime() + index * 1_000),
-      ));
-    }
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: active.id }, new Date(NOW.getTime() + 4_000)),
-      "IrohQuotaExceededError",
-    );
-    expect(fixture.minter.calls).toBe(3);
-  });
-
   test("treats authenticated relay renewal as binding activity", async () => {
     const fixture = makeFixture();
     const active = binding({
@@ -744,40 +723,6 @@ describe("Iroh relay quotas", () => {
     );
     expect(fixture.repository.relayIssuances[0]?.status).toBe("failed");
   });
-});
-
-describe("developer binding override", () => {
-  const base: IrohTrustBrokerConfigShape = {
-    relayMinterInsecureLoopbackOptIn: false,
-    deviceLimitOverrideEnabled: true,
-    deviceLimitOverrideUserIds: new Set([USER_A]),
-    deviceLimitOverrideEnvironments: new Set(["preview"]),
-    developmentAccountBindingLimit: 256,
-    developmentDeviceBindingLimit: 128,
-    deploymentEnvironment: "preview",
-    isVercelDeployment: true,
-  };
-
-  test("requires both an explicit authenticated user and explicit environment", () => {
-    expect(developmentBindingQuotaAllowed(base, USER_A)).toBe(true);
-    expect(developmentBindingQuotaAllowed(base, USER_B)).toBe(false);
-    expect(developmentBindingQuotaAllowed({ ...base, deploymentEnvironment: "production" }, USER_A)).toBe(false);
-    expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
-    // The override widens challenge issuance and configured account/device
-    // quotas. Authenticated re-registration overwrites an existing
-    // (user, device, tag) slot without imposing a total binding-count cap.
-    expect(challengeQuotaForUser(base, USER_A)).toEqual({
-      account: 2_048,
-      deviceInstance: 128,
-      outstanding: 256,
-    });
-    expect(challengeQuotaForUser(base, USER_B)).toEqual({
-      account: 120,
-      deviceInstance: 6,
-      outstanding: 32,
-    });
-  });
-
 });
 
 type MutableBinding = IrohBindingRecord & {
@@ -1083,11 +1028,6 @@ class MemoryRepository implements IrohRepositoryShape {
     if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
     active.lastSeenAt = input.now;
     active.updatedAt = input.now;
-    const recent = this.relayIssuances.filter((row) =>
-      row.bindingId === active.id && row.requestedAt > new Date(input.now.getTime() - 10 * 60 * 1_000));
-    if (recent.length >= 3) {
-      return Effect.fail(new IrohQuotaExceededError({ code: "relay_endpoint_10m_quota", retryAfterSeconds: 600 }));
-    }
     const issuanceId = randomUUID();
     this.relayIssuances.push({ id: issuanceId, userId: input.userId, bindingId: active.id, requestedAt: input.now, status: "pending" });
     return Effect.succeed({ issuanceId, binding: active });
@@ -1177,12 +1117,7 @@ function makeFixture(options: {
         },
       ],
     }),
-    deviceLimitOverrideEnabled: options.developmentBindingLimits !== undefined,
     relayMinterInsecureLoopbackOptIn: false,
-    deviceLimitOverrideUserIds: options.developmentBindingLimits ? new Set([USER_A]) : new Set(),
-    deviceLimitOverrideEnvironments: options.developmentBindingLimits ? new Set(["test"]) : new Set(),
-    developmentAccountBindingLimit: options.developmentBindingLimits?.account ?? 256,
-    developmentDeviceBindingLimit: options.developmentBindingLimits?.device ?? 128,
     deploymentEnvironment: "test",
     isVercelDeployment: false,
   };
