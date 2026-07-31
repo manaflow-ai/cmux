@@ -5,7 +5,50 @@ import Testing
 
 struct CmxConnectivityEngineTests {
     @Test
-    func startInstallsOneAuthoritativeSnapshotBeforeBecomingActive() async throws {
+    func validCachedRevisionBecomesActiveBeforeAuthorityRefreshCompletes() async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try Self.endpointConfiguration()
+        )
+        let authority = try GatedConnectivityAuthority(
+            changed: Self.changedResponse(revision: 9),
+            unchanged: Self.unchangedResponse(revision: 9)
+        )
+        let installer = ConnectivitySnapshotInstallerRecorder()
+        let engine = CmxConnectivityEngine(
+            supervisor: supervisor,
+            contextProvider: FailingConnectivityContextProvider(),
+            authority: authority,
+            installRouteSnapshot: { snapshot in
+                await installer.install(snapshot)
+            }
+        )
+        await engine.didInstallRouteRevision(8)
+
+        try await engine.start()
+        try await Self.waitUntil { await authority.callCount() == 1 }
+
+        let cached = await engine.snapshot()
+        #expect(cached.phase == .active)
+        #expect(cached.endpointGeneration == 1)
+        #expect(cached.localIdentity == identity)
+        #expect(cached.routeRevision == 8)
+        #expect(await installer.revisions().isEmpty)
+
+        await authority.releaseFirstRequest()
+        try await Self.waitUntil {
+            await engine.snapshot().routeRevision == 9
+        }
+        #expect(await installer.revisions() == [9])
+        await engine.stop()
+    }
+
+    @Test
+    func startWithoutCachedRevisionInstallsAuthorityBeforeBecomingActive() async throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "b", count: 64)
         )

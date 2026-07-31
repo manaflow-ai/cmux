@@ -32,14 +32,13 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func nextControlOwnerWaitsAndReleaseClosesThePeerConnection() async throws {
+    func nextControlOwnerWaitsAndReleasePreservesThePeerConnection() async throws {
         let request = try Self.request()
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
         let peerID = try CmxConnectivityPeerID(request: request)
         let firstSession = TestConnectivitySession(continuityID: 11)
-        let secondSession = TestConnectivitySession(continuityID: 12)
         let builder = SequencedConnectivitySessionBuilder(
-            sessions: [firstSession, secondSession]
+            sessions: [firstSession]
         )
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
@@ -60,18 +59,19 @@ struct CmxConnectivityPeerSessionTests {
         }
         await peer.releaseControl(ownerID: firstOwner)
 
-        #expect(await firstSession.closeCount() == 1)
+        #expect(await firstSession.closeCount() == 0)
         _ = try await secondAcquire.value
-        #expect(await builder.callCount() == 2)
-        #expect(await peer.connectionContinuityID() == 12)
+        #expect(await builder.callCount() == 1)
+        #expect(await peer.connectionContinuityID() == 11)
         await peer.updateControlPurpose(
             ownerID: secondOwner,
             purpose: .backgroundControl
         )
         #expect(await peer.snapshot().controlPurpose == .backgroundControl)
         await peer.releaseControl(ownerID: firstOwner)
-        #expect(await secondSession.closeCount() == 0)
+        #expect(await firstSession.closeCount() == 0)
         await peer.releaseControl(ownerID: secondOwner)
+        #expect(await firstSession.closeCount() == 0)
     }
 
     @Test
@@ -79,9 +79,8 @@ struct CmxConnectivityPeerSessionTests {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let firstSession = TestConnectivitySession(continuityID: 13)
-        let nextSession = TestConnectivitySession(continuityID: 14)
         let builder = SequencedConnectivitySessionBuilder(
-            sessions: [firstSession, nextSession]
+            sessions: [firstSession]
         )
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
@@ -112,9 +111,41 @@ struct CmxConnectivityPeerSessionTests {
         await peer.releaseControl(ownerID: firstOwner)
         _ = try await next.value
 
-        #expect(await builder.callCount() == 2)
-        #expect(await peer.connectionContinuityID() == 14)
+        #expect(await builder.callCount() == 1)
+        #expect(await peer.connectionContinuityID() == 13)
         await peer.releaseControl(ownerID: nextOwner)
+    }
+
+    @Test
+    func controlFailureHandsOffOnTheSameConnectionWithoutClosingFeatureLanes() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(continuityID: 15)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let failedOwner = UUID()
+        let replacementOwner = UUID()
+
+        _ = try await peer.acquireControl(for: request, ownerID: failedOwner)
+        await peer.releaseControl(
+            ownerID: failedOwner,
+            reason: .controlReadFailed,
+            failure: .connectionClosed
+        )
+        _ = try await peer.acquireControl(
+            for: request,
+            ownerID: replacementOwner
+        )
+
+        #expect(await builder.callCount() == 1)
+        #expect(await peer.connectionContinuityID() == 15)
+        #expect(await session.closeCount() == 0)
+        await peer.releaseControl(ownerID: replacementOwner)
     }
 
     @Test
@@ -174,7 +205,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func cancelledDialDrainsBeforeTheReplacementStarts() async throws {
+    func cancelledDialDrainsWithoutDelayingTheReplacement() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let retired = TestConnectivitySession(continuityID: 41)
@@ -193,15 +224,14 @@ struct CmxConnectivityPeerSessionTests {
         try await Self.waitUntil { await builder.callCount() == 1 }
         await peer.invalidate()
         let second = Task { try await peer.connectedSession(for: request) }
-        for _ in 0 ..< 100 {
-            await Task.yield()
-            #expect(await builder.callCount() == 1)
-        }
-        await builder.release(call: 0)
         try await Self.waitUntil { await builder.callCount() == 2 }
         await builder.release(call: 1)
 
         _ = try await second.value
+        #expect(await peer.connectionContinuityID() == 42)
+        #expect(await retired.closeCount() == 0)
+
+        await builder.release(call: 0)
         if case .success = await first.result {
             Issue.record("The retired dial unexpectedly succeeded")
         }
