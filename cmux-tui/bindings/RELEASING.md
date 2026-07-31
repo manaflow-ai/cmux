@@ -9,7 +9,7 @@ cmux-sdk-vX.Y.Z
 Historical releases used `mux-sdk-vX.Y.Z`; the publish workflows still accept
 that prefix so old release history remains connected. These tags are separate
 from app release tags such as `vX.Y.Z`. Current SDK package versions are
-`0.3.0`.
+`0.4.0`.
 
 ## One-time registry setup
 
@@ -23,12 +23,12 @@ from app release tags such as `vX.Y.Z`. Current SDK package versions are
   `.github/workflows/sdk-publish-crates.yml`, and environment `crates-io`. The
   workflow exchanges GitHub OIDC for a short-lived crates.io token via
   `rust-lang/crates-io-auth-action`.
-- npm: configure trusted publishing and required 2FA policy for package `cmux`,
-  workflow `.github/workflows/sdk-publish-npm.yml`, and environment `npm`.
-  Warning: the live npm package name `cmux` is currently a different cloud-VM CLI
-  package. Publishing the SDK to that name is a deliberate coordinated breaking
-  move; the npm workflow never publishes on tag push and requires manual
-  `workflow_dispatch` with `confirm_npm_cmux: true`.
+- npm: package `cmux` can have only one trusted publisher. Configure
+  `.github/workflows/tui-publish-npm.yml` with environment `npm-tui`; that
+  workflow publishes the TUI launcher on `latest` and the SDK on `sdk`. The SDK
+  lane requires a completed `sdk publish npm` verification run and manual
+  `workflow_dispatch` with `publish_target: sdk` and
+  `confirm_sdk_cmux: true`.
 - Maven Central: verify the `com.cmux` namespace in Central Portal, add complete
   Maven metadata, configure GPG signing, and decide the Central publishing
   workflow. Java publishing is intentionally a CI stub until those prerequisites
@@ -55,8 +55,9 @@ from app release tags such as `vX.Y.Z`. Current SDK package versions are
 
 5. Watch the SDK workflows. Python and Rust publish automatically after their
    conformance gates pass. Go validates only. Java reports the Maven Central
-   TODO. npm validates on tag push but does not publish until a maintainer runs
-   `sdk publish npm` manually with `confirm_npm_cmux: true`.
+   TODO. For npm, run `sdk publish npm` with `confirm_npm_cmux: true`, then
+   dispatch `cmux-tui publish npm` on `main` with `publish_target: sdk`,
+   `sdk_verification_run_id` set to that run, and `confirm_sdk_cmux: true`.
 
 ## Safety checks
 

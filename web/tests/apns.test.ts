@@ -201,6 +201,16 @@ describe("apns route policy", () => {
     });
   });
 
+  test("allows the demo TestFlight bundle id as a production APNs topic", () => {
+    // The manual demo lane variant ships dev.cmux.app.demo
+    // (.github/workflows/ios-testflight.yml, variant=demo); TestFlight uses the
+    // production APNs environment, same as the internal lane above.
+    expect(normalizeApnsBundle("dev.cmux.app.demo")).toEqual({
+      bundleId: "dev.cmux.app.demo",
+      environment: "production",
+    });
+  });
+
   test("bounds and trims push payloads before sending to APNs", () => {
     const parsed = parsePushPayload({
       title: " agent ",

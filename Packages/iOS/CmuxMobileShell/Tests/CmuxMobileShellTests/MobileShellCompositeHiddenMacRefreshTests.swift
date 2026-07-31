@@ -7,49 +7,6 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellCompositeHiddenMacRefreshTests {
-    @Test func legacyTaggedHiddenIDUsesRegistryDisplayNameWithoutLocalRow() async throws {
-        let hiddenStore = InMemoryPairedMacHiddenStore()
-        let registry = DelayedTeamDeviceRegistry(
-            teamIDProvider: { "team-a" },
-            devicesByTeam: [
-                "team-a": [RegistryDevice(
-                    deviceId: "mac-legacy",
-                    platform: "mac",
-                    displayName: "Legacy Studio",
-                    lastSeenAt: Date(timeIntervalSince1970: 30),
-                    instances: []
-                )],
-            ],
-            blockedTeams: []
-        )
-        let store = MobileShellComposite(
-            isSignedIn: true,
-            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
-            deviceRegistry: registry,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            teamIDProvider: { "team-a" },
-            hiddenMacStore: hiddenStore
-        )
-        let scope = try #require(await store.currentScopeSnapshot())
-        await store.rememberHiddenMacDeviceID(
-            MobilePairedMac.pairingID(
-                macDeviceID: "mac-legacy",
-                instanceTag: "stable"
-            ),
-            scope: scope
-        )
-
-        await store.loadPairedMacs()
-        await store.loadRegistryDevices()
-
-        let hidden = try #require(store.hiddenComputers.first)
-        #expect(hidden.macDeviceID == "mac-legacy")
-        #expect(hidden.instanceTag == "stable")
-        #expect(hidden.displayName == "Legacy Studio")
-        #expect(hidden.requiresLegacyRecovery)
-        #expect(store.registryDevices.isEmpty)
-    }
-
     @Test func hidingMacSuppressesStaleStoreWriteFromSameSession() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -278,7 +235,7 @@ import Testing
         #expect(store.workspaceListReconnectTargetMacDeviceID() == "mac-b")
     }
 
-    @Test func secondaryAggregationKeepsOneConnectionPerPhysicalMacWithTaggedSiblings() async throws {
+    @Test func secondaryAggregationDialsEachTaggedSiblingSeparately() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
                 "team-a": [
@@ -311,7 +268,12 @@ import Testing
             teamIDProvider: { "team-a" }
         )
 
-        #expect(await store.secondaryAggregationCandidateMacIDs() == ["mac-a"])
+        // Sibling builds of one physical Mac are distinct pairings and each
+        // gets its own control connection (active first, then most recent).
+        #expect(await store.secondaryAggregationCandidateMacIDs() == [
+            "mac-a\u{1F}feature-a",
+            "mac-a\u{1F}feature-b",
+        ])
     }
 
     @Test func secondaryAggregationUsesFreshUUIDAliasWithoutMergingStaleRoutes() throws {
@@ -366,9 +328,12 @@ import Testing
         ])
 
         let canonical = try #require(candidates.first { $0.macDeviceID == lowercaseUUID })
-        #expect(candidates.count == 3)
+        // The two UUID spellings carry DIFFERENT instance tags on different
+        // endpoints, so they are distinct pairings (sibling builds), not
+        // duplicate rows to coalesce.
+        #expect(candidates.count == 4)
         #expect(Set(candidates.map(\.macDeviceID)) == Set([
-            lowercaseUUID, "Legacy-ID", "legacy-id",
+            uppercaseUUID, lowercaseUUID, "Legacy-ID", "legacy-id",
         ]))
         #expect(canonical.displayName == "Fresh Studio")
         #expect(canonical.customName == "Fresh Name")

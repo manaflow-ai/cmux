@@ -9,18 +9,71 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
-    @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
+    @Test(arguments: ["codex", "claude"])
+    func agentHookRestoreBindingCarriesProviderAndSessionBoundAuthorization(kind: String) throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let resumeArgument = kind == "codex" ? "resume" : "--resume"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: kind,
+            command: "'/opt/company/bin/\(kind)' '\(resumeArgument)' '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.inlineStartupInput)
+        #expect(
+            startupInput.contains("/usr/bin/env 'CMUX_AGENT_RESTORE_LAUNCH=\(kind):\(sessionId)'"),
+            "\(startupInput)"
+        )
+        #expect(startupInput.contains("CMUX_\(kind.uppercased())_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_\(kind.uppercased())_PATH="), "\(startupInput)")
+    }
+
+    @Test func restoreBindingAuthorizationRejectsUnownedOrUnboundCommands() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let nonHook = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "cli",
+            autoResume: true
+        )
+        let unsupported = SurfaceResumeBindingSnapshot(
+            kind: "gemini",
+            command: "gemini --resume '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let invalidSession = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume not-a-session-id",
+            checkpointId: "not-a-session-id",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(try #require(nonHook.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+        #expect(try #require(unsupported.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+        #expect(try #require(invalidSession.inlineStartupInput).contains("CMUX_AGENT_RESTORE_LAUNCH") == false)
+    }
+
+    @Test func agentHookSurfaceResumeRoutesCustomExecutableThroughWrapper() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
-            command: "'/opt/company/bin/codex' 'resume' 'session-custom-cli'",
-            checkpointId: "session-custom-cli",
+            command: "'/opt/company/bin/codex' 'resume' '\(sessionId)'",
+            checkpointId: sessionId,
             source: "agent-hook",
             autoResume: true
         )
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("'/opt/company/bin/codex'"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH="), "\(startupInput)")
+        #expect(startupInput.contains("/opt/company/bin/codex"), "\(startupInput)")
     }
 
     @Test func decodingAgentHookBindingRewritesPersistedPATHManagedAgentExecutable() throws {
@@ -366,10 +419,10 @@ import Testing
                 .panels.first { $0.customTitle == "Local Resume Shell" }
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
-        let restoredCommand = try #require(restoredPanel.surface.debugInitialCommand())
-        #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
-        #expect(restoredPanel.requestedWorkingDirectory == nil)
-        let launcherScriptPath = try launcherScriptPath(from: restoredCommand)
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
+        let launcherScriptPath = try launcherScriptPath(from: restoredInput)
         let launcherEnvironment = try makeOhMyZshLauncherEnvironment(
             root: root,
             integrationDir: shellIntegrationDirectory(),
@@ -539,10 +592,16 @@ import Testing
         throw ResumeShellTimeout(shellDescription: "/bin/zsh \(scriptPath)", timeout: timeout)
     }
 
-    private func launcherScriptPath(from command: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
-        #expect(words.first == "/bin/zsh", "\(command)")
-        return try #require(words.dropFirst().first, "Expected /bin/zsh launcher script command, saw: \(command)")
+    private func launcherScriptPath(from input: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(input).map(\.value)
+        let launcherIndex = try #require(
+            words.lastIndex(of: "/bin/zsh"),
+            "Expected /bin/zsh launcher script input, saw: \(input)"
+        )
+        return try #require(
+            words.dropFirst(launcherIndex + 1).first,
+            "Expected launcher script path after /bin/zsh, saw: \(input)"
+        )
     }
 
     private func shellIntegrationDirectory() -> URL {
