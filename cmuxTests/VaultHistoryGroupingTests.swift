@@ -937,6 +937,16 @@ struct VaultHistoryAppKitViewportTests {
         #expect(event.title == original)
     }
 
+    @Test
+    func timelineBoundsTextBeforeNormalizingHugeTranscriptTitles() {
+        let rendered = VaultHistoryDisplayText.singleLine(
+            String(repeating: "session output ", count: 100_000)
+        )
+
+        #expect(rendered.count == 241)
+        #expect(rendered.hasSuffix("…"))
+    }
+
     @MainActor
     @Test
     func timelineCellKeepsMultilineTranscriptInsideOneFixedHeightRow() throws {
@@ -1095,6 +1105,77 @@ struct VaultHistoryAppKitViewportTests {
         )
 
         #expect(firstCell === secondCell)
+    }
+
+    @MainActor
+    @Test
+    func structuralAppKitUpdateKeepsSharedRealizedCell() async throws {
+        let controller = VaultHistoryTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        container.frame = window.contentView?.bounds ?? .zero
+        let stableRow = VaultHistoryTableRow.event(
+            event: VaultHistoryEvent(
+                id: "stable-row",
+                timestamp: Date(timeIntervalSince1970: 1_000),
+                kind: .sessionActivity,
+                title: "Stable session",
+                subject: VaultHistorySubject(
+                    sessionId: "stable-row",
+                    agent: "codex",
+                    agentDisplayName: "Codex"
+                )
+            ),
+            action: nil,
+            agent: .codex
+        )
+        let insertedRow = VaultHistoryTableRow.event(
+            event: VaultHistoryEvent(
+                id: "inserted-row",
+                timestamp: Date(timeIntervalSince1970: 2_000),
+                kind: .sessionActivity,
+                title: "Inserted session",
+                subject: VaultHistorySubject(
+                    sessionId: "inserted-row",
+                    agent: "claude",
+                    agentDisplayName: "Claude"
+                )
+            ),
+            action: nil,
+            agent: .claude
+        )
+        let actions = VaultHistoryRowActions(onResume: nil, onReopenClosedItem: nil)
+
+        controller.apply(
+            rows: [stableRow],
+            actions: actions,
+            globalFontMagnificationPercent: 100
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+        await flushStagedTableMutations()
+        window.contentView?.layoutSubtreeIfNeeded()
+        let stableCell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+        )
+
+        controller.apply(
+            rows: [insertedRow, stableRow],
+            actions: actions,
+            globalFontMagnificationPercent: 100
+        )
+        await flushStagedTableMutations()
+        window.contentView?.layoutSubtreeIfNeeded()
+        let movedStableCell = try #require(
+            container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: true)
+        )
+
+        #expect(stableCell === movedStableCell)
     }
 
     @Test
