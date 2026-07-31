@@ -80,6 +80,39 @@ import UIKit
         #expect(replacementTable.numberOfRows(inSection: 0) == 2)
     }
 
+    @Test func rebindingClearsAnActiveDragBeforeSeedingTheReplacementTable() {
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsWorkspaceMetadata: true,
+            supportsReadStateActions: true,
+            supportsCloseActions: true,
+            supportsMoveActions: true,
+            supportsGroupActions: true,
+            supportsGroupCreate: true
+        )
+        let initial = configuration(
+            workspaceIDs: ["workspace-1", "workspace-2"],
+            actionCapabilities: capabilities,
+            enablesReorder: true,
+            moveRows: { _, _ in }
+        )
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let firstTable = makeTableView()
+        coordinator.attach(to: firstTable)
+
+        let dragItems = coordinator.tableView(
+            firstTable,
+            itemsForBeginning: TestUIDragSession(),
+            at: IndexPath(row: 0, section: 0)
+        )
+        #expect(dragItems.count == 1)
+
+        let replacementTable = makeTableView()
+        coordinator.attach(to: replacementTable)
+
+        #expect(replacementTable.numberOfRows(inSection: 0) == 2)
+    }
+
     @Test func subMinuteActivityRestampDoesNoTableWork() {
         // Second 0 of an epoch minute, so +2s stays inside the same rendered
         // minute. The Mac restamps preview_at/last_activity_at from the
@@ -258,7 +291,9 @@ import UIKit
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
-        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        enablesReorder: Bool = false,
+        moveRows: ((IndexSet, Int) -> Void)? = nil
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -275,7 +310,9 @@ import UIKit
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: renameRequest,
-            customizeRequest: customizeRequest
+            customizeRequest: customizeRequest,
+            enablesReorder: enablesReorder,
+            moveRows: moveRows
         )
     }
 
@@ -285,7 +322,9 @@ import UIKit
         setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil,
         renameRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
-        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
+        customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil,
+        enablesReorder: Bool = false,
+        moveRows: ((IndexSet, Int) -> Void)? = nil
     ) -> WorkspaceListTable {
         return WorkspaceListTable(
             items: workspaces.map { .workspace($0.id, indented: false) },
@@ -310,10 +349,10 @@ import UIKit
             isInitialConnectionLoading: false,
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
-            enablesReorder: false,
+            enablesReorder: enablesReorder,
             reorderWorkspaces: workspaces,
             reorderGroups: [],
-            moveRows: nil,
+            moveRows: moveRows,
             selectWorkspace: { _ in },
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
@@ -334,6 +373,24 @@ import UIKit
             reconnect: nil,
             refresh: nil
         )
+    }
+}
+
+@MainActor
+private final class TestUIDragSession: NSObject, UIDragSession {
+    var localContext: Any?
+    let items: [UIDragItem] = []
+    let allowsMoveOperation = true
+    let isRestrictedToDraggingApplication = true
+
+    func location(in view: UIView) -> CGPoint { .zero }
+
+    func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool {
+        false
+    }
+
+    func canLoadObjects(ofClass aClass: NSItemProviderReading.Type) -> Bool {
+        false
     }
 }
 #endif
