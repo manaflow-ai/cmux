@@ -64,7 +64,6 @@ public struct SidebarWorkspaceDragActivationPolicy: Sendable {
         isLocalWorkspace: Bool,
         isSourceGroupAnchor: Bool
     ) -> Bool {
-        _ = isLocalWorkspace
-        return isSourceGroupAnchor
+        !isLocalWorkspace && isSourceGroupAnchor
     }
 }
