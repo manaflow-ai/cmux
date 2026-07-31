@@ -4187,7 +4187,8 @@ const RawStream = struct {
         deadline: *TimeoutDeadline,
     ) !RawStream {
         var stream_client = Client.init(allocator, connection, options);
-        errdefer stream_client.deinit();
+        var stream_client_owned = true;
+        errdefer if (stream_client_owned) stream_client.deinit();
         if (operation.class() != .stream_open) {
             return error.WrongOperationClass;
         }
@@ -4218,9 +4219,11 @@ const RawStream = struct {
         else
             "current";
         const owned_machine = try allocator.dupe(u8, machine_selector);
-        errdefer allocator.free(owned_machine);
+        var owned_machine_owned = true;
+        errdefer if (owned_machine_owned) allocator.free(owned_machine);
         const owned_session = try allocator.dupe(u8, session_selector);
-        errdefer allocator.free(owned_session);
+        var owned_session_owned = true;
+        errdefer if (owned_session_owned) allocator.free(owned_session);
         const attachment: AttachmentSelector = switch (operation) {
             .terminal_attach => blk: {
                 const selector = try objectString(object, "terminal");
@@ -4236,20 +4239,40 @@ const RawStream = struct {
             },
             else => .none,
         };
-        errdefer switch (attachment) {
-            .terminal => |selector| allocator.free(selector),
-            .browser => |selector| allocator.free(selector),
-            .none => {},
+        var attachment_owned = true;
+        errdefer if (attachment_owned) {
+            switch (attachment) {
+                .terminal => |selector| allocator.free(selector),
+                .browser => |selector| allocator.free(selector),
+                .none => {},
+            }
         };
-        var opened = try stream_client.callClassWithDeadline(
-            .stream_open,
+        var stream = RawStream{
+            .client = stream_client,
+            .stream_id = id,
+            .machine_selector = owned_machine,
+            .session_selector = owned_session,
+            .attachment = attachment,
+            .item_validator = domainItemValidator(Item),
+        };
+        stream_client_owned = false;
+        owned_machine_owned = false;
+        owned_session_owned = false;
+        attachment_owned = false;
+        errdefer stream.deinit();
+        try stream.openWithDeadline(
             operation,
             .{ .object = object },
-            null,
             deadline,
         );
-        defer opened.deinit();
-        const open_result = switch (opened.value) {
+        return stream;
+    }
+
+    fn validateOpenResult(
+        self: *const RawStream,
+        value: raw.wire.Value,
+    ) !void {
+        const open_result = switch (value) {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
@@ -4261,21 +4284,90 @@ const RawStream = struct {
         if (!std.mem.eql(
             u8,
             acknowledged_stream_id,
-            id.slice(),
+            self.stream_id.slice(),
         )) {
             return error.StreamIdMismatch;
         }
         if (open_result.get("cursor")) |cursor| {
             _ = try parseStrictCursor(cursor);
         }
-        return .{
-            .client = stream_client,
-            .stream_id = id,
-            .machine_selector = owned_machine,
-            .session_selector = owned_session,
-            .attachment = attachment,
-            .item_validator = domainItemValidator(Item),
-        };
+    }
+
+    fn openWithDeadline(
+        self: *RawStream,
+        operation: Operation,
+        params: raw.wire.Value,
+        deadline: *TimeoutDeadline,
+    ) !void {
+        try self.client.acquireRequest(deadline);
+        defer self.client.releaseRequest();
+        self.client.mutex.lock();
+        defer self.client.mutex.unlock();
+        self.client.clearError();
+        self.client.clearMutationTransportUncertain();
+        const request_id = try self.client.requestId();
+        defer self.client.allocator.free(request_id);
+        errdefer self.client.close();
+        try self.client.sendRequestWithDeadline(
+            request_id,
+            operation,
+            params,
+            null,
+            deadline,
+            null,
+        );
+        while (true) {
+            var message = try self.client.readMessageWithDeadline(deadline);
+            var message_owned = true;
+            defer if (message_owned) message.deinit();
+            const object = switch (message.value) {
+                .object => |item| item,
+                else => return error.ExpectedObject,
+            };
+            const protocol = objectString(object, "protocol") catch
+                return error.InvalidProtocolEnvelope;
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+                return error.InvalidProtocolEnvelope;
+            }
+            const envelope_type = objectString(object, "type") catch
+                return error.InvalidProtocolEnvelope;
+            if (std.mem.eql(u8, envelope_type, "response")) {
+                const response_id = objectString(object, "id") catch
+                    return error.InvalidProtocolEnvelope;
+                if (!std.mem.eql(u8, response_id, request_id)) {
+                    return error.UnexpectedResponseId;
+                }
+                switch (try parseExactResponse(object)) {
+                    .failure => |failure| {
+                        try self.client.setError(failure);
+                        return error.RemoteError;
+                    },
+                    .success => |result| {
+                        try self.validateOpenResult(result);
+                        return;
+                    },
+                }
+            }
+            if (std.mem.eql(u8, envelope_type, "stream_item")) {
+                if (self.stream_end != null) {
+                    return error.UnexpectedStreamEnvelope;
+                }
+                const envelope = try self.parseItemEnvelope(object);
+                try self.validateItemDomain(envelope);
+                message_owned = false;
+                try self.queuePending(message);
+                continue;
+            }
+            if (std.mem.eql(u8, envelope_type, "stream_end")) {
+                if (self.stream_end != null) {
+                    return error.DuplicateStreamEnd;
+                }
+                try self.storeEnd(message, null);
+                message_owned = false;
+                continue;
+            }
+            return error.UnexpectedStreamEnvelope;
+        }
     }
 
     fn deinit(self: *RawStream) void {
@@ -4448,7 +4540,9 @@ const RawStream = struct {
     fn nextRaw(
         self: *RawStream,
     ) !?raw.wire.OwnedValue {
-        if (self.stream_end != null) return null;
+        if (self.pending.items.len == 0 and self.stream_end != null) {
+            return null;
+        }
         errdefer self.client.close();
         while (true) {
             var message = if (self.pending.items.len > 0) blk: {
