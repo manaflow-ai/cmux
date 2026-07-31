@@ -1,0 +1,4 @@
+module IrohPhoneMacFFI {
+    header "iroh_phone_mac_demo_ffi.h"
+    export *
+}
