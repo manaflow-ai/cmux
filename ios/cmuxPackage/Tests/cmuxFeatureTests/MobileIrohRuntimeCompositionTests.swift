@@ -132,7 +132,7 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func connectionReadinessIgnoresSupersededLifecycleCompletion() async {
-        let readiness = MobileIrohConnectionReadinessSignal()
+        let readiness = MobileIrohConnectionReadinessOwner()
         readiness.begin(revision: 1)
         readiness.begin(revision: 2)
 
@@ -141,7 +141,7 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.complete(revision: 2))
         #expect(readiness.isPending == false)
 
-        await readiness.wait()
+        #expect(await readiness.wait(now: Date()) == .ready)
     }
 
     @Test

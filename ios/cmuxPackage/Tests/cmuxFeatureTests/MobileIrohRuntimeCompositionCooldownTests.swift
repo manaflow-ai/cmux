@@ -71,7 +71,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         #expect(await fixture.broker.discoveryRequestCount() == discoveryCountAtFloor)
         #expect((dialError as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0 > 0)
 
-        fixture.clock.advance(by: 601)
+        fixture.clock.advance(by: 751)
         await settleActivation(fixture) {
             await fixture.broker.discoveryRequestCount() > discoveryCountAtFloor
         }
@@ -132,7 +132,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
             "transport, lane, and event-stream callers must share one activation backoff"
         )
 
-        fixture.clock.advance(by: 31)
+        fixture.clock.advance(by: 39)
         await settleActivation(fixture) {
             await fixture.broker.totalRequestCount() > settledRequestCount
         }

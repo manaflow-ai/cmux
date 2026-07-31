@@ -103,6 +103,36 @@ import Testing
 }
 
 @MainActor
+@Test func replacementListenerMustEarnConnectionHealthAgain() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    #expect(store.macConnectionStatus == .connected)
+
+    await router.delaySubscribeRequest(number: 2)
+    store.resyncTerminalOutput(
+        reason: "test.listenerReplacement",
+        restartEventStream: true
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
+    #expect(
+        store.macConnectionStatus == .reconnecting,
+        "a prior listener acknowledgement must not validate its replacement"
+    )
+
+    await router.releaseAllHeld()
+    #expect(try await pollUntil {
+        store.macConnectionStatus == .connected
+    })
+}
+
+@MainActor
 @Test func renderGridCapableHostUsesHybridTerminalOutputSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
