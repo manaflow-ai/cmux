@@ -412,7 +412,8 @@ final class BrowserScreenshotDOMProbeCollector {
 
             const text = node.data.replace(/\\s+/g, " ").trim().slice(0, 80);
             candidates.push({
-              identifier: nodeIdentifier(node, characterIndex),
+              node,
+              characterIndex,
               text,
               rect: {
                 x: rect.left,
@@ -445,7 +446,16 @@ final class BrowserScreenshotDOMProbeCollector {
           return {
             viewportWidth,
             viewportHeight,
-            probes: probes.map(({ centerX, centerY, ...probe }) => probe)
+            probes: probes.map(({
+              node,
+              characterIndex,
+              centerX,
+              centerY,
+              ...probe
+            }) => ({
+              identifier: nodeIdentifier(node, characterIndex),
+              ...probe
+            }))
           };
         })();
         """

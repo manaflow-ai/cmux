@@ -473,6 +473,21 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierAcceptsTwoPixelScaleSkewAsInconclusive() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: NSSize(width: 100, height: 98),
+                color: .black
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
     func verifierAcceptsAOnePixelTextStroke() {
         let probes = textProbeSet()
         let outcome = BrowserScreenshotFrameVerifier().verify(

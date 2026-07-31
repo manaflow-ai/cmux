@@ -179,9 +179,12 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     private func hasUniformScale(viewportSize: NSSize, pixelSize: NSSize) -> Bool {
         let widthScale = pixelSize.width / viewportSize.width
         let heightScale = pixelSize.height / viewportSize.height
-        let largestScale = max(widthScale, heightScale)
-        return largestScale > 0
-            && abs(widthScale - heightScale) / largestScale <= 0.01
+        let widthSkew = abs(pixelSize.width - viewportSize.width * heightScale)
+        let heightSkew = abs(pixelSize.height - viewportSize.height * widthScale)
+        return widthScale > 0
+            && heightScale > 0
+            && widthSkew <= 1
+            && heightSkew <= 1
     }
 
     /// Returns whether two viewport sizes are within the configured CSS-point tolerance.
