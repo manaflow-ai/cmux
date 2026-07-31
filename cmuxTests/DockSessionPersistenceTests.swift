@@ -264,6 +264,141 @@ struct DockSessionPersistenceTests {
         #expect(decoded.windows.first?.tabManager.workspaces.first?.dock == nil)
     }
 
+    @Test(
+        "Dock resume follows the stable surface across owner rotations",
+        arguments: [DockScope.global, DockScope.workspace]
+    )
+    @MainActor
+    func resumeFollowsStableSurfaceAcrossOwnerRotations(scope: DockScope) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-dock-owner-rotation-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
+        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map {
+            String(cString: $0)
+        }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
+        defer {
+            if let previousHookStateDirectory {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
+
+        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
+        try fileManager.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let previousOwnerID = UUID()
+        let persistedOwnerID = UUID()
+        let restoredOwnerID = UUID()
+        let panelID = UUID()
+        let stableSurfaceID = UUID()
+        let currentSessionID = UUID().uuidString
+        let staleSessionID = UUID().uuidString
+
+        try writeCodexHookStore(
+            directory: hookStateDirectory,
+            sessions: [
+                currentSessionID: codexHookRecord(
+                    sessionID: currentSessionID,
+                    workspaceID: previousOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 200
+                ),
+                staleSessionID: codexHookRecord(
+                    sessionID: staleSessionID,
+                    workspaceID: persistedOwnerID,
+                    panelID: panelID,
+                    workingDirectory: workingDirectory.path,
+                    updatedAt: 100
+                ),
+            ]
+        )
+        let agentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            .init(workspaceId: previousOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: currentSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 200
+            ),
+            .init(workspaceId: persistedOwnerID, panelId: panelID): codexResumeBinding(
+                sessionID: staleSessionID,
+                workingDirectory: workingDirectory.path,
+                updatedAt: 100
+            ),
+        ])
+
+        let sourceStore = DockSplitStore(
+            workspaceId: persistedOwnerID,
+            scope: scope,
+            baseDirectoryProvider: { workingDirectory.path }
+        )
+        defer { sourceStore.closeAllPanels() }
+        sourceStore.restoreSessionSnapshot(emptyTerminalDockSnapshot(
+            panelID: panelID,
+            stableSurfaceID: stableSurfaceID,
+            workingDirectory: workingDirectory.path
+        ))
+        sourceStore.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+
+        let persisted = sourceStore.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: agentIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let persistedTerminal = try #require(
+            persisted.panels.first { $0.id == panelID }?.terminal
+        )
+        #expect(persistedOwnerID != previousOwnerID)
+        #expect(persistedTerminal.agent?.sessionId == currentSessionID)
+        #expect(persistedTerminal.resumeBinding?.checkpointId == currentSessionID)
+        #expect(persistedTerminal.wasAgentRunning == true)
+
+        sourceStore.closeAllPanels()
+
+        let restoredStore = DockSplitStore(
+            workspaceId: restoredOwnerID,
+            scope: scope,
+            baseDirectoryProvider: { workingDirectory.path }
+        )
+        defer { restoredStore.closeAllPanels() }
+        let restoredIDs = restoredStore.restoreSessionSnapshot(persisted)
+        let restoredPanelID = try #require(restoredIDs[panelID])
+        let restoredTerminal = try #require(
+            restoredStore.panels[restoredPanelID] as? TerminalPanel
+        )
+        let restoredAgent = try #require(
+            restoredStore.restoredAgentLifecycle.snapshotsByPanelId[restoredPanelID]
+        )
+        let startupInput = try #require(restoredTerminal.surface.initialInput)
+        let launcherPath = try #require(
+            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
+                startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            ).map(\.value).last
+        )
+        defer { try? fileManager.removeItem(atPath: launcherPath) }
+        let startupPayload = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        #expect(restoredOwnerID != persistedOwnerID)
+        #expect(restoredTerminal.stableSurfaceId == stableSurfaceID)
+        #expect(restoredAgent.kind == .codex)
+        #expect(restoredAgent.sessionId == currentSessionID)
+        #expect(startupInput.contains("/cmux-r/"), Comment(rawValue: startupInput))
+        #expect(startupPayload.contains(currentSessionID), Comment(rawValue: startupPayload))
+        #expect(!startupPayload.contains(staleSessionID), Comment(rawValue: startupPayload))
+    }
+
     @Test("Restored Dock snapshot wins over a late initial config seed")
     @MainActor
     func restoredSnapshotSuppressesInitialConfigSeed() throws {
@@ -344,6 +479,105 @@ struct DockSessionPersistenceTests {
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 123,
             windows: [window]
+        )
+    }
+
+    private func emptyTerminalDockSnapshot(
+        panelID: UUID,
+        stableSurfaceID: UUID,
+        workingDirectory: String
+    ) -> SessionSplitContainerSnapshot {
+        SessionSplitContainerSnapshot(
+            focusedPanelId: panelID,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [panelID],
+                selectedPanelId: panelID
+            )),
+            panels: [
+                SessionPanelSnapshot(
+                    id: panelID,
+                    stableSurfaceId: stableSurfaceID,
+                    type: .terminal,
+                    title: "Agent",
+                    customTitle: nil,
+                    directory: workingDirectory,
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: SessionTerminalPanelSnapshot(
+                        workingDirectory: workingDirectory
+                    ),
+                    browser: nil,
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil
+                ),
+            ]
+        )
+    }
+
+    private func codexHookRecord(
+        sessionID: String,
+        workspaceID: UUID,
+        panelID: UUID,
+        workingDirectory: String,
+        updatedAt: TimeInterval
+    ) -> [String: Any] {
+        [
+            "sessionId": sessionID,
+            "workspaceId": workspaceID.uuidString,
+            "surfaceId": panelID.uuidString,
+            "cwd": workingDirectory,
+            "pid": NSNull(),
+            "isRestorable": true,
+            "updatedAt": updatedAt,
+            "launchCommand": [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex"],
+                "workingDirectory": workingDirectory,
+                "capturedAt": updatedAt,
+                "source": "test",
+            ],
+        ]
+    }
+
+    private func codexResumeBinding(
+        sessionID: String,
+        workingDirectory: String,
+        updatedAt: TimeInterval
+    ) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: workingDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func writeCodexHookStore(
+        directory: URL,
+        sessions: [String: [String: Any]]
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": sessions,
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(
+            to: directory.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
         )
     }
 

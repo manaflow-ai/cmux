@@ -24,6 +24,10 @@ struct SurfaceResumeBindingIndex: Sendable {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
     }
 
+    func binding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        bindingsByPanelId[panelId]
+    }
+
     static func loadProcessDetectedBindingsSynchronously(
         fileManager: FileManager = .default
     ) -> SurfaceResumeBindingIndex {
