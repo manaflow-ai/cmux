@@ -324,11 +324,22 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         routes: [CmxAttachRoute]
     ) async throws {
-        try await inner.authorizeUserTailscaleRoutes(
+        // Resolve the row's ACTUAL scope like every other exact-instance write:
+        // the base store requires an existing row match and silently no-ops
+        // otherwise, so forwarding the selected team verbatim would drop the
+        // grant for a Mac whose row still lives in the team-less fallback scope.
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             stackUserID: stackUserID,
-            teamID: await resolvedTeam(teamID),
+            teamID: team
+        )
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
             routes: routes
         )
     }

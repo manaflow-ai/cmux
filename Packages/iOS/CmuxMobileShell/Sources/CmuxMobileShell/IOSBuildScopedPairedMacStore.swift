@@ -500,6 +500,24 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         routes: [CmxAttachRoute]
     ) async throws {
+        // Mirror setCustomizationUnlocked: write to the scope that actually
+        // holds the row, falling back to the team-less scope when the selected
+        // team has no matching row, so the base store's exact-row requirement
+        // cannot silently drop a user-entered grant.
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains {
+                matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+            } ? teamID : nil
+            try await inner.authorizeUserTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                routes: routes
+            )
+            return
+        }
         try await inner.authorizeUserTailscaleRoutes(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
