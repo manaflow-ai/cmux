@@ -76,6 +76,34 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestRevisionedClientBroker(
+                binding: fixture.binding,
+                discoveries: [discovery],
+                relay: fixture.relayResponse(),
+                embedInitialDiscovery: true,
+                registrationRevision: 1
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            try await runtime.start()
+        }
+    }
+
+    @Test
     func authoritativeRejectionCannotFallBackToStaleOfflineAuthority() async throws {
         let fixture = try RegistryFixture()
         let accepted = try fixture.discovery(targetHints: [])

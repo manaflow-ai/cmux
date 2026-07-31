@@ -348,6 +348,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
     private let relayIssueHook: (@Sendable () async -> Void)?
     private let embedDiscoveryStartingAtRegistrationCount: Int?
+    private let registrationRevision: UInt64?
     private var preflightErrors: [CmxIrohBrokerCooldownError]
     private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var preflightOperations: [CmxIrohBrokerOperation] = []
@@ -374,6 +375,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
         embedDiscoveryStartingAtRegistrationCount: Int? = nil,
+        registrationRevision: UInt64? = nil,
         preflightErrors: [CmxIrohBrokerCooldownError] = [],
         subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
@@ -389,6 +391,7 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
             embedDiscoveryInRegistration
                 ? 1
                 : embedDiscoveryStartingAtRegistrationCount
+        self.registrationRevision = registrationRevision
         self.preflightErrors = preflightErrors
         self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
@@ -430,9 +433,8 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
             .map { registrationCount >= $0 }
             ?? false
         return CmxIrohRegistrationResponse(
-            revision: embedsDiscovery
-                ? discoveryResponses[0].revision
-                : nil,
+            revision: registrationRevision
+                ?? (embedsDiscovery ? discoveryResponses[0].revision : nil),
             binding: binding,
             relay: .unavailable,
             discovery: embedsDiscovery

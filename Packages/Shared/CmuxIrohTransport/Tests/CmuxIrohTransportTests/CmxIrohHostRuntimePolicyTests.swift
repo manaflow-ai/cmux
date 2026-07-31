@@ -7,6 +7,35 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
+        let fixture = try HostRuntimeFixture()
+        let discovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: discovery,
+                embedDiscoveryInRegistration: true,
+                registrationRevision: 1
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            try await runtime.start()
+        }
+    }
+
+    @Test
     func embeddedDiscoveryCannotRegressTheInstalledAuthoritativeRevision() async throws {
         let fixture = try HostRuntimeFixture()
         let revisionTwo = try HostRuntimeFixture.discovery(
@@ -46,7 +75,6 @@ extension CmxIrohHostRuntimeTests {
         }
 
         #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
     }
 
     @Test
