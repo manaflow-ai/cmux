@@ -17059,7 +17059,7 @@ struct CMUXCLI {
             return String(localized: "cli.help.agentSubmit", defaultValue: """
             Usage: cmux agent-submit [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--] <text>
 
-            Submit one complete prompt to an agent terminal. Concurrent callers are serialized per workspace. If uncertain human input may remain in the terminal TUI, the command fails with rejected_composer_busy and leaves it unchanged. Native TextBox drafts are preserved as separate future submissions. agent_scope_unavailable means the agent terminal is not ready for automation yet.
+            Submit one complete prompt to an agent terminal. All calls are serialized globally, preserving FIFO order within each workspace. If uncertain human input may remain in the terminal TUI, the command fails with rejected_composer_busy and leaves it unchanged. Native TextBox drafts are preserved as separate future submissions. agent_scope_unavailable means the agent terminal is not ready for automation yet.
 
             Flags:
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)

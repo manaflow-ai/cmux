@@ -319,6 +319,64 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
+    @Test func surfaceLessHookUsesExactSessionInMultiAgentWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let otherPanel = TerminalPanel(workspaceId: workspace.id)
+        workspace.panels[otherPanel.id] = otherPanel
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            otherPanel.surface.releaseSurfaceForTesting()
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+        let targetPanelID = try #require(workspace.focusedPanelId)
+        let targetPanel = try #require(
+            workspace.terminalInputTarget(
+                forPanelID: targetPanelID
+            )?.panel
+        )
+
+        workspace.recordAgentPID(
+            key: "codex.target-session",
+            pid: getpid(),
+            panelId: targetPanelID,
+            refreshPorts: false
+        )
+        workspace.recordAgentPID(
+            key: "codex.other-session",
+            pid: getpid(),
+            panelId: otherPanel.id,
+            refreshPorts: false
+        )
+        for panel in [targetPanel, otherPanel] {
+            panel.surface.recordHumanPromptInput(.unknown)
+            panel.surface.recordHumanPromptInput(.submissionBoundary)
+            #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "target-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: nil,
+            toolInputJSON: #"{"prompt":"target prompt"}"#
+        )
+        TerminalController.shared.v2ApplyIMessageModeSideEffects(for: event)
+
+        #expect(!targetPanel.surface.hasUnconfirmedHumanPromptInput)
+        #expect(otherPanel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @MainActor
     @Test func preBindingHumanInputRejectsGuardedAgentSubmission() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
@@ -500,6 +558,32 @@ struct AgentPromptSubmissionTests {
         )
         #expect(result == .agentScopeUnavailable)
         #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+    }
+
+    @MainActor
+    @Test func claudeScopeTreatsControlReturnAsPromptBoundary() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer { panel.surface.releaseSurfaceForTesting() }
+
+        workspace.recordAgentPID(
+            key: "claude.control-return",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.releaseSurfaceForTesting()
+        #expect(panel.sendText("first line\nsecond line"))
+        #expect(panel.sendNamedKey("ctrl+enter"))
+        #expect(
+            panel.surface.confirmPromptSubmission(
+                message: "first line second line"
+            ) == .human
+        )
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
     }
 
     @Test func rejectedMobileAttachmentBatchCleansEarlierFiles() async throws {

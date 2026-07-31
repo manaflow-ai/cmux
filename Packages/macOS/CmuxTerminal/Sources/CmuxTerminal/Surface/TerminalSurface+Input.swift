@@ -36,6 +36,18 @@ extension TerminalSurface {
         promptInputLedger.recordHumanInput(mutation)
     }
 
+    /// Classifies and records a forwarded physical or synthetic key without
+    /// inspecting rendered terminal state.
+    @MainActor
+    public func recordHumanPromptKey(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) {
+        promptInputLedger.recordHumanInput(
+            promptInputMutation(keycode: keycode, mods: mods)
+        )
+    }
+
     /// Records text that an external transport already accepted as generic
     /// terminal input.
     ///
@@ -65,10 +77,20 @@ extension TerminalSurface {
     /// Aligns composer ownership with the currently bound agent process.
     ///
     /// The initial binding adopts provisional human input. Replacing or
-    /// removing a bound agent starts a fresh ledger epoch so a prior agent's
-    /// hooks cannot affect the current composer.
+    /// changing the bound process starts a fresh ledger epoch. Temporary scope
+    /// unavailability keeps the prior evidence fail-closed for an exact-process
+    /// rebind. The optional chord configuration is updated only when supplied,
+    /// so the same temporary gap cannot discard agent-specific key semantics.
     @MainActor
-    public func synchronizePromptInputAgentScope(_ scope: String?) {
+    public func synchronizePromptInputAgentScope(
+        _ scope: String?,
+        controlReturnIsPromptSubmissionBoundary:
+            Bool? = nil
+    ) {
+        if let controlReturnIsPromptSubmissionBoundary {
+            self.controlReturnIsPromptSubmissionBoundary =
+                controlReturnIsPromptSubmissionBoundary
+        }
         promptInputLedger.synchronizeAgentScope(scope)
     }
 
@@ -418,12 +440,35 @@ extension TerminalSurface {
     private func promptInputMutation(
         for event: PendingKeyEvent
     ) -> HumanPromptInputMutation {
-        guard event.mods.rawValue == GHOSTTY_MODS_NONE.rawValue,
-              event.keycode == UInt32(kVK_Return)
-                || event.keycode == UInt32(kVK_ANSI_KeypadEnter) else {
+        promptInputMutation(
+            keycode: event.keycode,
+            mods: event.mods
+        )
+    }
+
+    @MainActor
+    private func promptInputMutation(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) -> HumanPromptInputMutation {
+        guard keycode == UInt32(kVK_Return)
+                || keycode == UInt32(kVK_ANSI_KeypadEnter) else {
             return .unknown
         }
-        return .submissionBoundary
+        let relevantModifierMask =
+            GHOSTTY_MODS_SHIFT.rawValue
+                | GHOSTTY_MODS_CTRL.rawValue
+                | GHOSTTY_MODS_ALT.rawValue
+                | GHOSTTY_MODS_SUPER.rawValue
+        let relevantModifiers = mods.rawValue & relevantModifierMask
+        if relevantModifiers == GHOSTTY_MODS_NONE.rawValue {
+            return .submissionBoundary
+        }
+        if controlReturnIsPromptSubmissionBoundary,
+           relevantModifiers == GHOSTTY_MODS_CTRL.rawValue {
+            return .submissionBoundary
+        }
+        return .unknown
     }
 
     /// Splits socket text into ordered raw-byte, terminal-byte, and key

@@ -5662,29 +5662,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    /// Returns a conservative recovery boundary for human prompt ownership.
-    ///
-    /// This does not infer that the composer is empty. Only a later structured
-    /// `UserPromptSubmit` hook can confirm the boundary; missing an
-    /// agent-specific submit chord therefore stays fail-closed.
-    private func humanPromptInputMutation(
-        for event: NSEvent
-    ) -> HumanPromptInputMutation {
-        guard !hasMarkedText() else { return .unknown }
-        let flags = event.modifierFlags.intersection(
-            .deviceIndependentFlagsMask
-        )
-        guard event.keyCode == UInt16(kVK_Return)
-                || event.keyCode == UInt16(kVK_ANSI_KeypadEnter),
-              !flags.contains(.shift),
-              !flags.contains(.control),
-              !flags.contains(.option),
-              !flags.contains(.command) else {
-            return .unknown
-        }
-        return .submissionBoundary
-    }
-
     override func keyDown(with event: NSEvent) {
         terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
@@ -5969,17 +5946,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Record only after app and IME handling commit this key to Ghostty's
         // forwarding path. Input can precede agent process binding, so the
         // ledger owns provisional human evidence until the scope is known.
+        let eventMods = modsFromEvent(event)
         if let terminalSurface {
-            terminalSurface.recordHumanPromptInput(
-                humanPromptInputMutation(for: event)
-            )
+            if hasMarkedText() {
+                terminalSurface.recordHumanPromptInput(.unknown)
+            } else {
+                terminalSurface.recordHumanPromptKey(
+                    keycode: UInt32(event.keyCode),
+                    mods: eventMods
+                )
+            }
         }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
+        keyEvent.mods = eventMods
         // Control and Command never contribute to text translation
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)

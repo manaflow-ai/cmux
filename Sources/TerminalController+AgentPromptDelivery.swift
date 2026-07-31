@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxTerminal
 import Foundation
 
@@ -104,15 +105,22 @@ extension TerminalController {
     /// an explicit invalid or stale identity remains unresolved.
     func agentPromptConfirmationPanel(
         in workspace: Workspace,
-        rawSurfaceID: String?
+        event: WorkstreamEvent
     ) -> TerminalPanel? {
-        if let rawSurfaceID {
+        if let rawSurfaceID = event.surfaceId {
             guard let surfaceID = v2UUIDAny(rawSurfaceID) else {
                 return nil
             }
             return workspace.terminalInputTarget(
                 forPanelID: surfaceID
             )?.panel
+        }
+        if let sessionPanel = agentPromptHookSessionPanel(
+            in: workspace,
+            hookSource: event.source,
+            hookSessionID: event.sessionId
+        ) {
+            return sessionPanel
         }
         guard case .success(let target) = agentPromptTerminalTarget(
             in: workspace,
@@ -121,6 +129,56 @@ extension TerminalController {
             return nil
         }
         return target.panel
+    }
+
+    /// Resolves a surface-less hook through the exact agent session token that
+    /// cmux recorded with its process. Ambiguous or stale tokens fail closed.
+    private func agentPromptHookSessionPanel(
+        in workspace: Workspace,
+        hookSource: String,
+        hookSessionID: String
+    ) -> TerminalPanel? {
+        let normalizedSource = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSessionID = hookSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSource.isEmpty,
+              !normalizedSessionID.isEmpty else {
+            return nil
+        }
+        let sourceContext = "agentPIDKey:\(normalizedSource)"
+        var matchedPanels: [TerminalPanel] = []
+        var seenPanelIDs: Set<UUID> = []
+
+        for (panelID, keys) in workspace.agentPIDKeysByPanelId {
+            let matchesSession = keys.contains { key in
+                guard let separator = key.firstIndex(of: ".") else {
+                    return false
+                }
+                let sessionID = key[key.index(after: separator)...]
+                guard sessionID == normalizedSessionID else {
+                    return false
+                }
+                return TextBoxAgentDetection.representsSameAgentKind(
+                    "agentPIDKey:\(key)",
+                    sourceContext
+                )
+            }
+            guard matchesSession,
+                  seenPanelIDs.insert(panelID).inserted,
+                  workspace.agentPromptInputScope(
+                      forPanelId: panelID
+                  ) != nil,
+                  let panel = workspace.terminalInputTarget(
+                      forPanelID: panelID
+                  )?.panel else {
+                continue
+            }
+            matchedPanels.append(panel)
+        }
+        return matchedPanels.count == 1 ? matchedPanels[0] : nil
     }
 
     private func agentPromptTerminalTarget(

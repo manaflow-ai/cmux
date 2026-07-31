@@ -268,6 +268,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
     var promptInputLedger = TerminalPromptInputLedger()
+    var controlReturnIsPromptSubmissionBoundary = false
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal

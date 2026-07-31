@@ -92,6 +92,42 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
     }
 
+    @Test func configuredControlReturnCreatesARecoverableBoundary() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:claude.session",
+            controlReturnIsPromptSubmissionBoundary: true
+        )
+
+        #expect(fixture.surface.sendText("first line\nsecond line"))
+        #expect(fixture.surface.sendNamedKey("ctrl+enter").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "first line second line"
+            ) == .human
+        )
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func unconfiguredControlReturnRemainsFailClosed() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.session",
+            controlReturnIsPromptSubmissionBoundary: false
+        )
+
+        #expect(fixture.surface.sendText("draft"))
+        #expect(fixture.surface.sendNamedKey("ctrl+enter").accepted)
+        #expect(
+            fixture.surface.confirmPromptSubmission(
+                message: "not a known boundary"
+            ) == .unmatched
+        )
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func acceptedExternalInputUsesTheGenericInputLedgerGrammar() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

@@ -164,9 +164,20 @@ extension Workspace {
     }
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
+        let scope = agentPromptInputScope(forPanelId: panelId)
+        let controlReturnIsPromptSubmissionBoundary = scope.map {
+            let activeAgentContext = String(
+                $0.prefix { character in character != "|" }
+            )
+            return TextBoxAgentDetection.isClaudeCode(
+                context: activeAgentContext
+            )
+        }
         terminalPanel(for: panelId)?.surface
             .synchronizePromptInputAgentScope(
-                agentPromptInputScope(forPanelId: panelId)
+                scope,
+                controlReturnIsPromptSubmissionBoundary:
+                    controlReturnIsPromptSubmissionBoundary
             )
     }
 

@@ -5846,7 +5846,7 @@ class TerminalController {
                 ),
                    let terminalPanel = agentPromptConfirmationPanel(
                        in: workspace,
-                       rawSurfaceID: event.surfaceId
+                       event: event
                    ) {
                     let origin = terminalPanel.surface
                         .confirmPromptSubmission(
