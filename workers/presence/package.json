@@ -11,7 +11,7 @@
     "check": "bun run relay-catalog:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260525.0",
+    "@cloudflare/workers-types": "5.20260731.1",
     "@types/bun": "^1.3.14",
     "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "typescript": "^5.8.0",

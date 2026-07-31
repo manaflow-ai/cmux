@@ -35,6 +35,20 @@ describe("parseConnectivityInvalidation", () => {
 
 describe("isConnectivityPublisherAuthorized", () => {
   const secret = "a".repeat(64);
+  const authorize = (candidate: Request, configuredSecret: string | undefined) =>
+    isConnectivityPublisherAuthorized(
+      candidate,
+      configuredSecret,
+      (expected, actual) => {
+        const expectedBytes = new Uint8Array(expected);
+        const actualBytes = new Uint8Array(actual);
+        let difference = 0;
+        for (let index = 0; index < expectedBytes.byteLength; index += 1) {
+          difference |= expectedBytes[index]! ^ actualBytes[index]!;
+        }
+        return difference === 0;
+      },
+    );
   const request = (value?: string) => new Request(
     "https://presence.example/v1/connectivity/invalidate",
     {
@@ -45,12 +59,12 @@ describe("isConnectivityPublisherAuthorized", () => {
   );
 
   it("requires the exact server-only capability", async () => {
-    expect(await isConnectivityPublisherAuthorized(request(secret), secret)).toBe(true);
-    expect(await isConnectivityPublisherAuthorized(request("b".repeat(64)), secret)).toBe(false);
-    expect(await isConnectivityPublisherAuthorized(request(), secret)).toBe(false);
-    expect(await isConnectivityPublisherAuthorized(request(secret), undefined)).toBe(false);
-    expect(await isConnectivityPublisherAuthorized(request("short"), "short")).toBe(false);
-    expect(await isConnectivityPublisherAuthorized(
+    expect(await authorize(request(secret), secret)).toBe(true);
+    expect(await authorize(request("b".repeat(64)), secret)).toBe(false);
+    expect(await authorize(request(), secret)).toBe(false);
+    expect(await authorize(request(secret), undefined)).toBe(false);
+    expect(await authorize(request("short"), "short")).toBe(false);
+    expect(await authorize(
       request(`${secret}extra`),
       secret,
     )).toBe(false);

@@ -28,6 +28,13 @@ export const MAX_ROUTES_TOTAL_BYTES = 2048;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const timingSafeSubtleCrypto = crypto.subtle as SubtleCrypto & {
+  timingSafeEqual(
+    expected: ArrayBuffer | ArrayBufferView,
+    actual: ArrayBuffer | ArrayBufferView,
+  ): boolean;
+};
+
 export const ALLOWED_PLATFORMS: ReadonlySet<string> = new Set([
   "mac",
   "ios",
@@ -132,23 +139,27 @@ export interface ConnectivityInvalidationInput {
   revision: number;
 }
 
-/** Constant-work comparison for the server-only invalidation capability. */
-export function isConnectivityPublisherAuthorized(
+/** Fixed-width timing-safe comparison for the server-only capability. */
+export async function isConnectivityPublisherAuthorized(
   request: Request,
   configuredSecret: string | undefined,
-): boolean {
+  timingSafeEqual: (
+    expected: ArrayBuffer,
+    actual: ArrayBuffer,
+  ) => boolean = (expected, actual) =>
+    timingSafeSubtleCrypto.timingSafeEqual(expected, actual),
+): Promise<boolean> {
   const expected = configuredSecret?.trim() ?? "";
   const actual = request.headers.get(
     "x-cmux-connectivity-publisher-secret",
   )?.trim() ?? "";
   if (expected.length < 32 || expected.length > 512) return false;
-  const width = Math.max(expected.length, actual.length);
-  let difference = expected.length ^ actual.length;
-  for (let index = 0; index < width; index += 1) {
-    difference |= (expected.charCodeAt(index) || 0)
-      ^ (actual.charCodeAt(index) || 0);
-  }
-  return difference === 0;
+  const encoder = new TextEncoder();
+  const [expectedHash, actualHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+    crypto.subtle.digest("SHA-256", encoder.encode(actual)),
+  ]);
+  return timingSafeEqual(expectedHash, actualHash);
 }
 
 export type ConnectivityInvalidationParse =

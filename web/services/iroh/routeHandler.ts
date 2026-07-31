@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
+import { after } from "next/server";
 import { env } from "../../app/env";
 import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
@@ -76,15 +77,19 @@ export async function handleIrohRoute(
       );
     const revision = mutationRevision(operation, value);
     if (revision !== null) {
-      try {
-        await (dependencies.publishConnectivityInvalidation
-          ?? publishConnectivityInvalidation)(request, revision);
-      } catch {
-        // The mutation is already committed. Push only accelerates the next v2
-        // reconciliation, so a worker outage must not turn success into an
-        // ambiguous client retry of a committed mutation.
-        console.warn("connectivity invalidation publish failed", { operation });
-      }
+      const publish = dependencies.publishConnectivityInvalidation
+        ?? publishConnectivityInvalidation;
+      const schedule = dependencies.schedulePostResponse ?? after;
+      schedule(async () => {
+        try {
+          await publish(request, revision);
+        } catch {
+          // The mutation is already committed. Push only accelerates the next
+          // v2 reconciliation, so a worker outage must not turn success into an
+          // ambiguous client retry of a committed mutation.
+          console.warn("connectivity invalidation publish failed", { operation });
+        }
+      });
     }
     return irohJsonResponse(value, successStatus(operation), {
       "cache-control": "no-store",

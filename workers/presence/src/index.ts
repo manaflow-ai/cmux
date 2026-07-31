@@ -96,10 +96,10 @@ export default {
 
     if (url.pathname === "/v1/connectivity/invalidate") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-      if (!isConnectivityPublisherAuthorized(
+      if (!(await isConnectivityPublisherAuthorized(
         request,
         env.CONNECTIVITY_INVALIDATION_SECRET,
-      )) return unauthorized();
+      ))) return unauthorized();
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const body = await readBoundedJson(request, 1_024);
