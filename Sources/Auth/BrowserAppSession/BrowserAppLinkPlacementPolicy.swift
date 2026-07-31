@@ -23,15 +23,27 @@ final class BrowserAppLinkPlacementPolicy {
         _ navigation: BrowserAppSessionNavigation,
         openInPreferredPane: RequestPlacement,
         openHorizontalSplit: RequestPlacement,
-        openInSourcePane: RequestPlacement
+        openInSourcePane: RequestPlacement,
+        isBrowserAvailable: () -> Bool = {
+            BrowserAvailabilitySettings.isEnabled()
+        }
     ) -> Bool {
-        openInPreferredPane(
+        guard isBrowserAvailable() else { return false }
+        if openInPreferredPane(
             navigation.request,
             navigation.websiteDataStore
-        ) || openHorizontalSplit(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else { return false }
+        if openHorizontalSplit(
             navigation.request,
             navigation.websiteDataStore
-        ) || openInSourcePane(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else { return false }
+        return openInSourcePane(
             navigation.request,
             navigation.websiteDataStore
         )
@@ -41,16 +53,34 @@ final class BrowserAppLinkPlacementPolicy {
         _ destinationURL: URL,
         openInPreferredPane: URLPlacement,
         openHorizontalSplit: URLPlacement,
-        openInSourcePane: URLPlacement
+        openInSourcePane: URLPlacement,
+        isBrowserAvailable: () -> Bool = {
+            BrowserAvailabilitySettings.isEnabled()
+        }
     ) -> Bool {
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        return openInPreferredPane(
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        if openInPreferredPane(
             destinationURL,
             websiteDataStore
-        ) || openHorizontalSplit(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        if openHorizontalSplit(
             destinationURL,
             websiteDataStore
-        ) || openInSourcePane(
+        ) {
+            return true
+        }
+        guard isBrowserAvailable() else {
+            return openInSystemBrowser(destinationURL)
+        }
+        return openInSourcePane(
             destinationURL,
             websiteDataStore
         ) || openInSystemBrowser(destinationURL)

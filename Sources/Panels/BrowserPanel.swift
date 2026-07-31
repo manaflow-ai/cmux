@@ -6447,8 +6447,11 @@ extension BrowserPanel {
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
-    func resetForWorkspaceContextChange(reason: String) {
-        guard needsWorkspaceContextReset else {
+    func resetForWorkspaceContextChange(
+        reason: String,
+        forceWebViewReplacement: Bool = false
+    ) {
+        guard forceWebViewReplacement || needsWorkspaceContextReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
@@ -6548,7 +6551,14 @@ extension BrowserPanel {
     }
 
     func resetForAppSessionSignOut() {
-        resetForWorkspaceContextChange(reason: "appSessionSignOut")
+        // Stop exposing the authenticated store before its asynchronous WebKit
+        // deletion callback completes. If WebKit drops that callback, the live
+        // panel is still isolated from the previous account immediately.
+        websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        resetForWorkspaceContextChange(
+            reason: "appSessionSignOut",
+            forceWebViewReplacement: true
+        )
     }
 }
 
