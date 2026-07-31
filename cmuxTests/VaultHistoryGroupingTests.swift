@@ -472,11 +472,61 @@ struct VaultHistoryAppKitViewportTests {
     }
 
     @MainActor
+    @Test
+    func timelineCellKeepsMultilineTranscriptInsideOneFixedHeightRow() throws {
+        let event = VaultHistoryEvent(
+            id: "multiline-session",
+            timestamp: Date(),
+            kind: .sessionActivity,
+            title: "first line\n  second line\tthird line",
+            subject: VaultHistorySubject(
+                sessionId: "multiline-session",
+                agent: "codex",
+                agentDisplayName: "Codex",
+                directory: "/tmp/history"
+            )
+        )
+        let cell = VaultHistoryTableEventCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 38)
+        )
+
+        cell.configure(
+            event: event,
+            action: nil,
+            agent: .codex,
+            globalFontMagnificationPercent: 100,
+            onPerformAction: { _ in }
+        )
+        cell.layoutSubtreeIfNeeded()
+
+        let labels = Self.descendants(of: cell).compactMap { $0 as? NSTextField }
+        #expect(labels.count == 3)
+        #expect(labels.allSatisfy { $0.usesSingleLineMode })
+        #expect(labels.allSatisfy { !$0.stringValue.contains(where: \.isNewline) })
+        #expect(VaultHistoryTableEventCellView.displayTitle(for: event) == "first line second line third line")
+        for label in labels {
+            let frameInCell = cell.convert(label.bounds, from: label)
+            #expect(cell.bounds.contains(frameInCell))
+        }
+    }
+
+    @Test
+    func workspaceLifecycleUsesMinimalAddRemoveSymbols() {
+        #expect(VaultHistoryEventKind.workspaceCreated.symbolName == "plus")
+        #expect(VaultHistoryEventKind.workspaceClosed.symbolName == "minus")
+    }
+
+    @MainActor
     private func flushStagedTableMutations() async {
         await withCheckedContinuation { continuation in
             RunLoop.main.perform(inModes: [.common]) {
                 continuation.resume()
             }
         }
+    }
+
+    @MainActor
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 }
