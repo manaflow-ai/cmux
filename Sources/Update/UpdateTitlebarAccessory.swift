@@ -2049,13 +2049,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 },
                 onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
                     notificationsPopover?.performClose(nil)
-                    guard let window,
-                          let appDelegate = AppDelegate.shared,
-                          let context = appDelegate.contextForMainTerminalWindow(window) else {
-                        NSSound.beep()
-                        return
-                    }
-                    context.sidebarSelectionState.selection = .notifications
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )
@@ -2137,6 +2131,17 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationsPopover.contentViewController = nil
         postNotificationsPopoverVisibilityDidChange(isShown: false, source: notificationsPopover)
     }
+}
+
+@MainActor
+private func openPhoneForwardingSettings(in window: NSWindow?) {
+    guard let window,
+          let appDelegate = AppDelegate.shared,
+          let context = appDelegate.contextForMainTerminalWindow(window) else {
+        NSSound.beep()
+        return
+    }
+    context.sidebarSelectionState.selection = .notifications
 }
 
 private struct NotificationsPopoverView: View {
@@ -2858,6 +2863,10 @@ final class UpdateTitlebarAccessoryController {
                 notificationStore: TerminalNotificationStore.shared,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
+                },
+                onOpenPhoneForwarding: { [weak popover, weak window] in
+                    popover?.performClose(nil)
+                    openPhoneForwardingSettings(in: window)
                 }
             )
         )
