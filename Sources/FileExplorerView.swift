@@ -201,7 +201,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         deinit {
             outlineChangeFlushTask?.cancel()
             if let outlineChangeObserverID {
-                store.removeOutlineChangeObserver(outlineChangeObserverID)
+                let observedStore = store
+                Task { @MainActor in
+                    observedStore.removeOutlineChangeObserver(outlineChangeObserverID)
+                }
             }
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
