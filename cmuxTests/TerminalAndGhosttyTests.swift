@@ -1041,6 +1041,22 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
     }
 
+    /// Bounded poll on the main run loop. The first runtime-surface creation for a surface
+    /// waits on the Claude command shim install, which hops through a detached Task and a
+    /// main-actor continuation, so the attempt lands a turn or more after init returns. The
+    /// invariant these tests guard is that the attempt needs no window attach, not that it
+    /// happens synchronously inside init.
+    private func waitUntil(timeout: TimeInterval = 5.0, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1051,9 +1067,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
         )
     }
@@ -1068,9 +1084,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugHasHeadlessStartupWindowForTesting(),
             "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
         )
-        XCTAssertGreaterThan(
-            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
-            0,
+        XCTAssertNil(panel.surface.uiWindow, "The runtime must start without any real window attach.")
+        XCTAssertTrue(
+            waitUntil { panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 },
             "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
@@ -2432,54 +2448,6 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
         XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
     }
 
-    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 20,
-                rectMaxX: 30,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 99.5,
-                rectMaxX: 120,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
-        let range = try XCTUnwrap(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 50,
-                rectMaxX: 50.4,
-                boundsWidth: 100
-            )
-        )
-
-        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
-        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
-    }
-
-    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
-        XCTAssertNil(
-            terminalKeyboardCopyModeCursorSelectionXRange(
-                rectMinX: 0,
-                rectMaxX: 10,
-                boundsWidth: 1
-            )
-        )
-    }
 }
 
 
@@ -2560,6 +2528,52 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
     }
 }
 
+@Suite("Terminal keyboard copy mode cursor appearance")
+@MainActor
+struct TerminalKeyboardCopyModeCursorAppearanceTests {
+    @Test func cursorUsesAnUnfilledCellOutline() throws {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let layer = try #require(surfaceView.keyboardCopyModeCursorOverlayView.layer)
+        let backgroundAlpha = layer.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+
+        #expect(backgroundAlpha == 0)
+        #expect(layer.borderWidth == 1)
+    }
+
+    @Test func cursorUsesGhosttyRuntimeSnapshotColor() {
+        let color = GhosttyNSView.keyboardCopyModeCursorColor(
+            red: 0x33,
+            green: 0x66,
+            blue: 0x99
+        )
+        #expect(color.hexString() == "#336699")
+    }
+
+    @Test func wideCursorOutlineSpansBothAlignedGridCells() {
+        let metrics = KeyboardCopyModeGridMetrics(
+            cellWidth: 9.5,
+            cellHeight: 18,
+            xInset: 4,
+            yInset: 6,
+            viewHeight: 200
+        )
+        let cell = KeyboardCopyModeResolvedCell(
+            cursor: TerminalKeyboardCopyModeCursor(row: 2, column: 3),
+            widthCells: 2,
+            color: .clear
+        )
+
+        #expect(
+            metrics.topOriginRect(for: cell)
+                == CGRect(x: 32.5, y: 42, width: 19, height: 18)
+        )
+        #expect(
+            metrics.appKitRect(for: cell)
+                == CGRect(x: 32.5, y: 140, width: 19, height: 18)
+        )
+    }
+}
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorClampsOpacity() {
@@ -2725,23 +2739,61 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         ghosttyView.addSubview(descendant)
 
-        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+        XCTAssertTrue(descendant.cmuxStrictOwningGhosttyView() === ghosttyView)
     }
 
     func testResolvesGhosttyViewFromGhosttyResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+        XCTAssertTrue(ghosttyView.cmuxStrictOwningGhosttyView() === ghosttyView)
+    }
+
+    func testDoesNotResolveGhosttyViewFromHostedSurfaceContainerResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+
+        XCTAssertNil(hostedView.cmuxStrictOwningGhosttyView())
+    }
+
+    func testDoesNotResolveGhosttyViewFromHostedSurfaceDescendantResponderByDefault() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertNil(descendant.cmuxStrictOwningGhosttyView())
+    }
+
+    func testResolvesTerminalKeyEquivalentGhosttyViewFromHostedSurfaceDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertTrue(
+            descendant.cmuxTerminalKeyEquivalentOwningGhosttyView() === ghosttyView
+        )
+    }
+
+    func testResolvesTerminalFocusGhosttyViewFromHostedSurfaceDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: ghosttyView)
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        hostedView.addSubview(descendant)
+
+        XCTAssertTrue(
+            descendant.cmuxTerminalFocusOwningGhosttyView() === ghosttyView
+        )
     }
 
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        XCTAssertNil(cmuxOwningGhosttyView(for: view))
+        XCTAssertNil(view.cmuxStrictOwningGhosttyView())
     }
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
 
-        XCTAssertNil(cmuxOwningGhosttyView(for: textView))
+        XCTAssertNil(textView.cmuxStrictOwningGhosttyView())
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
@@ -3945,6 +3997,156 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         surfacesToRelease.append(surface)
         return surface
+    }
+
+    func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
+            throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
+        }
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        var didTeardown = false
+        defer {
+            for surface in surfaces {
+                surface.hostedView.removeFromSuperview()
+                if !didTeardown {
+                    surface.teardownSurface()
+                }
+            }
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected a content view for the renderer memory workload")
+            return
+        }
+        for surface in surfaces {
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+            hostedView.setVisibleInUI(true)
+        }
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitUntil(timeout: 8, description: "five real Ghostty renderers to become presented") {
+                surfaces.allSatisfy { $0.surface != nil && $0.isRendererPresented }
+            }
+        )
+
+        let sampler = TaskVMInfoMemoryPressureFootprintSampler()
+        let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
+
+        func settledFootprint(_ description: String) throws -> UInt64 {
+            let deadline = ProcessInfo.processInfo.systemUptime + 4
+            var recent: [UInt64] = []
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                autoreleasepool {
+                    window.displayIfNeeded()
+                    contentView.layoutSubtreeIfNeeded()
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                guard let footprint = sampler.physicalFootprintBytes() else {
+                    continue
+                }
+                recent.append(footprint)
+                if recent.count > 7 {
+                    recent.removeFirst()
+                }
+                if recent.count == 7,
+                   let minimum = recent.min(),
+                   let maximum = recent.max(),
+                   maximum - minimum <= sampleNoiseAllowance {
+                    return recent.sorted()[recent.count / 2]
+                }
+            }
+            guard !recent.isEmpty else {
+                throw XCTSkip("task_vm_info did not provide a physical footprint for \(description)")
+            }
+            let minimum = recent.min() ?? 0
+            let maximum = recent.max() ?? 0
+            XCTAssertLessThanOrEqual(
+                maximum - minimum,
+                sampleNoiseAllowance,
+                "Physical footprint did not settle for \(description)"
+            )
+            return recent.sorted()[recent.count / 2]
+        }
+
+        let hiddenSurfaces = Array(surfaces.dropFirst())
+        for surface in hiddenSurfaces {
+            surface.hostedView.setVisibleInUI(false)
+            XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
+        }
+        XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
+        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+
+        for cycle in 1...3 {
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(true)
+            }
+            XCTAssertTrue(
+                waitUntil(timeout: 8, description: "cycle \(cycle) renderer restoration") {
+                    hiddenSurfaces.allSatisfy(\.isRendererPresented)
+                }
+            )
+            let fiveRendererPeak = try settledFootprint("cycle \(cycle) five-renderer peak")
+            guard fiveRendererPeak > oneRendererBaseline + sampleNoiseAllowance else {
+                XCTFail("The workload must distinguish five realized renderers from the one-renderer target")
+                return
+            }
+
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(false)
+                XCTAssertTrue(surface.releaseRenderer(), "Cycle \(cycle) must evict every hidden renderer")
+            }
+            XCTAssertTrue(
+                hiddenSurfaces.allSatisfy { !$0.isRendererRealized },
+                "Cycle \(cycle) must leave only the visible tab's renderer realized"
+            )
+
+            let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
+            let realizedDelta = fiveRendererPeak - oneRendererBaseline
+            let retainedDelta = targetFootprint > oneRendererBaseline
+                ? targetFootprint - oneRendererBaseline
+                : 0
+            let normalizedRetainedDelta = retainedDelta > sampleNoiseAllowance
+                ? retainedDelta - sampleNoiseAllowance
+                : 0
+            let normalizedRetainedRatio = Double(normalizedRetainedDelta) / Double(realizedDelta)
+            print(
+                "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
+                "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "retained_ratio=\(normalizedRetainedRatio)"
+            )
+            XCTAssertLessThanOrEqual(
+                normalizedRetainedRatio,
+                0.45,
+                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+            )
+            oneRendererBaseline = targetFootprint
+        }
+
+        for surface in surfaces {
+            surface.hostedView.removeFromSuperview()
+            surface.teardownSurface()
+        }
+        didTeardown = true
+        XCTAssertTrue(surfaces.allSatisfy { $0.surface == nil && !$0.isRendererRealized })
+#else
+        throw XCTSkip("Debug-only real-renderer memory regression")
+#endif
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {

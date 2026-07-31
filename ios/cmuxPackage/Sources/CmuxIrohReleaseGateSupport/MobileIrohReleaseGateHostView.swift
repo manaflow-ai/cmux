@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileShellUI
+import Foundation
 import SwiftUI
 
 struct MobileIrohReleaseGateHostView: View {
@@ -16,12 +17,16 @@ struct MobileIrohReleaseGateHostView: View {
         configuration: MobileIrohReleaseGateRunner.Configuration,
         onboardingStore: MobileOnboardingStore,
         signOutHook: MobileSignOutHook,
-        settingsController: any CmxIrohSettingsControlling
+        settingsController: any CmxIrohSettingsControlling,
+        endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity?,
+        relayCredentialExpiry: @escaping @Sendable () async -> Date?
     ) {
         _store = State(initialValue: store)
         _runner = State(initialValue: MobileIrohReleaseGateRunner(
             configuration: configuration,
-            settingsController: settingsController
+            settingsController: settingsController,
+            endpointIdentity: endpointIdentity,
+            relayCredentialExpiry: relayCredentialExpiry
         ))
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook

@@ -10,11 +10,15 @@ extension CmxIrohTrustBrokerClientTests {
                 code: "rate_limited",
                 retryAfterSeconds: 600
             )),
+            ("86400", CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: 86_400
+            )),
             ("0", CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 429,
                 code: "rate_limited"
             )),
-            ("3601", CmxIrohTrustBrokerClientError.rejected(
+            ("86401", CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 429,
                 code: "rate_limited"
             )),
@@ -39,13 +43,92 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func rateLimitSuppressesConcurrentSameRouteRequestsWithoutBlockingOtherRoutes() async throws {
+        let transport = RouteRecordingBrokerTransport(responsesByPath: [
+            "/api/devices/iroh": [
+                .json(
+                    status: 429,
+                    body: #"{"error":"rate_limited"}"#,
+                    headers: ["Retry-After": "600"]
+                ),
+            ],
+            "/api/relay/preferences": [
+                .json(
+                    status: 200,
+                    body: #"{"preference":{"mode":"automatic"},"preferenceRevision":0}"#
+                ),
+            ],
+        ])
+        let client = try makeNetworkClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0 ..< 2 {
+                group.addTask {
+                    do {
+                        _ = try await client.discover()
+                        Issue.record("Expected the active route cooldown to reject discovery")
+                    } catch {}
+                }
+            }
+        }
+
+        let preference = try await client.relayPreference()
+        #expect(preference.preference == .automatic)
+        #expect(await transport.requests().map { $0.url?.path } == [
+            "/api/devices/iroh",
+            "/api/relay/preferences",
+        ])
+    }
+
+    @Test
+    func rateLimitIsScopedByOperationWhenMethodsShareAPath() async throws {
+        let transport = RouteRecordingBrokerTransport(responsesByPath: [
+            "/api/devices/iroh": [
+                .json(
+                    status: 429,
+                    body: #"{"error":"rate_limited"}"#,
+                    headers: ["Retry-After": "600"]
+                ),
+                .json(
+                    status: 200,
+                    body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+                ),
+            ],
+        ])
+        let client = try makeNetworkClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+
+        try await client.revoke(bindingID: "binding-1")
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().map(\.httpMethod) == ["GET", "DELETE"])
+    }
+
+    @Test
     func missingAuthFailsBeforeAnyNetworkRequest() async throws {
         let transport = RecordingBrokerTransport(responses: [])
         let client = try CmxIrohTrustBrokerClient(
             baseURL: try #require(URL(string: "https://cmux.example")),
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { nil },
-                refreshToken: { "refresh" }
+                credentialPair: { nil }
             ),
             transport: transport
         )
@@ -118,7 +201,7 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     private func makeNetworkClient(
-        transport: RecordingBrokerTransport
+        transport: any CmxIrohHTTPTransport
     ) throws -> CmxIrohTrustBrokerClient {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
@@ -128,7 +211,44 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     private static let networkTokenSource = CmxIrohBrokerTokenSource(
-        accessToken: { "access" },
-        refreshToken: { "refresh" }
+        credentialPair: {
+            CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
+        }
     )
+}
+
+private actor RouteRecordingBrokerTransport: CmxIrohHTTPTransport {
+    enum TestError: Error {
+        case invalidRequest
+        case unexpectedRequest(String)
+    }
+
+    private var responsesByPath: [String: [RecordingBrokerTransport.Response]]
+    private var captured: [URLRequest] = []
+
+    init(responsesByPath: [String: [RecordingBrokerTransport.Response]]) {
+        self.responsesByPath = responsesByPath
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        guard let url = request.url else { throw TestError.invalidRequest }
+        captured.append(request)
+        guard var pending = responsesByPath[url.path], !pending.isEmpty else {
+            throw TestError.unexpectedRequest(url.path)
+        }
+        let response = pending.removeFirst()
+        responsesByPath[url.path] = pending
+        guard let http = HTTPURLResponse(
+            url: url,
+            statusCode: response.status,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+                .merging(response.headers) { _, new in new }
+        ) else {
+            throw TestError.invalidRequest
+        }
+        return (response.body, http)
+    }
+
+    func requests() -> [URLRequest] { captured }
 }

@@ -8,6 +8,16 @@ import Foundation
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
+        // Pin the runtime's broker to the session identity that owns
+        // `accountID` — a cheap local check now, and every broker request
+        // below re-reads an ATOMIC authenticated snapshot validated against
+        // this pin. An A→B account switch therefore makes the old runtime's
+        // requests fail closed immediately instead of pairing B's credentials
+        // with A's endpoint/device state (registering or refreshing a binding
+        // under B and caching it as A) before lifecycle reconciliation runs.
+        guard auth.currentUser?.id == accountID else {
+            throw CmxIrohHostRuntimeError.inactive
+        }
         let tag = Self.currentTag()
         let appInstanceID = try await appInstances.appInstanceID(
             accountID: accountID,
@@ -88,41 +98,68 @@ extension MobileHostIrohRuntime {
         guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
-        let broker = try CmxIrohTrustBrokerClient(
+        let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { [weak auth] in
+                // An ATOMIC authenticated snapshot per fetch, validated
+                // against the activation's ACCOUNT pin: identity and
+                // credentials come from one transition-checked capture, so an
+                // account switch completing while the read is suspended can
+                // never hand this runtime a DIFFERENT account's credentials,
+                // and the pin fails requests closed the moment the account
+                // changes. Deliberately NOT generation-pinned: every completed
+                // sign-in advances the generation, and a same-account
+                // re-sign-in must keep this long-lived runtime serviceable —
+                // it is still the same user, so serving the new session's
+                // credentials is correct, whereas a generation pin would
+                // strand the runtime on nil credentials until relaunch. The
+                // snapshot's pair capture is store-level (no network while the
+                // stored access token is valid).
+                credentialPair: { [weak auth] in
                     guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.accessToken
-                },
-                refreshToken: { [weak auth] in
-                    guard let auth,
-                          let tokens = try? await auth.currentTokens() else { return nil }
-                    return tokens.refreshToken
+                          let session = try? await auth.authenticatedSessionSnapshot(),
+                          session.accountID == accountID else { return nil }
+                    return CmxIrohBrokerCredentials(
+                        accessToken: session.accessToken,
+                        refreshToken: session.refreshToken
+                    )
                 }
-            )
+            ),
+            backpressureMode: .callerOwned
+        )
+        let broker = CmxIrohBackpressuredHostBroker(
+            broker: rawBroker,
+            gate: brokerBackpressureGate,
+            accountID: accountID
+        )
+        let relayPolicyBroker = CmxIrohBackpressuredRelayPolicyBroker(
+            broker: rawBroker,
+            gate: brokerBackpressureGate,
+            accountID: accountID
         )
         let endpointRelayProfile: CmxIrohEndpointRelayProfile?
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
+        var freshRelayCredential: CmxIrohRelayTokenResponse?
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
                 policyCache: relayPolicyCache,
                 preferenceStore: relayPreferenceStore,
                 credentialStore: customRelayCredentials,
-                broker: broker
+                broker: relayPolicyBroker
             )
             let effective: CmxIrohEffectiveRelayPolicy
             diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
             do {
-                effective = try await service.refresh(
+                let outcome = try await service.refreshWithCredential(
                     endpointID: derivedEndpointID,
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
                     now: Date()
                 )
+                effective = outcome.effective
+                freshRelayCredential = outcome.relayCredential
                 diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
             } catch {
                 diagnosticLog.record(DiagnosticEvent(
@@ -162,6 +199,9 @@ extension MobileHostIrohRuntime {
         let compatibleCachedRelay = cachedRelay.flatMap { relay in
             Set(relay.relayFleet) == managedRelayURLs ? relay : nil
         }
+        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
+            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
+        }
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -179,7 +219,7 @@ extension MobileHostIrohRuntime {
             ),
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: compatibleCachedRelay,
+            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedHostPolicy: cachedHostPolicy
         )
         let credentialRepository = brokerCredentials
@@ -194,11 +234,34 @@ extension MobileHostIrohRuntime {
             configuration: configuration,
             pendingRevocations: pendingRevocations,
             protocolConfiguration: protocolConfiguration,
-            handleTransport: { [diagnosticLog] session, isCurrent in
+            handleTransport: { [weak self] session, isCurrent in
+                guard let self else {
+                    await session.close()
+                    return
+                }
+                let diagnosticSessionID = await self.makeDiagnosticSessionID()
+                let diagnosticLog = self.diagnosticLog
                 diagnosticLog.record(DiagnosticEvent(
                     .admissionSucceeded,
                     a: DiagnosticTransportKind.iroh.rawValue
                 ))
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: DiagnosticSessionLifecycleKind.established.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
+                ))
+                let connectionDiagnostics = CmxIrohConnectionDiagnosticRecorder(
+                    diagnosticLog: diagnosticLog,
+                    sessionID: diagnosticSessionID
+                )
+                let pathEvents = await session.observedPathEvents()
+                let pathEventTask = Task {
+                    for await event in pathEvents {
+                        guard !Task.isCancelled else { return }
+                        connectionDiagnostics.record(event)
+                    }
+                }
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
                 )
@@ -229,10 +292,21 @@ extension MobileHostIrohRuntime {
                         await laneRouter.stop()
                     }
                 )
-                await connectionSupervisor.run()
+                let observedExit = await connectionSupervisor.run()
+                let exit = await session.connectionExit(resolving: observedExit)
+                await pathEventTask.value
+                connectionDiagnostics.record(await session.closeAttribution())
+                diagnosticLog.record(DiagnosticEvent(
+                    .transportSessionLifecycle,
+                    a: exit.lifecycle.rawValue,
+                    b: Int(CmxTransportSessionPurpose.foregroundControl.rawValue),
+                    c: diagnosticSessionID
+                ))
                 diagnosticLog.record(DiagnosticEvent(
                     .sessionClosed,
-                    a: DiagnosticTransportKind.iroh.rawValue
+                    a: DiagnosticTransportKind.iroh.rawValue,
+                    b: exit.failure == .none ? nil : exit.failure.rawValue,
+                    c: diagnosticSessionID
                 ))
             },
             handleBinding: { [weak self] registration, discovery, attestation in
@@ -293,16 +367,21 @@ extension MobileHostIrohRuntime {
                     }
                 )
             },
-            handleDeactivation: { _ in
-                await lanPublisher.stop()
-                await MainActor.run {
-                    // The runtime owns the local Mac binding, while admitted
-                    // sessions carry remote iOS binding IDs. Endpoint teardown
-                    // therefore closes every Iroh-authorized connection and
-                    // leaves Tailscale/other private-network sessions intact.
-                    MobileHostService.shared.closeAllIrohConnections()
-                    MobileHostService.shared.updateIrohBinding(nil)
-                }
+            handleDeactivation: { [weak self] _ in
+                await self?.handleActiveRuntimeDeactivation(
+                    revision: revision,
+                    stopLANPublication: {
+                        await lanPublisher.stop()
+                    },
+                    clearHostRuntime: {
+                        // The runtime owns the local Mac binding, while admitted
+                        // sessions carry remote iOS binding IDs. Endpoint teardown
+                        // therefore closes every Iroh-authorized connection and
+                        // leaves Tailscale/other private-network sessions intact.
+                        MobileHostService.shared.closeAllIrohConnections()
+                        MobileHostService.shared.updateIrohBinding(nil)
+                    }
+                )
             },
             handleRelayCredential: { [weak self] response, binding in
                 guard await self?.allowsPersistence(

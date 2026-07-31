@@ -269,7 +269,8 @@ public actor CmxIrohHostRuntime {
                     try await relayCoordinator.activate(
                         bindingID: policy.binding.bindingID,
                         endpointIdentity: endpointID,
-                        bootstrap: policy.relayBootstrap
+                        bootstrap: policy.relayBootstrap,
+                        waitForInitialCredential: true
                     )
                 }
                 try requireCurrent(revision)
@@ -411,8 +412,16 @@ public actor CmxIrohHostRuntime {
             await onlineAdmissionRegistry.monitor(
                 onlineLease,
                 connection: connection
-            ) {
-                await session.close()
+            ) { reason in
+                let failure: DiagnosticFailureKind = switch reason {
+                case .leaseExpired:
+                    .admissionLeaseExpired
+                case .denied:
+                    .admissionDenied
+                case .revalidationFailed:
+                    .admissionRevalidationFailed
+                }
+                await session.close(failure: failure)
             }
         }
         let pathConnectionID = UUID()
@@ -595,10 +604,4 @@ public actor CmxIrohHostRuntime {
         )
     }
 
-    static func isConnectivityFailure(_ error: any Error) -> Bool {
-        guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
-            return false
-        }
-        return brokerError == .connectivity
-    }
 }

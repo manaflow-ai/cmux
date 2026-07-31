@@ -215,11 +215,6 @@ public struct CmxIrohLANRendezvous: Codable, Equatable, Sendable {
 
 /// Authenticated registry snapshot used for endpoint discovery and grant verification.
 public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
-    /// Upper bound for one authenticated account snapshot. Production accounts
-    /// remain server-limited to 32; development accounts may use this larger,
-    /// still-bounded snapshot for concurrent tagged builds.
-    public static let maximumBindingCount = 256
-
     public let routeContractVersion: Int
     public let bindings: [CmxIrohBrokerBinding]
     public let relayFleet: [String]
@@ -239,8 +234,7 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
         let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
         let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
         let relayFleet = try container.decode([String].self, forKey: .relayFleet)
-        guard bindings.count <= Self.maximumBindingCount,
-              Set(bindings.map(\.bindingID)).count == bindings.count,
+        guard Set(bindings.map(\.bindingID)).count == bindings.count,
               (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
                   relayFleet.count
               ),
@@ -258,6 +252,20 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
             CmxIrohGrantVerificationKeySet.self,
             forKey: .grantVerificationKeys
         )
+    }
+
+    init(
+        routeContractVersion: Int,
+        bindings: [CmxIrohBrokerBinding],
+        relayFleet: [String],
+        lanRendezvous: CmxIrohLANRendezvous,
+        grantVerificationKeys: CmxIrohGrantVerificationKeySet
+    ) {
+        self.routeContractVersion = routeContractVersion
+        self.bindings = bindings
+        self.relayFleet = relayFleet
+        self.lanRendezvous = lanRendezvous
+        self.grantVerificationKeys = grantVerificationKeys
     }
 
     private static func isCanonicalRelayURL(_ value: String) -> Bool {

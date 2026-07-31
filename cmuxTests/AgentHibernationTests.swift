@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import Bonsplit
@@ -257,6 +258,47 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testClearingMissingSupersededPIDPreservesReplacementLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(
+            key: "omp.current",
+            pid: 12345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .running)
+
+        expectFalse(
+            workspace.clearAgentPID(
+                key: "omp.superseded",
+                panelId: panelId,
+                clearStatus: true,
+                requireOwnedKey: true,
+                refreshPorts: false
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.agentPIDs["omp.current"], 12345)
+    }
+
+    @MainActor
+    @Test
+    func testDetachedAgentRuntimeExcludesWorkspaceManualLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "manual:loader", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .idle)
+
+        let runtime = try #require(workspace.agentRuntimeState(forPanelId: panelId))
+        expectEqual(runtime.agentLifecycleStates["omp"], .idle)
+        expectNil(runtime.agentLifecycleStates["manual:loader"])
+    }
+
+    @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
@@ -323,6 +365,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 12_345
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 42, startMicroseconds: 7)
         let sessionId = "codex-live-hook-pid"
         let jsonObject: [String: Any] = [
             "version": 1,
@@ -333,6 +376,8 @@ struct AgentHibernationTests {
                     "surfaceId": panelId.uuidString,
                     "cwd": "/tmp/repo",
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -363,6 +408,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 
@@ -382,6 +430,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 23_456
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 43, startMicroseconds: 8)
         let sessionId = "claude-node-live-hook-pid"
         let transcriptURL = home
             .appendingPathComponent(".claude/projects/-tmp-repo", isDirectory: true)
@@ -406,6 +455,8 @@ struct AgentHibernationTests {
                     "cwd": "/tmp/repo",
                     "transcriptPath": transcriptURL.path,
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -439,6 +490,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 

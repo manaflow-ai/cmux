@@ -13,16 +13,19 @@ extension MobileChatEventSource {
     ///     keeps the existing visible-screen-plus-scrollback behavior.
     ///   - countOnly: Whether to skip terminal items and return only the bound
     ///     session's complete gallery count when supported.
+    ///   - includeMissing: Whether missing Session rows count toward the result.
     /// - Returns: Capped file references detected by the Mac.
     public func terminalArtifactScan(
         workspaceID: String,
         surfaceID: String,
         visibleOnly: Bool = false,
-        countOnly: Bool = false
+        countOnly: Bool = false,
+        includeMissing: Bool = true
     ) async throws -> TerminalArtifactScanResponse {
         var params: [String: Any] = [
             "workspace_id": workspaceID,
             "surface_id": surfaceID,
+            "include_missing": includeMissing,
         ]
         if visibleOnly {
             params["visible_only"] = true
@@ -39,18 +42,25 @@ extension MobileChatEventSource {
         )
     }
 
+    /// Reads metadata for a file referenced by one terminal surface.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal.
+    ///   - surfaceID: Terminal surface authorizing the file reference.
+    ///   - path: Absolute Mac host path.
     public func terminalArtifactStat(
         workspaceID: String,
         surfaceID: String,
         path: String
     ) async throws -> ChatArtifactStat {
-        try await artifactCall(
+        let params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "path": path,
+        ]
+        return try await artifactCall(
             method: "mobile.terminal.artifact.stat",
-            params: [
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-                "path": path,
-            ]
+            params: params
         )
     }
 

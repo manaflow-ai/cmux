@@ -101,7 +101,12 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
+    // Regression: https://github.com/manaflow-ai/cmux/issues/8938
+    // Install the appearance-resolved config before changing Ghostty's surface
+    // color scheme. Applying the scheme to the stale config can emit its old
+    // background alongside the new config's foreground, producing black text
+    // on a black terminal after a light-appearance reload.
+    func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeColorSchemeAndRedraw() throws {
         let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3851))
         var events: [String] = []
 
@@ -125,8 +130,8 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
-            "color-scheme",
             "reload:appearanceSync:test",
+            "color-scheme",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])
@@ -181,8 +186,8 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
-            "color-scheme",
             "reload:\(GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource)",
+            "color-scheme",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])

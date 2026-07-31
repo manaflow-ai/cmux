@@ -109,9 +109,23 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
             let payload = try store.payload(for: ticket, target: target)
             let attachURL = try #require(payload["attach_url"] as? String)
-            let decoded = try compactTicket(from: attachURL)
+            let decoded: CmxAttachTicket
+            switch target {
+            case .simulatorInjection:
+                #expect(attachURL.contains("?v=1&payload="))
+                decoded = try compactTicket(from: attachURL)
+            case .physicalDevice:
+                #expect(attachURL.contains("?v=3&i="))
+                #expect(!attachURL.contains("payload="))
+                let components = try #require(URLComponents(string: attachURL))
+                decoded = try CmxPairingQRCode().decode(components)
+            case .ticketOnly:
+                Issue.record("Ticket-only target does not produce an attach URL")
+                continue
+            }
             let authToken = try #require(ticket.authToken)
-            #expect(decoded.routes == selectedRoutes)
+            #expect(decoded.routes.count == selectedRoutes.count)
+            #expect(decoded.routes.first?.endpoint == selectedRoutes.first?.endpoint)
             #expect(decoded.authToken == nil)
             #expect(!attachURL.contains("relay.should-not-leak.example"))
             #expect(!attachURL.contains(authToken))
@@ -309,6 +323,53 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             )
             let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
             #expect(error?.code == testCase.expectedCode)
+        }
+    }
+
+    @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+        let requests = [
+            MobileHostRPCRequest(
+                id: "feed-list",
+                method: "notification.feed.list",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-read",
+                method: "notification.feed.mark_read",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-unread",
+                method: "notification.feed.mark_unread",
+                params: ["notification_ids": [UUID().uuidString]],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-mark-all",
+                method: "notification.feed.mark_all_read",
+                params: [:],
+                auth: nil
+            ),
+            MobileHostRPCRequest(
+                id: "feed-events",
+                method: "mobile.events.subscribe",
+                params: ["topics": ["notification.feed.changed"]],
+                auth: nil
+            ),
+        ]
+
+        for request in requests {
+            #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: macWideTicket,
+                    request: request
+                ) == nil
+            )
         }
     }
 

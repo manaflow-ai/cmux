@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 enum RemoteInteractiveShellBootstrapBuilder {
@@ -5,10 +6,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let initialCommandBootstrap = RemoteInitialCommandBootstrap(command: initialCommand)
@@ -29,6 +32,19 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
+        // A captured/approved startup command is an explicit restore target;
+        // it takes precedence over the host's default interactive program.
+        // Launching the configured command with `-c` would bypass the shell
+        // hooks that atomically claim and execute the startup command.
+        let chainedRemoteCommand = terminalProfile.kind == .shell && !initialCommandBootstrap.hasCommand
+            ? configuredRemoteCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        let chainedRemoteCommandLaunch = chainedRemoteCommand.flatMap { command -> String? in
+            guard !command.isEmpty else { return nil }
+            // Match sshd's normal RemoteCommand execution through the account
+            // shell while retaining cmux's persistent-PTY hangup protection.
+            return "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -c \(shellQuote(command))"
+        }
 
         var outerLines: [String] = [
             "mkdir -p \"$HOME/.cmux/relay\"",
@@ -61,6 +77,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines.append(contentsOf: commonShellExportLines)
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
+            "if [ -z \"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}\" ] || [ ! -x \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" ]; then exit 126; fi",
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "  zsh)",
             "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",
@@ -89,7 +106,13 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
+                tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/zsh}\" \"${SHELL:-/bin/zsh}\" -il"
+            ),
             "    ;;",
             "  bash)",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
@@ -110,7 +133,13 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/bash}\" \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
+            ),
             "    ;;",
             "  fish)",
         ]
@@ -119,22 +148,51 @@ enum RemoteInteractiveShellBootstrapBuilder {
         if let initialCommand = initialCommandBootstrap.fishInteractiveShellCommand {
             fishInitCommands.append(initialCommand)
         }
+        let fishInitCommand = shellQuote(fishInitCommands.joined(separator: "; "))
         outerLines += [
             "    export CMUX_FISH_INTEGRATION_FILE=\"$cmux_shell_dir/fish/config.fish\"",
             "    export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1",
-            "    exec \"$CMUX_LOGIN_SHELL\" -il --init-command \(shellQuote(fishInitCommands.joined(separator: "; ")))",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "    ",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/fish}\" \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
+            ),
             "    ;;",
             "  *)",
         ]
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines.append(contentsOf: initialCommandBootstrap.fallbackShellLines)
         outerLines += [
-            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            terminalLaunchLine(
+                profile: terminalProfile,
+                indentation: "",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
+                tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/sh}\" \"${SHELL:-/bin/sh}\" -i"
+            ),
             ";;",
             "esac",
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private static func terminalLaunchLine(
+        profile: WorkspaceRemoteTerminalProfile,
+        indentation: String,
+        directShellCommand: String,
+        tmuxShellCommand: String
+    ) -> String {
+        guard let sessionName = profile.tmuxSessionName else {
+            return indentation + directShellCommand
+        }
+        let command = RemoteTmuxSessionCommandBuilder(
+            sessionName: sessionName,
+            shellCommand: tmuxShellCommand
+        ).remoteShellCommand
+        return indentation + "exec " + command
     }
 
     static func shellFeatures(
@@ -190,6 +248,9 @@ enum RemoteInteractiveShellBootstrapBuilder {
         lines.append(contentsOf: shellExportLines(shellFeatures: shellFeatures))
         lines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         lines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
+        lines.append(
+            "export CMUX_PERSISTENT_PTY_EXEC_HELPER=\"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-$CMUX_BUNDLED_CLI_PATH}\""
+        )
         lines.append("export CMUX_SHELL_INTEGRATION_DIR=\"\(shellStateDir)\"")
         if let relaySocket {
             lines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
@@ -202,7 +263,9 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "case \"$cmux_workspace_id\" in \"\"|'__CMUX_''WORKSPACE_ID__') ;; *) export CMUX_WORKSPACE_ID=\"$cmux_workspace_id\"; export CMUX_TAB_ID=\"$cmux_workspace_id\" ;; esac",
             "cmux_surface_id='__CMUX_SURFACE_ID__'",
             "case \"$cmux_surface_id\" in \"\"|'__CMUX_''SURFACE_ID__') ;; *) export CMUX_SURFACE_ID=\"$cmux_surface_id\"; export CMUX_PANEL_ID=\"$cmux_surface_id\" ;; esac",
-            "unset cmux_workspace_id cmux_surface_id",
+            "cmux_terminal_lifecycle_id='__CMUX_TERMINAL_LIFECYCLE_ID__'",
+            "case \"$cmux_terminal_lifecycle_id\" in \"\"|'__CMUX_''TERMINAL_LIFECYCLE_ID__') ;; *) export CMUX_TERMINAL_LIFECYCLE_ID=\"$cmux_terminal_lifecycle_id\" ;; esac",
+            "unset cmux_workspace_id cmux_surface_id cmux_terminal_lifecycle_id",
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])

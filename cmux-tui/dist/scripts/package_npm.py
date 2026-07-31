@@ -25,13 +25,13 @@ TARGETS = [
         "cpu": "x64",
     },
     {
-        "rust_target": "x86_64-unknown-linux-gnu",
+        "rust_target": "x86_64-unknown-linux-musl",
         "package": "cmux-tui-linux-x64",
         "os": "linux",
         "cpu": "x64",
     },
     {
-        "rust_target": "aarch64-unknown-linux-gnu",
+        "rust_target": "aarch64-unknown-linux-musl",
         "package": "cmux-tui-linux-arm64",
         "os": "linux",
         "cpu": "arm64",

@@ -57,6 +57,8 @@ extension ControlCommandCoordinator {
             return surfaceSendKey(request.params, context: context)
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
+        case "surface.report_git_branch": return surfaceReportGitBranch(request.params)
+        case "surface.clear_git_branch": return surfaceClearGitBranch(request.params)
         case "surface.report_shell_state":
             return surfaceReportShellState(request.params)
         case "surface.ports_kick":
@@ -167,6 +169,16 @@ extension ControlCommandCoordinator {
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                }
+                if surface.typeRawValue == "simulator" {
+                    item["simulator_id"] = orNull(surface.simulatorDeviceID)
+                    item["runtime_id"] = orNull(surface.simulatorRuntimeIdentifier)
+                    item["device_type_id"] = orNull(surface.simulatorDeviceTypeIdentifier)
+                    item["device_name"] = orNull(surface.simulatorDeviceName)
+                    item["state"] = orNull(surface.simulatorDeviceState)
+                }
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
                 }
                 return .object(item)
             }

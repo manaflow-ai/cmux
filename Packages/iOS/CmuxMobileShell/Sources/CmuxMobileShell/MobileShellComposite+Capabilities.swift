@@ -1,6 +1,35 @@
 extension MobileShellComposite {
+    /// Whether the connected Mac supports browser-pane streaming.
+    public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
+    /// Whether the connected Mac can reflow a browser stream to the phone viewport.
+    public var supportsBrowserStreamViewport: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamViewportCapability)
+    }
+    /// Whether the connected Mac supports native browser dialog mirroring.
+    public var supportsBrowserStreamDialogs: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
+    }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
+
+    /// Whether the connected Mac supports workspace changes summaries and diffs.
+    public var workspaceChangesCapable: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
+
+    /// Verified render-grid sessions present only Mac-ordered terminal state.
+    public var usesVerifiedTerminalReplay: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+    }
+
+    /// Screen-anchored render-grid sessions receive active-area-anchored
+    /// frames whose deltas carry exact scrolled-row counts, so this device
+    /// keeps a deep local scrollback and scrolls the primary screen locally
+    /// (no per-scroll round trip to the Mac). Full replays still flow through
+    /// the verified pipeline when the host supports it.
+    public var usesScreenAnchoredRenderGrid: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability)
+    }
 
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }

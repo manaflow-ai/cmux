@@ -16,6 +16,7 @@ on:
           - all
           - automatic
           - relay-only
+          - relay-expiry
           - direct-only
           - private-path
 
@@ -58,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
+        mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 120
     steps:
@@ -78,13 +79,13 @@ jobs:
           xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
 
       - name: Install app build dependencies
-        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' }}
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
         run: |
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize isolated staging account
-        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' }}
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -105,6 +106,7 @@ jobs:
           case "${{ matrix.mode }}" in
             automatic) TAG=irgaut ;;
             relay-only) TAG=irgrel ;;
+            relay-expiry) TAG=irgexp ;;
             direct-only) TAG=irgdir ;;
             private-path) TAG=irgprv ;;
           esac
