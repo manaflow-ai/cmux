@@ -27,7 +27,7 @@ public struct CmxConnectivityInvalidation: Equatable, Sendable {
     /// Strictly parses the small, enumerable invalidation wire shape.
     public static func parse(_ data: Data) throws -> Self {
         guard !data.isEmpty, data.count <= maximumFrameBytes,
-              let object = try JSONSerialization.jsonObject(with: data)
+              let object = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any],
               Set(object.keys) == Set(["type", "protocolVersion", "revision", "at"]),
               let wire = try? JSONDecoder().decode(Wire.self, from: data),

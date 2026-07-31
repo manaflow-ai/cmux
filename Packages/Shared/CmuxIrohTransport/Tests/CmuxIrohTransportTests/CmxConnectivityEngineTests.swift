@@ -112,7 +112,9 @@ struct CmxConnectivityEngineTests {
 
         await firstEndpoint.emit(.closedUnexpectedly)
         try await Self.waitUntil {
-            await engine.snapshot().endpointGeneration == 2
+            let snapshot = await engine.snapshot()
+            return snapshot.endpointGeneration == 2
+                && snapshot.phase != .starting
         }
 
         let snapshot = await engine.snapshot()
@@ -237,7 +239,7 @@ private actor InitialThenFailingConnectivityAuthority: CmxConnectivityAuthorityS
         if knownRevision == nil {
             return initial
         }
-        throw URLError(.notConnectedToInternet)
+        throw CmxIrohTrustBrokerClientError.connectivity
     }
 
     func callCount() -> Int { calls }

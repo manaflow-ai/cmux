@@ -106,11 +106,11 @@ describe("Iroh route boundary", () => {
 
   test("returns a committed mutation before deferred invalidation delivery settles", async () => {
     let releasePublication: (() => void) | undefined;
-    let scheduleAfterResponse:
-      | ((operation: () => Promise<void>) => void)
+    let scheduledPublication:
+      | (() => Promise<void>)
       | undefined;
     const publicationGate = new Promise<void>((resolve) => {
-      releasePublication = resolve;
+      releasePublication = () => resolve();
     });
     let responseSettled = false;
     const responsePromise = handleIrohRoute(
@@ -123,20 +123,25 @@ describe("Iroh route boundary", () => {
           await publicationGate;
         },
         scheduleAfterResponse: (operation: () => Promise<void>) => {
-          scheduleAfterResponse = operation;
+          scheduledPublication = operation;
         },
-      } as Parameters<typeof handleIrohRoute>[2],
+      },
     ).then((response) => {
       responseSettled = true;
       return response;
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
-    const settledBeforePublication = responseSettled;
+    const responseBeforeTimeout = await Promise.race([
+      responsePromise,
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 100);
+      }),
+    ]);
+    const settledBeforePublication = responseSettled
+      && responseBeforeTimeout !== null;
     releasePublication?.();
-    await scheduleAfterResponse?.();
-    const response = await responsePromise;
+    await scheduledPublication?.();
+    const response = responseBeforeTimeout ?? await responsePromise;
 
     expect(settledBeforePublication).toBe(true);
     expect(response.status).toBe(201);

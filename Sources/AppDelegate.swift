@@ -527,6 +527,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.cachedIsRunningUnderXCTest
     }
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let connectivityInvalidationSubscriberCoordinator =
+        ConnectivityInvalidationSubscriberCoordinator()
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
@@ -2082,7 +2084,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
-        ConnectivityInvalidationSubscriberCoordinator.shared.appWillTerminate()
+        connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -2138,7 +2140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        ConnectivityInvalidationSubscriberCoordinator.shared.configure(auth: auth.coordinator)
+        connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.

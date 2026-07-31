@@ -765,6 +765,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tracking it separately from `remoteClient` lets a newer connect retire
     /// the exact candidate that still owns a physical-route lease.
     private var connectionAttemptClient: MobileCoreRPCClient?
+    /// Owns asynchronous transport cleanup until each retired client confirms
+    /// it transferred its route lease to the bounded registry cleanup path.
+    private var clientDisconnectTasks: [UUID: Task<Void, Never>] = [:]
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -8556,7 +8559,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         if let attemptClient =
             replaceConnectionAttemptClientOwnership(with: nil) {
-            Task { await attemptClient.disconnect() }
+            scheduleClientDisconnect(attemptClient)
         }
         replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
@@ -8591,7 +8594,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// previous one so we don't leak a persistent transport.
     func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         if let previous = replaceRemoteClientOwnership(with: newValue) {
-            Task { await previous.disconnect() }
+            scheduleClientDisconnect(previous)
         }
     }
 
@@ -8645,6 +8648,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return previous !== newValue ? previous : nil
     }
 
+    private func scheduleClientDisconnect(_ client: MobileCoreRPCClient) {
+        let id = UUID()
+        clientDisconnectTasks[id] = Task { @MainActor [weak self] in
+            await client.disconnect()
+            self?.clientDisconnectTasks[id] = nil
+        }
+    }
+
     /// Publish one remote-client ownership change synchronously. Callers choose
     /// whether teardown registration is fire-and-forget or an awaited handoff.
     private func replaceRemoteClientOwnership(
@@ -8695,7 +8706,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         displaced.detachKeepingClient()
         guard displaced.client !== connection.client else { return }
         displaced.client.retire()
-        Task { await displaced.client.disconnect() }
+        scheduleClientDisconnect(displaced.client)
     }
 
     /// Atomically demote exactly the focused client that completed the terminal

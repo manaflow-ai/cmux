@@ -44,12 +44,12 @@ describe("isConnectivityPublisherAuthorized", () => {
     },
   );
 
-  it("requires the exact server-only capability", () => {
-    expect(isConnectivityPublisherAuthorized(request(secret), secret)).toBe(true);
-    expect(isConnectivityPublisherAuthorized(request("b".repeat(64)), secret)).toBe(false);
-    expect(isConnectivityPublisherAuthorized(request(), secret)).toBe(false);
-    expect(isConnectivityPublisherAuthorized(request(secret), undefined)).toBe(false);
-    expect(isConnectivityPublisherAuthorized(request("short"), "short")).toBe(false);
+  it("requires the exact server-only capability", async () => {
+    expect(await isConnectivityPublisherAuthorized(request(secret), secret)).toBe(true);
+    expect(await isConnectivityPublisherAuthorized(request("b".repeat(64)), secret)).toBe(false);
+    expect(await isConnectivityPublisherAuthorized(request(), secret)).toBe(false);
+    expect(await isConnectivityPublisherAuthorized(request(secret), undefined)).toBe(false);
+    expect(await isConnectivityPublisherAuthorized(request("short"), "short")).toBe(false);
   });
 });
 

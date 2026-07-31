@@ -3,7 +3,8 @@ public import Foundation
 
 /// Generation-scoped accept loop with bounded, timed admission work.
 public actor CmxIrohEndpointServer {
-    private static let acceptRetryDelay: TimeInterval = 0.1
+    private static let initialAcceptRetryDelay: TimeInterval = 0.1
+    private static let maximumAcceptRetryDelay: TimeInterval = 5
 
     public typealias ConnectionHandler = @Sendable (
         _ connection: any CmxIrohConnection,
@@ -174,9 +175,11 @@ public actor CmxIrohEndpointServer {
         endpoint: any CmxIrohEndpoint,
         generation: UInt64
     ) async {
+        var consecutiveFailures = 0
         while !Task.isCancelled, currentGeneration == generation {
             do {
                 guard let connection = try await endpoint.accept() else { return }
+                consecutiveFailures = 0
                 guard currentGeneration == generation else {
                     await connection.close(errorCode: 1, reason: "stale_generation")
                     return
@@ -189,8 +192,14 @@ public actor CmxIrohEndpointServer {
                 do {
                     let snapshot = try await recoverEndpoint(generation)
                     guard snapshot.runtimeGeneration == generation else { return }
+                    let retryDelay = min(
+                        Self.initialAcceptRetryDelay
+                            * pow(2, Double(consecutiveFailures)),
+                        Self.maximumAcceptRetryDelay
+                    )
+                    consecutiveFailures = min(consecutiveFailures + 1, 20)
                     try await clock.sleep(
-                        until: clock.now().addingTimeInterval(Self.acceptRetryDelay)
+                        until: clock.now().addingTimeInterval(retryDelay)
                     )
                 } catch {
                     return

@@ -132,14 +132,8 @@ struct CmxIrohEndpointServerTests {
         await clock.waitUntilSleeping()
         let secondDeadline = try #require(await clock.lastDeadline())
 
-        #expect(
-            firstDeadline
-                == Date(timeIntervalSince1970: 1_800_000_000.1)
-        )
-        #expect(
-            secondDeadline
-                == Date(timeIntervalSince1970: 1_800_000_000.2)
-        )
+        #expect(abs(firstDeadline.timeIntervalSince1970 - 1_800_000_000.1) < 0.000_1)
+        #expect(abs(secondDeadline.timeIntervalSince1970 - 1_800_000_000.2) < 0.000_1)
         await server.stop()
         await supervisor.deactivate()
     }
