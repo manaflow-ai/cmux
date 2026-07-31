@@ -15,6 +15,7 @@ mock.module("next-intl/server", () => ({
 }));
 
 const { default: AppProWelcomePage } = await import("../app/app-pro-welcome/page");
+const AppProWelcomeLayoutModule = await import("../app/app-pro-welcome/layout");
 
 describe("app pro welcome page", () => {
   test("keeps client navigation components importable after installing the navigation mock", async () => {
@@ -81,6 +82,29 @@ describe("app pro welcome page", () => {
         'href="/fr/dashboard?cmux_open_in_browser=split-right"',
       );
       expect(html).not.toContain('target="_blank"');
+    } finally {
+      activeLocale = "en";
+    }
+  });
+
+  test("uses the active web locale for the Pro welcome metadata", async () => {
+    activeLocale = "fr";
+    try {
+      const generateMetadata = (
+        AppProWelcomeLayoutModule as {
+          generateMetadata?: () => Promise<{
+            title?: unknown;
+            description?: unknown;
+          }>;
+        }
+      ).generateMetadata;
+      expect(typeof generateMetadata).toBe("function");
+      if (!generateMetadata) throw new Error("generateMetadata is missing");
+
+      const metadata = await generateMetadata();
+
+      expect(metadata.title).toBe("Bienvenue dans cmux Pro");
+      expect(metadata.description).toContain("L’accès au cloud arrive bientôt");
     } finally {
       activeLocale = "en";
     }

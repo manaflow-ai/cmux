@@ -12,6 +12,69 @@ import WebKit
 @Suite(.serialized)
 struct BrowserEphemeralRestorationTests {
     @Test
+    func dockBrowserInstallsAppLinkHandoffAction() {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        let panel = dock.makeBrowserPanel(
+            url: URL(string: "https://cmux.test/app-pro-welcome")
+        )
+        defer { panel.close() }
+
+        #expect(panel.openAppLinkInBrowserSplit != nil)
+    }
+
+    @Test
+    func attachingMovedBrowserRebindsAppLinkHandoffAction() throws {
+        let sourceDock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        sourceDock.hasLoadedConfiguration = true
+        let sourcePaneID = try #require(
+            sourceDock.bonsplitController.allPaneIds.first
+        )
+        let panelID = try #require(sourceDock.newSurface(
+            kind: .browser,
+            inPane: sourcePaneID,
+            url: URL(string: "https://cmux.test/app-pro-welcome"),
+            focus: false
+        ))
+        let panel = try #require(sourceDock.browserPanel(for: panelID))
+        let detached = try #require(sourceDock.detachSurface(panelId: panelID))
+        var staleHandlerCalled = false
+        panel.openAppLinkInBrowserSplit = { _ in
+            staleHandlerCalled = true
+            return false
+        }
+
+        let destinationDock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { false }
+        )
+        destinationDock.hasLoadedConfiguration = true
+        defer { destinationDock.closeAllPanels() }
+        let destinationPaneID = try #require(
+            destinationDock.bonsplitController.allPaneIds.first
+        )
+        _ = try #require(destinationDock.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        ))
+
+        _ = panel.openAppLinkInBrowserSplit?(
+            URL(string: "https://cmux.test/dashboard/testflight")!
+        )
+
+        #expect(!staleHandlerCalled)
+    }
+
+    @Test
     func explicitEphemeralPanelDoesNotUsePersistentProfileHistory() throws {
         let profileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let persistentStore = BrowserProfileStore.shared.historyStore(for: profileID)
