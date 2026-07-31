@@ -139,6 +139,23 @@ final class TerminalNotificationPolicyInFlightStore {
         identities.forEach(drainCompletedRequests)
     }
 
+    /// A synchronous delivery is newer than every policy request already
+    /// parked for the same visible destination. Cancel those older requests
+    /// before applying the synchronous value so their later completions cannot
+    /// roll the destination back.
+    func discardPending(forDeliveryIdentityOf request: TerminalNotificationPolicyRequest) {
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(
+            request: request
+        )
+        let idsToDiscard = requests.compactMap { id, entry in
+            entry.deliveryIdentity == deliveryIdentity ? id : nil
+        }
+        for id in idsToDiscard {
+            _ = discardRequest(id)
+        }
+        drainCompletedRequests(for: deliveryIdentity)
+    }
+
     /// Moves pending trusted-local work with the surface so O(1) unread and
     /// dismissal gates always reflect the workspace that currently owns it.
     func rebindSurface(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {

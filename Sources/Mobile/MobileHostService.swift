@@ -260,6 +260,8 @@ final class MobileHostService {
         additionalCapabilities: Set<String> = [],
         phonePushDefaults: UserDefaults = .standard,
         phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown,
         phonePushAPIBaseURL: URL = AuthEnvironment.vmAPIBaseURL,
         now: Date = Date()
     ) -> [String: Any] {
@@ -281,6 +283,7 @@ final class MobileHostService {
             ),
             "mode": PhoneForwardingMode.fromDefaults(phonePushDefaults).rawValue,
             "admission": phonePushAdmission.rawValue,
+            "queue_persistence": phonePushQueuePersistenceStatus.rawValue,
             "hide_content": phonePushDefaults.bool(
                 forKey: PhonePushSettings.hideContentKey
             ),
@@ -348,12 +351,16 @@ final class MobileHostService {
         guard verified else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
-        let admission = await MainActor.run {
-            PhonePushClient.shared.currentAdmission()
+        let phonePushStatus = await MainActor.run {
+            (
+                PhonePushClient.shared.currentAdmission(),
+                PhonePushClient.shared.queuePersistenceStatus
+            )
         }
         return MobileHostPublicStatusCache.result(
             includeIdentity: true,
-            phonePushAdmission: admission
+            phonePushAdmission: phonePushStatus.0,
+            phonePushQueuePersistenceStatus: phonePushStatus.1
         )
     }
 
@@ -1338,15 +1345,19 @@ final class MobileHostService {
         case .stackBearer:
             return await stackStatus(request)
         case .irohAdmission:
-            let admission = await MainActor.run {
-                PhonePushClient.shared.currentAdmission()
+            let phonePushStatus = await MainActor.run {
+                (
+                    PhonePushClient.shared.currentAdmission(),
+                    PhonePushClient.shared.queuePersistenceStatus
+                )
             }
             return MobileHostPublicStatusCache.result(
                 includeIdentity: true,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
                     : Set(),
-                phonePushAdmission: admission
+                phonePushAdmission: phonePushStatus.0,
+                phonePushQueuePersistenceStatus: phonePushStatus.1
             )
         }
     }

@@ -105,6 +105,9 @@ public final class AuthCoordinator {
     @ObservationIgnored var signOutEpoch: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
     @ObservationIgnored var signInAttemptCounter: UInt64 = 0
+    @ObservationIgnored var authenticatedSessionIdentityContinuations: [
+        UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
+    ] = [:]
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -154,6 +157,7 @@ public final class AuthCoordinator {
 
     private func finishSignInFlow(_ flow: SignInFlowContext) {
         activeSignInFlows[flow.attempt] = nil
+        publishAuthenticatedSessionIdentity()
     }
 
     /// Creates an auth coordinator.
@@ -500,6 +504,7 @@ public final class AuthCoordinator {
         // the local clear below).
         sessionGeneration &+= 1
         signOutEpoch &+= 1
+        publishAuthenticatedSessionIdentity()
         await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
 
         // Capture the teardown credentials with raw stored reads (no refresh,
@@ -621,6 +626,7 @@ public final class AuthCoordinator {
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
+        publishAuthenticatedSessionIdentity()
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams(generation: generation)
@@ -711,6 +717,7 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
+        publishAuthenticatedSessionIdentity()
     }
 
     func clearPersistedAuthForUITest() async {
@@ -742,6 +749,7 @@ public final class AuthCoordinator {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
         isRestoringSession = state.isRestoringSession
+        publishAuthenticatedSessionIdentity()
     }
 
     func loadCachedUser() -> CMUXAuthUser? {

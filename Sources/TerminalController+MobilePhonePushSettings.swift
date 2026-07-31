@@ -61,41 +61,16 @@ extension TerminalController {
             )
         }
 
-        if let forwardingEnabled {
-            defaults.set(
-                forwardingEnabled,
-                forKey: PhonePushSettings.forwardEnabledKey
-            )
-        }
-        if let hideContent {
-            defaults.set(
-                hideContent,
-                forKey: PhonePushSettings.hideContentKey
-            )
-        }
-        if let mode {
-            defaults.set(
-                mode.rawValue,
-                forKey: PhonePushSettings.forwardModeKey
-            )
-        }
-
-        NotificationCenter.default.post(
-            name: .mobileHostStatusDidChange,
-            object: nil
-        )
-        MobileHostService.emitEvent(
-            topic: "phone_push.status.changed",
-            payload: [:]
+        let configuration = PhonePushClient.shared.updateSettings(
+            forwardingEnabled: forwardingEnabled,
+            mode: mode,
+            hideContent: hideContent,
+            defaults: defaults
         )
         return .ok([
-            "forwarding_enabled": defaults.bool(
-                forKey: PhonePushSettings.forwardEnabledKey
-            ),
-            "mode": PhoneForwardingMode.fromDefaults(defaults).rawValue,
-            "hide_content": defaults.bool(
-                forKey: PhonePushSettings.hideContentKey
-            ),
+            "forwarding_enabled": configuration.forwardingEnabled,
+            "mode": configuration.mode.rawValue,
+            "hide_content": configuration.hideContent,
         ])
     }
 }
