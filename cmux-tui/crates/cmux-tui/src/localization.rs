@@ -258,6 +258,91 @@ impl RuntimeMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RemoteClientMessages {
+    pub connect_help: &'static str,
+    pub ssh_help: &'static str,
+    pub forward_help: &'static str,
+    pub rpc_help: &'static str,
+    pub enroll_help: &'static str,
+    pub known_daemons_help: &'static str,
+    pub command_help: &'static str,
+    option_needs_value: &'static str,
+    invalid_option_value: &'static str,
+    option_must_be_positive: &'static str,
+    unknown_option: &'static str,
+    unknown_option_for_command: &'static str,
+    option_once: &'static str,
+    unknown_action: &'static str,
+    enroll_arity: &'static str,
+    option_create_only: &'static str,
+    pub inline_invitation_rejected: &'static str,
+    pub inline_relay_ticket_rejected: &'static str,
+    pub inline_enroll_relay_ticket_rejected: &'static str,
+    pub relay_command_arg_order: &'static str,
+    pub positional_invitation_rejected: &'static str,
+    pub connect_one_route: &'static str,
+    pub reconnect_policy_invalid: &'static str,
+    pub upgrade_no_install: &'static str,
+    pub json_requires_headless: &'static str,
+    pub help_invalid_options: &'static str,
+    pub ssh_destination_required: &'static str,
+    pub ssh_destination_invalid: &'static str,
+    pub forward_workspace_required: &'static str,
+    pub forward_port_required: &'static str,
+    pub rpc_request_invalid: &'static str,
+    pub rpc_input_invalid: &'static str,
+    rpc_stdin_too_large: &'static str,
+    pub rpc_stdin_invalid_utf8: &'static str,
+    pub known_forget_arity: &'static str,
+}
+
+impl RemoteClientMessages {
+    pub(crate) fn option_needs_value(&self, option: &str) -> String {
+        self.option_needs_value.replace("{option}", option)
+    }
+
+    pub(crate) fn invalid_option_value(&self, option: &str, expected: &str) -> String {
+        self.invalid_option_value.replace("{option}", option).replace("{expected}", expected)
+    }
+
+    pub(crate) fn option_must_be_positive(&self, option: &str) -> String {
+        self.option_must_be_positive.replace("{option}", option)
+    }
+
+    pub(crate) fn unknown_option(&self, option: &str) -> String {
+        self.unknown_option.replace("{option}", &format!("{option:?}"))
+    }
+
+    pub(crate) fn unknown_option_for_command(&self, option: &str, command: &str) -> String {
+        self.unknown_option_for_command
+            .replace("{option}", &format!("{option:?}"))
+            .replace("{command}", command)
+    }
+
+    pub(crate) fn option_once(&self, option: &str) -> String {
+        self.option_once.replace("{option}", option)
+    }
+
+    pub(crate) fn unknown_action(&self, command: &str, action: &str) -> String {
+        self.unknown_action
+            .replace("{command}", command)
+            .replace("{action}", &format!("{action:?}"))
+    }
+
+    pub(crate) fn enroll_arity(&self, action: &str, expected: usize) -> String {
+        self.enroll_arity.replace("{action}", action).replace("{expected}", &expected.to_string())
+    }
+
+    pub(crate) fn option_create_only(&self, option: &str) -> String {
+        self.option_create_only.replace("{option}", option)
+    }
+
+    pub(crate) fn rpc_stdin_too_large(&self, maximum: usize) -> String {
+        self.rpc_stdin_too_large.replace("{maximum}", &maximum.to_string())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RemoteMessages {
     pub remote_stop_help: &'static str,
     remote_stop_unknown_option: &'static str,
@@ -559,6 +644,7 @@ pub(crate) struct Catalog {
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
+    pub remote_client: RemoteClientMessages,
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
@@ -714,6 +800,121 @@ edits shell files. Authenticate with the configured host before retrying.
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
+    },
+    remote_client: RemoteClientMessages {
+        connect_help: r#"USAGE: cmux-tui connect [ROUTE] [OPTIONS]
+
+ROUTES:
+  unix:///ABSOLUTE/PATH | ssh://[USER@]HOST[:PORT] | ws:// | wss:// | iroh://
+  relay+ws:// | relay+wss:// | relay+https:// | relay+do://
+
+IDENTITY AND SESSION:
+  --invite-file PATH|-  --daemon FINGERPRINT
+  --device-name NAME  --session NAME
+  --state-dir PATH  --local-socket PATH  --headless [--json]
+
+  --invite-file avoids exposing the single-use invitation in process arguments.
+  Regular files must be owner-only; - reads one line from stdin.
+
+TRANSPORT:
+  --lanes auto|single|isolated  --connect-timeout-seconds N
+  For one explicit relay route, --relay-slot SLOT with either
+    --relay-ticket-file PATH or --relay-ticket-command PROGRAM.
+  For fallbacks, repeat up to four --relay-route ROUTE, --relay-slot SLOT,
+    and credential-source groups in occurrence order.
+  --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
+  --iroh-path auto|direct-only|relay-only
+  --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --remote-state-dir PATH for a non-default daemon state directory
+  --upgrade explicitly replaces an SSH-managed remote sidecar after installing
+    the pinned binary; terminal panes survive, while remote RPC state resets
+
+RECONNECT:
+  --reconnect-attempts N|unlimited  --reconnect-initial-ms MS
+  --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
+  --reconnect-jitter full|none  --heartbeat-interval-ms MS
+  --heartbeat-timeout-ms MS
+"#,
+        ssh_help: r#"USAGE: cmux-tui ssh [USER@]HOST[:PORT] [OPTIONS]
+
+Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
+to multiple carriers. The remote binary is probed and, unless --no-install is
+set, installed into the user account when missing or incompatible.
+
+OPTIONS:
+  --session NAME  --lanes single|auto|isolated  --headless [--json]
+  --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --remote-state-dir PATH for a non-default daemon state directory
+  --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
+    survive, remote clients and forwards disconnect, RPC processes stop, and
+    other RPC resources reset
+  --state-dir PATH  --local-socket PATH  --connect-timeout-seconds N
+  --reconnect-attempts N|unlimited  --reconnect-initial-ms MS
+  --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
+  --reconnect-jitter full|none  --heartbeat-interval-ms MS
+  --heartbeat-timeout-ms MS
+"#,
+        forward_help: r#"USAGE: cmux-tui forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
+
+OPTIONS:
+  --host HOST  --listen ADDR  --scheme http|https
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux-tui connect` are also accepted.
+"#,
+        rpc_help: r#"USAGE: cmux-tui rpc [ROUTE] [OPTIONS]
+
+Reads one WorkspaceRequest JSON object per stdin line and writes one response
+per line. --request JSON sends one request and exits.
+
+OPTIONS:
+  --request WORKSPACE_REQUEST_JSON
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux-tui connect` are also accepted.
+"#,
+        enroll_help: r#"USAGE: cmux-tui enroll ACTION [OPTIONS]
+
+ACTIONS:
+  status | create | pending | approve ID | deny ID | devices | connections
+  revoke DEVICE_ID | disconnect DEVICE_ID SESSION_ID | connect ROUTE
+
+OPTIONS:
+  --session NAME  --state-dir PATH  --admin-socket PATH  --json
+  create: --ttl SECONDS  --advertise ROUTE
+  create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
+    --relay-ticket-file PATH, in occurrence order,
+    for up to two relay fallbacks
+  connect accepts every option documented by `cmux-tui connect`.
+"#,
+        known_daemons_help: "USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]\n       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+        command_help: "USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>\n\nRun `cmux-tui COMMAND --help` for command-specific routes and options.\n",
+        option_needs_value: "{option} needs a value",
+        invalid_option_value: "{option} has an invalid value; expected {expected}",
+        option_must_be_positive: "{option} must be positive",
+        unknown_option: "unknown option {option}",
+        unknown_option_for_command: "unknown option {option} for {command}",
+        option_once: "{option} may only be specified once",
+        unknown_action: "unknown {command} action {action}",
+        enroll_arity: "enroll {action} expects exactly {expected} positional arguments",
+        option_create_only: "{option} is only valid for enroll create",
+        inline_invitation_rejected: "inline invitations are not accepted; use --invite-file or stdin",
+        inline_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command",
+        inline_enroll_relay_ticket_rejected: "inline relay tickets are not accepted; use --relay-ticket-file",
+        relay_command_arg_order: "--relay-ticket-command-arg must follow --relay-ticket-command",
+        positional_invitation_rejected: "positional invitations are not accepted; use --invite-file or stdin",
+        connect_one_route: "connect accepts one route",
+        reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
+        upgrade_no_install: "--upgrade cannot be combined with --no-install",
+        json_requires_headless: "--json requires --headless for connect and ssh",
+        help_invalid_options: "help cannot be combined with invalid connect options",
+        ssh_destination_required: "ssh expects the destination before options",
+        ssh_destination_invalid: "invalid SSH destination",
+        forward_workspace_required: "forward needs --workspace-root on the daemon",
+        forward_port_required: "forward needs --port",
+        rpc_request_invalid: "--request is not a WorkspaceRequest JSON object",
+        rpc_input_invalid: "invalid WorkspaceRequest",
+        rpc_stdin_too_large: "RPC stdin line exceeds {maximum} bytes",
+        rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
+        known_forget_arity: "known-daemons forget expects exactly one fingerprint",
     },
     remote: RemoteMessages {
         remote_stop_help: "USAGE: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
@@ -1018,6 +1219,118 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
+    },
+    remote_client: RemoteClientMessages {
+        connect_help: r#"使用方法: cmux-tui connect [ルート] [オプション]
+
+ルート:
+  unix:///絶対パス | ssh://[ユーザー@]ホスト[:ポート] | ws:// | wss:// | iroh://
+  relay+ws:// | relay+wss:// | relay+https:// | relay+do://
+
+ID とセッション:
+  --invite-file パス|-  --daemon フィンガープリント
+  --device-name 名前  --session 名前
+  --state-dir パス  --local-socket パス  --headless [--json]
+
+  --invite-file は一回限りの招待をプロセス引数に公開しません。
+  通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
+
+トランスポート:
+  --lanes auto|single|isolated  --connect-timeout-seconds 秒数
+  単一の明示的なリレールートでは --relay-slot スロットと、
+    --relay-ticket-file パスまたは --relay-ticket-command プログラムを指定します。
+  代替ルートでは --relay-route、--relay-slot、認証情報の組を出現順に最大 4 回指定します。
+  --relay-ticket-command-arg 引数  --iroh-relay URL  --iroh-address アドレス
+  --iroh-path auto|direct-only|relay-only
+  --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
+    ターミナルペインは維持され、リモート RPC 状態はリセットされます。
+
+再接続:
+  --reconnect-attempts 回数|unlimited  --reconnect-initial-ms ミリ秒
+  --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
+  --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
+  --heartbeat-timeout-ms ミリ秒
+"#,
+        ssh_help: r#"使用方法: cmux-tui ssh [ユーザー@]ホスト[:ポート] [オプション]
+
+直接 SSH は既定で 1 本の搬送接続を使用します。複数接続を使うには
+--lanes auto または isolated を指定します。リモートバイナリを確認し、
+--no-install がなければ未導入または非互換時にユーザー領域へインストールします。
+
+オプション:
+  --session 名前  --lanes single|auto|isolated  --headless [--json]
+  --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
+  --upgrade は SSH 管理のサイドカーを明示的に置換します。ターミナルペインは維持され、
+    リモートクライアントと転送は切断され、RPC プロセスなどの状態はリセットされます。
+  --state-dir パス  --local-socket パス  --connect-timeout-seconds 秒数
+  --reconnect-attempts 回数|unlimited  --reconnect-initial-ms ミリ秒
+  --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
+  --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
+  --heartbeat-timeout-ms ミリ秒
+"#,
+        forward_help: r#"使用方法: cmux-tui forward [ルート] --workspace-root パス --port ポート [オプション]
+
+オプション:
+  --host ホスト  --listen アドレス  --scheme http|https
+  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+"#,
+        rpc_help: r#"使用方法: cmux-tui rpc [ルート] [オプション]
+
+標準入力の各行から WorkspaceRequest JSON を 1 件読み、応答を 1 行出力します。
+--request JSON は 1 件を送信して終了します。
+
+オプション:
+  --request WORKSPACE_REQUEST_JSON
+  `cmux-tui connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+"#,
+        enroll_help: r#"使用方法: cmux-tui enroll 操作 [オプション]
+
+操作:
+  status | create | pending | approve ID | deny ID | devices | connections
+  revoke DEVICE_ID | disconnect DEVICE_ID SESSION_ID | connect ルート
+
+オプション:
+  --session 名前  --state-dir パス  --admin-socket パス  --json
+  create: --ttl 秒数  --advertise ルート
+  create のリレーアクセスでは --relay-route、--relay-slot、
+    --relay-ticket-file の組を出現順に最大 2 回指定します。
+  connect では `cmux-tui connect` の全オプションを使用できます。
+"#,
+        known_daemons_help: "使用方法: cmux-tui known-daemons [list] [--state-dir パス] [--json]\n          cmux-tui known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+        command_help: "使用方法: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <オプション>\n\nコマンド別のルートとオプションは `cmux-tui コマンド --help` で表示します。\n",
+        option_needs_value: "{option} には値が必要です",
+        invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
+        option_must_be_positive: "{option} には正の値を指定してください",
+        unknown_option: "不明なオプションです: {option}",
+        unknown_option_for_command: "{command} の不明なオプションです: {option}",
+        option_once: "{option} は 1 回だけ指定できます",
+        unknown_action: "不明な {command} 操作です: {action}",
+        enroll_arity: "enroll {action} には位置引数をちょうど {expected} 個指定してください",
+        option_create_only: "{option} は enroll create でのみ使用できます",
+        inline_invitation_rejected: "招待を引数へ直接指定できません。--invite-file または標準入力を使用してください",
+        inline_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file または --relay-ticket-command を使用してください",
+        inline_enroll_relay_ticket_rejected: "リレーチケットを引数へ直接指定できません。--relay-ticket-file を使用してください",
+        relay_command_arg_order: "--relay-ticket-command-arg は --relay-ticket-command の後に指定してください",
+        positional_invitation_rejected: "招待を位置引数へ指定できません。--invite-file または標準入力を使用してください",
+        connect_one_route: "connect に指定できるルートは 1 つです",
+        reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
+        upgrade_no_install: "--upgrade と --no-install は同時に指定できません",
+        json_requires_headless: "connect と ssh で --json を使うには --headless が必要です",
+        help_invalid_options: "ヘルプと無効な connect オプションは同時に指定できません",
+        ssh_destination_required: "ssh の接続先をオプションより前に指定してください",
+        ssh_destination_invalid: "SSH の接続先が無効です",
+        forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
+        forward_port_required: "forward には --port が必要です",
+        rpc_request_invalid: "--request は WorkspaceRequest JSON オブジェクトではありません",
+        rpc_input_invalid: "WorkspaceRequest が無効です",
+        rpc_stdin_too_large: "RPC 標準入力の 1 行が {maximum} バイトの上限を超えています",
+        rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
+        known_forget_arity: "known-daemons forget にはフィンガープリントを 1 つ指定してください",
     },
     remote: RemoteMessages {
         remote_stop_help: "使用方法: cmux-tui remote-stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",

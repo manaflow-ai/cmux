@@ -27,6 +27,8 @@ use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
 
 use super::ClientScope;
+#[cfg(unix)]
+use super::path::UnixWorkspaceDirectory;
 use super::path::WorkspaceRoot;
 
 const MAX_PROCESSES: usize = 64;
@@ -1054,11 +1056,26 @@ impl ProcessManager {
             Some(cwd) => root.resolve_existing(&cwd).await?,
             None => root.canonical_root().to_owned(),
         };
-        let metadata = tokio::fs::metadata(&cwd)
+        #[cfg(unix)]
+        let cwd_directory = {
+            let unix_root = root.unix_root();
+            let canonical = cwd.clone();
+            tokio::task::spawn_blocking(move || {
+                unix_root.pinned_directory_for_canonical_path(&canonical)
+            })
             .await
-            .map_err(|error| RpcError::new("invalid-cwd", error.to_string()))?;
-        if !metadata.is_dir() {
-            return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
+            .map_err(|error| {
+                RpcError::new("internal", format!("process cwd open task failed: {error}"))
+            })??
+        };
+        #[cfg(not(unix))]
+        {
+            let metadata = tokio::fs::metadata(&cwd)
+                .await
+                .map_err(|error| RpcError::new("invalid-cwd", error.to_string()))?;
+            if !metadata.is_dir() {
+                return Err(RpcError::new("invalid-cwd", "process cwd is not a directory"));
+            }
         }
         #[cfg(test)]
         {
@@ -1073,6 +1090,15 @@ impl ProcessManager {
                 super::files::MutationTestPoint::AfterProcessCwdResolve,
             )
             .await;
+        }
+        #[cfg(unix)]
+        {
+            let verifier = cwd_directory.try_clone()?;
+            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+                .await
+                .map_err(|error| {
+                RpcError::new("internal", format!("process cwd verification task failed: {error}"))
+            })??;
         }
         let _spawn_guard = self.spawn_serial.lock().await;
         self.validate_requested_process_handle(requested_process, &owner).await?;
@@ -1111,6 +1137,8 @@ impl ProcessManager {
                     root.id.clone(),
                     argv,
                     cwd,
+                    #[cfg(unix)]
+                    cwd_directory,
                     env,
                     stdin,
                     lifetime,
@@ -1130,6 +1158,8 @@ impl ProcessManager {
                     root.id.clone(),
                     argv,
                     cwd,
+                    #[cfg(unix)]
+                    cwd_directory,
                     env,
                     cols,
                     rows,
@@ -1156,6 +1186,7 @@ impl ProcessManager {
         workspace: WorkspaceId,
         argv: Vec<String>,
         cwd: std::path::PathBuf,
+        #[cfg(unix)] cwd_directory: UnixWorkspaceDirectory,
         env: BTreeMap<String, String>,
         writable_stdin: bool,
         lifetime: ProcessLifetime,
@@ -1172,7 +1203,6 @@ impl ProcessManager {
         }
         command
             .args(&argv[1..])
-            .current_dir(&cwd)
             .envs(env)
             .stdin(if writable_stdin {
                 std::process::Stdio::piped()
@@ -1182,10 +1212,24 @@ impl ProcessManager {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(not(unix))]
+        command.current_dir(&cwd);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;
             command.as_std_mut().process_group(0);
+            let cwd = cwd_directory.try_clone_file()?;
+            // SAFETY: `fchdir` is async-signal-safe, the descriptor remains
+            // open through `spawn`, and the closure performs no allocation.
+            unsafe {
+                command.as_std_mut().pre_exec(move || {
+                    if libc::fchdir(cwd.as_raw_fd()) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
         }
         #[cfg(unix)]
         let mut child_events =
@@ -1289,6 +1333,7 @@ impl ProcessManager {
         workspace: WorkspaceId,
         argv: Vec<String>,
         cwd: std::path::PathBuf,
+        #[cfg(unix)] cwd_directory: UnixWorkspaceDirectory,
         env: BTreeMap<String, String>,
         cols: u16,
         rows: u16,
@@ -1323,7 +1368,10 @@ impl ProcessManager {
             command.env_clear();
         }
         command.args(argv[1..].iter().cloned());
+        #[cfg(not(unix))]
         command.cwd(&cwd);
+        #[cfg(unix)]
+        command.cwd_descriptor(cwd_directory.try_clone_file()?);
         for (key, value) in env {
             command.env(key, value);
         }
@@ -3426,6 +3474,7 @@ mod tests {
         let spawn_manager = manager.clone();
         let workspace = root.id.clone();
         let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let spawn = tokio::spawn(async move {
             spawn_manager
                 .spawn_pipes(
@@ -3439,6 +3488,7 @@ mod tests {
                         "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
                     ],
                     cwd,
+                    cwd_directory,
                     env,
                     false,
                     ProcessLifetime::Workspace,
@@ -3472,6 +3522,7 @@ mod tests {
         let spawn_manager = manager.clone();
         let workspace = root.id.clone();
         let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let spawn = tokio::spawn(async move {
             spawn_manager
                 .spawn_pty(
@@ -3485,6 +3536,7 @@ mod tests {
                         "printf '%s' \"$$\" > \"$PIDFILE\"; exec sleep 30".into(),
                     ],
                     cwd,
+                    cwd_directory,
                     env,
                     80,
                     24,
@@ -3906,6 +3958,8 @@ mod tests {
         let manager = ProcessManager::default();
         *manager.pty_setup_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some(failure);
+        let cwd = root.canonical_root().to_owned();
+        let cwd_directory = root.unix_root().pinned_directory_for_canonical_path(&cwd).unwrap();
         let error = manager
             .spawn_pty(
                 ProcessId::from_u128(9_003),
@@ -3913,7 +3967,8 @@ mod tests {
                 ClientScope::local(),
                 root.id.clone(),
                 vec!["/bin/sleep".into(), "30".into()],
-                root.canonical_root().to_owned(),
+                cwd,
+                cwd_directory,
                 BTreeMap::new(),
                 80,
                 24,

@@ -3,11 +3,13 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsString};
 #[cfg(unix)]
 use std::fs::File;
 #[cfg(unix)]
-use std::os::fd::{FromRawFd, RawFd};
+use std::os::fd::{FromRawFd, IntoRawFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
@@ -21,7 +23,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 #[cfg(unix)]
-use super::path::{UnixWorkspaceRoot, UnixWorkspaceTarget};
+use super::path::{UnixWorkspaceDirectory, UnixWorkspaceRoot, UnixWorkspaceTarget};
 use super::path::{
     WorkspaceRoot, io_error, join_protocol_path, normalize_protocol_path, validate_relative,
 };
@@ -455,45 +457,127 @@ pub(crate) async fn stat(
     } else {
         root.resolve_entry(path).await?
     };
+    #[cfg(unix)]
+    let prepared = {
+        let unix_root = root.unix_root();
+        let resolved = resolved.clone();
+        let is_root = resolved == root.canonical_root();
+        tokio::task::spawn_blocking(move || {
+            prepare_unix_stat(unix_root, resolved, is_root, follow_symlinks)
+        })
+        .await
+        .map_err(blocking_task_error)??
+    };
     #[cfg(test)]
     pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterStatResolve).await;
-    let metadata = if follow_symlinks {
-        tokio::fs::metadata(&resolved).await
-    } else {
-        tokio::fs::symlink_metadata(&resolved).await
+    #[cfg(unix)]
+    {
+        let (state, content_hash) = match prepared {
+            PreparedUnixStat::Root { directory, before } => {
+                let after = directory.metadata()?;
+                if !metadata_stable(&before, &after) {
+                    return Err(RpcError::new(
+                        "file-changed",
+                        "workspace root changed while it was being inspected",
+                    ));
+                }
+                directory.verify_identity("stat")?;
+                (RawEntryState::from_metadata(&before), None)
+            }
+            PreparedUnixStat::Entry { target, before, file } => {
+                let content_hash = if let Some(file) = file {
+                    let mut file = tokio::fs::File::from_std(file);
+                    let digest = if before.size <= MAX_HASH_BYTES {
+                        Some(hash_file(&mut file, before.size).await?)
+                    } else {
+                        None
+                    };
+                    let after = file
+                        .metadata()
+                        .await
+                        .map_err(|error| io_error("stat", target.display(), error))?;
+                    if before != RawEntryState::from_metadata(&after) {
+                        return Err(RpcError::new(
+                            "file-changed",
+                            "file changed while it was being inspected",
+                        ));
+                    }
+                    digest
+                } else {
+                    None
+                };
+                let checked = tokio::task::spawn_blocking(move || {
+                    let after = stat_entry(&target, "stat")?.ok_or_else(|| {
+                        RpcError::new(
+                            "file-changed",
+                            "file disappeared while it was being inspected",
+                        )
+                    })?;
+                    if before != after {
+                        return Err(RpcError::new(
+                            "file-changed",
+                            "file changed while it was being inspected",
+                        ));
+                    }
+                    target.verify_parent_identity()?;
+                    Ok::<_, RpcError>(before)
+                })
+                .await
+                .map_err(blocking_task_error)??;
+                (checked, content_hash)
+            }
+        };
+        Ok(WorkspaceResponse::Stat {
+            stat: FileStat {
+                path: normalized,
+                kind: state.file_kind(),
+                size: state.size,
+                modified_unix_ms: state.modified_unix_ms(),
+                executable: state.is_executable(),
+                content_hash,
+            },
+        })
     }
-    .map_err(|error| io_error("stat", &resolved, error))?;
-    let kind = file_kind(&metadata);
-    let content_hash = if kind == FileKind::File && metadata.len() <= MAX_HASH_BYTES {
-        Some(hash_path(&resolved, MAX_HASH_BYTES).await?)
-    } else {
-        None
-    };
-    let metadata_after = if follow_symlinks {
-        tokio::fs::metadata(&resolved).await
-    } else {
-        tokio::fs::symlink_metadata(&resolved).await
-    }
-    .map_err(|error| io_error("stat", &resolved, error))?;
-    if !metadata_stable(&metadata, &metadata_after) {
-        return Err(RpcError::new("file-changed", "file changed while it was being inspected"));
-    }
-    let modified_unix_ms = metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-        .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+    #[cfg(not(unix))]
+    {
+        let metadata = if follow_symlinks {
+            tokio::fs::metadata(&resolved).await
+        } else {
+            tokio::fs::symlink_metadata(&resolved).await
+        }
+        .map_err(|error| io_error("stat", &resolved, error))?;
+        let kind = file_kind(&metadata);
+        let content_hash = if kind == FileKind::File && metadata.len() <= MAX_HASH_BYTES {
+            Some(hash_path(&resolved, MAX_HASH_BYTES).await?)
+        } else {
+            None
+        };
+        let metadata_after = if follow_symlinks {
+            tokio::fs::metadata(&resolved).await
+        } else {
+            tokio::fs::symlink_metadata(&resolved).await
+        }
+        .map_err(|error| io_error("stat", &resolved, error))?;
+        if !metadata_stable(&metadata, &metadata_after) {
+            return Err(RpcError::new("file-changed", "file changed while it was being inspected"));
+        }
+        let modified_unix_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|duration| u64::try_from(duration.as_millis()).ok());
 
-    Ok(WorkspaceResponse::Stat {
-        stat: FileStat {
-            path: normalized,
-            kind,
-            size: metadata.len(),
-            modified_unix_ms,
-            executable: is_executable(&metadata),
-            content_hash,
-        },
-    })
+        Ok(WorkspaceResponse::Stat {
+            stat: FileStat {
+                path: normalized,
+                kind,
+                size: metadata.len(),
+                modified_unix_ms,
+                executable: is_executable(&metadata),
+                content_hash,
+            },
+        })
+    }
 }
 
 pub(crate) async fn read_file(
@@ -676,64 +760,91 @@ async fn snapshot_directory(
     include_hidden: bool,
 ) -> Result<DirectoryContinuation, RpcError> {
     let resolved = root.resolve_existing(path).await?;
-    let metadata = tokio::fs::metadata(&resolved)
+    #[cfg(unix)]
+    let directory = {
+        let unix_root = root.unix_root();
+        let resolved = resolved.clone();
+        tokio::task::spawn_blocking(move || {
+            unix_root.pinned_directory_for_canonical_path(&resolved)
+        })
         .await
-        .map_err(|error| io_error("list-directory", &resolved, error))?;
-    if !metadata.is_dir() {
-        return Err(RpcError::new(
-            "not-a-directory",
-            format!("not a directory: {}", resolved.display()),
-        ));
+        .map_err(blocking_task_error)??
+    };
+    #[cfg(not(unix))]
+    {
+        let metadata = tokio::fs::metadata(&resolved)
+            .await
+            .map_err(|error| io_error("list-directory", &resolved, error))?;
+        if !metadata.is_dir() {
+            return Err(RpcError::new(
+                "not-a-directory",
+                format!("not a directory: {}", resolved.display()),
+            ));
+        }
     }
     #[cfg(test)]
     pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterDirectoryMetadata).await;
 
-    let mut reader = tokio::fs::read_dir(&resolved)
-        .await
-        .map_err(|error| io_error("list-directory", &resolved, error))?;
-    let mut entries = Vec::new();
-    let mut scanned = 0usize;
-    let mut scan_truncated = false;
-    let mut snapshot_bytes = 0usize;
-    while let Some(entry) =
-        reader.next_entry().await.map_err(|error| io_error("list-directory", &resolved, error))?
+    #[cfg(unix)]
     {
-        scanned += 1;
-        if scanned > MAX_DIRECTORY_SCAN {
-            scan_truncated = true;
-            break;
-        }
-        let Ok(name) = entry.file_name().into_string() else { continue };
-        if !include_hidden && name.starts_with('.') {
-            continue;
-        }
-        let metadata = tokio::fs::symlink_metadata(entry.path())
-            .await
-            .map_err(|error| io_error("list-directory", &entry.path(), error))?;
-        let Ok(entry_path) = join_protocol_path(normalized, &name) else { continue };
-        let kind = file_kind(&metadata);
-        let candidate = SortedDirectoryEntry {
-            folded_name: name.to_lowercase(),
-            directory: kind == FileKind::Directory,
-            entry: DirectoryEntry { path: entry_path, name, kind, size: metadata.len() },
-        };
-        let candidate_bytes = candidate.retained_bytes();
-        if snapshot_bytes.saturating_add(candidate_bytes) > MAX_DIRECTORY_SNAPSHOT_BYTES {
-            scan_truncated = true;
-            break;
-        }
-        snapshot_bytes = snapshot_bytes.saturating_add(candidate_bytes);
-        entries.push(candidate);
+        let normalized = normalized.to_owned();
+        tokio::task::spawn_blocking(move || {
+            snapshot_unix_directory(directory, &normalized, include_hidden)
+        })
+        .await
+        .map_err(blocking_task_error)?
     }
-    entries.sort_unstable_by(|left, right| {
-        right
-            .directory
-            .cmp(&left.directory)
-            .then_with(|| left.folded_name.cmp(&right.folded_name))
-            .then_with(|| left.entry.name.cmp(&right.entry.name))
-    });
-    entries.shrink_to_fit();
-    Ok(DirectoryContinuation { entries, next_index: 0, scan_truncated })
+    #[cfg(not(unix))]
+    {
+        let mut reader = tokio::fs::read_dir(&resolved)
+            .await
+            .map_err(|error| io_error("list-directory", &resolved, error))?;
+        let mut entries = Vec::new();
+        let mut scanned = 0usize;
+        let mut scan_truncated = false;
+        let mut snapshot_bytes = 0usize;
+        while let Some(entry) = reader
+            .next_entry()
+            .await
+            .map_err(|error| io_error("list-directory", &resolved, error))?
+        {
+            scanned += 1;
+            if scanned > MAX_DIRECTORY_SCAN {
+                scan_truncated = true;
+                break;
+            }
+            let Ok(name) = entry.file_name().into_string() else { continue };
+            if !include_hidden && name.starts_with('.') {
+                continue;
+            }
+            let metadata = tokio::fs::symlink_metadata(entry.path())
+                .await
+                .map_err(|error| io_error("list-directory", &entry.path(), error))?;
+            let Ok(entry_path) = join_protocol_path(normalized, &name) else { continue };
+            let kind = file_kind(&metadata);
+            let candidate = SortedDirectoryEntry {
+                folded_name: name.to_lowercase(),
+                directory: kind == FileKind::Directory,
+                entry: DirectoryEntry { path: entry_path, name, kind, size: metadata.len() },
+            };
+            let candidate_bytes = candidate.retained_bytes();
+            if snapshot_bytes.saturating_add(candidate_bytes) > MAX_DIRECTORY_SNAPSHOT_BYTES {
+                scan_truncated = true;
+                break;
+            }
+            snapshot_bytes = snapshot_bytes.saturating_add(candidate_bytes);
+            entries.push(candidate);
+        }
+        entries.sort_unstable_by(|left, right| {
+            right
+                .directory
+                .cmp(&left.directory)
+                .then_with(|| left.folded_name.cmp(&right.folded_name))
+                .then_with(|| left.entry.name.cmp(&right.entry.name))
+        });
+        entries.shrink_to_fit();
+        Ok(DirectoryContinuation { entries, next_index: 0, scan_truncated })
+    }
 }
 
 pub(crate) async fn search(
@@ -851,99 +962,178 @@ pub(crate) async fn search(
         if continuation.visited.contains(&entry.path) {
             continue;
         }
-        let metadata = tokio::fs::symlink_metadata(&entry.path)
+        #[cfg(unix)]
+        {
+            let unix_root = context.root.unix_root();
+            let canonical = entry.path.clone();
+            let is_root = canonical == context.root.canonical_root();
+            let prepared = tokio::task::spawn_blocking(move || {
+                prepare_unix_search_entry(unix_root, canonical, is_root)
+            })
             .await
-            .map_err(|error| io_error("search", &entry.path, error))?;
-        #[cfg(test)]
-        pause_at_mutation_test_barrier(
-            context.root,
-            &entry.protocol_path,
-            MutationTestPoint::AfterSearchMetadata,
-        )
-        .await;
-        continuation.remember_visited(entry.path.clone());
-        if metadata.file_type().is_symlink() {
-            continue;
+            .map_err(blocking_task_error)??;
+            #[cfg(test)]
+            pause_at_mutation_test_barrier(
+                context.root,
+                &entry.protocol_path,
+                MutationTestPoint::AfterSearchMetadata,
+            )
+            .await;
+            continuation.remember_visited(entry.path.clone());
+            match prepared {
+                PreparedUnixSearchEntry::Directory(directory) => {
+                    scan_unix_search_directory(
+                        &mut continuation,
+                        &entry,
+                        directory,
+                        include_hidden,
+                    )
+                    .await?;
+                    continue;
+                }
+                PreparedUnixSearchEntry::File { target, file, metadata } => {
+                    if metadata.len() > MAX_SEARCH_FILE_BYTES
+                        || !matches_globs(&entry.protocol_path, globs)
+                    {
+                        continue;
+                    }
+                    if continuation.total_bytes.saturating_add(metadata.len())
+                        > MAX_SEARCH_TOTAL_BYTES
+                    {
+                        continuation.discovery_truncated = true;
+                        continuation.clear_queue();
+                        break;
+                    }
+                    continuation.total_bytes =
+                        continuation.total_bytes.saturating_add(metadata.len());
+                    let mut file = tokio::fs::File::from_std(file);
+                    let bytes = read_open_file_bounded(
+                        &mut file,
+                        &entry.path,
+                        MAX_SEARCH_FILE_BYTES as usize,
+                    )
+                    .await?;
+                    tokio::task::spawn_blocking(move || target.verify_parent_identity())
+                        .await
+                        .map_err(blocking_task_error)??;
+                    if bytes.contains(&0) {
+                        continue;
+                    }
+                    let Ok(text) = String::from_utf8(bytes) else { continue };
+                    continuation.current_file = Some(SearchFileContinuation {
+                        protocol_path: entry.protocol_path,
+                        text,
+                        position: SearchFilePosition {
+                            line_start: 0,
+                            line_number: 1,
+                            match_offset: 0,
+                            previous_line: None,
+                        },
+                    });
+                }
+                PreparedUnixSearchEntry::Other => continue,
+            }
         }
-        if metadata.is_dir() {
-            continuation.directory_count = continuation.directory_count.saturating_add(1);
-            if continuation.directory_count > MAX_SEARCH_DIRECTORIES {
-                continuation.discovery_truncated = true;
-                continue;
-            }
-            if continuation.discovery_truncated {
-                continue;
-            }
-            let mut reader = tokio::fs::read_dir(&entry.path)
+        #[cfg(not(unix))]
+        {
+            let metadata = tokio::fs::symlink_metadata(&entry.path)
                 .await
                 .map_err(|error| io_error("search", &entry.path, error))?;
-            let mut children = Vec::new();
-            let mut children_bytes = 0usize;
-            while let Some(child) =
-                reader.next_entry().await.map_err(|error| io_error("search", &entry.path, error))?
-            {
-                continuation.entry_count = continuation.entry_count.saturating_add(1);
-                if continuation.entry_count > MAX_SEARCH_ENTRIES {
+            #[cfg(test)]
+            pause_at_mutation_test_barrier(
+                context.root,
+                &entry.protocol_path,
+                MutationTestPoint::AfterSearchMetadata,
+            )
+            .await;
+            continuation.remember_visited(entry.path.clone());
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                continuation.directory_count = continuation.directory_count.saturating_add(1);
+                if continuation.directory_count > MAX_SEARCH_DIRECTORIES {
                     continuation.discovery_truncated = true;
-                    break;
-                }
-                let Ok(name) = child.file_name().into_string() else { continue };
-                if !include_hidden && name.starts_with('.') {
                     continue;
                 }
-                let Ok(child_protocol) = join_protocol_path(&entry.protocol_path, &name) else {
+                if continuation.discovery_truncated {
                     continue;
-                };
-                let child = SearchQueueEntry { path: child.path(), protocol_path: child_protocol };
-                let child_bytes = child.retained_bytes();
-                if continuation
-                    .path_state_bytes()
-                    .saturating_add(children_bytes)
-                    .saturating_add(child_bytes)
-                    > MAX_SEARCH_PATH_STATE_BYTES
+                }
+                let mut reader = tokio::fs::read_dir(&entry.path)
+                    .await
+                    .map_err(|error| io_error("search", &entry.path, error))?;
+                let mut children = Vec::new();
+                let mut children_bytes = 0usize;
+                while let Some(child) = reader
+                    .next_entry()
+                    .await
+                    .map_err(|error| io_error("search", &entry.path, error))?
                 {
-                    continuation.discovery_truncated = true;
-                    break;
+                    continuation.entry_count = continuation.entry_count.saturating_add(1);
+                    if continuation.entry_count > MAX_SEARCH_ENTRIES {
+                        continuation.discovery_truncated = true;
+                        break;
+                    }
+                    let Ok(name) = child.file_name().into_string() else { continue };
+                    if !include_hidden && name.starts_with('.') {
+                        continue;
+                    }
+                    let Ok(child_protocol) = join_protocol_path(&entry.protocol_path, &name) else {
+                        continue;
+                    };
+                    let child =
+                        SearchQueueEntry { path: child.path(), protocol_path: child_protocol };
+                    let child_bytes = child.retained_bytes();
+                    if continuation
+                        .path_state_bytes()
+                        .saturating_add(children_bytes)
+                        .saturating_add(child_bytes)
+                        > MAX_SEARCH_PATH_STATE_BYTES
+                    {
+                        continuation.discovery_truncated = true;
+                        break;
+                    }
+                    children_bytes = children_bytes.saturating_add(child_bytes);
+                    children.push(child);
                 }
-                children_bytes = children_bytes.saturating_add(child_bytes);
-                children.push(child);
-            }
-            children.sort_unstable_by(|left, right| left.protocol_path.cmp(&right.protocol_path));
-            for child in children {
-                if !continuation.enqueue(child) {
-                    continuation.discovery_truncated = true;
-                    break;
+                children
+                    .sort_unstable_by(|left, right| left.protocol_path.cmp(&right.protocol_path));
+                for child in children {
+                    if !continuation.enqueue(child) {
+                        continuation.discovery_truncated = true;
+                        break;
+                    }
                 }
+                continue;
             }
-            continue;
+            if !metadata.is_file()
+                || metadata.len() > MAX_SEARCH_FILE_BYTES
+                || !matches_globs(&entry.protocol_path, globs)
+            {
+                continue;
+            }
+            if continuation.total_bytes.saturating_add(metadata.len()) > MAX_SEARCH_TOTAL_BYTES {
+                continuation.discovery_truncated = true;
+                continuation.clear_queue();
+                break;
+            }
+            continuation.total_bytes = continuation.total_bytes.saturating_add(metadata.len());
+            let bytes = read_path_bounded(&entry.path, MAX_SEARCH_FILE_BYTES as usize).await?;
+            if bytes.contains(&0) {
+                continue;
+            }
+            let Ok(text) = String::from_utf8(bytes) else { continue };
+            continuation.current_file = Some(SearchFileContinuation {
+                protocol_path: entry.protocol_path,
+                text,
+                position: SearchFilePosition {
+                    line_start: 0,
+                    line_number: 1,
+                    match_offset: 0,
+                    previous_line: None,
+                },
+            });
         }
-        if !metadata.is_file()
-            || metadata.len() > MAX_SEARCH_FILE_BYTES
-            || !matches_globs(&entry.protocol_path, globs)
-        {
-            continue;
-        }
-        if continuation.total_bytes.saturating_add(metadata.len()) > MAX_SEARCH_TOTAL_BYTES {
-            continuation.discovery_truncated = true;
-            continuation.clear_queue();
-            break;
-        }
-        continuation.total_bytes = continuation.total_bytes.saturating_add(metadata.len());
-        let bytes = read_path_bounded(&entry.path, MAX_SEARCH_FILE_BYTES as usize).await?;
-        if bytes.contains(&0) {
-            continue;
-        }
-        let Ok(text) = String::from_utf8(bytes) else { continue };
-        continuation.current_file = Some(SearchFileContinuation {
-            protocol_path: entry.protocol_path,
-            text,
-            position: SearchFilePosition {
-                line_start: 0,
-                line_number: 1,
-                match_offset: 0,
-                previous_line: None,
-            },
-        });
         if continuation.retained_bytes() > MAX_SEARCH_STATE_BYTES {
             return Err(RpcError::new(
                 "resource-exhausted",
@@ -984,14 +1174,35 @@ async fn initialize_search(
     let mut continuation = SearchContinuation::new();
     for (path, normalized) in requested_paths {
         let resolved = root.resolve_existing(&path).await?;
-        let metadata = tokio::fs::metadata(&resolved)
+        #[cfg(unix)]
+        {
+            let unix_root = root.unix_root();
+            let canonical = resolved.clone();
+            let is_root = canonical == root.canonical_root();
+            let supported = tokio::task::spawn_blocking(move || {
+                prepare_unix_search_entry(unix_root, canonical, is_root)
+                    .map(|entry| !matches!(entry, PreparedUnixSearchEntry::Other))
+            })
             .await
-            .map_err(|error| io_error("search", &resolved, error))?;
-        if !metadata.is_dir() && !metadata.is_file() {
-            return Err(RpcError::new(
-                "invalid-search-path",
-                "search paths must be files or directories",
-            ));
+            .map_err(blocking_task_error)??;
+            if !supported {
+                return Err(RpcError::new(
+                    "invalid-search-path",
+                    "search paths must be files or directories",
+                ));
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let metadata = tokio::fs::metadata(&resolved)
+                .await
+                .map_err(|error| io_error("search", &resolved, error))?;
+            if !metadata.is_dir() && !metadata.is_file() {
+                return Err(RpcError::new(
+                    "invalid-search-path",
+                    "search paths must be files or directories",
+                ));
+            }
         }
         if !continuation.enqueue(SearchQueueEntry { path: resolved, protocol_path: normalized }) {
             continuation.discovery_truncated = true;
@@ -1404,8 +1615,37 @@ impl RawEntryState {
         self.mode & libc::S_IFMT as u32 == libc::S_IFREG as u32
     }
 
+    fn is_directory(&self) -> bool {
+        self.mode & libc::S_IFMT as u32 == libc::S_IFDIR as u32
+    }
+
     fn is_symlink(&self) -> bool {
         self.mode & libc::S_IFMT as u32 == libc::S_IFLNK as u32
+    }
+
+    fn file_kind(&self) -> FileKind {
+        if self.is_symlink() {
+            FileKind::Symlink
+        } else if self.is_regular() {
+            FileKind::File
+        } else if self.is_directory() {
+            FileKind::Directory
+        } else {
+            FileKind::Other
+        }
+    }
+
+    fn is_executable(&self) -> bool {
+        self.mode & 0o111 != 0
+    }
+
+    fn modified_unix_ms(&self) -> Option<u64> {
+        let seconds = u64::try_from(self.modified.0).ok()?;
+        let nanoseconds = u64::try_from(self.modified.1).ok()?;
+        if nanoseconds >= 1_000_000_000 {
+            return None;
+        }
+        seconds.checked_mul(1_000)?.checked_add(nanoseconds / 1_000_000)
     }
 
     fn same_object(&self, other: &Self) -> bool {
@@ -1420,6 +1660,381 @@ impl RawEntryState {
             && self.size == other.size
             && self.modified == other.modified
     }
+}
+
+#[cfg(unix)]
+enum PreparedUnixStat {
+    Root { directory: UnixWorkspaceDirectory, before: std::fs::Metadata },
+    Entry { target: UnixWorkspaceTarget, before: RawEntryState, file: Option<File> },
+}
+
+#[cfg(unix)]
+fn prepare_unix_stat(
+    root: UnixWorkspaceRoot,
+    resolved: PathBuf,
+    is_root: bool,
+    follow_symlinks: bool,
+) -> Result<PreparedUnixStat, RpcError> {
+    if is_root {
+        let directory = root.pinned_directory_for_canonical_path(&resolved)?;
+        let before = directory.metadata()?;
+        return Ok(PreparedUnixStat::Root { directory, before });
+    }
+
+    let target = root.target_for_canonical_path(&resolved)?;
+    let observed = stat_entry(&target, "stat")?.ok_or_else(|| {
+        RpcError::new("not-found", format!("path not found: {}", resolved.display()))
+    })?;
+    if follow_symlinks && observed.is_symlink() {
+        return Err(RpcError::new(
+            "file-changed",
+            "resolved path changed to a symlink while it was being inspected",
+        ));
+    }
+    let file = if observed.is_regular() {
+        let file = open_regular_entry(&target, "stat")?;
+        let pinned = file
+            .metadata()
+            .map(|metadata| RawEntryState::from_metadata(&metadata))
+            .map_err(|error| io_error("stat", target.display(), error))?;
+        if observed != pinned {
+            return Err(RpcError::new(
+                "file-changed",
+                "file changed while it was being opened for inspection",
+            ));
+        }
+        Some(file)
+    } else {
+        None
+    };
+    Ok(PreparedUnixStat::Entry { target, before: observed, file })
+}
+
+#[cfg(unix)]
+enum PreparedUnixSearchEntry {
+    Directory(UnixWorkspaceDirectory),
+    File { target: UnixWorkspaceTarget, file: File, metadata: std::fs::Metadata },
+    Other,
+}
+
+#[cfg(unix)]
+fn prepare_unix_search_entry(
+    root: UnixWorkspaceRoot,
+    canonical: PathBuf,
+    is_root: bool,
+) -> Result<PreparedUnixSearchEntry, RpcError> {
+    if is_root {
+        return root
+            .pinned_directory_for_canonical_path(&canonical)
+            .map(PreparedUnixSearchEntry::Directory);
+    }
+    let target = root.target_for_canonical_path(&canonical)?;
+    let state = stat_entry(&target, "search")?.ok_or_else(|| {
+        RpcError::new("not-found", format!("path not found: {}", canonical.display()))
+    })?;
+    if state.is_directory() {
+        let directory = root.pinned_directory_for_canonical_path(&canonical)?;
+        let pinned = RawEntryState::from_metadata(&directory.metadata()?);
+        if state != pinned {
+            return Err(RpcError::new(
+                "file-changed",
+                "directory changed while it was being opened for search",
+            ));
+        }
+        return Ok(PreparedUnixSearchEntry::Directory(directory));
+    }
+    if state.is_regular() {
+        let file = open_regular_entry(&target, "search")?;
+        let metadata = file.metadata().map_err(|error| io_error("search", &canonical, error))?;
+        if state != RawEntryState::from_metadata(&metadata) {
+            return Err(RpcError::new(
+                "file-changed",
+                "file changed while it was being opened for search",
+            ));
+        }
+        return Ok(PreparedUnixSearchEntry::File { target, file, metadata });
+    }
+    Ok(PreparedUnixSearchEntry::Other)
+}
+
+#[cfg(unix)]
+async fn scan_unix_search_directory(
+    continuation: &mut SearchContinuation,
+    entry: &SearchQueueEntry,
+    directory: UnixWorkspaceDirectory,
+    include_hidden: bool,
+) -> Result<(), RpcError> {
+    continuation.directory_count = continuation.directory_count.saturating_add(1);
+    if continuation.directory_count > MAX_SEARCH_DIRECTORIES {
+        continuation.discovery_truncated = true;
+        return Ok(());
+    }
+    if continuation.discovery_truncated {
+        return Ok(());
+    }
+    let remaining = MAX_SEARCH_ENTRIES.saturating_sub(continuation.entry_count);
+    let (names, truncated) = tokio::task::spawn_blocking(move || {
+        let names = read_directory_names(&directory, remaining)?;
+        directory.verify_identity("search")?;
+        Ok::<_, RpcError>(names)
+    })
+    .await
+    .map_err(blocking_task_error)??;
+    if truncated {
+        continuation.discovery_truncated = true;
+    }
+    let mut children = Vec::new();
+    let mut children_bytes = 0usize;
+    for name in names {
+        continuation.entry_count = continuation.entry_count.saturating_add(1);
+        let Ok(name) = name.into_string() else { continue };
+        if !include_hidden && name.starts_with('.') {
+            continue;
+        }
+        let Ok(child_protocol) = join_protocol_path(&entry.protocol_path, &name) else {
+            continue;
+        };
+        let child =
+            SearchQueueEntry { path: entry.path.join(&name), protocol_path: child_protocol };
+        let child_bytes = child.retained_bytes();
+        if continuation
+            .path_state_bytes()
+            .saturating_add(children_bytes)
+            .saturating_add(child_bytes)
+            > MAX_SEARCH_PATH_STATE_BYTES
+        {
+            continuation.discovery_truncated = true;
+            break;
+        }
+        children_bytes = children_bytes.saturating_add(child_bytes);
+        children.push(child);
+    }
+    children.sort_unstable_by(|left, right| left.protocol_path.cmp(&right.protocol_path));
+    for child in children {
+        if !continuation.enqueue(child) {
+            continuation.discovery_truncated = true;
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+struct UnixDirectoryRecord {
+    name: OsString,
+    state: RawEntryState,
+}
+
+#[cfg(unix)]
+struct UnixDirectoryStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for UnixDirectoryStream {
+    fn drop(&mut self) {
+        // SAFETY: this wrapper uniquely owns the stream returned by `fdopendir`.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn set_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno_location() = value };
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno_location() }
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn set_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__error() = value };
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__error() }
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn set_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno() = value };
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno() }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn set_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::___errno() = value };
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::___errno() }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn set_readdir_errno(_value: libc::c_int) {}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn readdir_errno() -> libc::c_int {
+    0
+}
+
+#[cfg(unix)]
+fn read_directory_records(
+    directory: &UnixWorkspaceDirectory,
+    maximum: usize,
+) -> Result<(Vec<UnixDirectoryRecord>, bool), RpcError> {
+    let (names, truncated) = read_directory_names(directory, maximum)?;
+    let mut records = Vec::with_capacity(names.len());
+    for owned_name in names {
+        let name = CString::new(owned_name.as_os_str().as_bytes())
+            .map_err(|_| invalid_directory_entry(directory.display()))?;
+        let display = directory.display().join(&owned_name);
+        let Some(state) = stat_named(directory.fd(), &name, &display, "read-directory")? else {
+            continue;
+        };
+        records.push(UnixDirectoryRecord { name: owned_name, state });
+    }
+    Ok((records, truncated))
+}
+
+#[cfg(unix)]
+fn read_directory_names(
+    directory: &UnixWorkspaceDirectory,
+    maximum: usize,
+) -> Result<(Vec<OsString>, bool), RpcError> {
+    // A duplicated directory descriptor shares its directory-stream offset
+    // with the pinned root. Reopen `.` so concurrent and repeated snapshots
+    // each receive an independent stream position.
+    let descriptor = directory.open_independent_file()?.into_raw_fd();
+    // SAFETY: `descriptor` is a newly owned directory descriptor. On success,
+    // `fdopendir` takes ownership; on failure, this function closes it below.
+    let stream = unsafe { libc::fdopendir(descriptor) };
+    if stream.is_null() {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: failed `fdopendir` did not consume the descriptor.
+        unsafe { libc::close(descriptor) };
+        return Err(io_error("read-directory", directory.display(), error));
+    }
+    let stream = UnixDirectoryStream(stream);
+    let mut names = Vec::with_capacity(maximum.min(1_024));
+    let mut scanned = 0usize;
+    loop {
+        set_readdir_errno(0);
+        // SAFETY: `stream` owns a valid DIR pointer and calls are serialized.
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            let errno = readdir_errno();
+            if errno == 0 {
+                break;
+            }
+            return Err(io_error(
+                "read-directory",
+                directory.display(),
+                std::io::Error::from_raw_os_error(errno),
+            ));
+        }
+        // SAFETY: POSIX requires `d_name` to contain a NUL-terminated name for
+        // the current entry, valid until the next call on this stream.
+        let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        scanned = scanned.saturating_add(1);
+        if scanned > maximum {
+            return Ok((names, true));
+        }
+        names.push(OsString::from_vec(name.to_bytes().to_vec()));
+    }
+    Ok((names, false))
+}
+
+#[cfg(unix)]
+fn invalid_directory_entry(directory: &Path) -> RpcError {
+    RpcError::new(
+        "invalid-path",
+        format!("directory entry contains a NUL byte: {}", directory.display()),
+    )
+}
+
+#[cfg(unix)]
+fn snapshot_unix_directory(
+    directory: UnixWorkspaceDirectory,
+    normalized: &str,
+    include_hidden: bool,
+) -> Result<DirectoryContinuation, RpcError> {
+    let (records, mut scan_truncated) = read_directory_records(&directory, MAX_DIRECTORY_SCAN)?;
+    directory.verify_identity("list directory")?;
+    let mut entries = Vec::new();
+    let mut snapshot_bytes = 0usize;
+    for record in records {
+        let Ok(name) = record.name.into_string() else { continue };
+        if !include_hidden && name.starts_with('.') {
+            continue;
+        }
+        let Ok(entry_path) = join_protocol_path(normalized, &name) else { continue };
+        let kind = record.state.file_kind();
+        let candidate = SortedDirectoryEntry {
+            folded_name: name.to_lowercase(),
+            directory: kind == FileKind::Directory,
+            entry: DirectoryEntry { path: entry_path, name, kind, size: record.state.size },
+        };
+        let candidate_bytes = candidate.retained_bytes();
+        if snapshot_bytes.saturating_add(candidate_bytes) > MAX_DIRECTORY_SNAPSHOT_BYTES {
+            scan_truncated = true;
+            break;
+        }
+        snapshot_bytes = snapshot_bytes.saturating_add(candidate_bytes);
+        entries.push(candidate);
+    }
+    entries.sort_unstable_by(|left, right| {
+        right
+            .directory
+            .cmp(&left.directory)
+            .then_with(|| left.folded_name.cmp(&right.folded_name))
+            .then_with(|| left.entry.name.cmp(&right.entry.name))
+    });
+    entries.shrink_to_fit();
+    Ok(DirectoryContinuation { entries, next_index: 0, scan_truncated })
 }
 
 #[cfg(unix)]
@@ -2765,6 +3380,7 @@ fn blocking_task_error(error: tokio::task::JoinError) -> RpcError {
     RpcError::new("internal", format!("workspace file task failed: {error}"))
 }
 
+#[cfg(not(unix))]
 pub(crate) async fn hash_path(path: &Path, maximum: u64) -> Result<String, RpcError> {
     let mut file =
         tokio::fs::File::open(path).await.map_err(|error| io_error("hash", path, error))?;
@@ -2783,9 +3399,18 @@ pub(crate) async fn hash_path(path: &Path, maximum: u64) -> Result<String, RpcEr
     Ok(digest)
 }
 
+#[cfg(not(unix))]
 async fn read_path_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>, RpcError> {
     let mut file =
         tokio::fs::File::open(path).await.map_err(|error| io_error("read", path, error))?;
+    read_open_file_bounded(&mut file, path, maximum).await
+}
+
+async fn read_open_file_bounded(
+    file: &mut tokio::fs::File,
+    path: &Path,
+    maximum: usize,
+) -> Result<Vec<u8>, RpcError> {
     let metadata = file.metadata().await.map_err(|error| io_error("read", path, error))?;
     if !metadata.is_file() {
         return Err(RpcError::new("not-a-file", format!("not a file: {}", path.display())));
@@ -2795,7 +3420,7 @@ async fn read_path_bounded(path: &Path, maximum: usize) -> Result<Vec<u8>, RpcEr
     }
     let capacity = usize::try_from(metadata.len()).unwrap_or(maximum).min(maximum);
     let mut bytes = Vec::with_capacity(capacity);
-    (&mut file)
+    (&mut *file)
         .take((maximum as u64).saturating_add(1))
         .read_to_end(&mut bytes)
         .await
@@ -2858,6 +3483,7 @@ fn hex_digest(bytes: &[u8]) -> String {
     output
 }
 
+#[cfg(not(unix))]
 fn file_kind(metadata: &std::fs::Metadata) -> FileKind {
     let kind = metadata.file_type();
     if kind.is_symlink() {
@@ -2887,12 +3513,6 @@ fn metadata_stable(before: &std::fs::Metadata, after: &std::fs::Metadata) -> boo
 #[cfg(not(unix))]
 fn metadata_stable(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
     before.len() == after.len() && before.modified().ok() == after.modified().ok()
-}
-
-#[cfg(unix)]
-fn is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt as _;
-    metadata.permissions().mode() & 0o111 != 0
 }
 
 #[cfg(not(unix))]
@@ -4395,6 +5015,21 @@ mod tests {
         let WorkspaceResponse::Directory { entries, truncated, .. } = response else { panic!() };
         assert!(truncated);
         assert_eq!(entries[0].name, "z-dir");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repeated_root_directory_snapshots_have_independent_stream_offsets() {
+        let (_directory, root) = root().await;
+        let (queries, owner) = query_context();
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        tokio::fs::write(root.canonical_root().join("one.txt"), b"one").await.unwrap();
+
+        for _ in 0..2 {
+            let response = list_directory(&context, "", false, 10, None).await.unwrap();
+            let WorkspaceResponse::Directory { entries, .. } = response else { panic!() };
+            assert!(entries.iter().any(|entry| entry.name == "one.txt"));
+        }
     }
 
     #[tokio::test]

@@ -167,117 +167,21 @@ fn remote_help_requested(args: &[String]) -> bool {
 }
 
 fn remote_help(command: Option<&str>) -> &'static str {
+    let client = &catalog().remote_client;
     match command {
-        Some("connect") => {
-            r#"USAGE: cmux-tui connect [ROUTE] [OPTIONS]
-
-ROUTES:
-  unix:///ABSOLUTE/PATH | ssh://[USER@]HOST[:PORT] | ws:// | wss:// | iroh://
-  relay+ws:// | relay+wss:// | relay+https:// | relay+do://
-
-IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
-  --device-name NAME  --session NAME
-  --state-dir PATH  --local-socket PATH  --headless [--json]
-
-  --invite-file avoids exposing the single-use invitation in process arguments.
-  Regular files must be owner-only; - reads one line from stdin.
-
-TRANSPORT:
-  --lanes auto|single|isolated  --connect-timeout-seconds N
-  For one explicit relay route, --relay-slot SLOT with either
-    --relay-ticket-file PATH or --relay-ticket-command PROGRAM.
-  For fallbacks, repeat up to four --relay-route ROUTE, --relay-slot SLOT,
-    and credential-source groups in occurrence order.
-  --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
-  --iroh-path auto|direct-only|relay-only
-  --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
-  --remote-state-dir PATH for a non-default daemon state directory
-  --upgrade explicitly replaces an SSH-managed remote sidecar after installing
-    the pinned binary; terminal panes survive, while remote RPC state resets
-
-RECONNECT:
-  --reconnect-attempts N|unlimited  --reconnect-initial-ms MS
-  --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
-  --reconnect-jitter full|none  --heartbeat-interval-ms MS
-  --heartbeat-timeout-ms MS
-"#
-        }
-        Some("ssh") => {
-            r#"USAGE: cmux-tui ssh [USER@]HOST[:PORT] [OPTIONS]
-
-Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
-to multiple carriers. The remote binary is probed and, unless --no-install is
-set, installed into the user account when missing or incompatible.
-
-OPTIONS:
-  --session NAME  --lanes single|auto|isolated  --headless [--json]
-  --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
-  --remote-state-dir PATH for a non-default daemon state directory
-  --upgrade explicitly replaces an SSH-managed remote sidecar; terminal panes
-    survive, remote clients and forwards disconnect, RPC processes stop, and
-    other RPC resources reset
-  --state-dir PATH  --local-socket PATH  --connect-timeout-seconds N
-  --reconnect-attempts N|unlimited  --reconnect-initial-ms MS
-  --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
-  --reconnect-jitter full|none  --heartbeat-interval-ms MS
-  --heartbeat-timeout-ms MS
-"#
-        }
-        Some("forward") => {
-            r#"USAGE: cmux-tui forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
-
-OPTIONS:
-  --host HOST  --listen ADDR  --scheme http|https
-  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
-"#
-        }
-        Some("rpc") => {
-            r#"USAGE: cmux-tui rpc [ROUTE] [OPTIONS]
-
-Reads one WorkspaceRequest JSON object per stdin line and writes one response
-per line. --request JSON sends one request and exits.
-
-OPTIONS:
-  --request WORKSPACE_REQUEST_JSON
-  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
-  `cmux-tui connect` are also accepted.
-"#
-        }
-        Some("enroll") => {
-            r#"USAGE: cmux-tui enroll ACTION [OPTIONS]
-
-ACTIONS:
-  status | create | pending | approve ID | deny ID | devices | connections
-  revoke DEVICE_ID | disconnect DEVICE_ID SESSION_ID | connect ROUTE
-
-OPTIONS:
-  --session NAME  --state-dir PATH  --admin-socket PATH  --json
-  create: --ttl SECONDS  --advertise ROUTE
-  create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
-    --relay-ticket-file PATH, in occurrence order,
-    for up to two relay fallbacks
-  connect accepts every option documented by `cmux-tui connect`.
-"#
-        }
-        Some("known-daemons") => {
-            r#"USAGE: cmux-tui known-daemons [list] [--state-dir PATH] [--json]
-       cmux-tui known-daemons forget FINGERPRINT [--state-dir PATH] [--json]
-"#
-        }
+        Some("connect") => client.connect_help,
+        Some("ssh") => client.ssh_help,
+        Some("forward") => client.forward_help,
+        Some("rpc") => client.rpc_help,
+        Some("enroll") => client.enroll_help,
+        Some("known-daemons") => client.known_daemons_help,
         Some("remote-probe") => "USAGE: cmux-tui remote-probe [--json]\n",
         Some("remote-link") => {
             "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH]\n"
         }
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("install-self") => "USAGE: cmux-tui install-self --destination PATH\n",
-        _ => {
-            r#"USAGE: cmux-tui connect|ssh|forward|rpc|enroll|known-daemons <OPTIONS>
-
-Run `cmux-tui COMMAND --help` for command-specific routes and options.
-"#
-        }
+        _ => client.command_help,
     }
 }
 
@@ -339,15 +243,16 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         let argument = &args[index];
         index += 1;
         let mut value = |name: &str| -> anyhow::Result<String> {
-            let value = args.get(index).cloned().ok_or_else(|| anyhow!("{name} needs a value"))?;
+            let value = args
+                .get(index)
+                .cloned()
+                .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
             index += 1;
             Ok(value)
         };
         match argument.as_str() {
             "--invite" => {
-                return Err(anyhow!(
-                    "inline invitations are not accepted; use --invite-file or stdin"
-                ));
+                return Err(anyhow!(catalog().remote_client.inline_invitation_rejected));
             }
             "--invite-file" => set_invitation_arg(
                 &mut flags.invitation,
@@ -355,7 +260,13 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             )?,
             "--daemon" => flags.daemon = Some(value("--daemon")?),
             "--lanes" => {
-                flags.lanes = value("--lanes")?.parse().map_err(|error: String| anyhow!(error))?;
+                flags.lanes = value("--lanes")?.parse().map_err(|_: String| {
+                    anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--lanes", "auto|single|isolated")
+                    )
+                })?;
                 flags.lanes_explicit = true;
             }
             "--reconnect-attempts" => {
@@ -363,67 +274,103 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.reconnect.maximum_attempts = if attempts == "unlimited" {
                     None
                 } else {
-                    let attempts = attempts
-                        .parse::<u32>()
-                        .context("--reconnect-attempts must be a positive integer or unlimited")?;
+                    let attempts = attempts.parse::<u32>().map_err(|_| {
+                        anyhow!(
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--reconnect-attempts", "N|unlimited")
+                        )
+                    })?;
                     if attempts == 0 {
-                        return Err(anyhow!("--reconnect-attempts must be positive"));
+                        return Err(anyhow!(
+                            catalog().remote_client.option_must_be_positive("--reconnect-attempts")
+                        ));
                     }
                     Some(attempts)
                 };
             }
             "--reconnect-initial-ms" => {
                 flags.reconnect.initial_delay = Duration::from_millis(
-                    value("--reconnect-initial-ms")?
-                        .parse()
-                        .context("--reconnect-initial-ms must be milliseconds")?,
+                    value("--reconnect-initial-ms")?.parse().map_err(|_| {
+                        anyhow!(
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--reconnect-initial-ms", "milliseconds")
+                        )
+                    })?,
                 );
             }
             "--reconnect-max-ms" => {
-                flags.reconnect.maximum_delay = Duration::from_millis(
-                    value("--reconnect-max-ms")?
-                        .parse()
-                        .context("--reconnect-max-ms must be milliseconds")?,
-                );
+                flags.reconnect.maximum_delay =
+                    Duration::from_millis(value("--reconnect-max-ms")?.parse().map_err(|_| {
+                        anyhow!(
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--reconnect-max-ms", "milliseconds")
+                        )
+                    })?);
             }
             "--reconnect-attempt-timeout-ms" => {
-                flags.reconnect.attempt_timeout = Duration::from_millis(
-                    value("--reconnect-attempt-timeout-ms")?
-                        .parse()
-                        .context("--reconnect-attempt-timeout-ms must be milliseconds")?,
-                );
+                flags.reconnect.attempt_timeout =
+                    Duration::from_millis(
+                        value("--reconnect-attempt-timeout-ms")?.parse().map_err(|_| {
+                            anyhow!(catalog().remote_client.invalid_option_value(
+                                "--reconnect-attempt-timeout-ms",
+                                "milliseconds",
+                            ))
+                        })?,
+                    );
             }
             "--reconnect-jitter" => {
                 flags.reconnect.full_jitter = match value("--reconnect-jitter")?.as_str() {
                     "full" => true,
                     "none" => false,
-                    other => {
+                    _ => {
                         return Err(anyhow!(
-                            "--reconnect-jitter must be full or none, got {other:?}"
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--reconnect-jitter", "full|none")
                         ));
                     }
                 };
             }
             "--heartbeat-interval-ms" => {
-                let milliseconds = value("--heartbeat-interval-ms")?
-                    .parse::<u64>()
-                    .context("--heartbeat-interval-ms must be milliseconds")?;
+                let milliseconds =
+                    value("--heartbeat-interval-ms")?.parse::<u64>().map_err(|_| {
+                        anyhow!(
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--heartbeat-interval-ms", "milliseconds",)
+                        )
+                    })?;
                 flags.reconnect.heartbeat_interval =
                     (milliseconds != 0).then(|| Duration::from_millis(milliseconds));
             }
             "--heartbeat-timeout-ms" => {
                 flags.reconnect.heartbeat_timeout = Duration::from_millis(
-                    value("--heartbeat-timeout-ms")?
-                        .parse()
-                        .context("--heartbeat-timeout-ms must be milliseconds")?,
+                    value("--heartbeat-timeout-ms")?.parse().map_err(|_| {
+                        anyhow!(
+                            catalog()
+                                .remote_client
+                                .invalid_option_value("--heartbeat-timeout-ms", "milliseconds")
+                        )
+                    })?,
                 );
             }
             "--connect-timeout-seconds" => {
-                let seconds = value("--connect-timeout-seconds")?
-                    .parse::<u64>()
-                    .context("--connect-timeout-seconds must be a positive integer")?;
+                let seconds = value("--connect-timeout-seconds")?.parse::<u64>().map_err(|_| {
+                    anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--connect-timeout-seconds", "positive integer")
+                    )
+                })?;
                 if seconds == 0 {
-                    return Err(anyhow!("--connect-timeout-seconds must be positive"));
+                    return Err(anyhow!(
+                        catalog()
+                            .remote_client
+                            .option_must_be_positive("--connect-timeout-seconds")
+                    ));
                 }
                 flags.startup_timeout = Some(Duration::from_secs(seconds));
             }
@@ -433,9 +380,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--relay-route" => flags.relay_routes.push(value("--relay-route")?),
             "--relay-slot" => flags.relay_slots.push(value("--relay-slot")?),
             "--relay-ticket" => {
-                return Err(anyhow!(
-                    "inline relay tickets are not accepted; use --relay-ticket-file or --relay-ticket-command"
-                ));
+                return Err(anyhow!(catalog().remote_client.inline_relay_ticket_rejected));
             }
             "--relay-ticket-file" => {
                 flags
@@ -453,9 +398,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 match flags.relay_credentials.last_mut() {
                     Some(ClientRelayCredentialArg::Command { args, .. }) => args.push(argument),
                     _ => {
-                        return Err(anyhow!(
-                            "--relay-ticket-command-arg must follow --relay-ticket-command"
-                        ));
+                        return Err(anyhow!(catalog().remote_client.relay_command_arg_order));
                     }
                 }
             }
@@ -474,8 +417,13 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     .or_insert(address);
             }
             "--iroh-path" => {
-                flags.iroh_path =
-                    value("--iroh-path")?.parse().map_err(|error: String| anyhow!(error))?;
+                flags.iroh_path = value("--iroh-path")?.parse().map_err(|_: String| {
+                    anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--iroh-path", "auto|direct-only|relay-only",)
+                    )
+                })?;
             }
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
@@ -491,27 +439,31 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
             "--host" => flags.forward_host = Some(value("--host")?),
             "--port" => {
-                flags.forward_port =
-                    Some(value("--port")?.parse().context("--port must be a TCP port")?);
+                flags.forward_port = Some(value("--port")?.parse().map_err(|_| {
+                    anyhow!(catalog().remote_client.invalid_option_value("--port", "TCP port"))
+                })?);
             }
             "--listen" => {
-                flags.forward_listen =
-                    Some(value("--listen")?.parse().context("--listen must be a socket address")?);
+                flags.forward_listen = Some(value("--listen")?.parse().map_err(|_| {
+                    anyhow!(
+                        catalog().remote_client.invalid_option_value("--listen", "socket address")
+                    )
+                })?);
             }
             "--scheme" => flags.forward_scheme = value("--scheme")?,
             "--request" => flags.rpc_request = Some(value("--request")?),
             "-h" | "--help" => {
-                return Err(anyhow!("help cannot be combined with invalid connect options"));
+                return Err(anyhow!(catalog().remote_client.help_invalid_options));
             }
-            option if option.starts_with('-') => return Err(anyhow!("unknown option {option:?}")),
+            option if option.starts_with('-') => {
+                return Err(anyhow!(catalog().remote_client.unknown_option(option)));
+            }
             route => {
                 if route.starts_with("cmux://enroll/") {
-                    return Err(anyhow!(
-                        "positional invitations are not accepted; use --invite-file or stdin"
-                    ));
+                    return Err(anyhow!(catalog().remote_client.positional_invitation_rejected));
                 }
                 if flags.route.replace(route.to_string()).is_some() {
-                    return Err(anyhow!("connect accepts one route"));
+                    return Err(anyhow!(catalog().remote_client.connect_one_route));
                 }
             }
         }
@@ -522,15 +474,13 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         || (flags.reconnect.heartbeat_interval.is_some()
             && flags.reconnect.heartbeat_timeout.is_zero())
     {
-        return Err(anyhow!(
-            "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial"
-        ));
+        return Err(anyhow!(catalog().remote_client.reconnect_policy_invalid));
     }
     if flags.upgrade && !flags.auto_install {
-        return Err(anyhow!("--upgrade cannot be combined with --no-install"));
+        return Err(anyhow!(catalog().remote_client.upgrade_no_install));
     }
     if flags.json && !flags.headless {
-        return Err(anyhow!("--json requires --headless for connect and ssh"));
+        return Err(anyhow!(catalog().remote_client.json_requires_headless));
     }
     Ok(flags)
 }
@@ -540,7 +490,7 @@ fn set_invitation_arg(
     invitation: InvitationArg,
 ) -> anyhow::Result<()> {
     if destination.replace(invitation).is_some() {
-        return Err(anyhow!("--invite-file may be supplied only once"));
+        return Err(anyhow!(catalog().remote_client.option_once("--invite-file")));
     }
     Ok(())
 }
@@ -989,9 +939,10 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let workspace_root = flags
         .forward_workspace
         .clone()
-        .ok_or_else(|| anyhow!("forward needs --workspace-root on the daemon"))?;
+        .ok_or_else(|| anyhow!(catalog().remote_client.forward_workspace_required))?;
     let host = flags.forward_host.clone().unwrap_or_else(|| "127.0.0.1".into());
-    let port = flags.forward_port.ok_or_else(|| anyhow!("forward needs --port"))?;
+    let port =
+        flags.forward_port.ok_or_else(|| anyhow!(catalog().remote_client.forward_port_required))?;
     let listen = flags
         .forward_listen
         .unwrap_or_else(|| "127.0.0.1:0".parse().expect("loopback address is valid"));
@@ -1065,23 +1016,45 @@ fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Re
 }
 
 fn read_rpc_stdin_line<R: BufRead>(reader: &mut R, maximum: usize) -> io::Result<Option<String>> {
-    let mut line = String::new();
-    if reader.read_line(&mut line)? == 0 {
+    let bounded = maximum.checked_add(1).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "RPC stdin line limit is too large")
+    })?;
+    let mut bytes = Vec::new();
+    let read = (&mut *reader)
+        .take(u64::try_from(bounded).unwrap_or(u64::MAX))
+        .read_until(b'\n', &mut bytes)?;
+    if read == 0 {
         return Ok(None);
     }
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
+
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+    } else if bytes.len() > maximum {
+        if bytes.len() == bounded && bytes.last() == Some(&b'\r') {
+            let pending = reader.fill_buf()?;
+            if pending.first() == Some(&b'\n') {
+                reader.consume(1);
+                bytes.pop();
+            } else {
+                return Err(rpc_stdin_line_too_large(maximum));
+            }
+        } else {
+            return Err(rpc_stdin_line_too_large(maximum));
         }
     }
-    if line.len() > maximum {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("RPC stdin line exceeds {maximum} bytes"),
-        ));
+    if bytes.len() > maximum {
+        return Err(rpc_stdin_line_too_large(maximum));
     }
-    Ok(Some(line))
+    String::from_utf8(bytes).map(Some).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidData, catalog().remote_client.rpc_stdin_invalid_utf8)
+    })
+}
+
+fn rpc_stdin_line_too_large(maximum: usize) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, catalog().remote_client.rpc_stdin_too_large(maximum))
 }
 
 async fn next_rpc_input(
@@ -1111,7 +1084,7 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
         if let Some(encoded) = single {
             let request: WorkspaceRequest = serde_json::from_str(&encoded)
-                .context("--request is not a WorkspaceRequest JSON object")?;
+                .map_err(|_| anyhow!(catalog().remote_client.rpc_request_invalid))?;
             let response = client.request(request).await?;
             println!("{}", serde_json::to_string(&response)?);
             return Ok::<_, anyhow::Error>(());
@@ -1122,8 +1095,8 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
             if line.trim().is_empty() {
                 continue;
             }
-            let request: WorkspaceRequest =
-                serde_json::from_str(&line).context("invalid WorkspaceRequest")?;
+            let request: WorkspaceRequest = serde_json::from_str(&line)
+                .map_err(|_| anyhow!(catalog().remote_client.rpc_input_invalid))?;
             let response = client.request(request).await?;
             println!("{}", serde_json::to_string(&response)?);
         }
@@ -1138,7 +1111,7 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
         .first()
         .filter(|argument| !argument.starts_with('-'))
         .cloned()
-        .ok_or_else(|| anyhow!("ssh expects the destination before options"))?;
+        .ok_or_else(|| anyhow!(catalog().remote_client.ssh_destination_required))?;
     let mut flags = parse_connect_flags(args)?;
     flags.route = Some(ssh_url(&destination)?);
     if !flags.lanes_explicit {
@@ -1153,10 +1126,10 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
 
 fn ssh_url(destination: &str) -> anyhow::Result<String> {
     if destination.starts_with('-') || destination.bytes().any(|byte| byte.is_ascii_whitespace()) {
-        return Err(anyhow!("invalid SSH destination"));
+        return Err(anyhow!(catalog().remote_client.ssh_destination_invalid));
     }
     let url = format!("ssh://{destination}");
-    Url::parse(&url).context("invalid SSH destination")?;
+    Url::parse(&url).map_err(|_| anyhow!(catalog().remote_client.ssh_destination_invalid))?;
     Ok(url)
 }
 
@@ -1185,7 +1158,7 @@ impl EnrollAdminAction {
             "connections" => Ok(Self::Connections),
             "revoke" => Ok(Self::Revoke),
             "disconnect" => Ok(Self::Disconnect),
-            other => Err(anyhow!("unknown enroll action {other:?}")),
+            other => Err(anyhow!(catalog().remote_client.unknown_action("enroll", other))),
         }
     }
 
@@ -1283,11 +1256,12 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
             "--ttl" => {
                 require_create_action(action, "--ttl")?;
                 require_unique_flag(&mut seen, "--ttl")?;
-                parsed.ttl_seconds = strict_option_value(args, &mut index, "--ttl")?
-                    .parse()
-                    .context("--ttl must be seconds")?;
+                parsed.ttl_seconds =
+                    strict_option_value(args, &mut index, "--ttl")?.parse().map_err(|_| {
+                        anyhow!(catalog().remote_client.invalid_option_value("--ttl", "seconds"))
+                    })?;
                 if parsed.ttl_seconds == 0 {
-                    return Err(anyhow!("--ttl must be positive"));
+                    return Err(anyhow!(catalog().remote_client.option_must_be_positive("--ttl")));
                 }
             }
             "--advertise" => {
@@ -1307,9 +1281,7 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
                 parsed.relay_slots.push(strict_option_value(args, &mut index, "--relay-slot")?);
             }
             "--relay-ticket" => {
-                return Err(anyhow!(
-                    "inline relay tickets are not accepted; use --relay-ticket-file"
-                ));
+                return Err(anyhow!(catalog().remote_client.inline_enroll_relay_ticket_rejected));
             }
             "--relay-ticket-file" => {
                 require_create_action(action, "--relay-ticket-file")?;
@@ -1318,24 +1290,24 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
                 ));
             }
             option => {
-                return Err(anyhow!("unknown option {option:?} for enroll {}", action.name()));
+                return Err(anyhow!(
+                    catalog()
+                        .remote_client
+                        .unknown_option_for_command(option, &format!("enroll {}", action.name()))
+                ));
             }
         }
     }
     let expected = action.positional_arity();
     if parsed.positionals.len() != expected {
-        return Err(anyhow!(
-            "enroll {} expects exactly {expected} positional argument{}",
-            action.name(),
-            if expected == 1 { "" } else { "s" }
-        ));
+        return Err(anyhow!(catalog().remote_client.enroll_arity(action.name(), expected)));
     }
     Ok(parsed)
 }
 
 fn require_create_action(action: EnrollAdminAction, option: &str) -> anyhow::Result<()> {
     if action != EnrollAdminAction::Create {
-        return Err(anyhow!("{option} is only valid for enroll create"));
+        return Err(anyhow!(catalog().remote_client.option_create_only(option)));
     }
     Ok(())
 }
@@ -1345,7 +1317,7 @@ fn require_unique_flag(
     option: &'static str,
 ) -> anyhow::Result<()> {
     if !seen.insert(option) {
-        return Err(anyhow!("{option} may only be specified once"));
+        return Err(anyhow!(catalog().remote_client.option_once(option)));
     }
     Ok(())
 }
@@ -1353,7 +1325,7 @@ fn require_unique_flag(
 fn strict_option_value(args: &[String], index: &mut usize, option: &str) -> anyhow::Result<String> {
     let value = args.get(*index).filter(|value| !value.starts_with("--")).cloned();
     let Some(value) = value else {
-        return Err(anyhow!("{option} needs a value"));
+        return Err(anyhow!(catalog().remote_client.option_needs_value(option)));
     };
     *index += 1;
     Ok(value)
@@ -1441,7 +1413,11 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
                 require_unique_flag(&mut seen, "--json")?;
                 json = true;
             }
-            option => return Err(anyhow!("unknown option {option:?} for known-daemons")),
+            option => {
+                return Err(anyhow!(
+                    catalog().remote_client.unknown_option_for_command(option, "known-daemons")
+                ));
+            }
         }
     }
     let action = match positionals.as_slice() {
@@ -1451,12 +1427,14 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
             KnownDaemonsAction::Forget(fingerprint.clone())
         }
         [action] if action == "forget" => {
-            return Err(anyhow!("known-daemons forget expects exactly one fingerprint"));
+            return Err(anyhow!(catalog().remote_client.known_forget_arity));
         }
         [action, ..] if action == "forget" => {
-            return Err(anyhow!("known-daemons forget expects exactly one fingerprint"));
+            return Err(anyhow!(catalog().remote_client.known_forget_arity));
         }
-        [action, ..] => return Err(anyhow!("unknown known-daemons action {action:?}")),
+        [action, ..] => {
+            return Err(anyhow!(catalog().remote_client.unknown_action("known-daemons", action)));
+        }
     };
     Ok(KnownDaemonsArgs { action, state_dir, json })
 }
@@ -2891,6 +2869,22 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rpc_stdin_accepts_exact_limit_for_lf_crlf_and_eof() {
+        for input in [b"1234\n".as_slice(), b"1234\r\n", b"1234"] {
+            let mut input = io::Cursor::new(input);
+            assert_eq!(read_rpc_stdin_line(&mut input, 4).unwrap().as_deref(), Some("1234"));
+            assert_eq!(read_rpc_stdin_line(&mut input, 4).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn rpc_stdin_rejects_invalid_utf8_within_the_limit() {
+        let mut input = io::Cursor::new([0xff, b'\n']);
+        let error = read_rpc_stdin_line(&mut input, 4).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_unix_route_is_promoted_and_remote_unix_route_is_demoted() {
@@ -3277,6 +3271,8 @@ mod tests {
         assert_japanese(&ssh_url("invalid destination").unwrap_err().to_string());
         assert_japanese(&run_forward(&[]).unwrap_err().to_string());
         assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());
+        let mut oversized = io::Cursor::new(vec![b'x'; 128]);
+        assert_japanese(&read_rpc_stdin_line(&mut oversized, 8).unwrap_err().to_string());
 
         for args in [
             vec!["unknown"],

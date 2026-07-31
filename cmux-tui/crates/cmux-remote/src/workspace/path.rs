@@ -249,15 +249,9 @@ impl UnixWorkspaceRoot {
         }
         let name = relative.file_name().ok_or_else(|| invalid_path("path does not name a file"))?;
         let name = component_cstring(name)?;
-        let parent_relative = relative.parent().unwrap_or_else(|| Path::new("")).to_owned();
-        let parent = self.resolve_directory(&parent_relative, create_parents)?;
-        Ok(UnixWorkspaceTarget {
-            root: self.clone(),
-            parent,
-            parent_relative,
-            name,
-            display: self.display.join(relative),
-        })
+        let parent_relative = relative.parent().unwrap_or_else(|| Path::new(""));
+        let parent = self.resolve_directory(parent_relative, create_parents)?;
+        Ok(UnixWorkspaceTarget { parent, name, display: self.display.join(relative) })
     }
 
     pub(crate) fn target_for_canonical_path(
@@ -286,17 +280,34 @@ impl UnixWorkspaceRoot {
             .and_then(|name| component_cstring(name))?;
         let parent_components = &components[..components.len() - 1];
         let parent = self.open_canonical_directory(parent_components)?;
-        let parent_relative = parent_components.iter().collect();
-        Ok(UnixWorkspaceTarget {
-            root: self.clone(),
-            parent,
-            parent_relative,
-            name,
-            display: canonical.to_owned(),
-        })
+        Ok(UnixWorkspaceTarget { parent, name, display: canonical.to_owned() })
     }
 
-    fn resolve_directory(&self, relative: &Path, create_missing: bool) -> Result<File, RpcError> {
+    pub(crate) fn pinned_directory_for_canonical_path(
+        &self,
+        canonical: &Path,
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        let relative = canonical.strip_prefix(&self.display).map_err(|_| {
+            RpcError::new("path-outside-workspace", "resolved path escapes the workspace root")
+        })?;
+        let components = relative
+            .components()
+            .map(|component| match component {
+                Component::Normal(name) => Ok(name.to_owned()),
+                _ => Err(invalid_path("canonical workspace path has an invalid component")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if components.len() > MAX_PROTOCOL_PATH_COMPONENTS {
+            return Err(invalid_path("resolved path has too many components"));
+        }
+        self.open_canonical_directory(&components)
+    }
+
+    fn resolve_directory(
+        &self,
+        relative: &Path,
+        create_missing: bool,
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
         let mut pending = relative
             .components()
             .filter_map(|component| match component {
@@ -382,7 +393,9 @@ impl UnixWorkspaceRoot {
                 Err(error) => return Err(directory_component_error(&display, error)),
             }
         }
-        Ok(current)
+        let relative = resolved.iter().collect::<PathBuf>();
+        let display = self.display.join(&relative);
+        Ok(UnixWorkspaceDirectory { root: self.clone(), directory: current, relative, display })
     }
 
     fn expand_symlink(
@@ -416,7 +429,7 @@ impl UnixWorkspaceRoot {
             // Reopen the canonical route from the pinned workspace descriptor.
             // This accepts alias spellings while preventing pathname races from
             // redirecting the mutation outside the workspace.
-            let directory = self.open_canonical_directory(&resolved)?;
+            let directory = self.open_canonical_directory_file(&resolved)?;
             return Ok(SymlinkExpansion::PinnedAbsolute { directory, resolved });
         }
 
@@ -447,7 +460,17 @@ impl UnixWorkspaceRoot {
         Ok(SymlinkExpansion::Relative(expanded.into()))
     }
 
-    fn open_canonical_directory(&self, components: &[OsString]) -> Result<File, RpcError> {
+    fn open_canonical_directory(
+        &self,
+        components: &[OsString],
+    ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        let directory = self.open_canonical_directory_file(components)?;
+        let relative = components.iter().collect::<PathBuf>();
+        let display = self.display.join(&relative);
+        Ok(UnixWorkspaceDirectory { root: self.clone(), directory, relative, display })
+    }
+
+    fn open_canonical_directory_file(&self, components: &[OsString]) -> Result<File, RpcError> {
         let mut current = self
             .directory
             .try_clone()
@@ -465,10 +488,84 @@ impl UnixWorkspaceRoot {
 
 #[cfg(unix)]
 #[derive(Debug)]
-pub(crate) struct UnixWorkspaceTarget {
+pub(crate) struct UnixWorkspaceDirectory {
     root: UnixWorkspaceRoot,
-    parent: File,
-    parent_relative: PathBuf,
+    directory: File,
+    relative: PathBuf,
+    display: PathBuf,
+}
+
+#[cfg(unix)]
+impl UnixWorkspaceDirectory {
+    pub(crate) fn fd(&self) -> RawFd {
+        self.directory.as_raw_fd()
+    }
+
+    pub(crate) fn display(&self) -> &Path {
+        &self.display
+    }
+
+    pub(crate) fn try_clone_file(&self) -> Result<File, RpcError> {
+        self.directory
+            .try_clone()
+            .map_err(|error| io_error("clone-directory", &self.display, error))
+    }
+
+    pub(crate) fn open_independent_file(&self) -> Result<File, RpcError> {
+        let current = c".";
+        open_directory_at(self.fd(), current)
+            .map_err(|error| io_error("open-directory", &self.display, error))
+    }
+
+    pub(crate) fn try_clone(&self) -> Result<Self, RpcError> {
+        Ok(Self {
+            root: self.root.clone(),
+            directory: self.try_clone_file()?,
+            relative: self.relative.clone(),
+            display: self.display.clone(),
+        })
+    }
+
+    pub(crate) fn metadata(&self) -> Result<std::fs::Metadata, RpcError> {
+        self.directory.metadata().map_err(|error| io_error("stat-directory", &self.display, error))
+    }
+
+    pub(crate) fn verify_identity(&self, operation: &str) -> Result<(), RpcError> {
+        let components = self
+            .relative
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(name) => Some(name.to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let current = self.root.open_canonical_directory_file(&components).map_err(|error| {
+            RpcError::new(
+                "conflict",
+                format!(
+                    "{operation} directory changed: {} ({})",
+                    self.display.display(),
+                    error.message
+                ),
+            )
+        })?;
+        let expected = self.metadata()?;
+        let found =
+            current.metadata().map_err(|error| io_error("stat-directory", &self.display, error))?;
+        if expected.dev() == found.dev() && expected.ino() == found.ino() {
+            return Ok(());
+        }
+        Err(RpcError::new(
+            "conflict",
+            format!("{operation} directory changed: {}", self.display.display()),
+        ))
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+pub(crate) struct UnixWorkspaceTarget {
+    parent: UnixWorkspaceDirectory,
     name: CString,
     display: PathBuf,
 }
@@ -476,7 +573,7 @@ pub(crate) struct UnixWorkspaceTarget {
 #[cfg(unix)]
 impl UnixWorkspaceTarget {
     pub(crate) fn parent_fd(&self) -> RawFd {
-        self.parent.as_raw_fd()
+        self.parent.fd()
     }
 
     pub(crate) fn name(&self) -> &CStr {
@@ -493,36 +590,13 @@ impl UnixWorkspaceTarget {
 
     pub(crate) fn sync_parent(&self) -> Result<(), RpcError> {
         self.parent
+            .directory
             .sync_all()
             .map_err(|error| io_error("sync-directory", self.parent_display(), error))
     }
 
     pub(crate) fn verify_parent_identity(&self) -> Result<(), RpcError> {
-        let current =
-            self.root.resolve_directory(&self.parent_relative, false).map_err(|error| {
-                RpcError::new(
-                    "conflict",
-                    format!(
-                        "write parent changed before commit: {} ({})",
-                        self.parent_display().display(),
-                        error.message
-                    ),
-                )
-            })?;
-        let expected = self
-            .parent
-            .metadata()
-            .map_err(|error| io_error("stat-directory", self.parent_display(), error))?;
-        let found = current
-            .metadata()
-            .map_err(|error| io_error("stat-directory", self.parent_display(), error))?;
-        if expected.dev() == found.dev() && expected.ino() == found.ino() {
-            return Ok(());
-        }
-        Err(RpcError::new(
-            "conflict",
-            format!("write parent changed before commit: {}", self.parent_display().display()),
-        ))
+        self.parent.verify_identity("write parent")
     }
 }
 

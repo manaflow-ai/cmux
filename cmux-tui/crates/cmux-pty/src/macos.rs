@@ -51,7 +51,9 @@ pub(crate) fn spawn(
     let shell = resolved_shell(&command);
     let mut process = Command::new(&command.program);
     process.args(&command.args);
-    if let Some(cwd) = command.cwd.as_deref() {
+    if command.cwd_descriptor.is_none()
+        && let Some(cwd) = command.cwd.as_deref()
+    {
         process.current_dir(cwd);
     }
     if command.clean_environment {
@@ -59,6 +61,7 @@ pub(crate) fn spawn(
     }
     process.envs(&command.environment);
     process.env("SHELL", shell);
+    let cwd_descriptor = command.cwd_descriptor;
 
     process
         .stdin(Stdio::from(slave.0.try_clone().context("failed to clone PTY slave for stdin")?))
@@ -95,6 +98,11 @@ pub(crate) fn spawn(
             if libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) == -1 {
                 return Err(io::Error::last_os_error());
             }
+            if let Some(directory) = cwd_descriptor.as_ref()
+                && libc::fchdir(directory.as_raw_fd()) == -1
+            {
+                return Err(io::Error::last_os_error());
+            }
             mark_inherited_descriptors_close_on_exec(descriptor_limit)?;
             Ok(())
         });
@@ -110,6 +118,31 @@ fn mark_inherited_descriptors_close_on_exec(descriptor_limit: RawFd) -> io::Resu
     // close that pipe and make a failed exec look successful. Marking the
     // child copies CLOEXEC preserves error reporting and still closes every
     // inherited descriptor when exec succeeds.
+    #[cfg(target_os = "linux")]
+    {
+        const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+        // SAFETY: this affects only the child-side descriptor table between
+        // fork and exec. CLOEXEC preserves Rust's private exec-error pipe.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_close_range,
+                3 as libc::c_uint,
+                libc::c_uint::MAX,
+                CLOSE_RANGE_CLOEXEC,
+            )
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if !matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EINVAL)) {
+            return Err(error);
+        }
+    }
+    mark_descriptors_close_on_exec_individually(descriptor_limit)
+}
+
+fn mark_descriptors_close_on_exec_individually(descriptor_limit: RawFd) -> io::Result<()> {
     for descriptor in 3..descriptor_limit {
         let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
         if flags == -1 {
