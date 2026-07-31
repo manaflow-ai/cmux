@@ -5675,6 +5675,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.keyCode == UInt16(kVK_Return)
                 || event.keyCode == UInt16(kVK_ANSI_KeypadEnter),
               !flags.contains(.shift),
+              !flags.contains(.control),
               !flags.contains(.option),
               !flags.contains(.command) else {
             return .unknown
