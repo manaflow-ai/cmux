@@ -179,6 +179,7 @@ public final class MobileIrohRuntimeComposition:
     private let tag: String
     private let discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     private let now: @Sendable () -> Date
+    private let relayPolicyRetryJitter: @Sendable () -> Double
     private let startNetworkPathObservation: @Sendable () async -> Void
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     private let lanPeerDiscovery: CmxIrohLANPeerDiscovery?
@@ -190,7 +191,7 @@ public final class MobileIrohRuntimeComposition:
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
-    private let connectionReadiness = MobileIrohConnectionReadinessOwner()
+    private let connectionReadiness: MobileIrohConnectionReadinessOwner
     private var sceneTransitionTask: Task<Void, Never>?
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
@@ -406,6 +407,11 @@ public final class MobileIrohRuntimeComposition:
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
+        relayPolicyRetryJitter: @escaping @Sendable () -> Double = {
+            Double.random(in: 0 ... 1)
+        },
+        connectionReadiness: MobileIrohConnectionReadinessOwner =
+            MobileIrohConnectionReadinessOwner(),
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
         startNetworkPathObservation: @escaping @Sendable () async -> Void = {},
@@ -437,6 +443,8 @@ public final class MobileIrohRuntimeComposition:
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
+        self.relayPolicyRetryJitter = relayPolicyRetryJitter
+        self.connectionReadiness = connectionReadiness
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
@@ -652,7 +660,7 @@ public final class MobileIrohRuntimeComposition:
         async -> MobileIrohConnectionReadinessOutcome
     {
         await reconcileLiveAuthIfNeeded()
-        let outcome = await connectionReadiness.wait(now: now())
+        let outcome = await connectionReadiness.wait(now: { self.now() })
         await sceneTransitionTask?.value
         return runtime == nil ? outcome : .ready
     }
@@ -1285,17 +1293,24 @@ public final class MobileIrohRuntimeComposition:
         previous?.cancel()
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            guard let self,
-                  revision == self.lifecycleRevision,
+            guard let self else { return }
+            guard revision == self.lifecycleRevision,
                   self.signOutPhase.allowsLifecycle,
-                  !Task.isCancelled else { return }
+                  !Task.isCancelled else {
+                self.connectionReadiness.abandon(revision: revision)
+                return
+            }
             let outcome = await self.reconcile(
                 targetAccountID: targetAccountID,
                 eraseAccountState: eraseAccountState,
                 restartActiveRuntime: restartActiveRuntime,
                 revision: revision
             )
-            guard revision == self.lifecycleRevision else { return }
+            guard revision == self.lifecycleRevision,
+                  !Task.isCancelled else {
+                self.connectionReadiness.abandon(revision: revision)
+                return
+            }
             switch outcome {
             case .inactive:
                 self.connectionReadiness.complete(
@@ -1314,7 +1329,11 @@ public final class MobileIrohRuntimeComposition:
                         accountID: targetAccountID
                     )
                 }
-                guard revision == self.lifecycleRevision else { return }
+                guard revision == self.lifecycleRevision,
+                      !Task.isCancelled else {
+                    self.connectionReadiness.abandon(revision: revision)
+                    return
+                }
                 if let targetAccountID {
                     let failure = self.connectionReadiness.completeFailure(
                         revision: revision,
@@ -2504,7 +2523,7 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
-                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                        jitterUnitInterval: self.relayPolicyRetryJitter()
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)
@@ -2531,10 +2550,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     nonisolated static func relayPolicyRetrySchedule(
         for error: any Error
     ) -> CmxIrohRetrySchedule {
-        guard diagnosticFailureKind(for: error) == .authorizationFailed else {
-            return CmxIrohRetrySchedule()
-        }
-        return CmxIrohRetrySchedule(initialDelay: 2, maximumDelay: 120)
+        CmxIrohRetrySchedule.relayPolicy(
+            for: diagnosticFailureKind(for: error)
+        )
     }
 
     /// The signed policy bootstrap includes a fresh relay credential. Tests
@@ -2897,8 +2915,9 @@ extension MobileIrohRuntimeComposition {
     private func brokerTokenSource(
         pinnedTo expectedAccountID: String
     ) -> CmxIrohBrokerTokenSource {
-        CmxIrohBrokerTokenSource(
-            credentialPair: { [weak auth] in
+        .accountPinned(
+            to: expectedAccountID,
+            snapshot: { [weak auth] in
                 guard let auth else { return nil }
                 let session: AuthenticatedSessionSnapshot
                 do {
@@ -2913,35 +2932,17 @@ extension MobileIrohRuntimeComposition {
                 // transient: rethrow so the broker classifies it connectivity
                 // and activation falls back to the cached verified policy
                 // instead of failing closed on every launch.
-                guard session.accountID == expectedAccountID else { return nil }
-                return CmxIrohBrokerCredentials(
-                    accessToken: session.accessToken,
-                    refreshToken: session.refreshToken
-                )
-            },
-            recoveredCredentialPair: { [weak auth] rejected in
-                guard let auth else { return nil }
-                // Re-capture first: when another lane already rotated the
-                // session (the wake-time RPC force refresh, most commonly),
-                // the fresh snapshot differs from the rejected pair and no
-                // extra mint is needed. Only an unchanged access token forces
-                // a mint; the SDK store dedups concurrent refreshes, so
-                // parallel rejected requests cannot stampede the minter.
-                if let session = try? await auth.authenticatedSessionSnapshot(),
-                   session.accountID == expectedAccountID,
-                   session.accessToken != rejected.accessToken {
-                    return CmxIrohBrokerCredentials(
+                return CmxIrohAccountCredentialSnapshot(
+                    accountID: session.accountID,
+                    credentials: CmxIrohBrokerCredentials(
                         accessToken: session.accessToken,
                         refreshToken: session.refreshToken
                     )
-                }
-                guard (try? await auth.forceRefreshAccessToken()) != nil,
-                      let session = try? await auth.authenticatedSessionSnapshot(),
-                      session.accountID == expectedAccountID else { return nil }
-                return CmxIrohBrokerCredentials(
-                    accessToken: session.accessToken,
-                    refreshToken: session.refreshToken
                 )
+            },
+            forceRefresh: { [weak auth] in
+                guard let auth else { return }
+                _ = try await auth.forceRefreshAccessToken()
             }
         )
     }

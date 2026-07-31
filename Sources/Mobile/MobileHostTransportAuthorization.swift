@@ -245,6 +245,39 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
             return entry.connection
         }
     }
+
+    #if DEBUG
+    /// Closes one selected mobile transport, or every mobile transport when
+    /// no id is supplied, through the same connection-owned close path used
+    /// by production failures. The snapshot is taken under the registry lock;
+    /// no lock is held while transport shutdown awaits.
+    func debugCloseConnections(connectionID: UUID?) async -> [UUID] {
+        let selected = debugConnectionSnapshot(connectionID: connectionID)
+        let ordered = selected.sorted {
+            $0.0.uuidString < $1.0.uuidString
+        }
+        for (_, connection) in ordered {
+            await connection.close(reason: "debug transport disconnect")
+        }
+        return ordered.map(\.0)
+    }
+
+    private func debugConnectionSnapshot(
+        connectionID: UUID?
+    ) -> [(UUID, MobileHostConnection)] {
+        lock.lock()
+        let selected: [(UUID, MobileHostConnection)]
+        if let connectionID, let entry = connections[connectionID] {
+            selected = [(connectionID, entry.connection)]
+        } else if connectionID == nil {
+            selected = connections.map { ($0.key, $0.value.connection) }
+        } else {
+            selected = []
+        }
+        lock.unlock()
+        return selected
+    }
+    #endif
 }
 
 enum MobileHostPublicStatusCache {

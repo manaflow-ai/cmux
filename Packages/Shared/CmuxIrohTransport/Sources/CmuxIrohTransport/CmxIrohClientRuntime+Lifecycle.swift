@@ -112,17 +112,11 @@ extension CmxIrohClientRuntime {
 
     /// Failures that may fall back to the verified offline policy cache.
     ///
-    /// Connectivity has always qualified. An unauthorized rejection (401/403)
-    /// qualifies too: it already survived the broker client's single
-    /// force-refresh retry, so it is a session transition still settling or a
-    /// server-side availability condition, and the cached bootstrap carries no
-    /// authority the broker did not previously sign. Proceeding keeps LAN and
-    /// cached-relay paths dialable while auth settles; a genuinely dead session
-    /// stops the runtime through the auth coordinator's state clear.
+    /// Only transport availability qualifies. Authorization rejections fail
+    /// closed even when an older policy was previously verified: the broker
+    /// has explicitly withdrawn this session's authority after the client's
+    /// exactly-once credential recovery.
     static func recoversWithCachedPolicy(_ error: any Error) -> Bool {
-        if isConnectivity(error) { return true }
-        guard case let .rejected(statusCode, _)? =
-            error as? CmxIrohTrustBrokerClientError else { return false }
-        return statusCode == 401 || statusCode == 403
+        isConnectivity(error)
     }
 }

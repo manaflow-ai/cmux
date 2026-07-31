@@ -10000,6 +10000,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private enum TerminalEventSubscriptionProbeResult {
+        case active
+        case missing
+        case unsupported
+        case failed
+    }
+
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
@@ -10009,6 +10016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestData: Data
         do {
             var params: [String: Any] = [
+                "client_id": clientID,
                 "stream_id": terminalEventStreamID,
                 "topics": topics,
             ]
@@ -10590,15 +10598,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// every healthy idle subscription every ~10.5s, forever (the 2026-06-10
     /// Release-sim bisect finding).
     ///
-    /// The probe is an idempotent `mobile.events.subscribe` for the SAME
-    /// stream id and current topics, not a generic ping: a completed
-    /// round-trip proves the transport the events ride on is alive AND that
-    /// the server-side registration is (re)installed, and the host's
-    /// subscription tracker re-evaluates producer demand on every replace. A
-    /// generic `mobile.host.status` answer could mask a dropped registration
-    /// behind a live RPC channel forever. Unlike the resync recovery, the
-    /// probe restarts nothing: no listener teardown, no replay, no stream
-    /// interruption.
+    /// The read-only `mobile.events.probe` checks the SAME stream id: a
+    /// completed response proves the control channel is alive and reports
+    /// whether the host still owns the registration without replacing it or
+    /// churning producer demand. A missing registration is repaired with one
+    /// subscribe and replay; an older host that lacks the probe verb falls
+    /// back to the former idempotent subscribe behavior.
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
@@ -10692,10 +10697,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Bounded positive-liveness probe: re-assert the event subscription and
-    /// only count a completed round-trip as alive. Any failure (timeout,
-    /// closed connection, rpc rejection) reports dead and lets the watchdog
-    /// run its recovery.
+    /// Bounded positive-liveness probe: inspect the existing event
+    /// registration without mutating it, repairing it only when missing.
     ///
     /// The deadline bounds the WHOLE attempt, including any Stack token work
     /// that precedes the wire write inside `sendRequest`; an unbounded hang
@@ -10707,12 +10710,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         timeoutNanoseconds: UInt64
     ) async -> TerminalEventSubscriptionAck {
         let probe = Task { @MainActor [weak self] in
-            await self?.requestTerminalEventSubscription(
+            guard let self else { return TerminalEventSubscriptionAck.failed }
+            switch await self.requestTerminalEventSubscriptionProbe(
                 client: client,
-                reason: "liveness_probe",
-                topics: topics,
                 timeoutNanoseconds: timeoutNanoseconds
-            ) ?? .failed
+            ) {
+            case .active:
+                return .subscribed(alreadySubscribed: true)
+            case .missing, .unsupported:
+                return await self.requestTerminalEventSubscription(
+                    client: client,
+                    reason: "liveness_probe_repair",
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+            case .failed:
+                return .failed
+            }
         }
         // Bounded deadline via a one-shot DispatchSourceTimer — the same
         // sanctioned primitive the watchdog tick uses — with cancellation
@@ -10726,6 +10740,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ack = await probe.value
         deadline.cancel()
         return ack
+    }
+
+    private func requestTerminalEventSubscriptionProbe(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64
+    ) async -> TerminalEventSubscriptionProbeResult {
+        let requestData: Data
+        do {
+            requestData = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.probe",
+                params: [
+                    "client_id": clientID,
+                    "stream_id": terminalEventStreamID,
+                ]
+            )
+        } catch {
+            return .failed
+        }
+        do {
+            let data = try await client.sendRequest(
+                requestData,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            guard let object = try JSONSerialization.jsonObject(with: data)
+                    as? [String: Any],
+                  object["stream_id"] as? String == terminalEventStreamID,
+                  let subscribed = object["subscribed"] as? Bool else {
+                return .failed
+            }
+            return subscribed ? .active : .missing
+        } catch MobileShellConnectionError.rpcError(let code, _)
+            where code == "method_not_found" {
+            return .unsupported
+        } catch {
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
+            return .failed
+        }
     }
 
     func resyncTerminalOutput(

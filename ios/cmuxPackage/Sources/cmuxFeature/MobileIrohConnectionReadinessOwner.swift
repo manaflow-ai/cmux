@@ -55,7 +55,27 @@ final class MobileIrohConnectionReadinessOwner {
     var isPending: Bool { pendingRevision != nil }
 
     func begin(revision: UInt64) {
+        let supersededPrevious =
+            pendingRevision != nil && pendingRevision != revision
         pendingRevision = revision
+        if supersededPrevious {
+            // Existing waiters must re-evaluate against the new revision.
+            // Leaving them parked on the superseded lifecycle leaks every
+            // connection entrypoint if that old task never completes.
+            resumeWaiters()
+        }
+    }
+
+    @discardableResult
+    func abandon(revision: UInt64) -> Bool {
+        guard pendingRevision == revision else { return false }
+        pendingRevision = nil
+        settledOutcome = .inactive
+        retryAccountID = nil
+        retryAt = nil
+        consecutiveFailureCount = 0
+        resumeWaiters()
+        return true
     }
 
     @discardableResult
@@ -119,8 +139,10 @@ final class MobileIrohConnectionReadinessOwner {
         return now >= retryAt
     }
 
-    func wait(now: Date) async -> MobileIrohConnectionReadinessOutcome {
-        if isPending {
+    func wait(
+        now: @escaping @MainActor () -> Date
+    ) async -> MobileIrohConnectionReadinessOutcome {
+        while isPending {
             await withCheckedContinuation { continuation in
                 guard isPending else {
                     continuation.resume()
@@ -135,7 +157,7 @@ final class MobileIrohConnectionReadinessOwner {
         }
         let remaining = max(
             1,
-            Int(retryAt.timeIntervalSince(now).rounded(.up))
+            Int(retryAt.timeIntervalSince(now()).rounded(.up))
         )
         return .failed(MobileIrohRuntimePreparationError(
             diagnosticFailureKind: failure.diagnosticFailureKind,
