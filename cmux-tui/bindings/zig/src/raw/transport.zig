@@ -375,3 +375,131 @@ test "partial Unix writes share one absolute timeout" {
     );
     try std.testing.expect(writer.wait_calls >= 2);
 }
+
+test "large Unix write to a nonreading peer honors its deadline" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/nonreading.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+    var connection = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer connection.deinit();
+    const peer = try server.accept();
+    defer peer.stream.close();
+    const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
+    var buffer_size: c_int = 4 * 1024;
+    try std.posix.setsockopt(
+        state.stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.SNDBUF,
+        std.mem.asBytes(&buffer_size),
+    );
+    try std.posix.setsockopt(
+        peer.stream.handle,
+        std.posix.SOL.SOCKET,
+        std.posix.SO.RCVBUF,
+        std.mem.asBytes(&buffer_size),
+    );
+
+    const Helpers = struct {
+        fn setNonblocking(fd: std.posix.fd_t, enabled: bool) !void {
+            var flags = try std.posix.fcntl(fd, std.posix.F.GETFL, 0);
+            const nonblocking = @as(usize, 1) <<
+                @bitOffsetOf(std.posix.O, "NONBLOCK");
+            if (enabled) {
+                flags |= nonblocking;
+            } else {
+                flags &= ~nonblocking;
+            }
+            _ = try std.posix.fcntl(fd, std.posix.F.SETFL, flags);
+        }
+    };
+    const original_flags = try std.posix.fcntl(
+        state.stream.handle,
+        std.posix.F.GETFL,
+        0,
+    );
+    try Helpers.setNonblocking(state.stream.handle, true);
+    var fill: [64 * 1024]u8 = undefined;
+    @memset(&fill, 0x5a);
+    while (true) {
+        _ = state.stream.write(&fill) catch |failure| switch (failure) {
+            error.WouldBlock => break,
+            else => return failure,
+        };
+    }
+    _ = try std.posix.fcntl(
+        state.stream.handle,
+        std.posix.F.SETFL,
+        original_flags,
+    );
+
+    const PeerDrain = struct {
+        stream: std.net.Stream,
+        failure: ?anyerror = null,
+        read_bytes: usize = 0,
+
+        fn run(self: *@This()) void {
+            std.Thread.sleep(5 * std.time.ns_per_ms);
+            var bytes: [64 * 1024]u8 = undefined;
+            self.read_bytes = self.stream.read(&bytes) catch |failure| {
+                self.failure = failure;
+                return;
+            };
+        }
+    };
+    var peer_drain = PeerDrain{ .stream = peer.stream };
+    const peer_thread = try std.Thread.spawn(
+        .{},
+        PeerDrain.run,
+        .{&peer_drain},
+    );
+    var write_done = std.Thread.ResetEvent{};
+    const Watchdog = struct {
+        connection: *UnixConnection,
+        done: *std.Thread.ResetEvent,
+
+        fn run(self: @This()) void {
+            self.done.timedWait(250 * std.time.ns_per_ms) catch {
+                self.connection.close();
+            };
+        }
+    };
+    const watchdog = try std.Thread.spawn(
+        .{},
+        Watchdog.run,
+        .{Watchdog{ .connection = state, .done = &write_done }},
+    );
+    const payload = try std.testing.allocator.alloc(u8, 8 * 1024 * 1024);
+    defer std.testing.allocator.free(payload);
+    @memset(payload, 0x78);
+    var timer = try std.time.Timer.start();
+    const write_failure: ?anyerror = blk: {
+        connection.writeAll(payload, 20) catch |failure| {
+            break :blk failure;
+        };
+        break :blk null;
+    };
+    const elapsed_ns = timer.read();
+    write_done.set();
+    peer_thread.join();
+    watchdog.join();
+
+    if (peer_drain.failure) |failure| return failure;
+    try std.testing.expect(peer_drain.read_bytes > 0);
+    try std.testing.expectEqual(
+        error.Timeout,
+        write_failure orelse return error.ExpectedTimeout,
+    );
+    try std.testing.expect(elapsed_ns < 100 * std.time.ns_per_ms);
+}
