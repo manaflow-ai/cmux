@@ -412,6 +412,7 @@ extension CmxIrohHostRuntimeTests {
             discovery: fixture.discovery,
             registrationError: failure
         )
+        let clock = HostRegistrationRenewalClock(now: now)
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(
                 endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
@@ -420,15 +421,23 @@ extension CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            registrationClock: ImmediateHostActivationClock(),
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
             handleTransport: { session, _ in await session.close() }
         )
 
         try await runtime.start()
+        await clock.waitUntilSleeping()
 
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        let retryDeadline = try #require(clock.observedSleepDeadlines().first)
+        #expect(
+            retryDeadline == now.addingTimeInterval(
+                TimeInterval(failure.retryAfterSeconds ?? 30)
+            )
+        )
         await runtime.stop()
     }
 
