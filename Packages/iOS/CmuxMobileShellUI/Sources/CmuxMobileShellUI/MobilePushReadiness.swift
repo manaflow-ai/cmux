@@ -169,6 +169,7 @@ public enum MobilePushReadiness: Equatable, Sendable {
         case awaitingDeviceToken
         case deviceTokenRegistrationFailed
         case registeringDevice
+        case backendRegistrationRequired
         case authenticationRequired
         case accountDeletionInProgress
         case registrationRateLimited
@@ -231,7 +232,8 @@ public enum MobilePushReadiness: Equatable, Sendable {
             .finishAccountDeletion
         case .deviceLimitReached:
             .disablePushOnAnotherDevice
-        case .registrationRateLimited, .networkUnavailable,
+        case .backendRegistrationRequired, .registrationRateLimited,
+             .networkUnavailable,
              .pushServiceUnavailable, .invalidServerResponse,
              .registrationRejected:
             .retryRegistration
@@ -287,8 +289,10 @@ public enum MobilePushReadiness: Equatable, Sendable {
         switch registration.backendState {
         case .deviceTokenRegistrationFailed:
             return .blocked(.deviceTokenRegistrationFailed)
-        case .awaitingDeviceToken, .registrationRequired:
+        case .awaitingDeviceToken:
             return .blocked(.awaitingDeviceToken)
+        case .registrationRequired:
+            return .blocked(.backendRegistrationRequired)
         case .registering:
             return .blocked(.registeringDevice)
         case .registered:
@@ -373,7 +377,9 @@ public enum MobilePushReadiness: Equatable, Sendable {
     private static func canonicalEndpoint(_ rawValue: String) -> String? {
         guard var components = URLComponents(string: rawValue),
               let scheme = components.scheme?.lowercased(),
-              let host = components.host?.lowercased()
+              ["http", "https"].contains(scheme),
+              let host = components.host?.lowercased(),
+              !host.isEmpty
         else {
             return nil
         }
