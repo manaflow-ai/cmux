@@ -224,10 +224,15 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func continuationGateDeliversCancellationBeforeInstall() async {
+    func continuationGateDeliversEarlyCancellationAndRejectsReuse() async {
         let gate = BrowserScreenshotContinuationGate<Void>()
         #expect(gate.finish(.failure(CancellationError())))
 
+        await #expect(throws: CancellationError.self) {
+            let _: Void = try await withCheckedThrowingContinuation { continuation in
+                #expect(!gate.install(continuation))
+            }
+        }
         await #expect(throws: CancellationError.self) {
             let _: Void = try await withCheckedThrowingContinuation { continuation in
                 #expect(!gate.install(continuation))

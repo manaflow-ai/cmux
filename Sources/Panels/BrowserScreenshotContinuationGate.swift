@@ -20,7 +20,12 @@ final class BrowserScreenshotContinuationGate<Success> {
             continuation.resume(with: pendingResult)
             return false
         }
-        guard !isFinished, self.continuation == nil else { return false }
+        guard !isFinished, self.continuation == nil else {
+            // Request owners are single-use; reject accidental reuse without
+            // abandoning the new caller's checked continuation.
+            continuation.resume(throwing: CancellationError())
+            return false
+        }
         self.continuation = continuation
         return true
     }
