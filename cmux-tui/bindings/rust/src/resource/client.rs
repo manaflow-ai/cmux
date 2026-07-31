@@ -85,6 +85,25 @@ impl CallBudget {
     }
 }
 
+fn connect_with_budget(
+    config: &Config,
+    operation: &str,
+    budget: &CallBudget,
+) -> Result<JsonLineConnection> {
+    loop {
+        let timeout = budget.receive_timeout(operation)?;
+        match JsonLineConnection::connect(
+            &config.socket_path,
+            timeout,
+            config.timeout,
+            config.max_response_bytes,
+        ) {
+            Err(Error::Timeout(_)) if budget.cancellation.is_some() => continue,
+            result => return result,
+        }
+    }
+}
+
 /// Connection and bound configuration for the resource SDK.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -200,6 +219,7 @@ impl Client {
         config.validate()?;
         let connection = JsonLineConnection::connect(
             &config.socket_path,
+            config.timeout,
             config.timeout,
             config.max_response_bytes,
         )?;
@@ -337,11 +357,7 @@ impl Client {
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
         let envelope = request_envelope(&id, operation, params.into_value(), None);
-        let mut connection = JsonLineConnection::connect(
-            &self.shared.config.socket_path,
-            self.shared.config.timeout,
-            self.shared.config.max_response_bytes,
-        )?;
+        let mut connection = connect_with_budget(&self.shared.config, operation, &budget)?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -489,11 +505,7 @@ impl Client {
         }
         if connection.is_none() {
             budget.check(operation)?;
-            *connection = Some(JsonLineConnection::connect(
-                &self.shared.config.socket_path,
-                self.shared.config.timeout,
-                self.shared.config.max_response_bytes,
-            )?);
+            *connection = Some(connect_with_budget(&self.shared.config, operation, &budget)?);
         }
         budget.check(operation)?;
         *dispatched = true;
@@ -513,7 +525,7 @@ impl Client {
                             && matches!(&original, Error::Timeout(_) | Error::Cancelled(_)) =>
                     {
                         reusable_after_abandonment =
-                            self.cancel_abandoned_request(active, &id).is_ok();
+                            self.cancel_abandoned_request(active, &id, operation).is_ok();
                         Err(original)
                     }
                     result => result,
@@ -533,6 +545,7 @@ impl Client {
         &self,
         connection: &mut JsonLineConnection,
         target_id: &str,
+        target_operation: &str,
     ) -> Result<()> {
         let operation = ops::REQUEST_CANCEL;
         let budget = CallBudget::new(
@@ -569,7 +582,7 @@ impl Client {
                         "request cleanup received a duplicate target response".to_string(),
                     ));
                 }
-                validate_completed_response(envelope, target_id)?;
+                validate_completed_response(envelope, target_id, target_operation)?;
                 target_seen = true;
             } else if response_id == cancel_id {
                 if cancel_result.is_some() {
@@ -771,9 +784,26 @@ fn request_can_be_abandoned(operation: &str) -> bool {
     matches!(operation, ops::TERMINAL_WAIT | ops::TERMINAL_WAIT_EXIT)
 }
 
-fn validate_completed_response(response: Value, expected_id: &str) -> Result<()> {
+fn validate_completed_response(response: Value, expected_id: &str, operation: &str) -> Result<()> {
     match decode_response(response, expected_id) {
-        Ok(_) | Err(Error::Protocol { .. } | Error::ConfirmationRequired { .. }) => Ok(()),
+        Ok(value) if operation == ops::TERMINAL_WAIT => {
+            super::wire::decode_exact::<super::model::TerminalWaitResult>(
+                &value,
+                "terminal wait result",
+            )?;
+            Ok(())
+        }
+        Ok(value) if operation == ops::TERMINAL_WAIT_EXIT => {
+            super::wire::decode_exact::<super::model::TerminalWaitExitResult>(
+                &value,
+                "terminal wait exit result",
+            )?;
+            Ok(())
+        }
+        Ok(_) => Err(Error::UnexpectedEnvelope(format!(
+            "request cancellation targeted unsupported operation {operation}"
+        ))),
+        Err(Error::Protocol { .. } | Error::ConfirmationRequired { .. }) => Ok(()),
         Err(error) => Err(error),
     }
 }

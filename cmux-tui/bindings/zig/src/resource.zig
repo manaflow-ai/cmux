@@ -1338,11 +1338,15 @@ const TimeoutDeadline = struct {
         };
     }
 
-    fn remainingMs(self: *TimeoutDeadline) !?u32 {
+    fn remainingNs(self: *TimeoutDeadline) !?u64 {
         const timer = if (self.timer) |*value| value else return null;
         const elapsed_ns = timer.read();
         if (elapsed_ns >= self.timeout_ns) return error.Timeout;
-        const remaining_ns = self.timeout_ns - elapsed_ns;
+        return self.timeout_ns - elapsed_ns;
+    }
+
+    fn remainingMs(self: *TimeoutDeadline) !?u32 {
+        const remaining_ns = (try self.remainingNs()) orelse return null;
         return @intCast(
             (remaining_ns - 1) / std.time.ns_per_ms + 1,
         );
@@ -1999,6 +2003,9 @@ pub const Client = struct {
     next_request_id: u64 = 1,
     closed: bool = false,
     mutex: std.Thread.Mutex = .{},
+    request_admission_mutex: std.Thread.Mutex = .{},
+    request_admission_condition: std.Thread.Condition = .{},
+    request_active: bool = false,
     close_mutex: std.Thread.Mutex = .{},
     last_error: ?OwnedResourceError = null,
     last_mutation_uncertain: ?OwnedMutationTransportUncertain = null,
@@ -2173,6 +2180,35 @@ pub const Client = struct {
             "zig-request-{d}",
             .{id},
         );
+    }
+
+    fn acquireRequest(
+        self: *Client,
+        deadline: *TimeoutDeadline,
+    ) !void {
+        self.request_admission_mutex.lock();
+        defer self.request_admission_mutex.unlock();
+        while (self.request_active) {
+            if (try deadline.remainingNs()) |remaining_ns| {
+                self.request_admission_condition.timedWait(
+                    &self.request_admission_mutex,
+                    remaining_ns,
+                ) catch {};
+            } else {
+                self.request_admission_condition.wait(
+                    &self.request_admission_mutex,
+                );
+            }
+        }
+        _ = try deadline.remainingNs();
+        self.request_active = true;
+    }
+
+    fn releaseRequest(self: *Client) void {
+        self.request_admission_mutex.lock();
+        defer self.request_admission_mutex.unlock();
+        self.request_active = false;
+        self.request_admission_condition.signal();
     }
 
     fn sendRequest(
@@ -2369,6 +2405,7 @@ pub const Client = struct {
     fn cancelRequest(
         self: *Client,
         target_request_id: []const u8,
+        target_operation: Operation,
     ) !void {
         errdefer self.close();
         var deadline = try TimeoutDeadline.start(self.timeout_ms);
@@ -2417,7 +2454,15 @@ pub const Client = struct {
                     return error.DuplicateRequestResponse;
                 }
                 switch (try parseExactResponse(object)) {
-                    .success, .failure => {},
+                    .success => |result| switch (target_operation) {
+                        .terminal_wait => _ = try decodeTerminalWaitResult(
+                            result,
+                        ),
+                        .terminal_wait_exit => _ =
+                            try decodeTerminalWaitExitResult(result),
+                        else => {},
+                    },
+                    .failure => {},
                 }
                 target_seen = true;
             } else if (std.mem.eql(
@@ -2465,19 +2510,26 @@ pub const Client = struct {
         operation: Operation,
         params: raw.wire.Value,
         mutation: ?MutationOptions,
+        deadline: *TimeoutDeadline,
     ) !OwnedResult {
         self.clearError();
         self.clearMutationTransportUncertain();
         const request_id = try self.requestId();
         defer self.allocator.free(request_id);
-        try self.sendRequest(request_id, operation, params, mutation);
+        try self.sendRequestWithDeadline(
+            request_id,
+            operation,
+            params,
+            mutation,
+            deadline,
+        );
         while (true) {
-            var message = self.readMessage() catch |failure| {
+            var message = self.readMessageWithDeadline(deadline) catch |failure| {
                 if ((operation == .terminal_wait or
                     operation == .terminal_wait_exit) and
                     failure == error.Timeout)
                 {
-                    self.cancelRequest(request_id) catch {};
+                    self.cancelRequest(request_id, operation) catch {};
                 }
                 if (mutation) |options| {
                     if (mutationTransportCause(failure)) |cause| {
@@ -2538,9 +2590,12 @@ pub const Client = struct {
         mutation: ?MutationOptions,
     ) !OwnedResult {
         if (operation.class() != expected) return error.WrongOperationClass;
+        var deadline = try TimeoutDeadline.start(self.timeout_ms);
+        try self.acquireRequest(&deadline);
+        defer self.releaseRequest();
         self.mutex.lock();
         defer self.mutex.unlock();
-        return self.callLocked(operation, params, mutation);
+        return self.callLocked(operation, params, mutation, &deadline);
     }
 
     fn read(
@@ -4314,14 +4369,23 @@ const RawStream = struct {
         if (operation.class() != .connection_control) {
             return error.WrongOperationClass;
         }
+        var deadline = try TimeoutDeadline.start(self.client.timeout_ms);
+        try self.client.acquireRequest(&deadline);
+        defer self.client.releaseRequest();
         self.client.mutex.lock();
         defer self.client.mutex.unlock();
         self.client.clearError();
         const request_id = try self.client.requestId();
         defer self.client.allocator.free(request_id);
-        try self.client.sendRequest(request_id, operation, params, null);
+        try self.client.sendRequestWithDeadline(
+            request_id,
+            operation,
+            params,
+            null,
+            &deadline,
+        );
         while (true) {
-            var message = try self.client.readMessage();
+            var message = try self.client.readMessageWithDeadline(&deadline);
             errdefer message.deinit();
             const object = switch (message.value) {
                 .object => |item| item,
@@ -4379,9 +4443,11 @@ const RawStream = struct {
             self.cancel_failure = failure;
             self.client.close();
         }
+        var deadline = try TimeoutDeadline.start(self.client.timeout_ms);
+        try self.client.acquireRequest(&deadline);
+        defer self.client.releaseRequest();
         self.client.mutex.lock();
         defer self.client.mutex.unlock();
-        var deadline = try TimeoutDeadline.start(self.client.timeout_ms);
         self.client.clearError();
         const request_id = try self.client.requestId();
         defer self.client.allocator.free(request_id);
@@ -12821,6 +12887,7 @@ const FakeMode = enum {
     dropped_mutation_disconnect,
     abandoned_wait_cancel_true,
     abandoned_wait_cancel_false,
+    abandoned_wait_malformed_target,
     abandoned_wait_malformed_cancel,
 };
 
@@ -13005,6 +13072,7 @@ const FakeShared = struct {
         return switch (self.mode) {
             .abandoned_wait_cancel_true,
             .abandoned_wait_cancel_false,
+            .abandoned_wait_malformed_target,
             .abandoned_wait_malformed_cancel,
             => true,
             else => false,
@@ -13361,7 +13429,9 @@ const FakeShared = struct {
                         object.get("idempotency_key") == null;
                     const result = switch (self.mode) {
                         .abandoned_wait_cancel_true => "{\"canceled\":true}",
-                        .abandoned_wait_cancel_false => "{\"canceled\":false}",
+                        .abandoned_wait_cancel_false,
+                        .abandoned_wait_malformed_target,
+                        => "{\"canceled\":false}",
                         .abandoned_wait_malformed_cancel => "{\"canceled\":true,\"future\":true}",
                         else => unreachable,
                     };
@@ -13374,13 +13444,20 @@ const FakeShared = struct {
                     );
                     defer self.allocator.free(response);
                     try self.appendInput(response);
-                    if (self.mode == .abandoned_wait_cancel_false) {
+                    if (self.mode == .abandoned_wait_cancel_false or
+                        self.mode == .abandoned_wait_malformed_target)
+                    {
+                        const target_result = if (self.mode ==
+                            .abandoned_wait_malformed_target)
+                            "{\"matched\":true}"
+                        else
+                            "{\"matched\":true,\"text\":\"raced\"}";
                         const target_response = try std.fmt.allocPrint(
                             self.allocator,
                             "{{\"protocol\":\"cmux.protocol/1\"," ++
                                 "\"type\":\"response\",\"id\":\"{s}\"," ++
-                                "\"ok\":true,\"result\":{{}}}}",
-                            .{self.abandoned_request_id.?},
+                                "\"ok\":true,\"result\":{s}}}",
+                            .{ self.abandoned_request_id.?, target_result },
                         );
                         defer self.allocator.free(target_response);
                         try self.appendInput(target_response);
@@ -13990,6 +14067,139 @@ fn fakeConnection(
         try FakeConnection.create(allocator, shared),
     );
 }
+
+const BlockingResourceConnection = struct {
+    allocator: std.mem.Allocator,
+    mutex: std.Thread.Mutex = .{},
+    condition: std.Thread.Condition = .{},
+    reading: bool = false,
+    closed: bool = false,
+    writes: usize = 0,
+
+    fn create() !*BlockingResourceConnection {
+        const state = try std.testing.allocator.create(
+            BlockingResourceConnection,
+        );
+        state.* = .{ .allocator = std.testing.allocator };
+        return state;
+    }
+
+    pub fn read(
+        self: *BlockingResourceConnection,
+        buffer: []u8,
+        timeout_ms: ?u32,
+    ) !usize {
+        _ = buffer;
+        _ = timeout_ms;
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.reading = true;
+        self.condition.broadcast();
+        while (!self.closed) self.condition.wait(&self.mutex);
+        return error.ConnectionClosed;
+    }
+
+    pub fn writeAll(
+        self: *BlockingResourceConnection,
+        bytes: []const u8,
+        timeout_ms: ?u32,
+    ) !void {
+        _ = bytes;
+        _ = timeout_ms;
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.closed) return error.ConnectionClosed;
+        self.writes += 1;
+    }
+
+    pub fn close(self: *BlockingResourceConnection) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.closed = true;
+        self.condition.broadcast();
+    }
+
+    fn waitUntilReading(self: *BlockingResourceConnection) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        while (!self.reading) self.condition.wait(&self.mutex);
+    }
+
+    fn writeCount(self: *BlockingResourceConnection) usize {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.writes;
+    }
+
+    pub fn deinit(self: *BlockingResourceConnection) void {
+        const allocator = self.allocator;
+        self.close();
+        allocator.destroy(self);
+    }
+};
+
+const SplitBudgetConnection = struct {
+    allocator: std.mem.Allocator,
+    write_calls: usize = 0,
+    response_sent: bool = false,
+    read_timeout_ms: ?u32 = null,
+
+    fn create() !*SplitBudgetConnection {
+        const state = try std.testing.allocator.create(
+            SplitBudgetConnection,
+        );
+        state.* = .{ .allocator = std.testing.allocator };
+        return state;
+    }
+
+    pub fn read(
+        self: *SplitBudgetConnection,
+        buffer: []u8,
+        timeout_ms: ?u32,
+    ) !usize {
+        self.read_timeout_ms = timeout_ms;
+        const response_delay_ms: u32 = 30;
+        if (timeout_ms) |remaining| {
+            if (remaining <= response_delay_ms) {
+                std.Thread.sleep(
+                    @as(u64, remaining) * std.time.ns_per_ms,
+                );
+                return error.Timeout;
+            }
+        }
+        std.Thread.sleep(response_delay_ms * std.time.ns_per_ms);
+        if (self.response_sent) return error.ConnectionClosed;
+        const response =
+            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\"," ++
+            "\"id\":\"zig-request-1\",\"ok\":true,\"result\":{}}\n";
+        const count = @min(buffer.len, response.len);
+        @memcpy(buffer[0..count], response[0..count]);
+        self.response_sent = true;
+        return count;
+    }
+
+    pub fn writeAll(
+        self: *SplitBudgetConnection,
+        bytes: []const u8,
+        timeout_ms: ?u32,
+    ) !void {
+        _ = bytes;
+        _ = timeout_ms;
+        self.write_calls += 1;
+        if (self.write_calls == 1) {
+            std.Thread.sleep(35 * std.time.ns_per_ms);
+        }
+    }
+
+    pub fn close(self: *SplitBudgetConnection) void {
+        _ = self;
+    }
+
+    pub fn deinit(self: *SplitBudgetConnection) void {
+        const allocator = self.allocator;
+        allocator.destroy(self);
+    }
+};
 
 const StreamFactoryState = struct {
     shared: *FakeShared,
@@ -14889,6 +15099,70 @@ test "timed out wait exit cancels once and reuses its control connection" {
     );
 }
 
+test "one request deadline covers admission send and receive" {
+    const split = try SplitBudgetConnection.create();
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(split),
+        .{ .timeout_ms = 50 },
+    );
+    defer client.deinit();
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.Timeout,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expect(split.read_timeout_ms != null);
+    try std.testing.expect(split.read_timeout_ms.? < 30);
+}
+
+test "queued request admission expires without writing a frame" {
+    const blocking = try BlockingResourceConnection.create();
+    var client = Client.init(
+        std.testing.allocator,
+        raw.transport.Connection.from(blocking),
+        .{ .timeout_ms = 20 },
+    );
+    defer client.deinit();
+    const Worker = struct {
+        client: *Client,
+        failure: ?anyerror = null,
+
+        fn run(self: *@This()) void {
+            var params = raw.wire.Object.init(std.testing.allocator);
+            defer params.deinit();
+            var result = self.client.read(
+                .machine_list,
+                .{ .object = params },
+            ) catch |failure| {
+                self.failure = failure;
+                return;
+            };
+            result.deinit();
+        }
+    };
+    var worker = Worker{ .client = &client };
+    const thread = try std.Thread.spawn(.{}, Worker.run, .{&worker});
+    blocking.waitUntilReading();
+
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+    try std.testing.expectError(
+        error.Timeout,
+        client.read(.machine_list, .{ .object = params }),
+    );
+    try std.testing.expectEqual(@as(usize, 2), blocking.writeCount());
+
+    client.close();
+    thread.join();
+    try std.testing.expectEqual(
+        error.ConnectionClosed,
+        worker.failure orelse return error.MissingWorkerFailure,
+    );
+}
+
 test "wait cancel false drains the raced response before reuse" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -14928,6 +15202,35 @@ test "wait cancel false drains the raced response before reuse" {
     var ping = try client.session(session_id).ping();
     defer ping.deinit();
     try std.testing.expect(ping.value.alive);
+}
+
+test "wait cancel false rejects a malformed raced result" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_malformed_target,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(client.closed);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
 }
 
 test "malformed wait cleanup preserves timeout and fail closes once" {

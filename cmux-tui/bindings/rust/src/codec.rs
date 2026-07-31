@@ -2,10 +2,13 @@ use crate::Result;
 use crate::client::CmuxError;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+use std::mem::{offset_of, size_of, zeroed};
 use std::net::Shutdown;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub(crate) struct JsonLineConnection {
     writer: UnixStream,
@@ -19,16 +22,12 @@ pub(crate) struct JsonLineConnection {
 impl JsonLineConnection {
     pub(crate) fn connect(
         socket_path: &Path,
-        timeout: Duration,
+        connect_timeout: Duration,
+        io_timeout: Duration,
         max_frame_bytes: usize,
     ) -> Result<Self> {
-        let stream = UnixStream::connect(socket_path).map_err(|error| {
-            CmuxError::Connection(format!(
-                "cannot connect to session socket {}: {error}",
-                socket_path.display()
-            ))
-        })?;
-        Self::from_stream(stream, timeout, max_frame_bytes)
+        let stream = connect_unix_with_timeout(socket_path, connect_timeout)?;
+        Self::from_stream(stream, io_timeout, max_frame_bytes)
     }
 
     pub(crate) fn from_stream(
@@ -194,6 +193,168 @@ impl JsonLineConnection {
     }
 }
 
+fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
+    if timeout.is_zero() {
+        return Err(connect_timeout_error(socket_path));
+    }
+    let path = socket_path.as_os_str().as_bytes();
+    if path.contains(&0) {
+        return Err(CmuxError::InvalidArgument(
+            "session socket path contains a NUL byte".to_string(),
+        ));
+    }
+    let mut address: libc::sockaddr_un = unsafe { zeroed() };
+    if path.len() >= address.sun_path.len() {
+        return Err(CmuxError::InvalidArgument(format!(
+            "session socket path is too long: {}",
+            socket_path.display()
+        )));
+    }
+    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    for (destination, source) in address.sun_path.iter_mut().zip(path) {
+        *destination = *source as libc::c_char;
+    }
+    let address_length =
+        offset_of!(libc::sockaddr_un, sun_path).saturating_add(path.len()).saturating_add(1);
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+    ))]
+    {
+        address.sun_len = address_length.try_into().map_err(|_| {
+            CmuxError::InvalidArgument("session socket address is too long".to_string())
+        })?;
+    }
+
+    let raw_descriptor = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+    if raw_descriptor < 0 {
+        return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+    }
+    let descriptor = unsafe { OwnedFd::from_raw_fd(raw_descriptor) };
+    let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+    if descriptor_flags < 0
+        || unsafe {
+            libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFD, descriptor_flags | libc::FD_CLOEXEC)
+        } < 0
+    {
+        return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+    }
+    let status_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFL) };
+    if status_flags < 0
+        || unsafe {
+            libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFL, status_flags | libc::O_NONBLOCK)
+        } < 0
+    {
+        return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+    }
+
+    let connected = unsafe {
+        libc::connect(
+            descriptor.as_raw_fd(),
+            (&raw const address).cast::<libc::sockaddr>(),
+            address_length as libc::socklen_t,
+        )
+    };
+    if connected < 0 {
+        let error = std::io::Error::last_os_error();
+        if !matches!(
+            error.raw_os_error(),
+            Some(libc::EINPROGRESS | libc::EWOULDBLOCK | libc::EALREADY)
+        ) {
+            return Err(connect_error(socket_path, error));
+        }
+        wait_for_connect(descriptor.as_raw_fd(), timeout, socket_path)?;
+    }
+
+    if unsafe {
+        libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFL, status_flags & !libc::O_NONBLOCK)
+    } < 0
+    {
+        return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+    }
+    Ok(UnixStream::from(descriptor))
+}
+
+fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
+    let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+        CmuxError::InvalidArgument("session socket connect timeout is too large".to_string())
+    })?;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(connect_timeout_error(socket_path));
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        let timeout_ms = remaining
+            .as_nanos()
+            .saturating_add(999_999)
+            .checked_div(1_000_000)
+            .unwrap_or(u128::MAX)
+            .clamp(1, libc::c_int::MAX as u128) as libc::c_int;
+        let mut poll_descriptor =
+            libc::pollfd { fd: descriptor, events: libc::POLLOUT, revents: 0 };
+        let ready = unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout_ms) };
+        if ready == 0 {
+            return Err(connect_timeout_error(socket_path));
+        }
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(connect_error(socket_path, error));
+        }
+        if poll_descriptor.revents & libc::POLLNVAL != 0 {
+            return Err(connect_error(
+                socket_path,
+                std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "session socket descriptor became invalid",
+                ),
+            ));
+        }
+        let mut socket_error = 0;
+        let mut socket_error_length = size_of::<libc::c_int>() as libc::socklen_t;
+        if unsafe {
+            libc::getsockopt(
+                descriptor,
+                libc::SOL_SOCKET,
+                libc::SO_ERROR,
+                (&raw mut socket_error).cast(),
+                &raw mut socket_error_length,
+            )
+        } < 0
+        {
+            return Err(connect_error(socket_path, std::io::Error::last_os_error()));
+        }
+        if socket_error != 0 {
+            return Err(connect_error(
+                socket_path,
+                std::io::Error::from_raw_os_error(socket_error),
+            ));
+        }
+        return Ok(());
+    }
+}
+
+fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
+    CmuxError::Connection(format!(
+        "cannot connect to session socket {}: {error}",
+        socket_path.display()
+    ))
+}
+
+fn connect_timeout_error(socket_path: &Path) -> CmuxError {
+    CmuxError::Timeout(format!(
+        "cannot connect to session socket {} before the deadline",
+        socket_path.display()
+    ))
+}
+
 fn socket_timeout(timeout: Duration) -> Duration {
     timeout.max(Duration::from_micros(1))
 }
@@ -229,5 +390,29 @@ mod tests {
             client.send(&serde_json::json!({"long": "0123456789"})),
             Err(CmuxError::FrameTooLarge { limit: 8, .. })
         ));
+    }
+
+    #[test]
+    fn connect_poll_stops_at_its_deadline() {
+        let (mut writer, _reader) = UnixStream::pair().unwrap();
+        writer.set_nonblocking(true).unwrap();
+        let block = [0_u8; 16 * 1024];
+        loop {
+            match writer.write(&block) {
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("failed to fill socket send buffer: {error}"),
+            }
+        }
+        let started = Instant::now();
+        assert!(matches!(
+            wait_for_connect(
+                writer.as_raw_fd(),
+                Duration::from_millis(10),
+                Path::new("deadline-test.sock"),
+            ),
+            Err(CmuxError::Timeout(_))
+        ));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 }

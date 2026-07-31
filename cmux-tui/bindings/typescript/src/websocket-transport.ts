@@ -5,9 +5,11 @@ import {
   MAX_OUTBOUND_MESSAGE_BYTES,
   MAX_PENDING_BYTES,
   MAX_PENDING_MESSAGES,
+  MAX_PREAUTH_MESSAGE_BYTES,
   positiveLimit,
   utf8ByteLength,
 } from "./transport-limits.js";
+import { parseWireJson } from "./wire-json.js";
 
 interface WebSocketEventMap {
   open: unknown;
@@ -39,11 +41,24 @@ export interface WebSocketConstructor {
 export interface WebSocketTransportOptions {
   readonly protocols?: string | string[];
   readonly authToken?: string;
+  /** Called while the server waits for a trusted TUI to approve this connection. */
+  readonly onPairingChallenge?: (challenge: PairingChallenge) => void;
+  /** Receives the credential issued after approval for reconnects. */
+  readonly onPairingCredential?: (credential: string) => void;
+  /** Called when a supplied token or reconnect credential is rejected. */
+  readonly onAuthenticationRejected?: () => void;
   readonly WebSocket?: WebSocketConstructor;
   readonly maxInboundMessageBytes?: number;
   readonly maxOutboundMessageBytes?: number;
   readonly maxPendingBytes?: number;
   readonly maxPendingMessages?: number;
+  readonly maxPreauthenticationMessageBytes?: number;
+}
+
+export interface PairingChallenge {
+  readonly code: string;
+  readonly peer: string;
+  readonly expiresIn: number;
 }
 
 /** Browser-safe text-frame transport with bounded pre-open buffering. */
@@ -57,8 +72,13 @@ export class WebSocketTransport implements Transport {
   private readonly maxOutboundMessageBytes: number;
   private readonly maxPendingBytes: number;
   private readonly maxPendingMessages: number;
+  private readonly maxPreauthenticationMessageBytes: number;
+  private readonly authToken: string | undefined;
+  private readonly onPairingChallenge: ((challenge: PairingChallenge) => void) | undefined;
+  private readonly onPairingCredential: ((credential: string) => void) | undefined;
+  private readonly onAuthenticationRejected: (() => void) | undefined;
   private pendingBytes = 0;
-  private opened = false;
+  private authenticated = false;
   private closed = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions = {}) {
@@ -83,17 +103,28 @@ export class WebSocketTransport implements Transport {
       options.maxPendingMessages,
       MAX_PENDING_MESSAGES,
     );
+    this.maxPreauthenticationMessageBytes = positiveLimit(
+      "maxPreauthenticationMessageBytes",
+      options.maxPreauthenticationMessageBytes,
+      MAX_PREAUTH_MESSAGE_BYTES,
+    );
+    this.authToken = options.authToken;
+    this.onPairingChallenge = options.onPairingChallenge;
+    this.onPairingCredential = options.onPairingCredential;
+    this.onAuthenticationRejected = options.onAuthenticationRejected;
     this.socket = new Constructor(url, options.protocols);
     this.listen("open", () => {
-      this.opened = true;
-      if (options.authToken !== undefined) {
-        this.socket.send(JSON.stringify({ auth: { token: options.authToken } }));
+      if (this.authToken !== undefined) {
+        this.socket.send(JSON.stringify({ auth: { token: this.authToken } }));
+        this.authenticated = true;
+        this.flush();
+      } else {
+        this.socket.send(JSON.stringify({ pair: { request: true } }));
       }
-      this.flush();
     });
     this.listen("message", (event) => this.receive(event));
     this.listen("error", (event) => this.fail(eventError(event)));
-    this.listen("close", () => this.finish());
+    this.listen("close", (event) => this.finish(event));
   }
 
   send(json: string): void {
@@ -104,7 +135,7 @@ export class WebSocketTransport implements Transport {
         `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
       );
     }
-    if (this.opened && this.socket.readyState === 1) {
+    if (this.authenticated && this.socket.readyState === 1) {
       this.socket.send(json);
       return;
     }
@@ -171,27 +202,90 @@ export class WebSocketTransport implements Transport {
       this.socket.close(1003, "text frames required");
       return;
     }
-    if (utf8ByteLength(data) > this.maxInboundMessageBytes) {
+    const maximum = this.authenticated
+      ? this.maxInboundMessageBytes
+      : this.maxPreauthenticationMessageBytes;
+    if (utf8ByteLength(data) > maximum) {
       this.fail(
         new CmuxConnectionError(
-          `WebSocket message exceeds ${this.maxInboundMessageBytes} bytes`,
+          `WebSocket message exceeds ${maximum} bytes`,
         ),
       );
       this.socket.close(1009, "message too large");
       return;
     }
+    if (!this.authenticated) {
+      this.receivePairing(data);
+      return;
+    }
     for (const handler of this.messages) handler(data);
+  }
+
+  private receivePairing(json: string): void {
+    let value: unknown;
+    try {
+      value = parseWireJson(json);
+    } catch {
+      this.fail(new CmuxConnectionError("WebSocket server sent invalid pairing data"));
+      return;
+    }
+    if (!value || typeof value !== "object") {
+      this.fail(new CmuxConnectionError("WebSocket server sent invalid pairing data"));
+      return;
+    }
+    const message = value as Record<string, unknown>;
+    if (message.pairing && typeof message.pairing === "object") {
+      const pairing = message.pairing as Record<string, unknown>;
+      if (
+        (
+          typeof pairing.id === "bigint"
+          || (typeof pairing.id === "number" && Number.isSafeInteger(pairing.id))
+        )
+        && typeof pairing.code === "string"
+        && typeof pairing.peer === "string"
+        && typeof pairing.expires_in === "number"
+      ) {
+        this.onPairingChallenge?.({
+          code: pairing.code,
+          peer: pairing.peer,
+          expiresIn: pairing.expires_in,
+        });
+        return;
+      }
+    }
+    if (message.paired && typeof message.paired === "object") {
+      const credential = (message.paired as Record<string, unknown>).credential;
+      if (typeof credential === "string") {
+        this.authenticated = true;
+        this.onPairingCredential?.(credential);
+        this.flush();
+        return;
+      }
+    }
+    if (message.pairing_error && typeof message.pairing_error === "object") {
+      const pairingError = message.pairing_error as Record<string, unknown>;
+      this.fail(new CmuxConnectionError(
+        typeof pairingError.message === "string"
+          ? pairingError.message
+          : "Pairing failed",
+      ));
+      return;
+    }
+    this.fail(new CmuxConnectionError("WebSocket server sent invalid pairing data"));
   }
 
   private fail(error: Error): void {
     for (const handler of this.errors) handler(error);
   }
 
-  private finish(): void {
+  private finish(event?: WebSocketEventMap["close"]): void {
     if (this.closed) return;
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
+    if (event?.code === 1008 && event.reason === "authentication failed") {
+      this.onAuthenticationRejected?.();
+    }
     for (const handler of this.closes) handler();
   }
 }

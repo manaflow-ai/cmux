@@ -178,9 +178,40 @@ test("WebSocketTransport bounds queued and inbound messages", () => {
   assert.equal(socket.readyState, 3);
 });
 
+test("resource WebSocket transport pairs before flushing requests", () => {
+  const challenges: Array<{ code: string; peer: string; expiresIn: number }> = [];
+  const credentials: string[] = [];
+  const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
+    WebSocket: ResourceConstructor,
+    onPairingChallenge: ({ code, peer, expiresIn }) => {
+      challenges.push({ code, peer, expiresIn });
+    },
+    onPairingCredential: (credential) => credentials.push(credential),
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.send('{"protocol":"cmux.protocol/1","type":"request"}');
+  socket.open();
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  socket.message(
+    '{"pairing":{"id":9,"code":"654 321","peer":"127.0.0.1","expires_in":60}}',
+  );
+  assert.deepEqual(challenges, [
+    { code: "654 321", peer: "127.0.0.1", expiresIn: 60 },
+  ]);
+  assert.deepEqual(socket.sent, ['{"pair":{"request":true}}']);
+  socket.message('{"paired":{"credential":"resource-secret"}}');
+  assert.deepEqual(credentials, ["resource-secret"]);
+  assert.deepEqual(socket.sent, [
+    '{"pair":{"request":true}}',
+    '{"protocol":"cmux.protocol/1","type":"request"}',
+  ]);
+  transport.close();
+});
+
 test("WebSocket resource streams outlive their acknowledged open deadline", async () => {
   const transport = new ResourceWebSocketTransport("ws://localhost/cmux", {
     WebSocket: ResourceConstructor,
+    authToken: "test",
   });
   const client = new Client({
     transport,

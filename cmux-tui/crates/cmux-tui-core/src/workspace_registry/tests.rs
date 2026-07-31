@@ -838,6 +838,129 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 }
 
 #[test]
+fn completed_creation_counts_in_the_boundary_replay_window() {
+    let mut registry = WorkspaceRegistry::in_memory("creation-mutation-bound").unwrap();
+    let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
+    let interval = usize::try_from(resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL).unwrap();
+    let boundary = capacity + interval;
+    let before_boundary = boundary - 1;
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for index in 0..before_boundary {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-bound-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 1).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [before_boundary.to_string()],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let fingerprint = json!({"name":"boundary"});
+    registry
+        .prepare_resource_creation(
+            "boundary-correlation",
+            "boundary-attempt",
+            "test.create.boundary",
+            &fingerprint,
+            &json!({"reservation":"boundary"}),
+            false,
+            None,
+            Some(u64::try_from(before_boundary).unwrap()),
+        )
+        .unwrap();
+    registry
+        .commit_resource_creation_patch(
+            "boundary-correlation",
+            &WorkspaceMutation::new("boundary-attempt", "test").unwrap(),
+            "test.create.boundary",
+            &fingerprint,
+            &ResourcePatch { changes: Vec::new() },
+            &json!({"created":true}),
+            &json!({"kind":"test","id":"boundary"}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for offset in 1..interval {
+            let revision = boundary + offset;
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-slack-{offset:08}"),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    i64::try_from(revision).unwrap(),
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [revision.to_string()],
+            )
+            .unwrap();
+            resource_store::prune_resource_mutations(&tx).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity + interval - 1).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        let revision = boundary + interval;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                "creation-next-boundary",
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                i64::try_from(revision).unwrap(),
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        resource_store::prune_resource_mutations(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+}
+
+#[test]
 fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay() {
     let root = temp_root("mutation-startup-bound");
     let effect_fingerprint = json!({"title":"pending"});

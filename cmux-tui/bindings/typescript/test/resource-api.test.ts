@@ -869,6 +869,44 @@ test("request and stream receive bounds are operation-scoped", async () => {
   client.close();
 });
 
+test("stream completion detaches its open AbortSignal listener", async () => {
+  let openedStream = "";
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  const signal = {
+    aborted: false,
+    addEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+    ): void {
+      if (type === "abort") listeners.add(listener);
+    },
+    removeEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+    ): void {
+      if (type === "abort") listeners.delete(listener);
+    },
+  } as unknown as AbortSignal;
+  const transport = new FakeTransport((request, current) => {
+    assert.equal(request.operation, "session.events");
+    openedStream = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: openedStream });
+  });
+  const client = new Client({ transport, randomHex128: () => HEX_B });
+  const stream = await client.session(SESSION).events({ signal });
+  assert.equal(listeners.size, 1);
+
+  transport.emit({
+    protocol: "cmux.protocol/1",
+    type: "stream_end",
+    stream_id: openedStream,
+    reason: "closed",
+  });
+  assert.equal(listeners.size, 0);
+  assert.deepEqual(await stream.next(), { done: true, value: undefined });
+  client.close();
+});
+
 test("terminal waits propagate finite server bounds no longer than request deadlines", async () => {
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "terminal.wait") {
@@ -1062,6 +1100,33 @@ test("request.cancel false drains the raced terminal response before reuse", asy
     });
     assert.equal((await ping).alive, true);
     client.close();
+  }
+});
+
+test("request.cancel false rejects malformed target results in both orders", async () => {
+  for (const responseFirst of [false, true]) {
+    const transport = new FakeTransport(() => {});
+    const client = new Client({ transport, timeoutMs: 200 });
+    const abort = new AbortController();
+    const waiting = client.session(SESSION).terminal(TERMINAL).wait(
+      { pattern: "never" },
+      { signal: abort.signal },
+    );
+    const target = await waitForOperation(transport, "terminal.wait");
+    abort.abort();
+    const canceled = await waitForOperation(transport, "request.cancel");
+
+    if (responseFirst) {
+      transport.ok(target, { matched: true });
+      transport.ok(canceled, { canceled: false });
+    } else {
+      transport.ok(canceled, { canceled: false });
+      transport.ok(target, { matched: true });
+    }
+
+    await assert.rejects(() => waiting, CmuxAbortError);
+    assert.equal(client.closed, true);
+    await assert.rejects(() => client.session(SESSION).ping());
   }
 });
 

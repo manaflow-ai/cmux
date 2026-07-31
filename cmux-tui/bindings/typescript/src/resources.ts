@@ -2207,11 +2207,19 @@ export class Client {
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: RequestOptions = {},
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (operation.class !== "read" && operation.class !== "connection_control") {
       throw new TypeError(`${operation.name} is not a read/control operation`);
     }
-    return (await this.protocol.request(operation, params, options)).value;
+    return (
+      await this.protocol.request(
+        operation,
+        params,
+        options,
+        validateAbandonedResult,
+      )
+    ).value;
   }
 
   async [controlOperation]<Value>(
@@ -3428,6 +3436,7 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
             ? { signal: wait.signal }
             : {}),
         },
+        terminalWaitResult,
       ),
     );
   }
@@ -3444,6 +3453,7 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
           ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
         },
         options,
+        terminalWaitExitResult,
       ),
     );
     const expectedId = this.cached?.id ?? this.id;

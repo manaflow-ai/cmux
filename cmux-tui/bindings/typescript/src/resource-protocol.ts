@@ -44,6 +44,7 @@ interface Pending {
   resolve(value: unknown): void;
   reject(error: unknown): void;
   onResourceError?: () => void;
+  validateAbandonedResult?: (value: unknown) => unknown;
   timer?: ReturnType<typeof setTimeout>;
   removeAbort?: () => void;
   abandonment?: RequestAbandonment;
@@ -99,6 +100,7 @@ interface StreamState<Value> {
   openSendError?: unknown;
   cleanupStarted: boolean;
   cancellation?: StreamCancellationConfirmation;
+  abortCleanup?: () => void;
   end?: StreamEnd;
 }
 
@@ -166,6 +168,7 @@ export class ResourceProtocol {
     operation: Operation,
     params: Readonly<Record<string, unknown>>,
     options: RequestOptions & MutationOptions = {},
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<OperationResponse> {
     if (operation.class === "local") {
       if (!this.localExecutor) {
@@ -195,6 +198,10 @@ export class ResourceProtocol {
         idempotencyKey,
         options.signal,
         options.timeoutMs,
+        undefined,
+        undefined,
+        undefined,
+        validateAbandonedResult,
       );
     } catch (error) {
       if (
@@ -377,6 +384,7 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (this.requestCleanups.size === 0) {
       return this.sendRequestNow(
@@ -388,6 +396,7 @@ export class ResourceProtocol {
         onDispatched,
         onSendError,
         onResourceError,
+        validateAbandonedResult,
       );
     }
     return this.sendRequestAfterCleanup(
@@ -399,6 +408,7 @@ export class ResourceProtocol {
       onDispatched,
       onSendError,
       onResourceError,
+      validateAbandonedResult,
     );
   }
 
@@ -411,6 +421,7 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (this.closed) {
       throw this.failure ?? new CmuxConnectionError("closed");
@@ -444,6 +455,7 @@ export class ResourceProtocol {
       onDispatched,
       onSendError,
       onResourceError,
+      validateAbandonedResult,
     );
   }
 
@@ -456,6 +468,7 @@ export class ResourceProtocol {
     onDispatched?: () => void,
     onSendError?: (error: unknown) => void,
     onResourceError?: () => void,
+    validateAbandonedResult?: (value: unknown) => unknown,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(this.failure ?? new CmuxConnectionError("closed"));
     if (signal?.aborted) return Promise.reject(abortError());
@@ -513,7 +526,12 @@ export class ResourceProtocol {
       );
     }
     return new Promise<unknown>((resolve, reject) => {
-      const pending: Pending = { resolve, reject, onResourceError };
+      const pending: Pending = {
+        resolve,
+        reject,
+        onResourceError,
+        validateAbandonedResult,
+      };
       let dispatchStarted = false;
       let dispatchComplete = false;
       const abandon = (
@@ -626,7 +644,17 @@ export class ResourceProtocol {
       this.finishPending(pending);
       if (pending.abandonment) {
         pending.abandonment.targetResponseObserved = true;
-        pending.abandonment.resolveTargetResponse(undefined);
+        let validationError: Error | undefined;
+        if (decoded.ok && pending.validateAbandonedResult) {
+          try {
+            pending.validateAbandonedResult(decoded.result);
+          } catch (error) {
+            validationError = error instanceof Error
+              ? error
+              : new CmuxProtocolError(String(error));
+          }
+        }
+        pending.abandonment.resolveTargetResponse(validationError);
         return;
       }
       if (decoded.ok) pending.resolve(decoded.result);
@@ -736,6 +764,8 @@ export class ResourceProtocol {
     end: StreamEnd,
     purge = false,
   ): void {
+    state.abortCleanup?.();
+    state.abortCleanup = undefined;
     if (state.end) {
       if (purge) {
         state.values.length = 0;
@@ -1123,7 +1153,6 @@ function remainingTime(deadline: number, message: string): number {
 
 export class ResourceStream<Value>
 implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
-  private abortCleanup: (() => void) | undefined;
   private canceling: Promise<void> | undefined;
 
   constructor(
@@ -1212,10 +1241,7 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
     if (this.canceling) return this.canceling;
     if (this.state.end) return;
     if (signal?.aborted) throw abortError();
-    this.canceling = this.protocol.cancelStream(this.id, signal).finally(() => {
-      this.abortCleanup?.();
-      this.abortCleanup = undefined;
-    });
+    this.canceling = this.protocol.cancelStream(this.id, signal);
     await this.canceling;
   }
 
@@ -1225,7 +1251,8 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
   }
 
   setAbortCleanup(cleanup: () => void): void {
-    this.abortCleanup = cleanup;
+    if (this.state.end) cleanup();
+    else this.state.abortCleanup = cleanup;
   }
 }
 
