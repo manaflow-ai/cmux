@@ -27,22 +27,23 @@ struct AgentPromptSubmissionTests {
         }.value
         #expect(firstStarted)
 
-        let second = Task.detached {
-            probe.noteSecondCallerReady()
-            controller.v2MainSync {
-                probe.deliver("second", waitsForRelease: false)
+        // The first synchronous socket hop is holding the same serial main
+        // boundary. async returns only after the second complete transaction
+        // has been accepted behind it, so releasing the first cannot degrade
+        // this into two sequential caller starts.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                _ = probe.deliver("second", waitsForRelease: false)
             }
         }
-        let secondCallerReady = await Task.detached {
-            probe.waitUntilSecondCallerReady()
-        }.value
-        #expect(secondCallerReady)
-
         #expect(probe.startedMessages == ["first"])
         probe.releaseFirst()
 
         #expect(await first.value == .queued)
-        #expect(await second.value == .queued)
+        let bothCompleted = await Task.detached {
+            probe.waitUntilCompletedMessages(2)
+        }.value
+        #expect(bothCompleted)
         #expect(probe.startedMessages == ["first", "second"])
         #expect(probe.completedMessages == ["first", "second"])
         #expect(

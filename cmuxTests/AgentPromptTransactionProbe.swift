@@ -12,7 +12,6 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     private let condition = NSCondition()
     private var firstStarted = false
     private var firstReleased = false
-    private var secondCallerReady = false
     private var activeDeliveries = 0
     private var maximumActiveDeliveries = 0
     private var started: [String] = []
@@ -64,20 +63,13 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         }
     }
 
-    func noteSecondCallerReady() {
-        condition.withLock {
-            secondCallerReady = true
-            condition.broadcast()
-        }
-    }
-
-    func waitUntilSecondCallerReady() -> Bool {
+    func waitUntilCompletedMessages(_ count: Int) -> Bool {
         condition.lock()
         defer { condition.unlock() }
         let deadline = Date().addingTimeInterval(5)
-        while !secondCallerReady {
+        while completed.count < count {
             guard condition.wait(until: deadline) else {
-                return secondCallerReady
+                return completed.count >= count
             }
         }
         return true
@@ -116,6 +108,7 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
         condition.withLock {
             completed.append(message)
             activeDeliveries -= 1
+            condition.broadcast()
         }
         return result
     }
