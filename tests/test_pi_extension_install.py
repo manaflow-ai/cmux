@@ -46,9 +46,9 @@ def wait_for_text(
 
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
-    for raw in text.split("\n---\n"):
+    for raw in text.splitlines():
         raw = raw.strip()
-        if not raw:
+        if not raw or raw == "---":
             continue
         try:
             payload = json.loads(raw)
@@ -177,8 +177,7 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+printf '%s\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -316,6 +315,14 @@ async function completionHookCount() {
   const lines = (await Bun.file(path).text()).split("\\n");
   return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
 }
+async function waitForCompletionHookCount(expectedCount) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (await completionHookCount() === expectedCount) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${expectedCount} completion hooks`);
+}
 async function waitForFeedEvent(eventName, expectedCount) {
   const path = process.env.CMUX_TEST_PI_ARGS_LOG;
   const deadline = Date.now() + 5000;
@@ -418,7 +425,7 @@ if (await completionHookCount() !== completionCount) throw new Error("busy settl
 agentIdle = true;
 await handlers.get("agent_settled")({}, ctx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
+await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
@@ -476,7 +483,7 @@ await handlers.get("agent_end")({
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was attempted before settlement");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
+await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
 process.argv.splice(
@@ -500,7 +507,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, legacyCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 process.argv.splice(
   0,
   process.argv.length,
@@ -522,7 +529,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, unknownCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 process.argv.splice(
   0,
   process.argv.length,
@@ -544,7 +551,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, malformedCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("malformed Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -570,7 +577,7 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
         )
         stdin_log = wait_for_text(
             fake_stdin_log,
-            62,
+            38,
             timeout=20.0,
             expected_substrings=('"hook_event_name":"PostToolUse"',),
         )

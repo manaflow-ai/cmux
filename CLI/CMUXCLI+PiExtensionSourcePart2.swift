@@ -366,8 +366,33 @@ async function publishPendingCompletion(
 export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   const dispatcher = new PiCmuxCommandDispatcher();
   const sessionStates = new Map<string, SessionState>();
+  const lifecycleTasks = new Set<Promise<void>>();
 
-  pi.on("session_start", async (_event, ctx) => {
+  const trackLifecycleTask = (
+    task: Promise<unknown>,
+    context: PiExtensionContextSnapshot,
+  ): void => {
+    let tracked: Promise<void>;
+    tracked = task
+      .then(() => undefined)
+      .catch((error) => {
+        warn(context, "cmux lifecycle task failed", {
+          error_available: error !== undefined,
+        });
+      })
+      .finally(() => {
+        lifecycleTasks.delete(tracked);
+      });
+    lifecycleTasks.add(tracked);
+  };
+
+  const drainLifecycleTasks = async (): Promise<void> => {
+    while (lifecycleTasks.size > 0) {
+      await Promise.all([...lifecycleTasks]);
+    }
+  };
+
+  pi.on("session_start", (_event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (sessionId) {
@@ -376,15 +401,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.feedDeliveryFailed = false;
       state.stopped = false;
     }
-    const ok = await sendHook(dispatcher, "session-start", context);
-    if (ok && sessionId) await ensureResumeBinding(dispatcher, context, sessionId);
+    trackLifecycleTask((async () => {
+      const ok = await sendHook(dispatcher, "session-start", context);
+      if (ok && sessionId) await ensureResumeBinding(dispatcher, context, sessionId);
+    })(), context);
   });
 
-  pi.on("before_agent_start", async (event, ctx) => {
+  pi.on("before_agent_start", (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     const turnId = sessionId ? beginTurn(sessionStates, sessionId, event) : undefined;
-    await sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId });
+    trackLifecycleTask(
+      sendHook(dispatcher, "prompt-submit", context, { prompt: event.prompt, turn_id: turnId }),
+      context,
+    );
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
@@ -409,7 +439,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     sendFeed(dispatcher, sessionStates, "PostCompact", context, event);
   });
 
-  pi.on("agent_end", async (event, ctx) => {
+  pi.on("agent_end", (event, ctx) => {
     const context = snapshotContext(ctx);
     const sessionId = context.sessionId;
     if (!sessionId) return;
@@ -423,17 +453,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
     if (!supportsAgentSettled()) {
-      await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
+      trackLifecycleTask(
+        publishPendingCompletion(dispatcher, sessionStates, context, sessionId),
+        context,
+      );
     }
   });
 
-  pi.on("agent_settled", async (_event, ctx) => {
+  pi.on("agent_settled", (_event, ctx) => {
     const context = snapshotContext(ctx);
     const isIdle = ctx.isIdle();
     const sessionId = context.sessionId;
     if (!sessionId || !isIdle) return;
     // Consume pending completion before subprocess calls so duplicate settlement cannot notify twice.
-    await publishPendingCompletion(dispatcher, sessionStates, context, sessionId);
+    trackLifecycleTask(
+      publishPendingCompletion(dispatcher, sessionStates, context, sessionId),
+      context,
+    );
   });
 
   pi.on("session_shutdown", async (event, ctx) => {
@@ -449,6 +485,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         terminationReason: firstString(objectValue(event, ["reason"])) || "session_shutdown",
       };
     }
+    await drainLifecycleTasks();
     await dispatcher.finishFeedForSession(sessionId);
     const feedDelivered = !state.feedDeliveryFailed;
     state.feedDeliveryFailed = false;
