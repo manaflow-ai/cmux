@@ -12,7 +12,7 @@ import SwiftUI
 extension TabItemView {
     @ViewBuilder
     var workspaceTodoContextMenuSection: some View {
-        if WorkspaceTodoFeature.isEnabled {
+        if snapshot.todoControlsEnabled {
             let isMulti = contextMenuWorkspaceIds.count > 1
             let markDoneLabel = isMulti
                 ? String(localized: "contextMenu.markWorkspacesDone", defaultValue: "Mark Workspaces as Done")
@@ -105,13 +105,14 @@ enum WorkspaceTodoPaletteCommands {
     }
 
     static func contributions(
+        todoControlsEnabled: Bool,
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
     ) -> [CommandPaletteCommandContribution] {
         let hasWorkspace: (CommandPaletteContextSnapshot) -> Bool = {
             $0.bool(CommandPaletteContextKeys.hasWorkspace)
         }
         var contributions: [CommandPaletteCommandContribution] = []
-        if WorkspaceTodoFeature.isEnabled {
+        if todoControlsEnabled {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: statusAutoCommandId,
@@ -185,7 +186,8 @@ enum WorkspaceTodoPaletteCommands {
 
     static func registerHandlers(
         in registry: inout CommandPaletteHandlerRegistry,
-        tabManager: TabManager
+        tabManager: TabManager,
+        todoControlsEnabled: Bool
     ) {
         func withSelectedWorkspace(_ body: @escaping (Workspace) -> Void) -> () -> Void {
             {
@@ -199,7 +201,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: statusAutoCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }
@@ -210,7 +212,7 @@ enum WorkspaceTodoPaletteCommands {
             registry.register(
                 commandId: statusCommandId(status),
                 handler: withSelectedWorkspace { workspace in
-                    guard WorkspaceTodoFeature.isEnabled else {
+                    guard todoControlsEnabled else {
                         NSSound.beep()
                         return
                     }
@@ -221,7 +223,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: markWorkspaceDoneCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }
@@ -231,7 +233,7 @@ enum WorkspaceTodoPaletteCommands {
         registry.register(
             commandId: addChecklistItemCommandId,
             handler: withSelectedWorkspace { workspace in
-                guard WorkspaceTodoFeature.isEnabled else {
+                guard todoControlsEnabled else {
                     NSSound.beep()
                     return
                 }

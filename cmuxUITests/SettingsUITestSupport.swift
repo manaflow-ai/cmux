@@ -36,10 +36,13 @@ class SettingsUITestCase: XCTestCase {
 
     // MARK: - Launch / window
 
-    func makeLaunchedApp() -> XCUIApplication {
+    func makeLaunchedApp(environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        for (key, value) in environment {
+            app.launchEnvironment[key] = value
+        }
         launchAndActivate(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "main window did not appear")
         return app
@@ -115,6 +118,81 @@ class SettingsUITestCase: XCTestCase {
             try? process.run()
             process.waitUntilExit()
         }
+    }
+
+    /// Seeds a Boolean in the app's isolated debug defaults domain.
+    ///
+    /// UI tests use the same persisted layers production reads, so launch does
+    /// not need a test-specific environment parser in the app target.
+    func writeDebugDefaultBool(
+        _ value: Bool,
+        forKey key: String,
+        suite: String = "com.cmuxterm.app.debug"
+    ) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["write", suite, key, "-bool", value ? "true" : "false"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, "Failed to seed \(key) in \(suite)")
+        } catch {
+            XCTFail("Failed to seed \(key) in \(suite): \(error)")
+        }
+    }
+
+    /// Reads one Boolean from the app's isolated debug defaults domain.
+    ///
+    /// A nonnil result proves the primary user key is durable, rather than
+    /// merely reflecting the Settings model's optimistic in-memory value.
+    func debugDefaultBool(
+        _ key: String,
+        suite: String = "com.cmuxterm.app.debug"
+    ) -> Bool? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["read", suite, key]
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let raw = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch raw {
+        case "1", "true", "yes":
+            return true
+        case "0", "false", "no":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    /// Whether the app's isolated debug defaults domain contains `key`.
+    func debugDefaultExists(
+        _ key: String,
+        suite: String = "com.cmuxterm.app.debug"
+    ) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = ["read", suite, key]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     // MARK: - Launch implementation

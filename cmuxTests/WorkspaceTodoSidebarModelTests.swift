@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -76,7 +77,7 @@ struct WorkspaceTodoSidebarModelTests {
     // MARK: - Minimal todo visibility
 
     @Test
-    func workspaceTodoControlsGateDefaultsOffAndAllowsLocalOrRemoteOptIn() throws {
+    func workspaceTodoControlsResolvesEffectiveUserAndRemoteDefaults() throws {
         let suiteName = "cmux.workspace.todo.controls.setting.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
@@ -84,18 +85,80 @@ struct WorkspaceTodoSidebarModelTests {
         }
         let key = BetaFeaturesCatalogSection().workspaceTodoControls
 
-        #expect(key.defaultValue == false)
-        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
-        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
-        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: true))
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .compileDefault))
+
+        key.setRemoteDefault(true, in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .remoteDefault))
 
         defaults.set(true, forKey: key.userDefaultsKey)
-        #expect(WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
-        #expect(WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .user))
 
         defaults.set(false, forKey: key.userDefaultsKey)
-        #expect(!WorkspaceTodoFeature.localControlsOptIn(defaults: defaults))
-        #expect(!WorkspaceTodoFeature.isEnabled(defaults: defaults, remoteEnabled: false))
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .user))
+
+        key.setRemoteDefault(false, in: defaults)
+        key.setRemoteDefault(true, in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: false, source: .user))
+
+        key.removeValue(in: defaults)
+        #expect(key.resolution(in: defaults) == .init(value: true, source: .remoteDefault))
+    }
+
+    @MainActor
+    @Test
+    func liveRemoteDefaultUpdatesSidebarConsumerUntilUserOverrides() async throws {
+        let suiteName = "cmux.workspace.todo.controls.live.\(UUID().uuidString)"
+        nonisolated(unsafe) let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = BetaFeaturesCatalogSection().workspaceTodoControls
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let model = DefaultsValueModel(store: store, key: key)
+        model.startObserving()
+
+        key.setRemoteDefault(true, in: defaults)
+        #expect(await waitUntil { model.current })
+        #expect(SidebarWorkspaceManualTaskStatusIndicatorModel(
+            featureEnabled: model.current,
+            taskStatus: .review,
+            hasManualOverride: true
+        ).showsIndicator)
+
+        model.set(false)
+        #expect(await waitUntil {
+            Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) == false
+        })
+        key.setRemoteDefault(false, in: defaults)
+        key.setRemoteDefault(true, in: defaults)
+        #expect(await waitUntil {
+            key.remoteDefaultValue(in: defaults) == true
+                && key.resolution(in: defaults) == .init(value: false, source: .user)
+                && model.current == false
+        })
+
+        #expect(model.current == false)
+        #expect(Bool.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) == false)
+        #expect(!SidebarWorkspaceManualTaskStatusIndicatorModel(
+            featureEnabled: model.current,
+            taskStatus: .review,
+            hasManualOverride: true
+        ).showsIndicator)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !predicate() {
+            guard clock.now < deadline else { return false }
+            await Task.yield()
+        }
+        return true
     }
 
     @Test

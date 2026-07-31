@@ -28,6 +28,10 @@ extension ControlCommandCoordinator {
             return debugShortcutSimulate(request.params)
         case "debug.type":
             return debugType(request.params)
+        case "debug.beta_remote_defaults.get":
+            return debugBetaRemoteDefaultGet(request.params)
+        case "debug.beta_remote_defaults.set":
+            return debugBetaRemoteDefaultSet(request.params)
         case "debug.textbox.inline_fixture":
             return debugTextBoxInlineFixture(request.params)
         case "debug.textbox.interact":

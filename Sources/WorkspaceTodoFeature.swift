@@ -4,32 +4,15 @@ import CmuxWorkspaces
 import Foundation
 import UniformTypeIdentifiers
 
-/// The remote workspace todo controls feature gate and the shared UI
+/// The effective Workspace Todo Controls beta setting and the shared UI
 /// entry points for mutating a workspace's todo state. Every UI surface
 /// (sidebar row, context menu, command palette, keyboard shortcut) funnels
 /// through ``WorkspaceTodoActions`` so gated status/add-item mutations and the
 /// backend caps/anti-rot apply identically everywhere.
 enum WorkspaceTodoFeature {
-    /// Synchronous read of the local beta opt-in plus remote-enabled feature
-    /// flag for status and add-item controls. Existing checklist items stay
-    /// visible/usable when this is off; only the controls that create items or
-    /// set workspace completion/status lanes are hidden.
-    @MainActor
+    /// Synchronous typed read of the workspace-todo beta setting.
     static var isEnabled: Bool {
-        isEnabled(
-            defaults: .standard,
-            remoteEnabled: CmuxFeatureFlags.shared.isWorkspaceTodoControlsEnabled
-        )
-    }
-
-    static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
-        remoteEnabled || localControlsOptIn(defaults: defaults)
-    }
-
-    static func localControlsOptIn(defaults: UserDefaults) -> Bool {
-        let key = BetaFeaturesCatalogSection().workspaceTodoControls
-        guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
-        return defaults.bool(forKey: key.userDefaultsKey)
+        BetaFeaturesCatalogSection().workspaceTodoControls.value(in: .standard)
     }
 
     /// The checklist presentation style (popover or inline), user-selectable.
@@ -40,8 +23,7 @@ enum WorkspaceTodoFeature {
         ) ?? key.defaultValue
     }
 
-    /// No-op now that the feature is always on (kept so existing call sites
-    /// stay unchanged).
+    /// No-op retained so every shared mutation keeps one common action path.
     @MainActor
     static func markUsed() {}
 }

@@ -41,7 +41,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     private let initialStoreValue: Value
     @ObservationIgnored private let makeStream:
         @MainActor @Sendable (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
-    @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
+    @ObservationIgnored private(set) var pendingStoreEchoes: [(
+        source: UserDefaultsSettingsMutationSource,
+        value: Value,
+        protectsExplicitValueFromInheritedChanges: Bool
+    )] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
     @ObservationIgnored private let mutationOwnerID = UUID()
     @ObservationIgnored private var nextMutationSequence: UInt64 = 0
@@ -122,7 +126,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// fire-and-forget `Task`.
     @discardableResult
     public func set(_ value: Value) -> UserDefaultsSettingsMutationSource {
-        let source = recordPendingStoreEcho(value)
+        let source = recordPendingStoreEcho(
+            value,
+            protectsExplicitValueFromInheritedChanges: true
+        )
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value] in
             guard await store.set(value, for: key, source: source) != nil else {
@@ -149,7 +156,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         _ value: Value,
         afterCommit: @escaping @MainActor @Sendable () -> Void
     ) -> UserDefaultsSettingsMutationSource {
-        let source = recordPendingStoreEcho(value)
+        let source = recordPendingStoreEcho(
+            value,
+            protectsExplicitValueFromInheritedChanges: true
+        )
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value, afterCommit] in
             guard await store.set(value, for: key, source: source) != nil else {
@@ -176,9 +186,12 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// async store write is in flight.
     @discardableResult
     public func reset() -> UserDefaultsSettingsMutationSource {
-        let defaultValue = key.defaultValue
-        let source = recordPendingStoreEcho(defaultValue)
-        updateCurrent(defaultValue)
+        let inheritedValue = store.initialResetValue(for: key)
+        let source = recordPendingStoreEcho(
+            inheritedValue,
+            protectsExplicitValueFromInheritedChanges: false
+        )
+        updateCurrent(inheritedValue)
         Task { @MainActor [self, store, key, source] in
             guard await store.reset(key, source: source) != nil else {
                 let committedValue = await store.value(for: key)
@@ -200,6 +213,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             }
             return
         }
+        if event.isInheritedDefaultChange,
+           pendingStoreEchoes.last?.protectsExplicitValueFromInheritedChanges == true {
+            return
+        }
         if isInitialStoreEvent,
            event.isInitialSnapshot,
            event.mutationSource == nil,
@@ -219,13 +236,20 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         revision &+= 1
     }
 
-    private func recordPendingStoreEcho(_ value: Value) -> UserDefaultsSettingsMutationSource {
+    private func recordPendingStoreEcho(
+        _ value: Value,
+        protectsExplicitValueFromInheritedChanges: Bool
+    ) -> UserDefaultsSettingsMutationSource {
         nextMutationSequence &+= 1
         let source = UserDefaultsSettingsMutationSource(
             ownerID: mutationOwnerID,
             sequence: nextMutationSequence
         )
-        pendingStoreEchoes.append((source, value))
+        pendingStoreEchoes.append((
+            source,
+            value,
+            protectsExplicitValueFromInheritedChanges
+        ))
         let overflow = pendingStoreEchoes.count - maximumPendingStoreEchoes
         if overflow > 0 {
             if let lastRemoved = pendingStoreEchoes.prefix(overflow).last {
@@ -244,7 +268,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             return (false, false)
         }
 
-        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source && $0.value == value }) else {
+        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) else {
             return (source.sequence < minimumRetainedMutationSequence, false)
         }
 

@@ -1,37 +1,12 @@
 import XCTest
 
-/// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
-/// section, scoped to the controls called out for this section:
-/// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
+/// Behavioral UI tests for Sidebar and Beta Features settings.
 ///
-/// What is actually assertable through XCUITest here, and why:
-///
-/// The real runtime consumers of these settings render *inside the
-/// workspace sidebar rows and the right-sidebar mode bar* — surfaces that
-/// only exist once a workspace has been materialized. The shared
-/// `SettingsUITestCase` harness launches the app with `makeLaunchedApp()`
-/// (no `CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP` / `_SHOW_RIGHT_SIDEBAR`
-/// launch env), so the app comes up with an empty main window: no
-/// workspace rows, and the right sidebar mode bar is not populated. That
-/// means the *downstream* render effects (branch text stacked vs inline in
-/// a workspace row; the `RightSidebarModeButton.dock` button appearing in
-/// the mode bar) are NOT reachable without modifying the harness or adding
-/// a launch-time setup seam, which this task forbids.
-///
-/// What *is* reachable and genuinely behavioral: each of these controls is
-/// wired through a live `@AppStorage` / `@Setting` binding whose value
-/// drives a *derived, reactive subtitle* in the same Settings window. The
-/// subtitle text is computed from the current setting value
-/// (`sidebarBranchVerticalLayout ? "Vertical: …" : "Inline: …"`,
-/// `dockEnabled ? "Shows Dock …" : "Hides Dock …"`). Asserting that the
-/// subtitle label flips when the control changes verifies the full
-/// binding → store → dependent-view path, not merely that the control's
-/// own state toggled. These subtitle strings are surfaced as `staticText`
-/// in the Settings window and are unique, so they are stable to query.
-///
-/// Tiering for this section is recorded in the structured output. The
-/// downstream consumer effects are documented in the TIER 2 block below.
+/// Branch layout, Feed, and Dock assert their reactive derived subtitles.
+/// Workspace Todo seeds the production remote-cache layer plus debug-domain
+/// readback to verify inherited-on, explicit-off, relaunch, and Reset All
+/// behavior through `LiveSetting`. Runtime row and mode-bar effects that
+/// require a materialized workspace remain documented as Tier 2 below.
 final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
 
     // userDefaultsKeys for the in-scope settings, reset before/after each
@@ -45,6 +20,10 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         "sidebarActiveTabIndicatorStyle",
         "rightSidebar.beta.feed.enabled",
         "rightSidebar.beta.dock.enabled",
+        "cmux.beta.remoteDefault.rightSidebar.feed.enabled",
+        "cmux.beta.remoteDefault.rightSidebar.dock.enabled",
+        "sidebar.beta.workspaceTodos.controls.enabled",
+        "cmux.beta.remoteDefault.workspaceTodos.controls.enabled",
     ]
 
     // Branch-layout subtitle strings (exact defaultValue copy from
@@ -61,6 +40,8 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     // BetaFeaturesSection.dockRow).
     private let dockOffSubtitle = "Hides Dock from the right sidebar until you enable it here."
     private let dockOnSubtitle = "Shows Dock in the right sidebar mode switcher for custom terminal controls."
+    private let workspaceTodoOffSubtitle = "Keeps workspace todo summaries read-only until you enable the controls here."
+    private let workspaceTodoOnSubtitle = "Shows Add Checklist Item and workspace status controls."
 
     override func setUp() {
         super.setUp()
@@ -216,6 +197,67 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
             "Expected the (off) Dock subtitle after disabling Dock again"
         )
         XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Dock is disabled again")
+    }
+
+    func testWorkspaceTodoRemoteDefaultYieldsToUserChoiceAndResetAll() {
+        writeDebugDefaultBool(
+            true,
+            forKey: "cmux.beta.remoteDefault.workspaceTodos.controls.enabled"
+        )
+        var app = makeLaunchedApp()
+        var window = openSettings(app)
+        navigate(window, to: "Beta Features")
+
+        let onSubtitle = window.staticTexts[workspaceTodoOnSubtitle]
+        let offSubtitle = window.staticTexts[workspaceTodoOffSubtitle]
+        XCTAssertTrue(
+            poll(timeout: 5.0) { onSubtitle.exists },
+            "Expected the remote default to enable Workspace Todo Controls"
+        )
+
+        toggle(window, id: "SettingsBetaWorkspaceTodoControlsToggle").click()
+        XCTAssertTrue(
+            poll(timeout: 5.0) { offSubtitle.exists },
+            "Expected an explicit user disable to override the remote default"
+        )
+        XCTAssertTrue(
+            poll(timeout: 5.0) {
+                self.debugDefaultBool("sidebar.beta.workspaceTodos.controls.enabled") == false
+            },
+            "Expected the explicit user disable to be durable before relaunch"
+        )
+        app.terminate()
+
+        app = makeLaunchedApp()
+        window = openSettings(app)
+        navigate(window, to: "Beta Features")
+        XCTAssertTrue(
+            poll(timeout: 5.0) { window.staticTexts[workspaceTodoOffSubtitle].exists },
+            "Expected the explicit disable to survive relaunch"
+        )
+
+        navigate(window, to: "Reset")
+        let resetButton = requireElement(
+            candidates: [
+                window.buttons["SettingsResetAllButton"],
+                window.buttons["Reset All Settings"],
+            ],
+            timeout: 5.0,
+            description: "Reset All Settings button"
+        )
+        resetButton.click()
+        navigate(window, to: "Beta Features")
+        XCTAssertTrue(
+            poll(timeout: 5.0) { window.staticTexts[workspaceTodoOnSubtitle].exists },
+            "Expected Reset All to remove only the user choice and inherit the remote default"
+        )
+        XCTAssertTrue(
+            poll(timeout: 5.0) {
+                !self.debugDefaultExists("sidebar.beta.workspaceTodos.controls.enabled")
+            },
+            "Expected Reset All to remove the primary Workspace Todo user key"
+        )
+        closeSettings(app, window)
     }
 
     // MARK: - Tiering documentation for this section
