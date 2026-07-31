@@ -25,6 +25,22 @@ import Testing
         #expect(readiness == .blocked(.awaitingDeviceToken))
     }
 
+    @Test func cachedTokenAwaitingBackendAcknowledgementOffersRetry() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: PushRegistrationSnapshot(
+                isEnabled: true,
+                hasDeviceToken: true,
+                backendState: .registrationRequired
+            ),
+            mac: nil,
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(readiness == .blocked(.backendRegistrationRequired))
+        #expect(readiness.repair == .retryRegistration)
+    }
+
     @Test func liveSystemDenialOverridesPersistedOptIn() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .denied,
@@ -224,6 +240,31 @@ import Testing
                 accountVerified: true
             ),
             phoneAPIOrigin: "https://cmux-staging.vercel.app"
+        )
+
+        #expect(readiness == .blocked(.apiOriginMismatch))
+        #expect(readiness.repair == .rebuildMatchingApps)
+    }
+
+    @Test(arguments: [
+        "ws://cmux.example",
+        "wss://cmux.example",
+        "file:///tmp/cmux",
+        "relative/cmux",
+    ])
+    func nonHTTPAPIOriginsFailClosedEvenWhenBothSidesMatch(
+        origin: String
+    ) {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                apiOrigin: origin,
+                accountVerified: true
+            ),
+            phoneAPIOrigin: origin
         )
 
         #expect(readiness == .blocked(.apiOriginMismatch))
