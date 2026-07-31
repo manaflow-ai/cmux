@@ -25,7 +25,6 @@ import {
   type IrohRegistrationPayload,
 } from "../services/iroh/model";
 import {
-  IROH_ACTIVE_BINDING_SANITY_CAP,
   type IrohBindingRecord,
   type IrohChallengeRecord,
   type IrohRepositoryShape,
@@ -272,6 +271,56 @@ describe("Iroh trust broker registration", () => {
 });
 
 describe("Iroh discovery and grants", () => {
+  test("paginates more than 256 active bindings without a total-count cap", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const pageCounts: number[] = [];
+    const bindingIds = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await Effect.runPromise(fixture.broker.discover(
+        USER_A,
+        NOW,
+        { pageSize: "128", ...(cursor ? { cursor } : {}) },
+      )) as { bindings: IrohBindingRecord[]; next_cursor: string | null };
+      pageCounts.push(page.bindings.length);
+      page.bindings.forEach((record) => bindingIds.add(record.id));
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+
+    expect(pageCounts).toEqual([128, 128, 44]);
+    expect(bindingIds.size).toBe(300);
+  });
+
+  test("keeps the legacy no-query discovery response at 256 bindings", async () => {
+    const fixture = makeFixture();
+    for (let index = 1; index <= 300; index += 1) {
+      fixture.repository.bindings.push(binding({
+        id: `123e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        userId: USER_A,
+        deviceUuid: `223e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        appInstanceId: `323e4567-e89b-42d3-a456-${String(index).padStart(12, "0")}`,
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+
+    const legacy = await Effect.runPromise(
+      fixture.broker.discover(USER_A, NOW),
+    ) as { bindings: IrohBindingRecord[]; next_cursor?: string };
+
+    expect(legacy.bindings).toHaveLength(256);
+    expect(legacy.next_cursor).toBeUndefined();
+  });
+
   test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -673,8 +722,7 @@ describe("developer binding override", () => {
     expect(developmentBindingQuotaAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
     // The override widens challenge issuance and configured account/device
     // quotas. Authenticated re-registration overwrites an existing
-    // (user, device, tag) slot, while genuinely new slots remain bounded by
-    // IROH_ACTIVE_BINDING_SANITY_CAP.
+    // (user, device, tag) slot without imposing a total binding-count cap.
     expect(challengeQuotaForUser(base, USER_A)).toEqual({
       account: 2_048,
       deviceInstance: 128,
@@ -752,14 +800,6 @@ class MemoryRepository implements IrohRepositoryShape {
       !row.revokedAt);
     if (existing && challenge.createdAt < existing.registeredAt) {
       return Effect.fail(new IrohConflictError({ code: "challenge_superseded" }));
-    }
-    if (
-      !existing
-      && this.bindings.filter((row) =>
-        row.userId === input.userId && !row.revokedAt).length
-        >= IROH_ACTIVE_BINDING_SANITY_CAP
-    ) {
-      return Effect.fail(new IrohConflictError({ code: "active_binding_limit" }));
     }
     // The endpoint id is a global identity: no OTHER live binding may claim it.
     // Self is excluded so a slot can rotate its own key.
