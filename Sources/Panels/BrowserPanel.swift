@@ -7391,7 +7391,8 @@ extension BrowserPanel {
         let captureWebView = webView
         var timeoutTimer: Timer?
         var didFinish = false
-        let usesOffscreenRenderHost = shouldUseOffscreenRenderHostForVisualAutomation
+        let presentation = visualAutomationPresentation
+        let usesOffscreenRenderHost = presentation == .offscreen
         var operationTask: Task<Void, Never>?
 
         let finish: (Result<T, Error>) -> Void = { result in
@@ -7421,7 +7422,7 @@ extension BrowserPanel {
                 operation: { operationFinish in
                     let task = operation(
                         captureWebView,
-                        .offscreen,
+                        presentation,
                         operationFinish
                     )
                     guard !didFinish else {
@@ -7448,7 +7449,7 @@ extension BrowserPanel {
             switch result {
             case .success:
                 guard !didFinish else { return }
-                let task = operation(captureWebView, .onscreen, finish)
+                let task = operation(captureWebView, presentation, finish)
                 guard !didFinish else {
                     task.cancel()
                     return
@@ -7468,14 +7469,16 @@ extension BrowserPanel {
     }
 
     private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
-        guard isWebViewVisibleInUI else { return true }
-        guard let window = webView.window,
-              window.occlusionState.contains(.visible) else {
-            return true
-        }
-        guard !webView.isHiddenOrHasHiddenAncestor else { return true }
-        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return true }
-        return false
+        visualAutomationPresentation == .offscreen
+    }
+
+    private var visualAutomationPresentation: BrowserScreenshotCaptureService.Presentation {
+        BrowserScreenshotCaptureService.Presentation.resolve(
+            isVisibleInUI: isWebViewVisibleInUI,
+            windowIsVisible: webView.window?.occlusionState.contains(.visible) == true,
+            isHiddenOrHasHiddenAncestor: webView.isHiddenOrHasHiddenAncestor,
+            boundsSize: webView.bounds.size
+        )
     }
 
     /// Execute JavaScript

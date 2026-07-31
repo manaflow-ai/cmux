@@ -179,6 +179,97 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func screenshotPresentationUsesScreenUpdatesOnlyWhenVisible() {
+        #expect(BrowserScreenshotCaptureService.Presentation.onscreen.afterScreenUpdates)
+        #expect(!BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates)
+        #expect(
+            BrowserScreenshotCaptureService.Presentation.onscreen
+                .waitsForAnimationFrame(isRetry: false)
+        )
+        #expect(
+            !BrowserScreenshotCaptureService.Presentation.offscreen
+                .waitsForAnimationFrame(isRetry: false)
+        )
+        #expect(
+            BrowserScreenshotCaptureService.Presentation.offscreen
+                .waitsForAnimationFrame(isRetry: true)
+        )
+        #expect(
+            BrowserScreenshotCaptureService.Presentation.resolve(
+                isVisibleInUI: true,
+                windowIsVisible: true,
+                isHiddenOrHasHiddenAncestor: false,
+                boundsSize: NSSize(width: 1600, height: 1200)
+            ) == .onscreen
+        )
+        #expect(
+            BrowserScreenshotCaptureService.Presentation.resolve(
+                isVisibleInUI: true,
+                windowIsVisible: false,
+                isHiddenOrHasHiddenAncestor: false,
+                boundsSize: NSSize(width: 1600, height: 1200)
+            ) == .offscreen
+        )
+        #expect(
+            BrowserScreenshotCaptureService.Presentation.resolve(
+                isVisibleInUI: true,
+                windowIsVisible: true,
+                isHiddenOrHasHiddenAncestor: true,
+                boundsSize: NSSize(width: 1600, height: 1200)
+            ) == .offscreen
+        )
+    }
+
+    @Test
+    func snapshotRequestCancellationResumesExactlyOnce() async throws {
+        var snapshotCompletion: (@MainActor (NSImage?, Error?) -> Void)?
+        let request = BrowserScreenshotSnapshotRequest(
+            renderer: nil,
+            startSnapshot: { snapshotCompletion = $0 }
+        )
+        let task = Task { @MainActor in
+            try await request.capture()
+        }
+        for _ in 0..<100 where snapshotCompletion == nil {
+            await Task.yield()
+        }
+        let completeSnapshot = try #require(snapshotCompletion)
+
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+
+        let lateImage = try makeBlankBitmapImage(width: 10, height: 10)
+        completeSnapshot(lateImage, nil)
+        completeSnapshot(lateImage, nil)
+    }
+
+    @Test
+    func animationFrameCancellationResumesExactlyOnce() async throws {
+        var frameCompletion: (@MainActor (Error?) -> Void)?
+        let waiter = BrowserScreenshotAnimationFrameWaiter(
+            timeout: 60,
+            startFrame: { _, completion in frameCompletion = completion }
+        )
+        let task = Task { @MainActor in
+            try await waiter.wait(script: "return true;")
+        }
+        for _ in 0..<100 where frameCompletion == nil {
+            await Task.yield()
+        }
+        let completeFrame = try #require(frameCompletion)
+
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+
+        completeFrame(nil)
+        completeFrame(nil)
+    }
+
+    @Test
     func verifiedCaptureRetriesAFrameWithMultipleBlankTextProbes() async throws {
         var captureCount = 0
         var synchronizationRetries: [Bool] = []

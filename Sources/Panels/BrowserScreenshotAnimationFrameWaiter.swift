@@ -4,24 +4,48 @@ import WebKit
 /// Waits for WebKit's animation-frame callback with a cancellable common-mode deadline.
 @MainActor
 final class BrowserScreenshotAnimationFrameWaiter {
-    private weak var webView: WKWebView?
+    typealias FrameStarter = @MainActor (
+        _ script: String,
+        _ completion: @escaping @MainActor (Error?) -> Void
+    ) -> Void
+
+    private let startFrame: FrameStarter
     private let timeout: TimeInterval
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuation: CheckedContinuation<Void, Error>?
     private var timeoutTimer: Timer?
     private var isCancelled = false
     private var didFinish = false
 
     init(webView: WKWebView, timeout: TimeInterval) {
-        self.webView = webView
+        self.startFrame = { script, completion in
+            webView.callAsyncJavaScript(
+                script,
+                arguments: [:],
+                in: nil,
+                in: .defaultClient
+            ) { result in
+                if case .failure(let error) = result {
+                    completion(error)
+                } else {
+                    completion(nil)
+                }
+            }
+        }
         self.timeout = timeout
     }
 
-    func wait(script: String) async {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+    init(timeout: TimeInterval, startFrame: @escaping FrameStarter) {
+        self.startFrame = startFrame
+        self.timeout = timeout
+    }
+
+    func wait(script: String) async throws {
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
                 guard !Task.isCancelled, !isCancelled else {
-                    finish()
+                    finish(.failure(CancellationError()))
                     return
                 }
                 start(script: script)
@@ -34,33 +58,18 @@ final class BrowserScreenshotAnimationFrameWaiter {
     }
 
     private func start(script: String) {
-        guard let webView else {
-            finish()
-            return
-        }
-
         let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.finish()
+                self?.finish(.success(()))
             }
         }
         timeoutTimer = timer
         RunLoop.main.add(timer, forMode: .common)
 
-        webView.callAsyncJavaScript(
-            script,
-            arguments: [:],
-            in: nil,
-            in: .defaultClient
-        ) { [weak self] result in
-            _ = result
+        startFrame(script) { [weak self] error in
+            _ = error
 #if DEBUG
-            let errorDescription: String?
-            if case .failure(let error) = result {
-                errorDescription = error.localizedDescription
-            } else {
-                errorDescription = nil
-            }
+            let errorDescription = error?.localizedDescription
 #endif
             Task { @MainActor [weak self] in
 #if DEBUG
@@ -70,22 +79,22 @@ final class BrowserScreenshotAnimationFrameWaiter {
                     )
                 }
 #endif
-                self?.finish()
+                self?.finish(.success(()))
             }
         }
     }
 
     private func cancel() {
         isCancelled = true
-        finish()
+        finish(.failure(CancellationError()))
     }
 
-    private func finish() {
+    private func finish(_ result: Result<Void, Error>) {
         guard !didFinish else { return }
         didFinish = true
         timeoutTimer?.invalidate()
         timeoutTimer = nil
-        continuation?.resume()
+        continuation?.resume(with: result)
         continuation = nil
     }
 }

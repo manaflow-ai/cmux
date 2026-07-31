@@ -4,8 +4,11 @@ import WebKit
 /// Owns one cancellable async bridge around `WKWebView.takeSnapshot(with:)`.
 @MainActor
 final class BrowserScreenshotSnapshotRequest {
-    private weak var webView: WKWebView?
-    private let configuration: WKSnapshotConfiguration
+    typealias SnapshotStarter = @MainActor (
+        _ completion: @escaping @MainActor (NSImage?, Error?) -> Void
+    ) -> Void
+
+    private let startSnapshot: SnapshotStarter
     private let renderer: BrowserViewportSnapshotRenderer?
     private var continuation: CheckedContinuation<NSImage, Error>?
     private var isCancelled = false
@@ -16,8 +19,17 @@ final class BrowserScreenshotSnapshotRequest {
         configuration: WKSnapshotConfiguration,
         renderer: BrowserViewportSnapshotRenderer?
     ) {
-        self.webView = webView
-        self.configuration = configuration
+        self.startSnapshot = { completion in
+            webView.takeSnapshot(with: configuration, completionHandler: completion)
+        }
+        self.renderer = renderer
+    }
+
+    init(
+        renderer: BrowserViewportSnapshotRenderer?,
+        startSnapshot: @escaping SnapshotStarter
+    ) {
+        self.startSnapshot = startSnapshot
         self.renderer = renderer
     }
 
@@ -40,11 +52,7 @@ final class BrowserScreenshotSnapshotRequest {
     }
 
     private func start() {
-        guard let webView else {
-            finish(.failure(BrowserScreenshotError.emptySnapshot))
-            return
-        }
-        webView.takeSnapshot(with: configuration) { [weak self] image, error in
+        startSnapshot { [weak self] image, error in
             self?.complete(image: image, error: error)
         }
     }

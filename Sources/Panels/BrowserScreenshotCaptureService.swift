@@ -5,7 +5,7 @@ import WebKit
 /// Owns synchronized, DOM-attested capture of one browser viewport.
 @MainActor
 struct BrowserScreenshotCaptureService {
-    enum Presentation {
+    enum Presentation: Equatable {
         /// A genuinely visible view, where WebKit can wait for recent screen updates.
         case onscreen
         /// A hidden view temporarily attached to the offscreen render host.
@@ -14,7 +14,7 @@ struct BrowserScreenshotCaptureService {
         /// no displayed window update to deliver.
         case offscreen
 
-        fileprivate var afterScreenUpdates: Bool {
+        var afterScreenUpdates: Bool {
             switch self {
             case .onscreen:
                 true
@@ -23,13 +23,32 @@ struct BrowserScreenshotCaptureService {
             }
         }
 
-        fileprivate var waitsForAnimationFrame: Bool {
+        func waitsForAnimationFrame(isRetry: Bool) -> Bool {
+            if isRetry {
+                return true
+            }
             switch self {
             case .onscreen:
-                true
+                return true
             case .offscreen:
-                false
+                return false
             }
+        }
+
+        static func resolve(
+            isVisibleInUI: Bool,
+            windowIsVisible: Bool,
+            isHiddenOrHasHiddenAncestor: Bool,
+            boundsSize: NSSize
+        ) -> Self {
+            guard isVisibleInUI,
+                  windowIsVisible,
+                  !isHiddenOrHasHiddenAncestor,
+                  boundsSize.width > 1,
+                  boundsSize.height > 1 else {
+                return .offscreen
+            }
+            return .onscreen
         }
     }
 
@@ -57,7 +76,9 @@ struct BrowserScreenshotCaptureService {
             maximumAttempts: maximumAttempts,
             synchronize: { isRetry in
                 await probeCollector.synchronize(
-                    waitForAnimationFrame: presentation.waitsForAnimationFrame || isRetry
+                    waitForAnimationFrame: presentation.waitsForAnimationFrame(
+                        isRetry: isRetry
+                    )
                 )
             },
             collectProbes: {
@@ -126,6 +147,8 @@ struct BrowserScreenshotCaptureService {
         guard let lastMismatch else {
             throw BrowserScreenshotError.emptySnapshot
         }
+        // A plausible-but-wrong frame is more damaging to automated visual QA
+        // than an explicit failure that the caller can diagnose and retry.
         throw BrowserScreenshotError.renderedContentMismatch(
             rect: lastMismatch.probe.rect,
             attempts: maximumAttempts,

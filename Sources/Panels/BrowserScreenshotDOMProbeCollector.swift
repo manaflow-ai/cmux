@@ -156,7 +156,7 @@ final class BrowserScreenshotDOMProbeCollector {
     }
 
     private func waitForAnimationFrames(in webView: WKWebView) async {
-        await BrowserScreenshotAnimationFrameWaiter(
+        _ = try? await BrowserScreenshotAnimationFrameWaiter(
             webView: webView,
             timeout: animationFrameTimeout
         ).wait(script: animationFrameFlushScript)
@@ -439,8 +439,8 @@ final class BrowserScreenshotDOMProbeCollector {
           // even though they still paint. Audit geometry across a generously
           // bounded DOM, but resolve styles only for boxes intersecting one of
           // the at-most-12 selected probe points.
-          const maximumAuditedElements = 5000;
-          const maximumStyledIntersections = 128;
+          const maximumAuditedElements = 50000;
+          const maximumStyledIntersections = 512;
           const overlayElements = document.body.querySelectorAll("*");
           if (overlayElements.length > maximumAuditedElements) {
             return { viewportWidth, viewportHeight, probes: [] };
