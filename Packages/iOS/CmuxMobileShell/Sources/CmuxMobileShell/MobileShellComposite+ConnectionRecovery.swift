@@ -52,6 +52,14 @@ extension MobileShellComposite {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
+        if transportPathHealthPolicyIsAvailable {
+            applyPathAwareRecovery(
+                trigger: .foreground,
+                expectedClient: client,
+                resyncAfterHealthy: resyncAfterHealthy
+            )
+            return
+        }
         beginConnectionRecovery(
             trigger: .foreground,
             expectedClient: client,
@@ -108,7 +116,8 @@ extension MobileShellComposite {
     /// A new trigger cancels and generation-fences the predecessor.
     private func applyPathAwareRecovery(
         trigger: RecoveryTrigger,
-        expectedClient: MobileCoreRPCClient
+        expectedClient: MobileCoreRPCClient,
+        resyncAfterHealthy: Bool = true
     ) {
         connectionPolicyEvaluationTask?.cancel()
         let evaluationGeneration = UUID()
@@ -142,7 +151,8 @@ extension MobileShellComposite {
             self.dispatchPathAwareRecovery(
                 action,
                 trigger: trigger,
-                expectedClient: expectedClient
+                expectedClient: expectedClient,
+                resyncAfterHealthy: resyncAfterHealthy
             )
             guard self.connectionPolicyEvaluationGeneration
                     == evaluationGeneration else {
@@ -155,7 +165,8 @@ extension MobileShellComposite {
     private func dispatchPathAwareRecovery(
         _ action: MobileConnectionPolicyAction,
         trigger: RecoveryTrigger,
-        expectedClient: MobileCoreRPCClient
+        expectedClient: MobileCoreRPCClient,
+        resyncAfterHealthy: Bool
     ) {
         switch action {
         case .none:
@@ -171,7 +182,7 @@ extension MobileShellComposite {
                 trigger: trigger,
                 expectedClient: expectedClient,
                 probeCurrentConnection: true,
-                resyncAfterHealthy: true
+                resyncAfterHealthy: resyncAfterHealthy
             )
         case .redial:
             legacyRecoverDeadConnection(

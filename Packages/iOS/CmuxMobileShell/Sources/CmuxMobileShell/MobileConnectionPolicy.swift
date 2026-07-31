@@ -129,9 +129,14 @@ enum MobileConnectionPolicy {
 
         case .foreground, .networkPathChanged:
             if context.isConnected {
-                // Cheap revalidation of a connection we believe is live;
-                // fgrc rules make probes invisible and suspension-safe.
-                return .probeThenEscalate
+                switch context.pathHealth {
+                case .noPath:
+                    return .redial
+                case .healthy, .unknown:
+                    // Cheap revalidation of a connection we believe is live;
+                    // fgrc rules make probes invisible and suspension-safe.
+                    return .probeThenEscalate
+                }
             }
             return context.automaticReconnectBlocked ? .none : .redial
 
