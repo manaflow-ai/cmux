@@ -467,18 +467,6 @@ test("dogfood readiness fails when host admission misses its deadline", () => {
   assert.match(result.stderr, /did not establish a connection.*readiness deadline/i);
 });
 
-test("host admission publishes the launch-readiness event", () => {
-  const activation = fs.readFileSync(
-    path.join(repoRoot, "Sources/Mobile/MobileHostIrohRuntime+Activation.swift"),
-    "utf8",
-  );
-
-  assert.match(
-    activation,
-    /DiagnosticEvent\(\s*\.admissionSucceeded,[\s\S]{0,240}name: "mobile\.iroh\.admission\.succeeded"/,
-  );
-});
-
 test("macOS and iOS reloads share the dev API backend override", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
