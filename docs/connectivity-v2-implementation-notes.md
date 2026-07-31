@@ -89,7 +89,7 @@
 
 20. Expected: Validating Bonjour aliases after resolving them was sufficient because unknown records could not authorize a path.
     Found: The synchronous DNS callback entered a bounded queue before validation. Hundreds of unrelated cmux development builds could fill that queue and drop the exact authenticated Mac alias without ever bypassing cryptographic authorization.
-    Decision: Derive the three accepted rotating aliases from the broker-authenticated binding before browsing, filter every DNS callback against that allowlist before it enters the bounded queue, and restart browsing when the allowlist changes.
+    Decision: Derive the three accepted rotating aliases from the broker-authenticated binding before browsing, filter every DNS callback against that allowlist before it enters the bounded queue, restart browsing when the allowlist changes, and fence browser startup to the current network lifecycle revision.
 
 ## Current state
 
@@ -107,7 +107,7 @@
 - Done: Added read-only pushed-revision reconciliation on both Apple runtimes and coverage proving it does not re-register or refetch obsolete revisions.
 - Done: Deleted the superseded direct byte transport, session pool, pooled adapter, device-directed nudge protocol, and obsolete tests after porting their ownership and cancellation guarantees.
 - Verified: Worker typechecking and all 179 worker tests pass. All 19 backend publication boundary tests, Swift invalidation-wire, client reconciliation, host reconciliation, and peer ownership tests pass.
-- Verified: The full shared transport regression run passes all 486 tests across 61 suites, including newest-revision coalescing.
+- Verified: The full shared transport regression run passes all 489 tests across 61 suites, including newest-revision coalescing, authenticated LAN ingress filtering, and stale-browser lifecycle fencing.
 - Verified: All 36 PostgreSQL Iroh behavior tests pass against an isolated native database with the complete migration chain.
 - Done: The development backend runs on an isolated native PostgreSQL cluster, a same-worktree Next server, and an authenticated Worker quick tunnel without touching the wedged shared Docker daemon or shared Cloudflare worker.
 - Done: Fixed the first-sync wire mismatch found by the real Mac and local backend integration. The initial v2 request now carries the contract's explicit null revision.
@@ -115,5 +115,6 @@
 - Done: Decoupled active Iroh route publication from fresh-registration persistence so a verified cached-policy restart immediately republishes the endpoint identity.
 - Done: Persisted deterministic simulator device identity in the app sandbox while preserving fail-closed Keychain identity on physical devices.
 - Done: Filtered LAN route discovery to exact broker-authenticated rotating aliases before bounded DNS ingestion.
+- Verified: The relay-disabled iOS Simulator gate completes an authenticated bidirectional Iroh round trip over a non-relay path.
 - Open: Final application build integration and end-to-end Mac, Simulator, and iPhone verification.
 - Next: Compile the Mac and iOS composition roots, fix integration findings, run the complete suites, then build and install the tagged dogfood environment.
