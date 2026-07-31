@@ -1793,6 +1793,8 @@ struct ContentView: View {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                    // Never retain a live source workspace as a loading cover:
+                    // that makes mount ownership depend on a later frame signal.
                     WorkspaceContentView(
                         workspace: tab,
                         isWorkspaceVisible: isSelectedWorkspace,
@@ -2708,24 +2710,31 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
             // SwiftUI may deliver an earlier selection after the model has
-            // already advanced again. Only the authoritative value may mutate
-            // mounted workspace and handoff state.
-            guard newValue == tabManager.selectedTabId else { return }
+            // already advanced again. Reconcile the current model value once,
+            // regardless of which intermediate value triggered this callback.
+            let authoritativeSelection = tabManager.selectedTabId
+            guard authoritativeSelection != previousSelectedWorkspaceId else {
+                return
+            }
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.view.selectedChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newValue))"
+                    "ws.view.selectedChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) " +
+                    "delivered=\(debugShortWorkspaceId(newValue)) selected=\(debugShortWorkspaceId(authoritativeSelection))"
                 )
             } else {
-                cmuxDebugLog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+                cmuxDebugLog(
+                    "ws.view.selectedChange id=none delivered=\(debugShortWorkspaceId(newValue)) " +
+                    "selected=\(debugShortWorkspaceId(authoritativeSelection))"
+                )
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
             let retiringWorkspaceID = startWorkspaceHandoffIfNeeded(
-                newSelectedId: newValue
+                newSelectedId: authoritativeSelection
             )
-            reconcileMountedWorkspaceIds(selectedId: newValue)
+            reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
             // Mount state is authoritative. Presentation milestones continue
             // as diagnostics, but never retain the source workspace.
             if let retiringWorkspaceID {
@@ -2735,10 +2744,12 @@ struct ContentView: View {
                 )
             }
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
-            guard let newValue else { return }
+            guard let authoritativeSelection else { return }
             if selectedTabIds.count <= 1 {
-                selectedTabIds = [newValue]
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
+                selectedTabIds = [authoritativeSelection]
+                lastSidebarSelectionIndex = tabManager.tabs.firstIndex {
+                    $0.id == authoritativeSelection
+                }
             }
             updateTitlebarText()
         })

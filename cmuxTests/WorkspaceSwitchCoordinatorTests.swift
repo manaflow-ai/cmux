@@ -60,7 +60,7 @@ struct WorkspaceSwitchCoordinatorTests {
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, _ in },
+            beginRendererProtection: { _, _, _ in },
             endRendererProtection: { _ in }
         )
         let pendingRequestID = coordinator.selectionWillCommit(
@@ -106,7 +106,7 @@ struct WorkspaceSwitchCoordinatorTests {
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, _ in },
+            beginRendererProtection: { _, _, _ in },
             endRendererProtection: { _ in }
         )
         coordinator.selectionWillCommit(
@@ -184,7 +184,7 @@ struct WorkspaceSwitchCoordinatorTests {
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, requestID in
+            beginRendererProtection: { _, requestID, _ in
                 protectedRequestIDs.append(requestID)
             },
             endRendererProtection: { requestID in
@@ -230,7 +230,7 @@ struct WorkspaceSwitchCoordinatorTests {
         var protectedRequestIDs: [UUID] = []
         var releasedRequestIDs: [UUID] = []
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, requestID in
+            beginRendererProtection: { _, requestID, _ in
                 protectedRequestIDs.append(requestID)
             },
             endRendererProtection: { requestID in
@@ -267,7 +267,7 @@ struct WorkspaceSwitchCoordinatorTests {
     func staleFrameCallbackCannotFinishLaterTransactionForSameSurface() throws {
         let targetWorkspaceID = UUID(), targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, _ in },
+            beginRendererProtection: { _, _, _ in },
             endRendererProtection: { _ in }
         )
         let staleRequestID = try #require(coordinator.selectionWillCommit(
@@ -299,39 +299,36 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func canceledSelectionTransactionDoesNotBlockSourceRetirement() {
-        let sourceWorkspaceID = UUID()
-        let targetWorkspaceID = UUID()
+    func mismatchedPresentationCancelsSelectionTransaction() {
+        let sourceWorkspaceID = UUID(), targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        var protectedRequestIDs: [UUID] = [], releasedRequestIDs: [UUID] = []
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, _ in },
-            endRendererProtection: { _ in }
+            beginRendererProtection: { _, id, _ in protectedRequestIDs.append(id) },
+            endRendererProtection: { releasedRequestIDs.append($0) }
         )
         coordinator.selectionWillCommit(
             from: sourceWorkspaceID,
             to: targetWorkspaceID,
-            targetSurfaceID: nil,
+            targetSurfaceID: targetSurfaceID,
             targetTerminalView: nil,
-            targetRendererPresented: false,
-            targetRenderedFrameSequence: 0
+            targetRendererPresented: true,
+            targetRenderedFrameSequence: 1
         )
-        coordinator.cancel()
 
         coordinator.beginPresentation(
             WorkspaceSwitchCoordinator.PresentationTarget(
-                workspaceID: targetWorkspaceID,
-                contentKind: .passive,
-                terminalSurfaceID: nil,
-                terminalView: nil,
-                terminalRendererPresented: false,
-                terminalRenderedFrameSequence: 0,
-                browserWebView: nil,
-                portalPresented: true,
-                interactionReady: true,
-                requiresInteraction: false
+                workspaceID: UUID(), contentKind: .passive,
+                terminalSurfaceID: nil, terminalView: nil,
+                terminalRendererPresented: false, terminalRenderedFrameSequence: 0,
+                browserWebView: nil, portalPresented: true,
+                interactionReady: true, requiresInteraction: false
             ),
             retiringWorkspaceID: sourceWorkspaceID
         )
 
+        #expect(protectedRequestIDs.count == 1)
+        #expect(releasedRequestIDs == protectedRequestIDs)
         #expect(coordinator.isPresentationReady)
     }
 
@@ -344,7 +341,7 @@ struct WorkspaceSwitchCoordinatorTests {
         let targetWorkspaceID = UUID()
         let targetSurfaceID = UUID()
         let coordinator = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, requestID in
+            beginRendererProtection: { _, requestID, _ in
                 protectedRequestIDs.append(requestID)
             },
             endRendererProtection: { requestID in
@@ -389,11 +386,13 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
-    func coordinatorDeinitReleasesRendererProtection() {
-        var protectedRequestIDs: [UUID] = [], releasedRequestIDs: [UUID] = []
+    func rendererProtectionOwnerExpiresWithCoordinator() {
+        var ownerIsAlive: (() -> Bool)?
         var coordinator: WorkspaceSwitchCoordinator? = WorkspaceSwitchCoordinator(
-            beginRendererProtection: { _, requestID in protectedRequestIDs.append(requestID) },
-            endRendererProtection: { requestID in releasedRequestIDs.append(requestID) }
+            beginRendererProtection: { _, _, liveness in
+                ownerIsAlive = liveness
+            },
+            endRendererProtection: { _ in }
         )
         coordinator?.selectionWillCommit(
             from: UUID(), to: UUID(),
@@ -402,10 +401,10 @@ struct WorkspaceSwitchCoordinatorTests {
             targetRendererPresented: true, targetRenderedFrameSequence: 1
         )
 
+        #expect(ownerIsAlive?() == true)
         coordinator = nil
 
-        #expect(protectedRequestIDs.count == 1)
-        #expect(releasedRequestIDs == protectedRequestIDs)
+        #expect(ownerIsAlive?() == false)
     }
 
     @Test
