@@ -457,8 +457,35 @@ const fn decimal_width(mut value: u16) -> usize {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupMessages {
+    schema_too_new: &'static str,
+    pub session_socket: &'static str,
+    pub state_database: &'static str,
+    pub stop_newer_server: &'static str,
+    pub stopping_does_not_downgrade: &'static str,
+    pub start_separate_session: &'static str,
+}
+
+impl StartupMessages {
+    pub(crate) fn schema_too_new(
+        &self,
+        session: &str,
+        found: i64,
+        version: &str,
+        supported: i64,
+    ) -> String {
+        self.schema_too_new
+            .replace("{session}", session)
+            .replace("{found}", &found.to_string())
+            .replace("{version}", version)
+            .replace("{supported}", &supported.to_string())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub startup: StartupMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub terminal: TerminalMessages,
@@ -482,6 +509,14 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    startup: StartupMessages {
+        schema_too_new: "cannot open session \"{session}\": saved state uses workspace schema {found}, but cmux {version} supports through {supported}",
+        session_socket: "session socket",
+        state_database: "state database",
+        stop_newer_server: "if a newer server is still using this socket, stop it:",
+        stopping_does_not_downgrade: "stopping the server does not downgrade its saved state; upgrade cmux to reopen this session",
+        start_separate_session: "or start this build in a separate session:",
+    },
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -722,6 +757,14 @@ edits shell files. Authenticate with the configured host before retrying.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    startup: StartupMessages {
+        schema_too_new: "セッション \"{session}\" を開けません。保存状態のワークスペーススキーマは {found} ですが、cmux {version} は {supported} まで対応しています",
+        session_socket: "セッションソケット",
+        state_database: "状態データベース",
+        stop_newer_server: "新しいサーバーがこのソケットをまだ使用している場合は停止:",
+        stopping_does_not_downgrade: "サーバーを停止しても保存状態のスキーマは変更されません。このセッションを再度開くには cmux をアップグレードしてください",
+        start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",

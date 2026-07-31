@@ -2592,18 +2592,19 @@ fn interrupted_transaction_and_newer_schema_fail_closed() {
     drop(load_or_create_resource_effect_pepper(&newer_root).unwrap());
     let session_dir = newer_root.join(session_storage_component("session"));
     fs::create_dir_all(&session_dir).unwrap();
-    let db = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    let database = session_dir.join(WORKSPACE_REGISTRY_FILE);
+    let db = Connection::open(&database).unwrap();
     db.execute_batch(
         "CREATE TABLE meta(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
              INSERT INTO meta(key,value) VALUES('schema_version','999');",
     )
     .unwrap();
     drop(db);
-    assert!(
-        WorkspaceRegistry::open(&newer_root, "session")
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported workspace registry schema")
-    );
+    let error = WorkspaceRegistry::open(&newer_root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), 999);
+    assert_eq!(schema.newest_supported(), SCHEMA_VERSION);
+    assert_eq!(schema.database_path(), Some(database.as_path()));
+    assert!(error.to_string().contains("unsupported workspace registry schema"));
     fs::remove_dir_all(newer_root).unwrap();
 }

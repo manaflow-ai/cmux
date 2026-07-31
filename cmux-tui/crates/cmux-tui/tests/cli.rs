@@ -309,7 +309,13 @@ fn newer_workspace_schema_failure_reports_paths_and_recovery_commands() {
     assert!(english.contains(&format!("supports through {supported}")), "{english}");
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(english.contains(&format!("state database: {}", database.display())), "{english}");
-    assert!(english.contains("session current shutdown --force"), "{english}");
+    assert!(
+        english.contains(&format!(
+            "cmux --socket '{}' session current shutdown --force",
+            socket.display()
+        )),
+        "{english}"
+    );
     assert!(english.contains("stopping the server does not downgrade"), "{english}");
     assert!(english.contains(&format!("--session '{session}-schema{supported}'")), "{english}");
 

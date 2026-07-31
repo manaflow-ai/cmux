@@ -37,7 +37,7 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::net::Shutdown;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -474,6 +474,55 @@ fn version_string() -> String {
         (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
         (None, _) => env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn workspace_schema_startup_error(
+    error: anyhow::Error,
+    session: &str,
+    socket_path: &Path,
+) -> anyhow::Error {
+    let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
+    else {
+        return error;
+    };
+    let Some(database_path) = schema.database_path() else {
+        return error;
+    };
+    let messages = &localization::catalog().startup;
+    let socket = socket_path.display().to_string();
+    let database = database_path.display().to_string();
+    let stop_command =
+        format!("cmux --socket {} session current shutdown --force", shell_quote(&socket));
+    let separate_session = format!("{session}-schema{}", schema.newest_supported());
+    let separate_command = format!("cmux --session {}", shell_quote(&separate_session));
+    anyhow::anyhow!(format!(
+        "{}\n{}: {}\n{}: {}\n{}\n  {}\n{}\n{}\n  {}",
+        messages.schema_too_new(
+            session,
+            schema.found(),
+            &version_string(),
+            schema.newest_supported(),
+        ),
+        messages.session_socket,
+        socket,
+        messages.state_database,
+        database,
+        messages.stop_newer_server,
+        stop_command,
+        messages.stopping_does_not_downgrade,
+        messages.start_separate_session,
+        separate_command,
+    ))
 }
 
 impl Args {
@@ -980,7 +1029,8 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }?;
+        }
+        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
@@ -1251,7 +1301,7 @@ fn run_tui_once(
     )
 }
 
-fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
+fn run_headless(mux: &Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
     eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.

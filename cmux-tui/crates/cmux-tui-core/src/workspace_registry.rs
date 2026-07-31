@@ -72,6 +72,39 @@ const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedWorkspaceRegistrySchema {
+    found: i64,
+    newest_supported: i64,
+    database_path: Option<PathBuf>,
+}
+
+impl UnsupportedWorkspaceRegistrySchema {
+    pub fn found(&self) -> i64 {
+        self.found
+    }
+
+    pub fn newest_supported(&self) -> i64 {
+        self.newest_supported
+    }
+
+    pub fn database_path(&self) -> Option<&Path> {
+        self.database_path.as_deref()
+    }
+}
+
+impl std::fmt::Display for UnsupportedWorkspaceRegistrySchema {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "unsupported workspace registry schema {}; newest supported is {}",
+            self.found, self.newest_supported
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedWorkspaceRegistrySchema {}
+
 struct ResourceEffectPepper(Zeroizing<[u8; RESOURCE_EFFECT_PEPPER_BYTES]>);
 
 impl ResourceEffectPepper {
@@ -339,6 +372,7 @@ impl WorkspaceRegistry {
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
             None,
+            None,
         )
     }
 
@@ -361,6 +395,7 @@ impl WorkspaceRegistry {
             machine_id,
             resource_effect_pepper,
             Some(lease),
+            Some(db_path),
         )
     }
 
@@ -370,6 +405,7 @@ impl WorkspaceRegistry {
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
         lease: Option<SessionLease>,
+        database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
@@ -404,9 +440,12 @@ impl WorkspaceRegistry {
         let resource_effect_pepper_id = resource_effect_pepper.identifier();
         match stored_schema {
             Some(value) if value > SCHEMA_VERSION => {
-                anyhow::bail!(
-                    "unsupported workspace registry schema {value}; newest supported is {SCHEMA_VERSION}"
-                );
+                return Err(UnsupportedWorkspaceRegistrySchema {
+                    found: value,
+                    newest_supported: SCHEMA_VERSION,
+                    database_path,
+                }
+                .into());
             }
             Some(value) if value == SCHEMA_VERSION => {
                 let tx = connection.unchecked_transaction()?;
