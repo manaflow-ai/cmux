@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import Combine
 import Foundation
 import os
 import UserNotifications
@@ -2325,49 +2326,22 @@ struct SidebarSurfaceUnreadKey: Hashable {
     var surfaceId: UUID?
 }
 
-/// Lightweight observable that the workspace sidebar and `ContentView` observe
-/// instead of `TerminalNotificationStore`. `TerminalNotificationStore` drives it
-/// from its single `refreshUnreadPresentation()` coalescing hub with equality
-/// guards, so notification activity that does not change any workspace's badge,
-/// latest-text, per-surface unread, or read-indicator never fires
-/// `objectWillChange` here. That is what stops high-frequency notification churn
-/// from re-rendering the workspace list (issue #2586 class of sidebar re-render
-/// spins). The query methods mirror the equivalent `TerminalNotificationStore`
-/// reads exactly so callers can switch source without behavior change.
-@MainActor
-final class SidebarUnreadModel: ObservableObject {
-    @Published private(set) var totalUnreadCount: Int = 0
-    @Published private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
-    @Published private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
-    @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
-
-    func apply(
-        totalUnreadCount: Int,
-        summaries: [UUID: SidebarWorkspaceUnreadSummary],
-        unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
-        focusedReadIndicatorByWorkspaceId: [UUID: UUID],
-        manualUnreadWorkspaceIds: Set<UUID>
-    ) {
-        if self.totalUnreadCount != totalUnreadCount {
-            self.totalUnreadCount = totalUnreadCount
-        }
-        if summaryByWorkspaceId != summaries {
-            summaryByWorkspaceId = summaries
-        }
-        if self.unreadSurfaceKeys != unreadSurfaceKeys {
-            self.unreadSurfaceKeys = unreadSurfaceKeys
-        }
-        if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
-            self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId
-        }
-        if self.manualUnreadWorkspaceIds != manualUnreadWorkspaceIds {
-            self.manualUnreadWorkspaceIds = manualUnreadWorkspaceIds
-        }
-    }
+/// One atomic unread-state publication. A single notification can change the
+/// total, workspace summary, and surface indicator together; publishing those
+/// fields independently makes every observer render several intermediate
+/// states for one logical update.
+struct SidebarUnreadSnapshot: Equatable {
+    var totalUnreadCount: Int = 0
+    var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+    var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+    var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
+    var manualUnreadWorkspaceIds: Set<UUID> = []
 
     func summary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary {
-        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
+        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(
+            unreadCount: 0,
+            latestNotificationText: nil
+        )
     }
 
     func unreadCount(forWorkspaceId id: UUID) -> Int {
@@ -2401,5 +2375,78 @@ final class SidebarUnreadModel: ObservableObject {
 
     func canMarkWorkspaceUnread(forWorkspaceIds ids: [UUID]) -> Bool {
         ids.contains { !workspaceIsUnread(forWorkspaceId: $0) }
+    }
+}
+
+/// Lightweight observable for leaf unread consumers such as the workspace
+/// sidebar and titlebar badge. `TerminalNotificationStore` drives it from its
+/// single `refreshUnreadPresentation()` hub with one atomic, equality-guarded
+/// snapshot, so one logical notification cannot publish several intermediate
+/// renders. `ContentView` deliberately keeps an unobserved reference and routes
+/// pane-overlay updates directly. The query methods mirror the equivalent
+/// `TerminalNotificationStore` reads so callers can switch source without a
+/// behavior change.
+@MainActor
+final class SidebarUnreadModel: ObservableObject {
+    @Published private(set) var snapshot = SidebarUnreadSnapshot()
+
+    var totalUnreadCount: Int { snapshot.totalUnreadCount }
+    var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] { snapshot.summaryByWorkspaceId }
+    var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> { snapshot.unreadSurfaceKeys }
+    var focusedReadIndicatorByWorkspaceId: [UUID: UUID] { snapshot.focusedReadIndicatorByWorkspaceId }
+    var manualUnreadWorkspaceIds: Set<UUID> { snapshot.manualUnreadWorkspaceIds }
+
+    func apply(
+        totalUnreadCount: Int,
+        summaries: [UUID: SidebarWorkspaceUnreadSummary],
+        unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        focusedReadIndicatorByWorkspaceId: [UUID: UUID],
+        manualUnreadWorkspaceIds: Set<UUID>
+    ) {
+        let next = SidebarUnreadSnapshot(
+            totalUnreadCount: totalUnreadCount,
+            summaryByWorkspaceId: summaries,
+            unreadSurfaceKeys: unreadSurfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByWorkspaceId,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        guard snapshot != next else { return }
+        snapshot = next
+    }
+
+    func summary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary {
+        snapshot.summary(forWorkspaceId: id)
+    }
+
+    func unreadCount(forWorkspaceId id: UUID) -> Int {
+        snapshot.unreadCount(forWorkspaceId: id)
+    }
+
+    func latestNotificationText(forWorkspaceId id: UUID) -> String? {
+        snapshot.latestNotificationText(forWorkspaceId: id)
+    }
+
+    func workspaceIsUnread(forWorkspaceId id: UUID) -> Bool {
+        snapshot.workspaceIsUnread(forWorkspaceId: id)
+    }
+
+    func hasManualUnread(forWorkspaceId id: UUID) -> Bool {
+        snapshot.hasManualUnread(forWorkspaceId: id)
+    }
+
+    func hasUnreadNotification(forWorkspaceId id: UUID, surfaceId: UUID?) -> Bool {
+        snapshot.hasUnreadNotification(forWorkspaceId: id, surfaceId: surfaceId)
+    }
+
+    func hasVisibleNotificationIndicator(forWorkspaceId id: UUID, surfaceId: UUID?) -> Bool {
+        snapshot.hasVisibleNotificationIndicator(forWorkspaceId: id, surfaceId: surfaceId)
+    }
+
+    func canMarkWorkspaceRead(forWorkspaceIds ids: [UUID]) -> Bool {
+        snapshot.canMarkWorkspaceRead(forWorkspaceIds: ids)
+    }
+
+    func canMarkWorkspaceUnread(forWorkspaceIds ids: [UUID]) -> Bool {
+        snapshot.canMarkWorkspaceUnread(forWorkspaceIds: ids)
     }
 }

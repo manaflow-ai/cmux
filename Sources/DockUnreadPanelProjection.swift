@@ -25,18 +25,16 @@ final class DockUnreadPanelProjection {
         self.workspaceID = workspaceID
         self.panelIDs = panelIDs
         self.isActive = isActive
-        unreadSurfaceKeys = source.unreadSurfaceKeys
-        focusedReadIndicatorByWorkspaceID = source.focusedReadIndicatorByWorkspaceId
+        unreadSurfaceKeys = source.snapshot.unreadSurfaceKeys
+        focusedReadIndicatorByWorkspaceID = source.snapshot.focusedReadIndicatorByWorkspaceId
         refresh()
-        unreadSubscription = source.$unreadSurfaceKeys.combineLatest(
-            source.$focusedReadIndicatorByWorkspaceId
-        ).sink { [weak self] unreadSurfaceKeys, focusedReadIndicatorByWorkspaceID in
-            // Both publishers are main-actor-owned and publish synchronously
+        unreadSubscription = source.$snapshot.sink { [weak self] snapshot in
+            // The publisher is main-actor-owned and emits one complete value
             // from SidebarUnreadModel.apply().
             MainActor.assumeIsolated {
                 self?.receive(
-                    unreadSurfaceKeys: unreadSurfaceKeys,
-                    focusedReadIndicatorByWorkspaceID: focusedReadIndicatorByWorkspaceID
+                    unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
+                    focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
                 )
             }
         }
