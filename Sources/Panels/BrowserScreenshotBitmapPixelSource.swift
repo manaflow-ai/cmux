@@ -32,8 +32,7 @@ struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelS
 
     func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
         let x = Int(point.x.rounded(.down))
-        let topY = Int(point.y.rounded(.down))
-        let y = bitmap.pixelsHigh - 1 - topY
+        let y = Int(point.y.rounded(.down))
         guard x >= 0,
               x < bitmap.pixelsWide,
               y >= 0,

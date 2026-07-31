@@ -15,7 +15,8 @@ struct BrowserScreenshotFrameVerifier {
             max(
                 abs(red - other.red),
                 abs(green - other.green),
-                abs(blue - other.blue)
+                abs(blue - other.blue),
+                abs(alpha - other.alpha)
             )
         }
     }
@@ -50,44 +51,24 @@ struct BrowserScreenshotFrameVerifier {
     private let minimumMismatchCount: Int
     private let maximumProbeCount: Int
     private let rectTolerance: CGFloat
-    private let backgroundTolerance: CGFloat
+    private let uniformityTolerance: CGFloat
     private let minimumForegroundContrast: CGFloat
-    private let sampleFractions: [NSPoint]
+    private let maximumSamplesPerProbe: Int
 
     init(
         minimumMismatchCount: Int = 2,
         maximumProbeCount: Int = 12,
         rectTolerance: CGFloat = 1,
-        backgroundTolerance: CGFloat = 16.0 / 255.0,
-        minimumForegroundContrast: CGFloat = 48.0 / 255.0
+        uniformityTolerance: CGFloat = 16.0 / 255.0,
+        minimumForegroundContrast: CGFloat = 48.0 / 255.0,
+        maximumSamplesPerProbe: Int = 1_024
     ) {
         self.minimumMismatchCount = minimumMismatchCount
         self.maximumProbeCount = maximumProbeCount
         self.rectTolerance = rectTolerance
-        self.backgroundTolerance = backgroundTolerance
+        self.uniformityTolerance = uniformityTolerance
         self.minimumForegroundContrast = minimumForegroundContrast
-        self.sampleFractions = [
-            NSPoint(x: 0.10, y: 0.20),
-            NSPoint(x: 0.30, y: 0.20),
-            NSPoint(x: 0.50, y: 0.20),
-            NSPoint(x: 0.70, y: 0.20),
-            NSPoint(x: 0.90, y: 0.20),
-            NSPoint(x: 0.10, y: 0.40),
-            NSPoint(x: 0.30, y: 0.40),
-            NSPoint(x: 0.50, y: 0.40),
-            NSPoint(x: 0.70, y: 0.40),
-            NSPoint(x: 0.90, y: 0.40),
-            NSPoint(x: 0.10, y: 0.60),
-            NSPoint(x: 0.30, y: 0.60),
-            NSPoint(x: 0.50, y: 0.60),
-            NSPoint(x: 0.70, y: 0.60),
-            NSPoint(x: 0.90, y: 0.60),
-            NSPoint(x: 0.10, y: 0.80),
-            NSPoint(x: 0.30, y: 0.80),
-            NSPoint(x: 0.50, y: 0.80),
-            NSPoint(x: 0.70, y: 0.80),
-            NSPoint(x: 0.90, y: 0.80),
-        ]
+        self.maximumSamplesPerProbe = max(1, maximumSamplesPerProbe)
     }
 
     func verify(
@@ -120,7 +101,7 @@ struct BrowserScreenshotFrameVerifier {
         var mismatches: [Probe] = []
         for probe in stableProbes.prefix(maximumProbeCount) {
             guard probe.foreground.distance(from: probe.background) >= minimumForegroundContrast,
-                  pixelsMatchOnlyBackground(
+                  pixelsAreUniform(
                       probe,
                       viewportSize: after.viewportSize,
                       pixels: pixels
@@ -128,14 +109,17 @@ struct BrowserScreenshotFrameVerifier {
                 continue
             }
             mismatches.append(probe)
-            if mismatches.count >= minimumMismatchCount {
-                return .mismatch(probe: mismatches[0], count: mismatches.count)
-            }
+        }
+        if mismatches.count >= minimumMismatchCount, let first = mismatches.first {
+            return .mismatch(probe: first, count: mismatches.count)
         }
         return .accepted
     }
 
-    private func pixelsMatchOnlyBackground(
+    /// A painted glyph introduces color or alpha variation inside its range.
+    /// A missing layer stays uniform even when it reveals a different solid
+    /// color (or transparency) than the CSS background expected by the DOM.
+    private func pixelsAreUniform(
         _ probe: Probe,
         viewportSize: NSSize,
         pixels: any PixelSource
@@ -149,25 +133,47 @@ struct BrowserScreenshotFrameVerifier {
             return false
         }
 
-        var sampledColor = false
-        for fraction in sampleFractions {
-            let cssPoint = NSPoint(
-                x: probe.rect.minX + probe.rect.width * fraction.x,
-                y: probe.rect.minY + probe.rect.height * fraction.y
-            )
-            let pixelPoint = NSPoint(
-                x: cssPoint.x / viewportSize.width * pixels.pixelSize.width,
-                y: cssPoint.y / viewportSize.height * pixels.pixelSize.height
-            )
-            guard let color = pixels.color(at: pixelPoint) else {
-                return false
-            }
-            sampledColor = true
-            if color.distance(from: probe.background) > backgroundTolerance {
-                return false
+        let pixelRect = NSRect(
+            x: probe.rect.minX / viewportSize.width * pixels.pixelSize.width,
+            y: probe.rect.minY / viewportSize.height * pixels.pixelSize.height,
+            width: probe.rect.width / viewportSize.width * pixels.pixelSize.width,
+            height: probe.rect.height / viewportSize.height * pixels.pixelSize.height
+        )
+        let minX = max(0, Int(pixelRect.minX.rounded(.down)))
+        let minY = max(0, Int(pixelRect.minY.rounded(.down)))
+        let maxX = min(
+            Int(pixels.pixelSize.width.rounded(.down)) - 1,
+            Int(pixelRect.maxX.rounded(.up)) - 1
+        )
+        let maxY = min(
+            Int(pixels.pixelSize.height.rounded(.down)) - 1,
+            Int(pixelRect.maxY.rounded(.up)) - 1
+        )
+        guard minX <= maxX, minY <= maxY else { return false }
+
+        let sampleArea = (maxX - minX + 1) * (maxY - minY + 1)
+        let stride = max(
+            1,
+            Int(ceil(sqrt(Double(sampleArea) / Double(maximumSamplesPerProbe))))
+        )
+        var referenceColor: RGBA?
+        for y in Swift.stride(from: minY, through: maxY, by: stride) {
+            for x in Swift.stride(from: minX, through: maxX, by: stride) {
+                guard let color = pixels.color(
+                    at: NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
+                ) else {
+                    return false
+                }
+                guard let referenceColor else {
+                    referenceColor = color
+                    continue
+                }
+                if color.distance(from: referenceColor) > uniformityTolerance {
+                    return false
+                }
             }
         }
-        return sampledColor
+        return referenceColor != nil
     }
 
     private func valid(size: NSSize) -> Bool {

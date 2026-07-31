@@ -331,6 +331,59 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func verifierRejectsUniformBlankThatDiffersFromCSSBackground() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: probes.viewportSize,
+                color: .white
+            )
+        )
+
+        #expect(outcome == .mismatch(probe: probes.probes[0], count: 2))
+    }
+
+    @Test
+    func verifierAcceptsAOnePixelTextStroke() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: ThinTextStrokePixelSource(
+                pixelSize: probes.viewportSize,
+                textRects: probes.probes.map(\.rect)
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
+    func verifierReportsEveryBlankProbe() {
+        let original = textProbeSet()
+        let third = BrowserScreenshotFrameVerifier.Probe(
+            identifier: "secondary-action",
+            text: "Withdraw",
+            rect: NSRect(x: 30, y: 35, width: 12, height: 12),
+            foreground: .white,
+            background: .black
+        )
+        let probes = BrowserScreenshotFrameVerifier.ProbeSet(
+            viewportSize: original.viewportSize,
+            probes: original.probes + [third]
+        )
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
+        )
+
+        #expect(outcome == .mismatch(probe: probes.probes[0], count: 3))
+    }
+
+    @Test
     func verifierIgnoresTextThatMovesDuringCapture() {
         let before = textProbeSet()
         let after = BrowserScreenshotFrameVerifier.ProbeSet(
@@ -435,7 +488,36 @@ struct BrowserScreenshotCropTests {
             guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
                 return nil
             }
-            return textRects.contains(where: { $0.contains(point) }) ? .white : .black
+            for rect in textRects where rect.contains(point) {
+                let stroke = NSRect(
+                    x: rect.midX - 1,
+                    y: rect.minY + 1,
+                    width: 2,
+                    height: max(1, rect.height - 2)
+                )
+                if stroke.contains(point) {
+                    return .white
+                }
+            }
+            return .black
+        }
+    }
+
+    private struct ThinTextStrokePixelSource: BrowserScreenshotFrameVerifier.PixelSource {
+        let pixelSize: NSSize
+        let textRects: [NSRect]
+
+        func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
+            guard NSRect(origin: .zero, size: pixelSize).contains(point) else {
+                return nil
+            }
+            for rect in textRects where rect.contains(point) {
+                let strokeX = Int(rect.midX.rounded(.down))
+                if Int(point.x.rounded(.down)) == strokeX {
+                    return .white
+                }
+            }
+            return .black
         }
     }
 
