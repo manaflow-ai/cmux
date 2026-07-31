@@ -4003,6 +4003,23 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
+    func isPresented(
+        _ webView: WKWebView,
+        webViewId: ObjectIdentifier? = nil
+    ) -> Bool {
+        let webViewId = webViewId ?? ObjectIdentifier(webView)
+        guard let entry = entriesByWebViewId[webViewId],
+              entry.webView === webView,
+              let containerView = entry.containerView else {
+            return false
+        }
+        return entry.visibleInUI &&
+            !containerView.isHidden &&
+            containerView.superview === hostView &&
+            containerView.window === window &&
+            webView.window === window
+    }
+
     func webViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -4317,6 +4334,15 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return nil }
         return portal.debugSnapshot(forWebViewId: webViewId)
+    }
+
+    static func isPresented(_ webView: WKWebView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else {
+            return false
+        }
+        return portal.isPresented(webView, webViewId: webViewId)
     }
 
 #if DEBUG

@@ -43,6 +43,8 @@ final class WorkspaceSwitchCoordinator {
         return active.readiness?.presentationIsReady == true
     }
 
+    var isMeasuringSwitch: Bool { active != nil }
+
     func selectionDidReconcile(workspaceID: UUID?) { reconciledWorkspaceID = workspaceID }
 
     @discardableResult

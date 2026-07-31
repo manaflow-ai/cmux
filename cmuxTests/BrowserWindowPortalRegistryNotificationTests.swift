@@ -109,6 +109,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
         #expect(notificationCount == 1)
+        #expect(BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
         #expect(
@@ -118,6 +119,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
         #expect(notificationCount == 2)
+        #expect(!BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
         #expect(
