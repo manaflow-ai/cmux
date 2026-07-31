@@ -174,6 +174,7 @@ actor RoutingHostRouter {
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var streamID: String?
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
@@ -383,7 +384,12 @@ actor RoutingHostRouter {
                 "marked": 1,
                 "revision": notificationFeedMarkAllReadCount + 100,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.events.unsubscribe":
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": info.streamID ?? "",
+                "removed": true,
+            ])
+        case "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
@@ -456,6 +462,7 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                streamID: params?["stream_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,

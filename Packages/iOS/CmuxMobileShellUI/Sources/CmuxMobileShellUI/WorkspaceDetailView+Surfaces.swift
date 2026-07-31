@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentGUIUI
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -35,6 +36,9 @@ extension WorkspaceDetailView {
                 .accessibilityHidden(surface != .terminal)
             if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browserStream, let browser = activeBrowserStream {
+                browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
             if isAgentGUIVisible,
@@ -91,6 +95,38 @@ extension WorkspaceDetailView {
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
+        BrowserStreamPane(
+            state: browser,
+            actions: BrowserStreamSurfaceActions(
+                pointer: { await store.sendMobileBrowserPointer($0) },
+                scroll: { await store.sendMobileBrowserScroll($0) },
+                key: { await store.sendMobileBrowserKey($0) },
+                text: { await store.sendMobileBrowserText($0) },
+                viewport: { parameters in
+                    await browserStreamStore.reportBrowserStreamViewport(parameters)
+                    await store.updateMobileBrowserViewport(parameters)
+                },
+                navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
+                back: { await store.backMobileBrowser(panelID: $0) },
+                forward: { await store.forwardMobileBrowser(panelID: $0) },
+                reload: { await store.reloadMobileBrowser(panelID: $0) },
+                respondToDialog: { await store.respondToMobileBrowserDialog($0) }
+            ),
+            reconnect: { Task { await store.reconnectOrRefresh() } }
+        )
+        .id(browser.id)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The browser-stream surface is conditionally mounted (not opacity
+        // swapped like the terminal), so leaving it — via the surface picker
+        // or nav back — removes this view and stops the stream here, replacing
+        // the old in-bar close button.
+        .onDisappear {
+            browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+            Task { await store.stopMobileBrowserStream(panelID: browser.id) }
+        }
     }
     #endif
 }
