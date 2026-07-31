@@ -152,6 +152,55 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
     }
 
     @Test
+    func configuredFocusHistoryShortcutsPrecedeCollidingGhosttySplitFallbacks() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let secondWorkspace = manager.addTab(select: true)
+            let terminalPanelId = try #require(secondWorkspace.focusedPanelId)
+            let terminalPanel = try #require(secondWorkspace.terminalPanel(for: terminalPanelId))
+            let back = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
+            let forward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+            let originalGhosttyLeft = appDelegate.ghosttyGotoSplitLeftShortcut
+            let originalGhosttyRight = appDelegate.ghosttyGotoSplitRightShortcut
+            defer {
+                appDelegate.ghosttyGotoSplitLeftShortcut = originalGhosttyLeft
+                appDelegate.ghosttyGotoSplitRightShortcut = originalGhosttyRight
+            }
+            appDelegate.ghosttyGotoSplitLeftShortcut = back
+            appDelegate.ghosttyGotoSplitRightShortcut = forward
+
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            terminalPanel.hostedView.moveFocus()
+            testWindow.makeKeyAndOrderFront(nil)
+            testWindow.displayIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            #expect(
+                terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "Expected the terminal to own the colliding Ghostty shortcut"
+            )
+
+            #expect(Self.dispatch(back, in: testWindow, using: appDelegate))
+            #expect(
+                manager.selectedTabId == firstWorkspace.id,
+                "The live configured Focus Back action must win over an imported Ghostty fallback"
+            )
+
+            #expect(Self.dispatch(forward, in: testWindow, using: appDelegate))
+            #expect(
+                manager.selectedTabId == secondWorkspace.id,
+                "The live configured Focus Forward action must win over an imported Ghostty fallback"
+            )
+        }
+    }
+
+    @Test
     func focusHistoryRebindingMatchesCommandShiftOptionAndControlVariants() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
@@ -450,6 +499,31 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             isARepeat: false,
             keyCode: 19 // kVK_ANSI_2
         )
+    }
+
+    private static func dispatch(
+        _ shortcut: StoredShortcut,
+        in window: NSWindow,
+        using appDelegate: AppDelegate
+    ) -> Bool {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode(),
+              let event = NSEvent.keyEvent(
+                  with: .keyDown,
+                  location: .zero,
+                  modifierFlags: shortcut.modifierFlags,
+                  timestamp: ProcessInfo.processInfo.systemUptime,
+                  windowNumber: window.windowNumber,
+                  context: nil,
+                  characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+                  charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+                  isARepeat: false,
+                  keyCode: keyCode
+              ) else {
+            return false
+        }
+        return appDelegate.debugHandleCustomShortcut(event: event)
     }
 
     private func makeKeyEvent(
