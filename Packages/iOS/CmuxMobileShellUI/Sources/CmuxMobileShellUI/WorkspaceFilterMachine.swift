@@ -8,6 +8,10 @@ struct WorkspaceFilterMachine: Identifiable, Hashable {
     let instanceTag: String?
     let name: String
     let buildLabel: String?
+    /// Number of workspaces this row's selection would show, stamped by
+    /// `WorkspaceMachineSnapshots`; `nil` renders no count signifier (e.g.
+    /// filter-menu machines).
+    var workspaceCount: Int? = nil
 }
 
 extension WorkspaceFilterMachine {
@@ -15,7 +19,8 @@ extension WorkspaceFilterMachine {
         id: String,
         namesByID: [String: String],
         buildLabel: String?,
-        fallbackName: String
+        fallbackName: String,
+        workspaceCount: Int? = nil
     ) {
         let identity = MobilePairedMac.pairingIdentity(from: id)
         self.id = id
@@ -23,6 +28,7 @@ extension WorkspaceFilterMachine {
         self.instanceTag = identity.instanceTag
         self.name = namesByID[id] ?? namesByID[identity.macDeviceID] ?? fallbackName
         self.buildLabel = buildLabel
+        self.workspaceCount = workspaceCount
     }
 }
 

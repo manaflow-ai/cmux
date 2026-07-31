@@ -21,6 +21,7 @@ private struct WorkspaceRootToolbarRenderContext: Equatable {
     let title: String
     let visibleSelection: WorkspaceMacSelection
     let machines: [WorkspaceFilterMachine]
+    var allWorkspacesCount: Int? = nil
 
     static let fallback = WorkspaceRootToolbarRenderContext(
         title: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
@@ -71,6 +72,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
     let selection: WorkspaceMacSelection
     let select: (WorkspaceMacSelection) -> Void
     let machines: [WorkspaceFilterMachine]
+    var allWorkspacesCount: Int? = nil
     let showAddDevice: (() -> Void)?
 
     var body: some ToolbarContent {
@@ -88,6 +90,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     isLoading: isLoading,
                     selection: selection,
                     machines: machines,
+                    allWorkspacesCount: allWorkspacesCount,
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth)
                 ),
@@ -126,6 +129,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
             selection: pendingSelection ?? renderContext.visibleSelection,
             select: select,
             machines: renderContext.machines,
+            allWorkspacesCount: renderContext.allWorkspacesCount,
             showAddDevice: showAddDevice
         )
     }
@@ -698,7 +702,8 @@ struct WorkspaceShellView: View {
             macPickerMachineIDs: scope.machineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
-            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer"),
+            pickerCounts: scope.macPickerCounts(base: workspaceListFilterState.filter)
         )
         return WorkspaceShellRenderPresentation(
             selectionScope: scope,
@@ -732,7 +737,8 @@ struct WorkspaceShellView: View {
         return WorkspaceRootToolbarRenderContext(
             title: title,
             visibleSelection: visibleSelection,
-            machines: machineSnapshots.macPickerMachines
+            machines: machineSnapshots.macPickerMachines,
+            allWorkspacesCount: machineSnapshots.allWorkspaceCount
         )
     }
 
