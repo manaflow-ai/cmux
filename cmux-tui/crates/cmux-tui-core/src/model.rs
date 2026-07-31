@@ -542,6 +542,15 @@ mod tests {
         let Node::Split { a, b, .. } = second else { panic!("expected split") };
         assert!(matches!(*a, Node::Leaf(1)));
         assert!(matches!(*b, Node::Leaf(2)));
+
+        let mut stack = Node::stack_with_expanded(vec![1, 2], 2).expect("stack");
+        assert!(stack.split_leaf_ordered(1, 12, SplitDir::Right, 3, true));
+        let Node::Split { a, b, .. } = stack else { panic!("expected split") };
+        assert!(matches!(*a, Node::Leaf(3)));
+        assert!(matches!(
+            *b,
+            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1, 2]
+        ));
     }
 
     #[test]

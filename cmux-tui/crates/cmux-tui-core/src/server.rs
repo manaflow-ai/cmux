@@ -4989,6 +4989,9 @@ fn handle_command_with_cancellation(
                 if index.is_some() {
                     anyhow::bail!("new-browser-tab index requires pane");
                 }
+                if activate == Some(false) {
+                    anyhow::bail!("new-browser-tab activate:false requires pane");
+                }
                 let surface = mux.new_browser_tab(url, None, optional_surface_size(cols, rows))?;
                 Ok(json!({ "surface": surface.id }))
             }
@@ -5305,6 +5308,9 @@ fn handle_command_with_cancellation(
                 "pty" if url.is_none() => {
                     mux.new_pane_right_with_activation(pane, width, size, activate)?
                 }
+                "pty" => anyhow::bail!(
+                    "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+                ),
                 "browser" => mux.new_browser_pane_right_with_activation(
                     pane,
                     width,
@@ -5327,6 +5333,9 @@ fn handle_command_with_cancellation(
             let activate = activate.unwrap_or(true);
             let (surface, placement) = match kind.as_deref().unwrap_or("pty") {
                 "pty" if url.is_none() => mux.split_with_activation(pane, dir, size, activate)?,
+                "pty" => anyhow::bail!(
+                    "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+                ),
                 "browser" => mux.split_browser_with_activation(
                     pane,
                     dir,
@@ -7933,6 +7942,65 @@ mod tests {
             }),
             owner_focus
         );
+    }
+
+    #[test]
+    fn detached_browser_tab_requires_an_explicit_pane() {
+        let mux = test_mux();
+
+        let error = handle_command(
+            &mux,
+            0,
+            Command::NewBrowserTab {
+                url: "about:blank".into(),
+                pane: None,
+                index: None,
+                cols: None,
+                rows: None,
+                activate: Some(false),
+            },
+            &test_writer(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "new-browser-tab activate:false requires pane");
+        assert_eq!(mux.surface_count(), 0);
+    }
+
+    #[test]
+    fn pty_pane_commands_explain_that_urls_require_browser_kind() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+
+        let commands = [
+            Command::NewPaneRight {
+                pane,
+                width: None,
+                cols: None,
+                rows: None,
+                activate: None,
+                kind: Some("pty".into()),
+                url: Some("https://example.com".into()),
+            },
+            Command::Split {
+                pane,
+                dir: "down".into(),
+                cols: None,
+                rows: None,
+                activate: None,
+                kind: None,
+                url: Some("https://example.com".into()),
+            },
+        ];
+
+        for command in commands {
+            let error = handle_command(&mux, 0, command, &test_writer()).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "url is only valid with kind \"browser\"; remove url or use kind \"browser\""
+            );
+        }
     }
 
     #[test]

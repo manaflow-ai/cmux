@@ -2629,10 +2629,10 @@ the canonical tree atomically, return
 
 | Command | Required params | Effect |
 | --- | --- | --- |
-| `move-tab-to-split` | `surface`, target `pane`, `dir:"right"|"down"` | Moves one tab into a new pane split beside the target |
+| `move-tab-to-split` | `surface`, target `pane`, `dir:"right"` or `dir:"down"` | Moves one tab into a new pane split beside the target |
 | `move-tab-to-new-column` | `surface`, insertion `index`, `width` | Moves one tab into a new viewport column |
 | `merge-pane` | source `pane`, `target`, insertion `index` | Moves every source tab into the target and removes the source pane |
-| `move-pane-to-split` | source `pane`, `target`, `dir:"right"|"down"` | Relocates one pane beside the target without changing its tab identity |
+| `move-pane-to-split` | source `pane`, `target`, `dir:"right"` or `dir:"down"` | Relocates one pane beside the target without changing its tab identity |
 | `move-pane-to-new-column` | source `pane`, insertion `index`, `width` | Relocates one pane as an exact viewport column |
 
 `move-tab-to-split` and `move-pane-to-split` also accept

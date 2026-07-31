@@ -655,6 +655,13 @@ impl fmt::Display for ViewportWidthError {
 
 impl std::error::Error for ViewportWidthError {}
 
+fn validate_viewport_width(width: f32) -> Result<(), ViewportWidthError> {
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(ViewportWidthError::OutOfRange { width });
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SidebarPluginOptions {
     pub command: Vec<String>,
@@ -4922,11 +4929,19 @@ impl Mux {
                 surface.kill();
                 anyhow::bail!("workspace disappeared while creating terminal");
             };
-            let target = target_pane
-                .filter(|pane| state.screen_of(*pane).is_some_and(|(owner, _)| owner == wi))
-                .or_else(|| {
-                    state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane)
-                });
+            let target = match target_pane {
+                Some(pane) => {
+                    if state.screen_of(pane).is_none_or(|(owner, _)| owner != wi) {
+                        state.surfaces.remove(&surface.id);
+                        surface.kill();
+                        anyhow::bail!(
+                            "pane {pane} left workspace {workspace} while creating terminal"
+                        );
+                    }
+                    Some(pane)
+                }
+                None => state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane),
+            };
             if let Some(target) = target {
                 let Some((_, si)) = state.screen_of(target) else {
                     state.surfaces.remove(&surface.id);
@@ -5588,11 +5603,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         activate: bool,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        validate_viewport_width(width)?;
         self.split_with_viewport_width(target, SplitDir::Right, size, Some(width), None, activate)
     }
 
@@ -5604,11 +5615,7 @@ impl Mux {
         size: Option<(u16, u16)>,
         activate: bool,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        validate_viewport_width(width)?;
         self.split_with_viewport_width(
             target,
             SplitDir::Right,
@@ -7086,11 +7093,7 @@ impl Mux {
         width: f32,
         transaction: Option<(LayoutResizeOwner, u64)>,
     ) -> Result<(), ViewportWidthError> {
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width });
-        }
+        validate_viewport_width(width)?;
         let changed_screen = {
             let mut state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
@@ -8167,11 +8170,7 @@ impl Mux {
         width: f32,
         activate: bool,
     ) -> anyhow::Result<RunPlacement> {
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        validate_viewport_width(width)?;
         let pane_id = self.next_id();
         let column_id = self.next_id();
         let base_column_id = self.next_id();
@@ -8352,12 +8351,20 @@ impl Mux {
             let (workspace_index, screen_index) = target_path;
             {
                 let screen = &mut state.workspaces[workspace_index].screens[screen_index];
+                let target_is_present = if screen.layout_columns_active() {
+                    screen.layout_columns.iter().any(|column| column.root.contains(target))
+                } else {
+                    screen.root.contains(target)
+                };
+                if !target_is_present {
+                    anyhow::bail!("unknown pane {target}");
+                }
                 detach_pane_layout_for_relocation(screen, source)
                     .ok_or_else(|| anyhow::anyhow!("could not detach source pane"))?;
                 let inserted = if screen.layout_columns_active() {
                     let column = screen
                         .layout_column_for_pane_mut(target)
-                        .ok_or_else(|| anyhow::anyhow!("target pane disappeared"))?;
+                        .expect("validated target column remains after source detachment");
                     let inserted =
                         column.root.split_leaf_ordered(target, split_id, dir, source, insert_first);
                     if inserted {
@@ -8373,7 +8380,7 @@ impl Mux {
                     inserted
                 };
                 if !inserted {
-                    anyhow::bail!("target pane disappeared");
+                    unreachable!("validated target leaf must accept an ordered split");
                 }
                 finish_relocated_screen_layout(screen);
                 screen.zoomed_pane = None;
@@ -8404,11 +8411,7 @@ impl Mux {
         width: f32,
         activate: bool,
     ) -> anyhow::Result<RunPlacement> {
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        validate_viewport_width(width)?;
         let column_id = self.next_id();
         let base_column_id = self.next_id();
         let (placement, screen_id) = {
@@ -8436,6 +8439,7 @@ impl Mux {
                 };
                 column.root = Node::Leaf(source);
                 column.zellij_auto_layout = Some(vec![source]);
+                column.width = width;
                 let mut insert_at = requested;
                 if had_column && requested > source_column {
                     insert_at = insert_at.saturating_sub(1);
@@ -8911,10 +8915,10 @@ fn detach_pane_layout_for_relocation(
             let column = screen.layout_columns.remove(source_column);
             return Some(DetachedPaneLayout { source_column, column: Some(column) });
         }
+        let root = screen.layout_columns[source_column].root.clone().remove_leaf(pane)?;
         screen.invalidate_layout_undo();
         let column = &mut screen.layout_columns[source_column];
-        let root = std::mem::replace(&mut column.root, Node::Leaf(0));
-        column.root = root.remove_leaf(pane)?;
+        column.root = root;
         column.zellij_auto_layout = None;
         return Some(DetachedPaneLayout { source_column, column: None });
     }
@@ -8922,9 +8926,8 @@ fn detach_pane_layout_for_relocation(
     if screen.root.pane_ids_vec() == [pane] {
         return None;
     }
+    let root = screen.root.clone().remove_leaf(pane)?;
     screen.invalidate_layout_undo();
-    let root = std::mem::replace(&mut screen.root, Node::Leaf(0));
-    let root = root.remove_leaf(pane)?;
     screen.root = root;
     screen.zellij_auto_layout = None;
     Some(DetachedPaneLayout { source_column: 0, column: None })
@@ -12829,6 +12832,7 @@ mod tests {
             let screen = &state.workspaces[0].screens[screen_index];
             assert!(screen.layout_columns_active());
             assert_eq!(screen.layout_columns[0].root.pane_ids_vec(), vec![source_pane]);
+            assert_eq!(screen.layout_columns[0].width, 0.7);
             assert!(screen.layout_column_projection_is_consistent());
         });
 
