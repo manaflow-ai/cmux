@@ -408,7 +408,7 @@ struct BrowserScreenshotCropTests {
         var captureCount = 0
         let probes = textProbeSet()
         let service = BrowserScreenshotCaptureService(
-            synchronize: { _ in .timedOut },
+            synchronize: { _ in .unconfirmed },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1
@@ -435,7 +435,7 @@ struct BrowserScreenshotCropTests {
         var captureCount = 0
         let probes = textProbeSet()
         let service = BrowserScreenshotCaptureService(
-            synchronize: { _ in .timedOut },
+            synchronize: { _ in .unconfirmed },
             collectProbes: { probes },
             snapshot: {
                 captureCount += 1

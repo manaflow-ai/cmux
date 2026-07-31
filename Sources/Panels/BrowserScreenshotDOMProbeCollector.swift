@@ -23,7 +23,7 @@ final class BrowserScreenshotDOMProbeCollector {
     func synchronize(
         waitForAnimationFrame: Bool
     ) async throws -> BrowserScreenshotSynchronizationOutcome {
-        guard let webView else { return .timedOut }
+        guard let webView else { return .unconfirmed }
         forceAppKitLayout(for: webView)
 
         do {
@@ -34,9 +34,14 @@ final class BrowserScreenshotDOMProbeCollector {
             }
         } catch is CancellationError {
             throw CancellationError()
-        } catch BrowserScreenshotError.automationTimedOut {
+        } catch {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.screenshot.synchronize.unconfirmed error=\(error.localizedDescription)"
+            )
+#endif
             forceAppKitLayout(for: webView)
-            return .timedOut
+            return .unconfirmed
         }
 
         forceAppKitLayout(for: webView)

@@ -2,6 +2,6 @@
 enum BrowserScreenshotSynchronizationOutcome: Equatable, Sendable {
     /// WebKit acknowledged the requested layout or animation-frame barrier.
     case completed
-    /// The barrier deadline elapsed, so any later pixel disagreement is inconclusive.
-    case timedOut
+    /// The barrier was not confirmed, so any later pixel disagreement is inconclusive.
+    case unconfirmed
 }
