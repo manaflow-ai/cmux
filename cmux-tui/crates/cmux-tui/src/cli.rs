@@ -670,6 +670,21 @@ mod tests {
     }
 
     #[test]
+    fn startup_option_values_cannot_select_cli_mode() {
+        for args in [
+            &["--term", "server"][..],
+            &["--state", "server"][..],
+            &["--machine-provider-command", "server", "--"][..],
+            &["--machine-provider-command", "provider", "server", "--"][..],
+        ] {
+            assert!(
+                !is_cli_invocation(&strings(args)),
+                "startup invocation misclassified: {args:?}"
+            );
+        }
+    }
+
+    #[test]
     fn explicit_session_overrides_ambient_server_socket() {
         let global =
             GlobalArgs { session: Some("explicit-session".into()), ..GlobalArgs::default() };

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFY_SCRIPT = ROOT / "cmux-tui/dist/scripts/verify_artifact_identity.py"
 NPM_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js"
 PYPI_PACKAGER = ROOT / "cmux-tui/dist/scripts/package_pypi.py"
-EXPECTED_IDENTITY = "cmux-tui 1.2.3 (build123; ghostty ghost456)"
+EXPECTED_IDENTITY = "cmux 1.2.3 (build123; ghostty ghost456)"
 
 NPM_PACKAGE_BY_PLATFORM = {
     ("darwin", "arm64"): "cmux-tui-darwin-arm64",
