@@ -726,6 +726,60 @@ test("release gate builds and installs on its exact isolated simulator", () => {
   );
 });
 
+test("release gate shuts down retained same-tag simulators before creating its replacement", () => {
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+  const shutdown = gate.indexOf(
+    'shutdown_prior_gate_simulators "$SIMULATOR_NAME"',
+  );
+  const create = gate.indexOf(
+    'SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME"',
+  );
+
+  assert.notEqual(
+    shutdown,
+    -1,
+    "a retained same-tag simulator can keep replacing the deterministic device binding",
+  );
+  assert.notEqual(create, -1, "release-gate simulator creation is missing");
+  assert.ok(
+    shutdown < create,
+    "all prior same-tag simulators must stop before the replacement is created",
+  );
+  assert.match(
+    gate,
+    /device\.get\("name"\) == os\.environ\["SIMULATOR_NAME"\]/,
+  );
+  assert.match(gate, /xcrun simctl shutdown "\$prior_simulator_id"/);
+});
+
+test("release gate points Mac and iOS at one explicit presence backend", () => {
+  const gate = fs.readFileSync(
+    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
+    "utf8",
+  );
+
+  assert.match(gate, /--presence-base-url <url>/);
+  assert.match(
+    gate,
+    /--presence-base-url\) PRESENCE_BASE_URL="\$\{2:-\}"; shift 2 ;;/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,240}\.\/scripts\/reload\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,320}\.\/ios\/scripts\/reload\.sh/,
+  );
+  assert.match(
+    gate,
+    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,160}cmux_attach_ensure_mac/,
+  );
+});
+
 test("physical-device attach reports a missing tagged Mac before blaming Iroh", () => {
   const tag = `missing-mac-${process.pid}`;
   const result = run(
