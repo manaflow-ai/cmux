@@ -282,61 +282,6 @@ final class BrowserScreenshotDOMProbeCollector {
             return Object.values(color).every(Number.isFinite) ? color : null;
           };
 
-          // elementFromPoint intentionally ignores pointer-events:none layers,
-          // even though they still paint. Treat pages too large to audit, and
-          // text covered by any painted pointerless box, as inconclusive.
-          const maximumAuditedElements = 500;
-          const maximumPointerlessPaintedBoxes = 64;
-          const overlayElements = document.body.querySelectorAll("*");
-          if (overlayElements.length > maximumAuditedElements) {
-            return { viewportWidth, viewportHeight, probes: [] };
-          }
-          const pointerlessPaintedBoxes = [];
-          for (const element of overlayElements) {
-            const style = styleFor(element);
-            if (
-              style.pointerEvents !== "none"
-              || style.display === "none"
-              || style.visibility !== "visible"
-              || Number(style.opacity) < 0.001
-            ) {
-              continue;
-            }
-            const background = parseColor(style.backgroundColor);
-            const paintsBox = (
-              (background && background.alpha > 0.001)
-              || style.backgroundImage !== "none"
-              || style.boxShadow !== "none"
-              || style.filter !== "none"
-              || (style.backdropFilter && style.backdropFilter !== "none")
-            );
-            if (!paintsBox) continue;
-            const rect = element.getBoundingClientRect();
-            if (
-              rect.width <= 0
-              || rect.height <= 0
-              || rect.right <= 0
-              || rect.bottom <= 0
-              || rect.left >= viewportWidth
-              || rect.top >= viewportHeight
-            ) {
-              continue;
-            }
-            pointerlessPaintedBoxes.push({ element, rect });
-            if (pointerlessPaintedBoxes.length > maximumPointerlessPaintedBoxes) {
-              return { viewportWidth, viewportHeight, probes: [] };
-            }
-          }
-          const hasPointerlessPaintAt = (element, x, y) => (
-            pointerlessPaintedBoxes.some(({ element: overlay, rect }) => (
-              !overlay.contains(element)
-              && x >= rect.left
-              && x <= rect.right
-              && y >= rect.top
-              && y <= rect.bottom
-            ))
-          );
-
           const composite = (foreground, background) => {
             const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha);
             if (alpha <= 0) return null;
@@ -490,7 +435,6 @@ final class BrowserScreenshotDOMProbeCollector {
             const centerY = rect.top + rect.height / 2;
             const hit = document.elementFromPoint(centerX, centerY);
             if (!hit || (hit !== element && !element.contains(hit))) continue;
-            if (hasPointerlessPaintAt(element, centerX, centerY)) continue;
 
             const background = solidBackground(element);
             // WebKit's text-fill color is inherited and reflects the actual
@@ -512,6 +456,7 @@ final class BrowserScreenshotDOMProbeCollector {
               },
               foreground,
               background,
+              element,
               centerX,
               centerY
             });
@@ -528,11 +473,75 @@ final class BrowserScreenshotDOMProbeCollector {
             probes.push(candidate);
             if (probes.length === 12) break;
           }
+          if (probes.length === 0) {
+            return { viewportWidth, viewportHeight, probes: [] };
+          }
+
+          // elementFromPoint intentionally ignores pointer-events:none layers,
+          // even though they still paint. Audit geometry across a generously
+          // bounded DOM, but resolve styles only for boxes intersecting one of
+          // the at-most-12 selected probe points.
+          const maximumAuditedElements = 5000;
+          const maximumStyledIntersections = 128;
+          const overlayElements = document.body.querySelectorAll("*");
+          if (overlayElements.length > maximumAuditedElements) {
+            return { viewportWidth, viewportHeight, probes: [] };
+          }
+          const coveredProbes = new Set();
+          let styledIntersections = 0;
+          for (const element of overlayElements) {
+            const rect = element.getBoundingClientRect();
+            if (
+              rect.width <= 0
+              || rect.height <= 0
+              || rect.right <= 0
+              || rect.bottom <= 0
+              || rect.left >= viewportWidth
+              || rect.top >= viewportHeight
+            ) {
+              continue;
+            }
+            const intersectingProbes = probes.filter((probe) => (
+              !element.contains(probe.element)
+              && probe.centerX >= rect.left
+              && probe.centerX <= rect.right
+              && probe.centerY >= rect.top
+              && probe.centerY <= rect.bottom
+            ));
+            if (intersectingProbes.length === 0) continue;
+            styledIntersections += 1;
+            if (styledIntersections > maximumStyledIntersections) {
+              return { viewportWidth, viewportHeight, probes: [] };
+            }
+            const style = styleFor(element);
+            if (
+              style.pointerEvents !== "none"
+              || style.display === "none"
+              || style.visibility !== "visible"
+              || Number(style.opacity) < 0.001
+            ) {
+              continue;
+            }
+            const background = parseColor(style.backgroundColor);
+            const paintsBox = (
+              (background && background.alpha > 0.001)
+              || style.backgroundImage !== "none"
+              || style.boxShadow !== "none"
+              || style.filter !== "none"
+              || (style.backdropFilter && style.backdropFilter !== "none")
+            );
+            if (!paintsBox) continue;
+            for (const probe of intersectingProbes) {
+              coveredProbes.add(probe);
+            }
+          }
 
           return {
             viewportWidth,
             viewportHeight,
-            probes: probes.map(({ centerX, centerY, ...probe }) => probe)
+            probes: probes
+              .filter((probe) => !coveredProbes.has(probe))
+              .map(({ element, centerX, centerY, ...probe }) => probe)
           };
         })();
         """

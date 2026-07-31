@@ -387,6 +387,13 @@ struct BrowserScreenshotCropTests {
     @Test
     func verifierReportsEveryBlankProbe() {
         let original = textProbeSet()
+        let nearby = BrowserScreenshotFrameVerifier.Probe(
+            identifier: "nearby-balance",
+            text: "Available",
+            rect: NSRect(x: 12, y: 14, width: 10, height: 12),
+            foreground: .white,
+            background: .black
+        )
         let third = BrowserScreenshotFrameVerifier.Probe(
             identifier: "secondary-action",
             text: "Withdraw",
@@ -396,7 +403,7 @@ struct BrowserScreenshotCropTests {
         )
         let probes = BrowserScreenshotFrameVerifier.ProbeSet(
             viewportSize: original.viewportSize,
-            probes: original.probes + [third]
+            probes: original.probes + [nearby, third]
         )
         let outcome = BrowserScreenshotFrameVerifier().verify(
             before: probes,
@@ -404,7 +411,7 @@ struct BrowserScreenshotCropTests {
             pixels: SolidPixelSource(pixelSize: probes.viewportSize, color: .black)
         )
 
-        #expect(outcome == .mismatch(probe: probes.probes[0], count: 3))
+        #expect(outcome == .mismatch(probe: probes.probes[0], count: 4))
     }
 
     @Test
@@ -506,6 +513,44 @@ struct BrowserScreenshotCropTests {
 
         #expect(source.pixelSize.width > 0)
         #expect(source.pixelSize.height > 0)
+    }
+
+    @Test
+    func bitmapPixelSourceNormalizesPremultipliedBGRA() throws {
+        let pixels = Data([
+            0, 0, 255, 255,
+            0, 0, 255, 255,
+            0, 0, 255, 255,
+            0, 0, 255, 255,
+        ])
+        let provider = try #require(CGDataProvider(data: pixels as CFData))
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+        let cgImage = try #require(CGImage(
+            width: 2,
+            height: 2,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 8,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ))
+        let image = NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
+
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+        let color = try #require(source.color(at: NSPoint(x: 0.5, y: 0.5)))
+
+        #expect(color.red > 0.9)
+        #expect(color.green < 0.1)
+        #expect(color.blue < 0.1)
     }
 
     private func textProbeSet(

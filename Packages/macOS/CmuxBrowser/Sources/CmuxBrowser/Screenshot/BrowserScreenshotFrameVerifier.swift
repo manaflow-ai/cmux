@@ -201,13 +201,11 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
                   ) else {
                 continue
             }
-            let cell = evidenceCell(for: probe.rect, viewportSize: after.viewportSize)
-            guard mismatchCells.insert(cell).inserted else {
-                continue
-            }
             mismatches.append(probe)
+            let cell = evidenceCell(for: probe.rect, viewportSize: after.viewportSize)
+            mismatchCells.insert(cell)
         }
-        if mismatches.count >= minimumMismatchCount, let first = mismatches.first {
+        if mismatchCells.count >= minimumMismatchCount, let first = mismatches.first {
             return .mismatch(probe: first, count: mismatches.count)
         }
         return .accepted

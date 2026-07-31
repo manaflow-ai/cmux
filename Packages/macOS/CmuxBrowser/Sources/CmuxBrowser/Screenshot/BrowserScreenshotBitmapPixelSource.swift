@@ -26,14 +26,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         if let candidate = candidates.first, Self.supportsDirectAccess(candidate) {
             selectedBitmap = candidate
         } else {
-            var proposedRect = NSRect(origin: .zero, size: image.size)
-            let normalizedBitmap = image.cgImage(
-                forProposedRect: &proposedRect,
-                context: nil,
-                hints: nil
-            ).map(NSBitmapImageRep.init(cgImage:))
-            if let normalizedBitmap,
-               Self.supportsDirectAccess(normalizedBitmap) {
+            if let normalizedBitmap = Self.normalizedBitmap(from: image) {
                 selectedBitmap = normalizedBitmap
             } else if let candidate = candidates.first(where: Self.supportsDirectAccess) {
                 selectedBitmap = candidate
@@ -52,6 +45,63 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
         )
         self.bytesPerPixel = samplesPerPixel
         self.bitmapData = bitmapData
+    }
+
+    /// Redraws any AppKit/CG image layout into a known packed RGBA bitmap.
+    private static func normalizedBitmap(from image: NSImage) -> NSBitmapImageRep? {
+        var proposedRect = NSRect(origin: .zero, size: image.size)
+        let cgImage = image.cgImage(
+            forProposedRect: &proposedRect,
+            context: nil,
+            hints: nil
+        )
+        let largestRepresentation = image.representations.max {
+            Double($0.pixelsWide) * Double($0.pixelsHigh)
+                < Double($1.pixelsWide) * Double($1.pixelsHigh)
+        }
+        let width = cgImage?.width ?? largestRepresentation?.pixelsWide ?? 0
+        let height = cgImage?.height ?? largestRepresentation?.pixelsHigh ?? 0
+        guard width > 0,
+              height > 0,
+              let bitmap = NSBitmapImageRep(
+                  bitmapDataPlanes: nil,
+                  pixelsWide: width,
+                  pixelsHigh: height,
+                  bitsPerSample: 8,
+                  samplesPerPixel: 4,
+                  hasAlpha: true,
+                  isPlanar: false,
+                  colorSpaceName: .deviceRGB,
+                  bytesPerRow: 0,
+                  bitsPerPixel: 0
+              ),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
+        let outputSize = NSSize(width: width, height: height)
+        let sourceSize = image.size.width > 0 && image.size.height > 0
+            ? image.size
+            : outputSize
+        bitmap.size = outputSize
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: outputSize).fill()
+        image.draw(
+            in: NSRect(origin: .zero, size: outputSize),
+            from: NSRect(origin: .zero, size: sourceSize),
+            operation: .copy,
+            fraction: 1,
+            respectFlipped: false,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        guard supportsDirectAccess(bitmap) else {
+            return nil
+        }
+        return bitmap
     }
 
     /// Returns whether a bitmap supports direct packed RGB(A) byte access.
