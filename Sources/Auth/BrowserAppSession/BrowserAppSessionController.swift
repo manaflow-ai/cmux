@@ -77,7 +77,9 @@ final class BrowserAppSessionController {
            admittedOwner != expectedOwner {
             beginAuthTransition()
         }
-        await awaitPendingCleanup()
+        guard await awaitPendingCleanup() else {
+            return .transientFailure
+        }
         guard !Task.isCancelled,
               currentAuthOwner == expectedOwner else {
             return .cancelled
@@ -143,7 +145,7 @@ final class BrowserAppSessionController {
            admittedOwner != expectedOwner {
             beginAuthTransition()
         }
-        await awaitPendingCleanup()
+        guard await awaitPendingCleanup() else { return }
         guard currentAuthOwner == expectedOwner else {
             return
         }
@@ -154,7 +156,7 @@ final class BrowserAppSessionController {
     /// app-session cookies. No unrelated browser profile is swept.
     func clearCmuxWebSession() async {
         beginAuthTransition()
-        await awaitPendingCleanup()
+        _ = await awaitPendingCleanup()
     }
 
     private var currentAuthOwner: BrowserAppSessionAuthOwner? {
@@ -178,12 +180,18 @@ final class BrowserAppSessionController {
         pendingCleanup = (id: id, task: task)
     }
 
-    private func awaitPendingCleanup() async {
-        guard let cleanup = pendingCleanup else { return }
+    private func awaitPendingCleanup() async -> Bool {
+        if admission.owner == nil,
+           pendingCleanup == nil,
+           storeRegistry.hasOwnership {
+            startCleanupIfNeeded()
+        }
+        guard let cleanup = pendingCleanup else { return true }
         await cleanup.task.value
         if pendingCleanup?.id == cleanup.id {
             pendingCleanup = nil
         }
+        return !storeRegistry.hasOwnership
     }
 
     private func performCleanup() async {
@@ -202,10 +210,16 @@ final class BrowserAppSessionController {
         }
 
         let targets = storeRegistry.allEnvironmentStoresForCleanup()
+        var cleanupCompleted = true
         for target in targets {
-            _ = await clearCmuxWebSession(in: target.store)
+            let outcome = await clearCmuxWebSession(in: target.store)
+            if outcome != .completed {
+                cleanupCompleted = false
+            }
         }
-        storeRegistry.removeAllOwnership()
+        if cleanupCompleted {
+            storeRegistry.removeAllOwnership()
+        }
     }
 
     private func performHandoff(

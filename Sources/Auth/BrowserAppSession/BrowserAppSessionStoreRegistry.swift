@@ -93,7 +93,12 @@ final class BrowserAppSessionStoreRegistry {
 
     private func pruneReleasedOwnership() {
         liveStores = liveStores.filter { $0.value.value != nil }
-        livePanels = livePanels.filter { $0.value.value != nil }
+        livePanels = livePanels.filter { _, reference in
+            guard let panel = reference.value else { return false }
+            return liveStores[
+                ObjectIdentifier(panel.websiteDataStore)
+            ]?.value != nil
+        }
     }
 
     private static func legacyDefaultsKeys(
