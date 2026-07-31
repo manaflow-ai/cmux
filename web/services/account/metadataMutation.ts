@@ -14,7 +14,7 @@ export type AccountMetadataUserLoader<User extends AccountMetadataUser> = {
 
 export class AccountMetadataUserUnavailableError extends Error {
   constructor(readonly userId: string) {
-    super("Stack user disappeared during account metadata mutation");
+    super("Account user disappeared during metadata mutation");
     this.name = "AccountMetadataUserUnavailableError";
   }
 }
