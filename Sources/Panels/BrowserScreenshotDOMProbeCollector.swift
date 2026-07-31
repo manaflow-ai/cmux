@@ -279,6 +279,56 @@ final class BrowserScreenshotDOMProbeCollector {
             return Object.values(color).every(Number.isFinite) ? color : null;
           };
 
+          // elementFromPoint intentionally ignores pointer-events:none layers,
+          // even though they still paint. Treat pages too large to audit, and
+          // text covered by any painted pointerless box, as inconclusive.
+          const overlayElements = document.body.querySelectorAll("*");
+          if (overlayElements.length > 2000) {
+            return { viewportWidth, viewportHeight, probes: [] };
+          }
+          const pointerlessPaintedBoxes = [];
+          for (const element of overlayElements) {
+            const style = styleFor(element);
+            if (
+              style.pointerEvents !== "none"
+              || style.display === "none"
+              || style.visibility !== "visible"
+              || Number(style.opacity) < 0.001
+            ) {
+              continue;
+            }
+            const background = parseColor(style.backgroundColor);
+            const paintsBox = (
+              (background && background.alpha > 0.001)
+              || style.backgroundImage !== "none"
+              || style.boxShadow !== "none"
+              || style.filter !== "none"
+              || (style.backdropFilter && style.backdropFilter !== "none")
+            );
+            if (!paintsBox) continue;
+            const rect = element.getBoundingClientRect();
+            if (
+              rect.width <= 0
+              || rect.height <= 0
+              || rect.right <= 0
+              || rect.bottom <= 0
+              || rect.left >= viewportWidth
+              || rect.top >= viewportHeight
+            ) {
+              continue;
+            }
+            pointerlessPaintedBoxes.push({ element, rect });
+          }
+          const hasPointerlessPaintAt = (element, x, y) => (
+            pointerlessPaintedBoxes.some(({ element: overlay, rect }) => (
+              !overlay.contains(element)
+              && x >= rect.left
+              && x <= rect.right
+              && y >= rect.top
+              && y <= rect.bottom
+            ))
+          );
+
           const composite = (foreground, background) => {
             const alpha = foreground.alpha + background.alpha * (1 - foreground.alpha);
             if (alpha <= 0) return null;
@@ -430,6 +480,7 @@ final class BrowserScreenshotDOMProbeCollector {
             const centerY = rect.top + rect.height / 2;
             const hit = document.elementFromPoint(centerX, centerY);
             if (!hit || (hit !== element && !element.contains(hit))) continue;
+            if (hasPointerlessPaintAt(element, centerX, centerY)) continue;
 
             const background = solidBackground(element);
             const rawForeground = parseColor(style.color);

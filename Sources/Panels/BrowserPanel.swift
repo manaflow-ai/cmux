@@ -7419,11 +7419,16 @@ extension BrowserPanel {
                 expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
                 timeout: timeout,
                 operation: { operationFinish in
-                    operationTask = operation(
+                    let task = operation(
                         captureWebView,
                         .offscreen,
                         operationFinish
                     )
+                    guard !didFinish else {
+                        task.cancel()
+                        return
+                    }
+                    operationTask = task
                 },
                 completion: finish
             )
@@ -7441,7 +7446,12 @@ extension BrowserPanel {
             switch result {
             case .success:
                 guard !didFinish else { return }
-                operationTask = operation(captureWebView, .onscreen, finish)
+                let task = operation(captureWebView, .onscreen, finish)
+                guard !didFinish else {
+                    task.cancel()
+                    return
+                }
+                operationTask = task
             case .failure(let error):
                 finish(.failure(error))
             }

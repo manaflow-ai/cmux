@@ -4,6 +4,8 @@ import AppKit
 struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelSource {
     let pixelSize: NSSize
     private let bitmap: NSBitmapImageRep
+    private let bytesPerPixel: Int
+    private let bitmapData: UnsafeMutablePointer<UInt8>
 
     init?(image: NSImage) {
         let candidate = image.representations
@@ -27,7 +29,28 @@ struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelS
         guard bitmap.pixelsWide > 0, bitmap.pixelsHigh > 0 else {
             return nil
         }
+        let samplesPerPixel = bitmap.samplesPerPixel
+        let unsupportedFormat: NSBitmapImageRep.Format = [
+            .alphaFirst,
+            .floatingPointSamples,
+            .sixteenBitLittleEndian,
+            .thirtyTwoBitLittleEndian,
+            .sixteenBitBigEndian,
+            .thirtyTwoBitBigEndian,
+        ]
+        guard bitmap.bitsPerSample == 8,
+              !bitmap.isPlanar,
+              bitmap.colorSpace.colorSpaceModel == .rgb,
+              samplesPerPixel == 3 || (samplesPerPixel == 4 && bitmap.hasAlpha),
+              bitmap.bitsPerPixel == samplesPerPixel * 8,
+              bitmap.bytesPerRow >= bitmap.pixelsWide * samplesPerPixel,
+              bitmap.bitmapFormat.intersection(unsupportedFormat).isEmpty,
+              let bitmapData = bitmap.bitmapData else {
+            return nil
+        }
         self.pixelSize = NSSize(width: bitmap.pixelsWide, height: bitmap.pixelsHigh)
+        self.bytesPerPixel = samplesPerPixel
+        self.bitmapData = bitmapData
     }
 
     func color(at point: NSPoint) -> BrowserScreenshotFrameVerifier.RGBA? {
@@ -36,15 +59,18 @@ struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier.PixelS
         guard x >= 0,
               x < bitmap.pixelsWide,
               y >= 0,
-              y < bitmap.pixelsHigh,
-              let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+              y < bitmap.pixelsHigh else {
             return nil
         }
+        let offset = y * bitmap.bytesPerRow + x * bytesPerPixel
+        let alpha = bytesPerPixel == 4
+            ? CGFloat(bitmapData[offset + 3]) / 255.0
+            : 1.0
         return BrowserScreenshotFrameVerifier.RGBA(
-            red: color.redComponent,
-            green: color.greenComponent,
-            blue: color.blueComponent,
-            alpha: color.alphaComponent
+            red: CGFloat(bitmapData[offset]) / 255.0,
+            green: CGFloat(bitmapData[offset + 1]) / 255.0,
+            blue: CGFloat(bitmapData[offset + 2]) / 255.0,
+            alpha: alpha
         )
     }
 }
