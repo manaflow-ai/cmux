@@ -227,6 +227,26 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionSignOutRevokesTheLivePanelStoreBeforeAsyncCleanup() {
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            websiteDataStore: websiteDataStore
+        )
+        defer { panel.close() }
+
+        panel.resetForAppSessionSignOut()
+
+        #expect(panel.websiteDataStore !== websiteDataStore)
+        #expect(!panel.websiteDataStore.isPersistent)
+        #expect(
+            panel.webView.configuration.websiteDataStore ===
+                panel.websiteDataStore
+        )
+    }
+
+    @Test
     func browserAppSessionCallbackWaitTimesOutWhenWebKitDropsCompletion() async {
         let outcome = await awaitBrowserAppSessionCallback(
             timeout: .milliseconds(20)
@@ -353,6 +373,68 @@ struct BrowserWebContentProcessTests {
         #expect(opened)
         #expect(placements == ["preferred", "split", "source"])
         #expect(!openedSystemBrowser)
+    }
+
+    @Test
+    func appLinkRecoveryStopsPlacementWhenBrowserAvailabilityIsRevoked() {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(
+            forKey: BrowserAvailabilitySettings.disabledKey
+        )
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(
+                    previousBrowserDisabled,
+                    forKey: BrowserAvailabilitySettings.disabledKey
+                )
+            } else {
+                defaults.removeObject(
+                    forKey: BrowserAvailabilitySettings.disabledKey
+                )
+            }
+            NotificationCenter.default.post(
+                name: BrowserAvailabilitySettings.didChangeNotification,
+                object: nil
+            )
+        }
+        let destinationURL = URL(
+            string: "https://cmux.test/dashboard/testflight"
+        )!
+        var placements: [String] = []
+        var systemBrowserOpenCount = 0
+
+        let opened = BrowserAppLinkPlacementPolicy(
+            openInSystemBrowser: { _ in
+                systemBrowserOpenCount += 1
+                return true
+            }
+        ).recover(
+            destinationURL,
+            openInPreferredPane: { _, _ in
+                placements.append("preferred")
+                BrowserAvailabilitySettings.setDisabled(true)
+                return false
+            },
+            openHorizontalSplit: { _, _ in
+                placements.append("split")
+                if !BrowserAvailabilitySettings.isEnabled() {
+                    systemBrowserOpenCount += 1
+                }
+                return false
+            },
+            openInSourcePane: { _, _ in
+                placements.append("source")
+                if !BrowserAvailabilitySettings.isEnabled() {
+                    systemBrowserOpenCount += 1
+                }
+                return false
+            }
+        )
+
+        #expect(opened)
+        #expect(placements == ["preferred"])
+        #expect(systemBrowserOpenCount == 1)
     }
 
     @Test
