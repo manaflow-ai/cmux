@@ -520,14 +520,19 @@ describe("notifications push route", () => {
       throw new Error("simulated worker loss");
     };
 
-    await expect(
-      pushRoute.sendPushWithTransport(
-        request(),
-        sendApnsNotificationReliably as Parameters<
-          typeof pushRoute.sendPushWithTransport
-        >[1],
-      ),
-    ).rejects.toThrow();
+    const interrupted = await pushRoute.sendPushWithTransport(
+      request(),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+    expect(interrupted.status).toBe(500);
+    expect(interrupted.headers.get("x-cmux-push-correlation-id"))
+      .toBe(correlationId);
+    expect(await interrupted.json()).toEqual({
+      error: "push_internal_error",
+      correlationId,
+    });
     await sql`
       update notification_send_events
       set
