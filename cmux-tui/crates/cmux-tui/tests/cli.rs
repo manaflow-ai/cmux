@@ -260,6 +260,71 @@ fn explicit_socket_keeps_state_in_platform_root() {
 }
 
 #[test]
+fn newer_workspace_schema_failure_reports_paths_and_recovery_commands() {
+    let dir = unique_temp_dir("newer-workspace-schema-recovery");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("future session.sock");
+    let state = dir.join("state");
+    let session = "schema-recovery";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = fs::read_dir(&state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .find(|path| path.is_file())
+        .expect("workspace registry database");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let supported: i64 = connection
+        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap()
+        .parse()
+        .unwrap();
+    let newer = supported + 1;
+    connection
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [newer.to_string()])
+        .unwrap();
+    drop(connection);
+
+    let launch = |locale: &str| {
+        Command::new(bin())
+            .args(["--headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("--state")
+            .arg(&state)
+            .env("LC_ALL", locale)
+            .env("LC_MESSAGES", locale)
+            .env("LANG", locale)
+            .output()
+            .unwrap()
+    };
+
+    let english = launch("C");
+    assert!(!english.status.success());
+    let english = String::from_utf8(english.stderr).unwrap();
+    assert!(english.contains(&format!("session \"{session}\"")), "{english}");
+    assert!(english.contains(&format!("workspace schema {newer}")), "{english}");
+    assert!(english.contains(&format!("supports through {supported}")), "{english}");
+    assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
+    assert!(english.contains(&format!("state database: {}", database.display())), "{english}");
+    assert!(english.contains("session current shutdown --force"), "{english}");
+    assert!(english.contains("stopping the server does not downgrade"), "{english}");
+    assert!(english.contains(&format!("--session '{session}-schema{supported}'")), "{english}");
+
+    let japanese = launch("ja_JP.UTF-8");
+    assert!(!japanese.status.success());
+    let japanese = String::from_utf8(japanese.stderr).unwrap();
+    assert!(japanese.contains("セッションソケット:"), "{japanese}");
+    assert!(japanese.contains("状態データベース:"), "{japanese}");
+    assert!(japanese.contains("session current shutdown --force"), "{japanese}");
+    assert!(japanese.contains("停止しても保存状態のスキーマは変更されません"), "{japanese}");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     let dir = unique_temp_dir("durable-restart");
     fs::create_dir_all(&dir).unwrap();

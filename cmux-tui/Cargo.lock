@@ -227,6 +227,7 @@ dependencies = [
  "libc",
  "parking_lot",
  "ratatui",
+ "rusqlite",
  "serde",
  "serde_json",
  "smallvec",
