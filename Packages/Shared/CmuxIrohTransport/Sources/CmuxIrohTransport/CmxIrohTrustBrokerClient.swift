@@ -218,11 +218,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     public func discover() async throws -> CmxIrohDiscoveryResponse {
-        try await sendWithoutBody(
-            path: "api/devices/iroh",
-            method: "GET",
-            operation: .discovery
-        )
+        try await withBackpressure(operation: .discovery) {
+            try await self.discoverAllPages()
+        }
     }
 
     public func issuePairGrant(
@@ -356,6 +354,66 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
+    private func discoverAllPages() async throws -> CmxIrohDiscoveryResponse {
+        var bindings: [CmxIrohBrokerBinding] = []
+        var bindingIDs: Set<String> = []
+        var seenCursors: Set<String> = []
+        var cursor: String?
+        var first: CmxIrohDiscoveryResponse?
+
+        repeat {
+            var queryItems = [
+                URLQueryItem(
+                    name: "page_size",
+                    value: String(CmxIrohDiscoveryPage.bindingLimit)
+                ),
+            ]
+            if let cursor {
+                queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+            }
+            let page: CmxIrohDiscoveryPage = try await performRequest(
+                path: "api/devices/iroh",
+                method: "GET",
+                body: nil,
+                queryItems: queryItems
+            )
+            if let first {
+                guard page.discovery.routeContractVersion == first.routeContractVersion,
+                      page.discovery.relayFleet == first.relayFleet,
+                      page.discovery.lanRendezvous == first.lanRendezvous,
+                      page.discovery.grantVerificationKeys
+                        == first.grantVerificationKeys else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+            } else {
+                first = page.discovery
+            }
+            for binding in page.discovery.bindings {
+                guard bindingIDs.insert(binding.bindingID).inserted else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                bindings.append(binding)
+            }
+            if let nextCursor = page.nextCursor {
+                guard seenCursors.insert(nextCursor).inserted else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+            }
+            cursor = page.nextCursor
+        } while cursor != nil
+
+        guard let first else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return CmxIrohDiscoveryResponse(
+            routeContractVersion: first.routeContractVersion,
+            bindings: bindings,
+            relayFleet: first.relayFleet,
+            lanRendezvous: first.lanRendezvous,
+            grantVerificationKeys: first.grantVerificationKeys
+        )
+    }
+
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(
         path: String,
         method: String,
@@ -383,7 +441,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private func performRequest<Response: Decodable & Sendable>(
         path: String,
         method: String,
-        body: Data?
+        body: Data?,
+        queryItems: [URLQueryItem] = []
     ) async throws -> Response {
         // Build the request from ONE credential snapshot. Reading access then
         // refresh through two independent calls lets a force refresh land
@@ -397,7 +456,17 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
-        let url = baseURL.appendingPathComponent(path)
+        let pathURL = baseURL.appendingPathComponent(path)
+        guard var components = URLComponents(
+            url: pathURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = requestTimeout
