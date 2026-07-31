@@ -86,7 +86,7 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Provision GhosttyKit (macOS)
-        if: ${{ inputs.platform == 'macos' }}
+        if: ${{ inputs.platform == 'macos' || inputs.platform == 'ios-shellui-test' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Mark deps-ready
