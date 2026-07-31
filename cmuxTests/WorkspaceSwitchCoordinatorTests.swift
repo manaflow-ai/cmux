@@ -46,6 +46,59 @@ struct WorkspaceSwitchCoordinatorTests {
     }
 
     @Test
+    func sourceRetirementDoesNotWaitForTerminalFocusTransfer() {
+        let readiness = WorkspaceSwitchCoordinator.Readiness(
+            contentKind: .terminal,
+            requiresInteraction: true,
+            nativeSurfaceLoaded: true,
+            portalPresented: true,
+            firstFramePresented: true,
+            interactionReady: false
+        )
+
+        #expect(readiness.isReadyForSourceRetirement)
+    }
+
+    @Test
+    func frameObservedBeforePortalPresentationIsPreserved() {
+        let sourceWorkspaceID = UUID()
+        let targetWorkspaceID = UUID()
+        let targetSurfaceID = UUID()
+        let coordinator = WorkspaceSwitchCoordinator()
+        coordinator.selectionWillCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID,
+            targetSurfaceID: targetSurfaceID
+        )
+        coordinator.selectionDidCommit(
+            from: sourceWorkspaceID,
+            to: targetWorkspaceID
+        )
+        coordinator.beginPresentation(
+            WorkspaceSwitchCoordinator.PresentationTarget(
+                workspaceID: targetWorkspaceID,
+                contentKind: .terminal,
+                terminalSurfaceID: targetSurfaceID,
+                terminalView: nil,
+                browserWebView: nil,
+                nativeSurfaceLoaded: true,
+                rendererPresented: true,
+                portalPresented: false,
+                firstFramePresented: false,
+                interactionReady: true,
+                requiresInteraction: true
+            )
+        )
+
+        coordinator.noteFirstFrame(surfaceID: targetSurfaceID)
+        #expect(!coordinator.isReadyForSourceRetirement)
+
+        coordinator.noteTerminalPortalPresented(surfaceID: targetSurfaceID)
+        #expect(coordinator.isReadyForSourceRetirement)
+        coordinator.cancel()
+    }
+
+    @Test
     func backgroundTerminalDoesNotRequireFirstResponder() {
         var readiness = WorkspaceSwitchCoordinator.Readiness(
             contentKind: .terminal,
