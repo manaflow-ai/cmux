@@ -2,166 +2,114 @@
 import SwiftUI
 import UIKit
 
-/// UIKit host for the composer's bottom control row: a horizontal
-/// `UIScrollView` of pills whose leading/trailing button clusters float above
-/// the scrolling content. On iOS 26 each cluster carries a
-/// `UIScrollEdgeElementContainerInteraction`, so the system renders its real
-/// scroll edge effect (progressive blur + fade) beneath the buttons as pills
-/// pass under them — SwiftUI's `scrollEdgeEffectStyle` cannot attach that
-/// effect to arbitrary floating elements. Pre-26 the clusters get an opaque
-/// background instead.
-struct TaskComposerPillBar<Leading: View, Pills: View, Trailing: View>: UIViewRepresentable {
-    let leading: Leading
-    let pills: Pills
-    let trailing: Trailing
+/// Wires iOS 26's `UIScrollEdgeElementContainerInteraction` onto the composer
+/// bar without rehosting any SwiftUI content in UIKit.
+///
+/// The pills stay a plain SwiftUI `ScrollView` (scrolling, menus, and layout
+/// keep their proven behavior); a zero-size probe inside the scroll content
+/// walks its superviews to find the backing `UIScrollView`, and transparent
+/// backgrounds behind the floating button clusters provide the container
+/// views the interaction needs. The system then renders its real scroll edge
+/// effect (progressive blur + fade) beneath the clusters as pills pass under.
+///
+/// Fail-soft contract: if the probe never finds a `UIScrollView` (hosting
+/// internals changed) or the OS predates the API, nothing attaches and the
+/// bar simply underlaps — never a functional regression.
+@MainActor
+final class TaskComposerScrollEdgeCoordinator {
+    private weak var scrollView: UIScrollView?
+    private var pendingContainers: [(container: WeakBox, edge: UIRectEdge)] = []
 
-    init(
-        @ViewBuilder leading: () -> Leading,
-        @ViewBuilder pills: () -> Pills,
-        @ViewBuilder trailing: () -> Trailing
-    ) {
-        self.leading = leading()
-        self.pills = pills()
-        self.trailing = trailing()
+    private struct WeakBox {
+        weak var view: UIView?
     }
 
-    func makeUIView(context: Context) -> TaskComposerPillBarView {
-        TaskComposerPillBarView(
-            leading: AnyView(leading),
-            pills: AnyView(pills),
-            trailing: AnyView(trailing)
-        )
+    func adopt(scrollView: UIScrollView) {
+        guard self.scrollView !== scrollView else { return }
+        self.scrollView = scrollView
+        for entry in pendingContainers {
+            guard let view = entry.container.view else { continue }
+            attach(container: view, edge: entry.edge, to: scrollView)
+        }
     }
 
-    func updateUIView(_ view: TaskComposerPillBarView, context: Context) {
-        view.update(
-            leading: AnyView(leading),
-            pills: AnyView(pills),
-            trailing: AnyView(trailing)
-        )
+    func register(container: UIView, edge: UIRectEdge) {
+        pendingContainers.removeAll { $0.container.view == nil || $0.container.view === container }
+        pendingContainers.append((WeakBox(view: container), edge))
+        if let scrollView {
+            attach(container: container, edge: edge, to: scrollView)
+        }
     }
 
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        uiView: TaskComposerPillBarView,
-        context: Context
-    ) -> CGSize {
-        CGSize(width: proposal.width ?? UIView.noIntrinsicMetric, height: 44)
+    private func attach(container: UIView, edge: UIRectEdge, to scrollView: UIScrollView) {
+        guard #available(iOS 26.0, *) else { return }
+        let alreadyAttached = container.interactions.contains {
+            ($0 as? UIScrollEdgeElementContainerInteraction)?.scrollView === scrollView
+        }
+        guard !alreadyAttached else { return }
+        let interaction = UIScrollEdgeElementContainerInteraction()
+        interaction.scrollView = scrollView
+        interaction.edge = edge
+        container.addInteraction(interaction)
     }
 }
 
-/// The concrete bar: full-width scroll view underneath, button clusters on top.
-final class TaskComposerPillBarView: UIView {
-    private let scrollView = UIScrollView()
-    private let pillsHost: UIHostingController<AnyView>
-    private let leadingHost: UIHostingController<AnyView>
-    private let trailingHost: UIHostingController<AnyView>
-    /// Gap between a button cluster and the resting pill content.
-    private let clusterGap: CGFloat = 10
+/// Zero-size, touch-transparent view placed inside the scroll content; on
+/// entering a window it walks its superviews to hand the backing
+/// `UIScrollView` to the coordinator.
+struct TaskComposerScrollViewProbe: UIViewRepresentable {
+    let coordinator: TaskComposerScrollEdgeCoordinator
 
-    init(leading: AnyView, pills: AnyView, trailing: AnyView) {
-        pillsHost = Self.host(pills)
-        leadingHost = Self.host(leading)
-        trailingHost = Self.host(trailing)
-        super.init(frame: .zero)
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.coordinator = coordinator
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
 
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceVertical = false
-        scrollView.contentInsetAdjustmentBehavior = .never
-        scrollView.clipsToBounds = false
+    func updateUIView(_ view: ProbeView, context: Context) {
+        view.coordinator = coordinator
+        view.reportEnclosingScrollView()
+    }
 
-        addSubview(scrollView)
-        scrollView.addSubview(pillsHost.view)
-        addSubview(leadingHost.view)
-        addSubview(trailingHost.view)
+    final class ProbeView: UIView {
+        var coordinator: TaskComposerScrollEdgeCoordinator?
 
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        pillsHost.view.translatesAutoresizingMaskIntoConstraints = false
-        leadingHost.view.translatesAutoresizingMaskIntoConstraints = false
-        trailingHost.view.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            pillsHost.view.leadingAnchor.constraint(
-                equalTo: scrollView.contentLayoutGuide.leadingAnchor
-            ),
-            pillsHost.view.trailingAnchor.constraint(
-                equalTo: scrollView.contentLayoutGuide.trailingAnchor
-            ),
-            pillsHost.view.topAnchor.constraint(
-                equalTo: scrollView.contentLayoutGuide.topAnchor
-            ),
-            pillsHost.view.bottomAnchor.constraint(
-                equalTo: scrollView.contentLayoutGuide.bottomAnchor
-            ),
-            pillsHost.view.heightAnchor.constraint(
-                equalTo: scrollView.frameLayoutGuide.heightAnchor
-            ),
-
-            leadingHost.view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            leadingHost.view.centerYAnchor.constraint(equalTo: centerYAnchor),
-            trailingHost.view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            trailingHost.view.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        if #available(iOS 26.0, *) {
-            let leadingInteraction = UIScrollEdgeElementContainerInteraction()
-            leadingInteraction.scrollView = scrollView
-            leadingInteraction.edge = .left
-            leadingHost.view.addInteraction(leadingInteraction)
-
-            let trailingInteraction = UIScrollEdgeElementContainerInteraction()
-            trailingInteraction.scrollView = scrollView
-            trailingInteraction.edge = .right
-            trailingHost.view.addInteraction(trailingInteraction)
-        } else {
-            leadingHost.view.backgroundColor = .systemBackground
-            trailingHost.view.backgroundColor = .systemBackground
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            reportEnclosingScrollView()
         }
-    }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("unsupported") }
-
-    func update(leading: AnyView, pills: AnyView, trailing: AnyView) {
-        leadingHost.rootView = leading
-        pillsHost.rootView = pills
-        trailingHost.rootView = trailing
-        setNeedsLayout()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Rest the pills between the clusters while letting them scroll
-        // beneath both; cluster widths change (the attachment button is
-        // capability-gated), so track them each pass.
-        let leadingWidth = leadingHost.view.bounds.width
-        let trailingWidth = trailingHost.view.bounds.width
-        let insets = UIEdgeInsets(
-            top: 0,
-            left: leadingWidth + clusterGap,
-            bottom: 0,
-            right: trailingWidth + clusterGap
-        )
-        if scrollView.contentInset != insets {
-            let wasAtRest = scrollView.contentOffset.x <= -scrollView.contentInset.left
-            scrollView.contentInset = insets
-            if wasAtRest {
-                scrollView.contentOffset = CGPoint(x: -insets.left, y: 0)
+        func reportEnclosingScrollView() {
+            var candidate = superview
+            while let view = candidate {
+                if let scrollView = view as? UIScrollView {
+                    coordinator?.adopt(scrollView: scrollView)
+                    return
+                }
+                candidate = view.superview
             }
         }
     }
+}
 
-    private static func host(_ view: AnyView) -> UIHostingController<AnyView> {
-        let controller = UIHostingController(rootView: view)
-        controller.view.backgroundColor = .clear
-        controller.sizingOptions = .intrinsicContentSize
-        return controller
+/// Touch-transparent view placed behind a floating button cluster; it is the
+/// container the scroll edge effect renders beneath.
+struct TaskComposerScrollEdgeContainer: UIViewRepresentable {
+    let coordinator: TaskComposerScrollEdgeCoordinator
+    let edge: UIRectEdge
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        coordinator.register(container: view, edge: edge)
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        coordinator.register(container: view, edge: edge)
     }
 }
 #endif

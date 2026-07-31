@@ -42,6 +42,7 @@ struct TaskComposerMinimalLayout: View {
 
     @FocusState private var isPromptFocused: Bool
     @State private var isOptionsPresented = false
+    @State private var scrollEdgeCoordinator = TaskComposerScrollEdgeCoordinator()
 
     var body: some View {
         promptCanvas
@@ -133,40 +134,68 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            TaskComposerPillBar {
-                HStack(spacing: 10) {
-                    if showsAttachmentButton {
-                        TaskComposerAttachmentPickerMenu(
-                            style: .circularPlus,
-                            isDisabled: isDisabled,
-                            choosePhotos: chooseAttachmentPhotos,
-                            chooseFiles: chooseAttachmentFiles
-                        )
-                    }
+            pillScroller
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        if showsAttachmentButton {
+                            TaskComposerAttachmentPickerMenu(
+                                style: .circularPlus,
+                                isDisabled: isDisabled,
+                                choosePhotos: chooseAttachmentPhotos,
+                                chooseFiles: chooseAttachmentFiles
+                            )
+                        }
 
-                    optionsButton
-                }
-                .padding(.leading, 16)
-            } pills: {
-                HStack(spacing: 8) {
-                    agentPill
-
-                    if !models.isEmpty, showsStandaloneModelPill {
-                        modelPill
+                        optionsButton
                     }
+                    .padding(.leading, 16)
+                    .background(scrollEdgeContainer(edge: .left))
                 }
-            } trailing: {
-                submitButton
-                    .padding(.trailing, 16)
-            }
-            .frame(height: 44)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+                .safeAreaInset(edge: .trailing, spacing: 0) {
+                    submitButton
+                        .padding(.trailing, 16)
+                        .background(scrollEdgeContainer(edge: .right))
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 6)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(Color(uiColor: .systemBackground))
+    }
+
+    /// The pill scroller spans the whole bar; the button clusters sit in its
+    /// leading/trailing safe-area insets, so pills scroll under them. The
+    /// probe hands the backing UIScrollView to the coordinator, which binds
+    /// iOS 26's scroll edge effect to the cluster containers.
+    private var pillScroller: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                agentPill
+
+                if !models.isEmpty, showsStandaloneModelPill {
+                    modelPill
+                }
+            }
+            .background(TaskComposerScrollViewProbe(coordinator: scrollEdgeCoordinator))
+        }
+        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, 10, for: .scrollContent)
+    }
+
+    /// Transparent interaction container behind a button cluster; opaque
+    /// fallback occlusion where the system effect is unavailable.
+    @ViewBuilder
+    private func scrollEdgeContainer(edge: UIRectEdge) -> some View {
+        if #available(iOS 26.0, *) {
+            TaskComposerScrollEdgeContainer(
+                coordinator: scrollEdgeCoordinator,
+                edge: edge
+            )
+        } else {
+            Color(uiColor: .systemBackground)
+        }
     }
 
     private var optionsButton: some View {
