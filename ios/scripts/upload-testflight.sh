@@ -226,7 +226,7 @@ verify_ipa_contains_app_symbols() {
   local ipa="$1"
   # No `grep -q` here: under `set -o pipefail`, -q's early exit can kill
   # zipinfo with SIGPIPE and fail a VALID IPA. Plain grep drains its input.
-  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/.*\.symbols$' >/dev/null
+  zipinfo -1 "$ipa" 2>/dev/null | grep '^Symbols/[^/]*\.symbols$' >/dev/null
 }
 
 verify_app_store_ipa_has_no_external_purchase_links() {
