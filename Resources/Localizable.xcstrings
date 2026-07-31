@@ -132336,6 +132336,23 @@
         }
       }
     },
+    "mobile.chat.error.attachmentPreparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The attachment could not be prepared. Check it and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルを準備できませんでした。内容を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.chat.error.interruptNotAccepted": {
       "extractionState": "manual",
       "localizations": {

@@ -39,6 +39,9 @@ public protocol TerminalImagePasteWriting: AnyObject, Sendable {
     /// an owned temporary file and returns its shell-escaped path.
     func saveImageData(_ data: Data, fileExtension: String) -> String?
 
+    /// Writes raw image bytes to an owned temporary file and returns its URL.
+    func saveImageDataFileURL(_ data: Data, fileExtension: String) -> URL?
+
     /// Whether the file was materialized by this service and is still owned.
     func isOwnedTemporaryImageFile(_ fileURL: URL) -> Bool
 

@@ -5773,16 +5773,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
-        // Shells do not own an agent composer, so keep their typing path free
-        // of ownership bookkeeping. Any key forwarded to an active agent can
-        // mutate its composer; only Return has useful structure, and its later
-        // structured hook must still confirm that it actually submitted.
-        if let terminalSurface,
-           terminalSurface.hasPromptInputAgentScope {
-            terminalSurface.recordHumanPromptInput(
-                humanPromptInputMutation(for: event)
-            )
-        }
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
@@ -5856,7 +5846,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                if let terminalSurface,
+                   terminalSurface.hasPromptInputAgentScope {
+                    terminalSurface.recordHumanPromptInput(.unknown)
+                }
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -5965,6 +5961,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
         // entry left by an earlier suppressed repeat for the same physical key.
         imeConsumedKeyUps.remove(event.keyCode)
+
+        // Shells do not own an agent composer, so keep their typing path free
+        // of ownership bookkeeping. Record only after app and IME handling
+        // commit this key to Ghostty's forwarding path.
+        if let terminalSurface,
+           terminalSurface.hasPromptInputAgentScope {
+            terminalSurface.recordHumanPromptInput(
+                humanPromptInputMutation(for: event)
+            )
+        }
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()

@@ -145,7 +145,7 @@ extension Workspace {
                     return nil
                 }
                 guard let identity = agentPIDProcessIdentitiesByKey[key] else {
-                    return context
+                    return nil
                 }
                 return [
                     context,

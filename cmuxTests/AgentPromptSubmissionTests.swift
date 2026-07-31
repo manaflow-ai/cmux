@@ -69,7 +69,9 @@ struct AgentPromptSubmissionTests {
 
         #expect(result == .queued)
         #expect(panel.textBoxContent == "human draft")
-        #expect(panel.surface.debugPendingSocketInputForTesting().items == 1)
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 1)
+        #expect(pending.promptSubmissionItems == 1)
     }
 
     @MainActor
@@ -123,7 +125,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
+        #expect(pending.promptSubmissionItems == 1)
         #expect(pending.pasteTextItems == 0)
         #expect(pending.keyEvents == 0)
         #expect(completion?.didSubmit == true)
@@ -150,7 +152,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
+        #expect(pending.promptSubmissionItems == 1)
         #expect(completion?.didSubmit == true)
     }
 
@@ -172,7 +174,7 @@ struct AgentPromptSubmissionTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
-        #expect(panel.surface.pendingPromptSubmissionCountForTests == 1)
+        #expect(pending.promptSubmissionItems == 1)
         #expect(completion?.didSubmit == true)
     }
 
@@ -223,6 +225,75 @@ struct AgentPromptSubmissionTests {
 
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
         #expect(panel.surface.currentPromptInputAgentScope == nil)
+    }
+
+    @MainActor
+    @Test func missingProcessIdentityCannotCarryComposerStateAcrossAgents() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer { panel.surface.releaseSurfaceForTesting() }
+        let agentKey = "codex.identity-unavailable"
+
+        workspace.recordAgentPID(
+            key: agentKey,
+            pid: pid_t.max - 1,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        panel.surface.recordHumanPromptInput(.unknown)
+
+        workspace.recordAgentPID(
+            key: agentKey,
+            pid: pid_t.max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+        #expect(panel.surface.currentPromptInputAgentScope == nil)
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @Test func rejectedMobileAttachmentBatchCleansEarlierFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pasteboard = TerminalPasteboardService(
+            temporaryDirectory: directory
+        )
+        let oversizedPayload = String(
+            repeating: "A",
+            count:
+                TerminalPasteboardService.maximumBase64ImageByteCount + 1
+        )
+
+        let result = await TerminalController.prepareMobileChatAttachments(
+            [
+                MobileChatAttachmentPayload(
+                    encodedData: Data([0x01]).base64EncodedString(),
+                    fileExtension: "png"
+                ),
+                MobileChatAttachmentPayload(
+                    encodedData: oversizedPayload,
+                    fileExtension: "png"
+                )
+            ],
+            pasteboard: pasteboard
+        )
+
+        #expect(result == nil)
+        let materializedFiles = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(materializedFiles.isEmpty)
     }
 
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {

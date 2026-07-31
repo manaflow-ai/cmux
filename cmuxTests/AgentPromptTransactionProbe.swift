@@ -121,17 +121,6 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     }
 }
 
-@MainActor
-extension TerminalSurface {
-    var pendingPromptSubmissionCountForTests: Int {
-        pendingSocketInputQueue.reduce(into: 0) { count, item in
-            if case .promptSubmission = item {
-                count += 1
-            }
-        }
-    }
-}
-
 nonisolated private extension NSCondition {
     func withLock<Result>(_ body: () -> Result) -> Result {
         lock()

@@ -27,6 +27,14 @@ extension TerminalController {
         )
     }
 
+    /// Product-facing failure for invalid or unwritable mobile attachments.
+    static var chatAttachmentPreparationErrorMessage: String {
+        String(
+            localized: "mobile.chat.error.attachmentPreparationFailed",
+            defaultValue: "The attachment could not be prepared. Check it and try again."
+        )
+    }
+
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
     func v2MobileChatDispatch(
@@ -286,44 +294,86 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
-        // Materialize every attachment before the first terminal write. Once
-        // preparation succeeds, paths and text enter the same compound
-        // paste-and-submit transaction, so a failed attachment cannot leave a
-        // partial programmatic draft for a retry to append to.
-        var promptComponents: [String] = []
+        var attachmentPayloads: [MobileChatAttachmentPayload] = []
+        attachmentPayloads.reserveCapacity(attachments.count)
+        for attachment in attachments {
+            guard let encodedData = attachment["data_b64"] as? String,
+                  !encodedData.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: Self.chatAttachmentPreparationErrorMessage,
+                    data: nil
+                )
+            }
+            attachmentPayloads.append(
+                MobileChatAttachmentPayload(
+                    encodedData: encodedData,
+                    fileExtension:
+                        (attachment["format"] as? String) ?? "png"
+                )
+            )
+        }
+
+        // Materialize every attachment before the first terminal write. The
+        // Sendable payloads cross to a concurrent worker; only the completed
+        // paths return to the main-actor submission owner.
+        guard let attachmentFileURLs =
+                await Self.prepareMobileChatAttachments(
+                    attachmentPayloads,
+                    pasteboard: GhosttyApp.terminalPasteboard
+                ) else {
+            return .err(
+                code: "invalid_params",
+                message: Self.chatAttachmentPreparationErrorMessage,
+                data: nil
+            )
+        }
+
+        var promptComponents = attachmentFileURLs.map {
+            $0.path.terminalShellEscaped
+        }
         promptComponents.reserveCapacity(
             attachments.count + (text.isEmpty ? 0 : 1)
         )
-        for attachment in attachments {
-            guard let base64 = attachment["data_b64"] as? String,
-                  let imageData = Data(base64Encoded: base64),
-                  !imageData.isEmpty else {
-                return .err(
-                    code: "invalid_params",
-                    message: "Attachment missing data_b64",
-                    data: nil
-                )
-            }
-            let format = (attachment["format"] as? String) ?? "png"
-            guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(
-                imageData,
-                fileExtension: format
-            ) else {
-                return .err(
-                    code: "invalid_params",
-                    message:
-                        "Image payload was empty or exceeded the size limit",
-                    data: nil
-                )
-            }
-            promptComponents.append(escapedPath)
-        }
         if !text.isEmpty {
             promptComponents.append(text)
         }
         var pasteParams = terminalParams
         pasteParams["text"] = promptComponents.joined(separator: " ")
-        return v2MobileTerminalPaste(params: pasteParams)
+        let result = v2MobileTerminalPaste(params: pasteParams)
+        if case .err = result {
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+        }
+        return result
+    }
+
+    /// Decodes and writes mobile attachments away from the main actor.
+    @concurrent
+    static func prepareMobileChatAttachments(
+        _ attachments: [MobileChatAttachmentPayload],
+        pasteboard: TerminalPasteboardService
+    ) async -> [URL]? {
+        var fileURLs: [URL] = []
+        fileURLs.reserveCapacity(attachments.count)
+
+        for attachment in attachments {
+            guard attachment.encodedData.utf8.count
+                    <= TerminalPasteboardService
+                        .maximumBase64ImageByteCount,
+                  let imageData = Data(
+                      base64Encoded: attachment.encodedData
+                  ),
+                  let fileURL = pasteboard.saveImageDataFileURL(
+                      imageData,
+                      fileExtension: attachment.fileExtension
+                  ) else {
+                pasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                return nil
+            }
+            fileURLs.append(fileURL)
+        }
+        return fileURLs
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
