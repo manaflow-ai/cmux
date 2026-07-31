@@ -14,6 +14,64 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceRecoveryReviewRegressionTests {
     @Test
+    func generatedProWorkspaceKeepsGeneratedIdentity() throws {
+        _ = NSApplication.shared
+        let browserDefaults = UserDefaults.standard
+        let previousBrowserDisabled = browserDefaults.object(
+            forKey: BrowserAvailabilitySettings.disabledKey
+        )
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer {
+            if let previousBrowserDisabled {
+                browserDefaults.set(
+                    previousBrowserDisabled,
+                    forKey: BrowserAvailabilitySettings.disabledKey
+                )
+            } else {
+                browserDefaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                NotificationCenter.default.post(
+                    name: BrowserAvailabilitySettings.didChangeNotification,
+                    object: nil
+                )
+            }
+        }
+
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/pro-workspace-customization",
+            autoWelcomeIfNeeded: false
+        )
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+        let pricingURL = try #require(URL(string: "https://cmux.com/app-pricing?cmux_app=1"))
+
+        let proWorkspace = try #require(appDelegate.performProUpgradeWorkspaceAction(
+            title: "cmux Pro",
+            url: pricingURL,
+            tabManager: manager
+        ))
+
+        #expect(proWorkspace.title == "cmux Pro")
+        #expect(proWorkspace.customColor == nil)
+    }
+
+    @Test
     func sessionRestoreKeepsDistinctCustomizationForWorkspacesSharingADirectory() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
@@ -170,6 +228,17 @@ struct WorkspaceRecoveryReviewRegressionTests {
         #expect(snapshots.map(\.customTitle) == ["First Workspace", "Second Workspace"])
         #expect(snapshots.map(\.customColor) == ["#112233", "#445566"])
         return snapshots
+    }
+
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
     }
 
     private func workspaceRecord(

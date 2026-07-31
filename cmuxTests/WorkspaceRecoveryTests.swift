@@ -423,4 +423,51 @@ struct WorkspaceRecoveryTests {
         #expect(restoredManager.selectedWorkspace?.customColor == "#123456")
     }
 
+    @Test
+    func batchColorChangesApplyToEveryTargetWorkspace() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/batch-first",
+            autoWelcomeIfNeeded: false
+        )
+        let first = try #require(manager.selectedWorkspace)
+        let second = manager.addWorkspace(
+            workingDirectory: "/tmp/batch-second",
+            select: false
+        )
+        let untouched = manager.addWorkspace(
+            workingDirectory: "/tmp/batch-third",
+            select: false
+        )
+
+        manager.applyWorkspaceColor(
+            "#123456",
+            toWorkspaceIds: [first.id, second.id]
+        )
+
+        #expect(first.customColor == "#123456")
+        #expect(second.customColor == "#123456")
+        #expect(untouched.customColor == nil)
+    }
+
+    @Test
+    func explicitCreationTitleBecomesCustomTitleWithoutInheritedColor() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let explicitlyNamed = manager.addWorkspace(
+            title: "CLI Label",
+            workingDirectory: "/tmp/explicit-project",
+            inheritWorkingDirectory: false,
+            select: false
+        )
+        #expect(explicitlyNamed.customTitle == "CLI Label")
+        #expect(explicitlyNamed.effectiveCustomTitleSource == .user)
+        #expect(explicitlyNamed.customColor == nil)
+
+        let laterManager = TabManager(autoWelcomeIfNeeded: false)
+        laterManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [explicitlyNamed.sessionSnapshot(includeScrollback: false)]
+        ))
+        #expect(laterManager.selectedWorkspace?.customTitle == "CLI Label")
+    }
+
 }
