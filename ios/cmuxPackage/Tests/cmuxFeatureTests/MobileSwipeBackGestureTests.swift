@@ -80,8 +80,10 @@ struct MobileSwipeBackGestureTests {
     @Test("pop gesture takes precedence over surface pan recognizers")
     func popGestureTakesPrecedenceOverSurfacePans() throws {
         let hosted = try #require(makeHostedNavigation())
+        let surfaceContainer = UIView()
         let surfaceScrollView = UIScrollView()
-        hosted.host.view.addSubview(surfaceScrollView)
+        hosted.nav.view.addSubview(surfaceContainer)
+        surfaceContainer.addSubview(surfaceScrollView)
         let surfacePan = surfaceScrollView.panGestureRecognizer
         let unrelatedScrollView = UIScrollView()
         let unrelatedPan = unrelatedScrollView.panGestureRecognizer
