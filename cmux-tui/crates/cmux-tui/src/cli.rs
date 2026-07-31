@@ -78,7 +78,9 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
             "-h" | "--help" | "help" => return true,
             "server" => return true,
             value if PUBLIC_SCOPES.contains(&value) => return true,
-            value if value.starts_with('-') => index += 1,
+            // Any other option belongs to startup parsing (or is invalid).
+            // Do not inspect its values because they may match a CLI scope.
+            value if value.starts_with('-') => return false,
             _ => return false,
         }
     }

@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     expected = (
-        f"cmux-tui {args.version} "
+        f"cmux {args.version} "
         f"({args.build_commit}; ghostty {args.ghostty_commit})"
     )
     try:
