@@ -403,4 +403,65 @@ import Testing
             #expect(client.willForwardReplacement(defaults: defaults))
         }
     }
+
+    // MARK: - Server acknowledgement
+
+    @Test func successfulHTTPStatusWithNoRegisteredDevicesIsNotDeliverySuccess() throws {
+        let body = try JSONEncoder().encode(
+            PhonePushServerSummary(
+                sent: 0,
+                devices: 0,
+                pruned: 0,
+                transientFailures: 0,
+                permanentFailures: 0
+            )
+        )
+
+        #expect(PhonePushHTTPResult.decode(statusCode: 200, data: body) == .noRegisteredDevices)
+    }
+
+    @Test func successfulHTTPStatusWithAllTransientAPNsFailuresRequestsRetry() throws {
+        let body = try JSONEncoder().encode(
+            PhonePushServerSummary(
+                sent: 0,
+                devices: 2,
+                pruned: 0,
+                transientFailures: 2,
+                permanentFailures: 0
+            )
+        )
+
+        #expect(PhonePushHTTPResult.decode(statusCode: 200, data: body) == .retryableFailure)
+    }
+
+    @Test func partialAPNsDeliveryIsReportedTruthfullyWithoutRetryingPermanentFailures() throws {
+        let body = try JSONEncoder().encode(
+            PhonePushServerSummary(
+                sent: 1,
+                devices: 2,
+                pruned: 1,
+                transientFailures: 0,
+                permanentFailures: 1
+            )
+        )
+
+        #expect(PhonePushHTTPResult.decode(statusCode: 200, data: body) == .partial(
+            sent: 1,
+            devices: 2,
+            pruned: 1
+        ))
+    }
+
+    @Test func rateLimitAndServiceOutageRetryButAuthenticationDoesNot() {
+        #expect(PhonePushHTTPResult.decode(statusCode: 429, data: Data()).shouldRetry)
+        #expect(PhonePushHTTPResult.decode(statusCode: 503, data: Data()).shouldRetry)
+        #expect(!PhonePushHTTPResult.decode(statusCode: 401, data: Data()).shouldRetry)
+    }
+
+    @Test func malformedHTTP200BodyCannotMasqueradeAsDeliverySuccess() {
+        #expect(PhonePushHTTPResult.decode(
+            statusCode: 200,
+            data: Data("not-json".utf8)
+        ) == .invalidResponse)
+    }
 }

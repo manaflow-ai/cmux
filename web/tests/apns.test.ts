@@ -147,17 +147,33 @@ describe("apns host + pruning", () => {
 
 describe("apns response", () => {
   test("uses a stable summary shape when there are no devices", () => {
-    expect(summarizeApnsSendResults([])).toEqual({ sent: 0, devices: 0, pruned: 0 });
+    expect(summarizeApnsSendResults([])).toEqual({
+      sent: 0,
+      devices: 0,
+      pruned: 0,
+      transientFailures: 0,
+      permanentFailures: 0,
+    });
   });
 
-  test("summarizes sends without exposing provider reasons", () => {
+  test("classifies partial, transient, and permanent APNs outcomes without exposing provider reasons", () => {
     const summary = summarizeApnsSendResults([
       { deviceToken: "a".repeat(64), status: 200, prune: false },
       { deviceToken: "b".repeat(64), status: 400, reason: "BadDeviceToken", prune: true },
+      { deviceToken: "c".repeat(64), status: 503, reason: "ServiceUnavailable", prune: false },
+      { deviceToken: "d".repeat(64), status: 403, reason: "InvalidProviderToken", prune: false },
     ]);
 
-    expect(summary).toEqual({ sent: 1, devices: 2, pruned: 1 });
+    expect(summary).toEqual({
+      sent: 1,
+      devices: 4,
+      pruned: 1,
+      transientFailures: 1,
+      permanentFailures: 2,
+    });
     expect(JSON.stringify(summary)).not.toContain("BadDeviceToken");
+    expect(JSON.stringify(summary)).not.toContain("ServiceUnavailable");
+    expect(JSON.stringify(summary)).not.toContain("InvalidProviderToken");
     expect(JSON.stringify(summary)).not.toContain("apns");
   });
 });

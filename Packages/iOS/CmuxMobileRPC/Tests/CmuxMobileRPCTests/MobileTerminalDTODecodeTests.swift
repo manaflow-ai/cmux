@@ -49,6 +49,39 @@ import Testing
         #expect(response.terminalThemeRevisionEpoch == "boot-one")
     }
 
+    @Test func hostStatusDecodesAuthenticatedPhonePushReadiness() throws {
+        let response = try MobileHostStatusResponse.decode(Data(
+            """
+            {
+              "mac_device_id": "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+              "phone_push": {
+                "forwarding_enabled": true,
+                "mode": "onlyWhenAway",
+                "api_origin": "https://cmux-staging.vercel.app",
+                "account_scope": "verified_same_account"
+              }
+            }
+            """.utf8
+        ))
+
+        #expect(response.phonePush == MobileHostPhonePushStatus(
+            forwardingEnabled: true,
+            mode: .onlyWhenAway,
+            apiOrigin: "https://cmux-staging.vercel.app",
+            accountScope: .verifiedSameAccount
+        ))
+    }
+
+    @Test func hostStatusTreatsMissingOrUnknownPhonePushStateAsUnavailable() throws {
+        let missing = try MobileHostStatusResponse.decode(Data("{}".utf8))
+        let unknown = try MobileHostStatusResponse.decode(Data(
+            #"{"phone_push":{"forwarding_enabled":true,"mode":"future","api_origin":"x","account_scope":"future"}}"#.utf8
+        ))
+
+        #expect(missing.phonePush == nil)
+        #expect(unknown.phonePush == nil)
+    }
+
     @Test func hostStatusCanonicalizesOnlyUUIDDeviceIDs() throws {
         let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
         let uuidResponse = try MobileHostStatusResponse.decode(Data(

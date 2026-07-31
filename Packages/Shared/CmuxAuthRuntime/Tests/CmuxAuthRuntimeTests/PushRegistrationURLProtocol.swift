@@ -1,0 +1,83 @@
+import Foundation
+
+/// Scripted transport for push-registration lifecycle tests.
+///
+/// `URLProtocol` is configured by type, so one actor-backed script is shared by
+/// this serialized suite. The actor owns both the response queue and request
+/// capture, keeping test mutation out of process-global unsafe variables.
+final class PushRegistrationURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Stub: Sendable {
+        let statusCode: Int?
+        let headers: [String: String]
+        let body: Data
+        let error: URLError?
+
+        static func response(
+            _ statusCode: Int,
+            headers: [String: String] = [:],
+            json: String = "{}"
+        ) -> Stub {
+            Stub(
+                statusCode: statusCode,
+                headers: headers,
+                body: Data(json.utf8),
+                error: nil
+            )
+        }
+
+        static func failure(_ code: URLError.Code) -> Stub {
+            Stub(
+                statusCode: nil,
+                headers: [:],
+                body: Data(),
+                error: URLError(code)
+            )
+        }
+    }
+
+    static let script = PushRegistrationURLScript()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Task {
+            let stub = await Self.script.take(request)
+            if let error = stub.error {
+                client?.urlProtocol(self, didFailWithError: error)
+                return
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: stub.statusCode ?? 500,
+                httpVersion: "HTTP/1.1",
+                headerFields: stub.headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            if !stub.body.isEmpty {
+                client?.urlProtocol(self, didLoad: stub.body)
+            }
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+actor PushRegistrationURLScript {
+    private var stubs: [PushRegistrationURLProtocol.Stub] = []
+    private(set) var requests: [URLRequest] = []
+
+    func reset(_ nextStubs: [PushRegistrationURLProtocol.Stub]) {
+        stubs = nextStubs
+        requests = []
+    }
+
+    func take(_ request: URLRequest) -> PushRegistrationURLProtocol.Stub {
+        requests.append(request)
+        guard !stubs.isEmpty else {
+            return .response(500, json: #"{"error":"unscripted_request"}"#)
+        }
+        return stubs.removeFirst()
+    }
+}

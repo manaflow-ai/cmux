@@ -83,6 +83,27 @@ struct FakeTokenProvider: TokenProviding {
         return (service, defaults)
     }
 
+    private func makeScriptedService(
+        tokenProvider: any TokenProviding = FakeTokenProvider(),
+        retryDelays: [Duration] = []
+    ) -> (PushRegistrationService, UserDefaults) {
+        let suite = "push-scripted-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PushRegistrationURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: tokenProvider,
+            apiBaseURL: "https://example.test",
+            bundleID: "dev.cmux.ios.push1",
+            apnsEnvironment: "sandbox",
+            suiteName: suite,
+            session: URLSession(configuration: configuration),
+            retryDelays: retryDelays,
+            retryJitter: { _ in 1 }
+        )
+        return (service, defaults)
+    }
+
     @Test func disabledByDefault() async {
         let (service, _) = makeService()
         #expect(await service.isEnabled == false)
@@ -162,5 +183,148 @@ struct FakeTokenProvider: TokenProviding {
             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
         }
         #expect(hijacked == false)
+    }
+
+    @Test func enabledWithoutAPNsTokenReportsAwaitingTokenInsteadOfReady() async {
+        let (service, _) = makeScriptedService()
+
+        await service.setEnabled(true)
+
+        #expect(await service.snapshot == PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: false,
+            backendState: .awaitingDeviceToken
+        ))
+    }
+
+    @Test func successfulUploadIsTheOnlyPathToBackendReady() async {
+        await PushRegistrationURLProtocol.script.reset([.response(200)])
+        let (service, _) = makeScriptedService()
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(await service.snapshot.backendState == .registered)
+    }
+
+    @Test func authenticationFailureRemainsVisibleAndDoesNotRetry() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(401, json: #"{"error":"unauthorized"}"#),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.zero])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(await service.snapshot.backendState == .failed(.authenticationRequired))
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 1)
+    }
+
+    @Test func recoverableServiceFailureRetriesToReady() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(503, json: #"{"error":"push_service_not_configured"}"#),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.zero])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        for _ in 0..<100 where await service.snapshot.backendState != .registered {
+            await Task.yield()
+        }
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+    }
+
+    @Test func rateLimitHonorsRetryAfterBeforeRecovering() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(
+                429,
+                headers: ["Retry-After": "0"],
+                json: #"{"error":"rate_limited","retryAfterSeconds":0}"#
+            ),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.seconds(30)])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        for _ in 0..<100 where await service.snapshot.backendState != .registered {
+            await Task.yield()
+        }
+        #expect(await service.snapshot.backendState == .registered)
+        #expect(await PushRegistrationURLProtocol.script.requests.count == 2)
+    }
+
+    @Test func networkFailureIsVisibleWhileRetryIsPending() async {
+        await PushRegistrationURLProtocol.script.reset([.failure(.notConnectedToInternet)])
+        let (service, _) = makeScriptedService(retryDelays: [.seconds(60)])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(await service.snapshot.backendState == .failed(.networkUnavailable))
+        #expect(await service.snapshot.backendState.isRecoverable)
+    }
+
+    @Test func disablingCancelsPendingRetryAndClearsReadiness() async {
+        await PushRegistrationURLProtocol.script.reset([
+            .response(503),
+            .response(200),
+        ])
+        let (service, _) = makeScriptedService(retryDelays: [.seconds(60)])
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+        await service.setEnabled(false)
+
+        #expect(await service.snapshot == .disabled)
+    }
+
+    @Test func sameOrigin301PreservesRegistrationMethodBodyAndCredentials() async throws {
+        await PushRedirectURLProtocol.state.reset(.sameOrigin301)
+        let suite = "push-redirect-\(UUID().uuidString)"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PushRedirectURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(PushRedirectURLProtocol.startHost)",
+            bundleID: "dev.cmux.ios.push1",
+            apnsEnvironment: "sandbox",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        let target = try #require(await PushRedirectURLProtocol.state.targetRequests.first)
+        #expect(target.httpMethod == "POST")
+        #expect(target.httpBody != nil || target.httpBodyStream != nil)
+        #expect(target.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(target.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+    }
+
+    @Test func crossOrigin308FailsClosedBeforeSendingTokenOrCustomCredentials() async {
+        await PushRedirectURLProtocol.state.reset(.crossOrigin308)
+        let suite = "push-cross-origin-\(UUID().uuidString)"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PushRedirectURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(PushRedirectURLProtocol.startHost)",
+            bundleID: "dev.cmux.ios.push1",
+            apnsEnvironment: "sandbox",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data(repeating: 0xAB, count: 32))
+        await service.setEnabled(true)
+
+        #expect(await PushRedirectURLProtocol.state.targetRequests.isEmpty)
     }
 }

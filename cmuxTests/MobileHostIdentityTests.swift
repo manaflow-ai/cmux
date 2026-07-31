@@ -72,6 +72,35 @@ struct MobileHostIdentityTests {
         #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
+    @Test func authenticatedStatusReportsLivePhoneForwardingGateAndOrigin() throws {
+        let suiteName = "mobile-host-push-status-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PhonePushSettings.forwardEnabledKey)
+        defaults.set(
+            PhoneForwardingMode.onlyWhenAway.rawValue,
+            forKey: PhonePushSettings.forwardModeKey
+        )
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults,
+            phonePushAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!
+        )
+        let phonePush = try #require(payload["phone_push"] as? [String: Any])
+
+        #expect(phonePush["forwarding_enabled"] as? Bool == true)
+        #expect(phonePush["mode"] as? String == "onlyWhenAway")
+        #expect(phonePush["api_origin"] as? String == "https://cmux-staging.vercel.app")
+        #expect(phonePush["account_scope"] as? String == "verified_same_account")
+    }
+
+    @Test func publicStatusNeverDisclosesPhoneForwardingState() {
+        let payload = MobileHostService.publicStatusPayload(routes: [])
+        #expect(payload["phone_push"] == nil)
+        #expect(!String(describing: payload).contains("api_origin"))
+    }
+
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
         let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

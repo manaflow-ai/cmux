@@ -32,7 +32,7 @@ describe("notification rate limit", () => {
     const db = cloudDb();
     const now = new Date("2026-06-02T12:00:00Z");
 
-    for (let i = 0; i < 60; i += 1) {
+    for (let i = 0; i < 200; i += 1) {
       await recordPushSendOrThrow(db, "push-user-1", 1, now);
     }
     await recordPushSendOrThrow(db, "push-user-2", 1, now);

@@ -29,7 +29,7 @@ const getUser = mock(async () => ({
 }));
 const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
-  throw new Error("cloudDb should not be reached after a push rate-limit block");
+  throw new Error("cloudDb should not be reached for invalid JSON");
 });
 let useStubDb = false;
 
@@ -86,29 +86,22 @@ beforeEach(() => {
 });
 
 describe("notifications push route", () => {
-  test("applies the Vercel user limiter before body parsing or DB access", async () => {
+  test("uses the database user limiter as the only in-code limiter", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: "blocked" });
     const response = await pushRoute.POST(
       new Request("https://cmux.test/api/notifications/push", {
         method: "POST",
         headers: {
           authorization: "Bearer access-token",
           "x-stack-refresh-token": "refresh-token",
-          "content-length": "9000",
         },
-        body: "{}",
+        body: "{",
       }),
     );
 
-    expect(response.status).toBe(429);
-    expect(await response.json()).toEqual({ error: "rate_limited" });
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
-    const calls = (checkRateLimit as unknown as {
-      mock: { calls: Array<[string, { rateLimitKey: string }]> };
-    }).mock.calls;
-    expect(calls[0]?.[0]).toBe("cmux-push-test");
-    expect(calls[0]?.[1]).toMatchObject({
-      rateLimitKey: "user-1",
-    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_json" });
+    expect(checkRateLimit).not.toHaveBeenCalled();
     expect(cloudDb).not.toHaveBeenCalled();
   });
 });

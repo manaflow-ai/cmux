@@ -113,7 +113,7 @@ describe("device token route", () => {
     expect(stored.total).toBe(1);
   });
 
-  dbTest("serializes registration cap enforcement per user", async () => {
+  dbTest("serializes registration cap enforcement without stranding the registering phone", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     const responses = await Promise.all(
@@ -136,12 +136,68 @@ describe("device token route", () => {
     );
 
     const statuses = responses.map((response) => response.status).sort();
-    expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429, 429]);
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]);
 
     const [stored] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(stored.total).toBe(10);
+  });
+
+  dbTest("replaces the least recently used token when an eleventh phone registers", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const oldestToken = "0".repeat(64);
+    for (let index = 0; index < 10; index += 1) {
+      const token = index.toString(16).padStart(64, "0");
+      await sql`
+        insert into device_tokens (
+          user_id,
+          device_token,
+          platform,
+          bundle_id,
+          environment,
+          created_at,
+          updated_at
+        )
+        values (
+          'push-user-1',
+          ${token},
+          'ios',
+          'dev.cmux.ios.push1',
+          'sandbox',
+          ${new Date(Date.UTC(2026, 0, 1, 0, 0, index))},
+          ${new Date(Date.UTC(2026, 0, 1, 0, 0, index))}
+        )
+      `;
+    }
+
+    const currentToken = "f".repeat(64);
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: currentToken,
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, replacedStaleDevice: true });
+    const stored = await sql<{ device_token: string }[]>`
+      select device_token from device_tokens
+      where user_id = 'push-user-1'
+      order by device_token
+    `;
+    expect(stored).toHaveLength(10);
+    expect(stored.map((row) => row.device_token)).toContain(currentToken);
+    expect(stored.map((row) => row.device_token)).not.toContain(oldestToken);
   });
 
   dbTest("canonicalizes token casing for register and delete", async () => {
