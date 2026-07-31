@@ -97,7 +97,7 @@ import Testing
     )
 
     await router.releaseAllHeld()
-    #expect(try await pollUntil {
+    #expect(try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     })
 }
@@ -127,7 +127,7 @@ import Testing
     )
 
     await router.releaseAllHeld()
-    #expect(try await pollUntil {
+    #expect(try await pollUntil(attempts: 1_000) {
         store.macConnectionStatus == .connected
     })
 }

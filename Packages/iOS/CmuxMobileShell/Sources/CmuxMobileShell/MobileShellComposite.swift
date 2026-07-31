@@ -9207,10 +9207,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         listenerID: listenerID
                     )
             } ?? false
-        guard runtime?.supportsServerPushEvents != true
+        let requiresSubscriptionValidation =
+            runtime?.supportsServerPushEvents == true
+                || terminalEventListenerID != nil
+        guard !requiresSubscriptionValidation
                 || subscriptionIsValidated else {
             macConnectionStatus = .reconnecting
-            isRecoveringConnection = true
             connectionRecoveryFailed = false
             return
         }
