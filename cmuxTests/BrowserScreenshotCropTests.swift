@@ -1184,6 +1184,24 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
+    func domProbeCollectorDoesNotRejectComplexDOMByElementCount() async throws {
+        let filler = String(repeating: "<span></span>", count: 2_001)
+        let probes = try await collectDOMProbes(
+            html: """
+            <!doctype html>
+            <style>
+              html, body { margin: 0; background: black; }
+              p { color: white; font: 20px sans-serif; }
+            </style>
+            <p>MMMM</p>
+            \(filler)
+            """
+        )
+
+        #expect(probes.probes.first?.text == "MMMM")
+    }
+
+    @Test
     func domProbeCollectorRejectsFullyClippedTextAndEmptyPages() async throws {
         let clipped = try await collectDOMProbes(
             html: """
