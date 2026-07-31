@@ -636,6 +636,111 @@ test "large Unix write to a nonreading peer honors its deadline" {
     try std.testing.expect(elapsed_ns < 100 * std.time.ns_per_ms);
 }
 
+test "idle Unix close releases its descriptor before deinit" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/idle-close.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+    var connection = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer connection.deinit();
+    const peer = try server.accept();
+    defer peer.stream.close();
+    const state: *UnixConnection = @ptrCast(@alignCast(connection.context));
+    const original_fd = state.stream.handle;
+
+    connection.close();
+    try std.testing.expect(state.fd_released);
+    const reuse_probe = try std.posix.pipe();
+    defer std.posix.close(reuse_probe[0]);
+    defer std.posix.close(reuse_probe[1]);
+    try std.testing.expect(
+        reuse_probe[0] == original_fd or reuse_probe[1] == original_fd,
+    );
+}
+
+test "closed Unix reconnect cycles reuse descriptors without double close" {
+    var temp = std.testing.tmpDir(.{});
+    defer temp.cleanup();
+    const path = try std.fmt.allocPrint(
+        std.testing.allocator,
+        ".zig-cache/tmp/{s}/reconnect-close.sock",
+        .{&temp.sub_path},
+    );
+    defer std.testing.allocator.free(path);
+    const address = try std.net.Address.initUnix(path);
+    var server = try address.listen(.{});
+    defer server.deinit();
+
+    const cycle_count = 16;
+    var retired: [cycle_count]Connection = undefined;
+    var retired_count: usize = 0;
+    var retired_cleaned = false;
+    defer if (!retired_cleaned) {
+        for (retired[0..retired_count]) |*item| item.deinit();
+    };
+    var reused_fd: ?std.posix.fd_t = null;
+    for (0..cycle_count) |_| {
+        var connection = try connectUnixWithTimeout(
+            std.testing.allocator,
+            path,
+            1_000,
+        );
+        var connection_owned = true;
+        defer if (connection_owned) connection.deinit();
+        const peer = try server.accept();
+        defer peer.stream.close();
+        const state: *UnixConnection = @ptrCast(
+            @alignCast(connection.context),
+        );
+        if (reused_fd) |expected| {
+            try std.testing.expectEqual(expected, state.stream.handle);
+        } else {
+            reused_fd = state.stream.handle;
+        }
+        connection.close();
+        try std.testing.expect(state.fd_released);
+        retired[retired_count] = connection;
+        retired_count += 1;
+        connection_owned = false;
+    }
+
+    var live = try connectUnixWithTimeout(
+        std.testing.allocator,
+        path,
+        1_000,
+    );
+    defer live.deinit();
+    const live_peer = try server.accept();
+    defer live_peer.stream.close();
+    const live_state: *UnixConnection = @ptrCast(@alignCast(live.context));
+    try std.testing.expectEqual(reused_fd.?, live_state.stream.handle);
+
+    for (retired[0..retired_count]) |*item| item.deinit();
+    retired_cleaned = true;
+    const payload = "still-open";
+    try std.testing.expectEqual(
+        payload.len,
+        try std.posix.write(live_peer.stream.handle, payload),
+    );
+    var received: [payload.len]u8 = undefined;
+    try std.testing.expectEqual(
+        payload.len,
+        try live.read(&received, 1_000),
+    );
+    try std.testing.expectEqualSlices(u8, payload, &received);
+}
+
 test "closing a pending Unix read cannot consume a reused descriptor" {
     var temp = std.testing.tmpDir(.{});
     defer temp.cleanup();
@@ -710,6 +815,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     close_thread.join();
     close_joined = true;
     connection.close();
+    try std.testing.expect(!state.fd_released);
 
     var reused_reader: ?std.posix.fd_t = null;
     var reused_writer: ?std.posix.fd_t = null;
@@ -732,6 +838,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
         std.posix.close(pipe_fds[0]);
         std.posix.close(pipe_fds[1]);
     }
+    try std.testing.expect(reused_reader == null);
     if (reused_writer) |fd| {
         const marker = "unrelated-descriptor";
         try std.testing.expectEqual(marker.len, try std.posix.write(fd, marker));
@@ -744,6 +851,7 @@ test "closing a pending Unix read cannot consume a reused descriptor" {
     const failure = pending.failure orelse return error.ReadUnrelatedDescriptor;
     try std.testing.expectEqual(error.ConnectionClosed, failure);
     try std.testing.expectEqual(@as(usize, 0), pending.count);
+    try std.testing.expect(state.fd_released);
 
     connection.deinit();
     connection_live = false;
