@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -9,6 +10,8 @@ struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
+    let connectionMethod: MobileConnectionMethod
+    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
@@ -24,6 +27,8 @@ struct OnboardingFlowView: View {
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
+        connectionMethod: MobileConnectionMethod = .automatic,
+        onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
@@ -33,6 +38,8 @@ struct OnboardingFlowView: View {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
+        self.connectionMethod = connectionMethod
+        self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
@@ -48,7 +55,7 @@ struct OnboardingFlowView: View {
             onBack: handleBack,
             onSkip: skip,
             onPrimary: handlePrimary,
-            onSecondary: startFallbackPairing,
+            onSecondary: handleSecondary,
             pageContent: OnboardingPageViewport(
                 stage: stage,
                 onNavigate: { navigate(to: $0) }
@@ -78,7 +85,8 @@ struct OnboardingFlowView: View {
         OnboardingSceneChrome(
             stage: stage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: connectionPhase
+            connectionPhase: connectionPhase,
+            connectionMethod: connectionMethod
         )
     }
 
@@ -90,7 +98,11 @@ struct OnboardingFlowView: View {
         case .notifications:
             OnboardingNotificationsView()
         case .connect:
-            OnboardingConnectionView(phase: connectionPhase)
+            OnboardingConnectionView(
+                phase: connectionPhase,
+                connectionMethod: connectionMethod,
+                onSelectConnectionMethod: selectConnectionMethod
+            )
         }
     }
 
@@ -151,16 +163,50 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                onRetryConnection()
+            }
         case .searching:
             break
         case .fallback:
-            analytics.capture("ios_onboarding_connection_retried", eventProperties)
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                analytics.capture("ios_onboarding_connection_retried", eventProperties)
+                onRetryConnection()
+            }
         case .ready:
             analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
         }
+    }
+
+    /// Secondary is "Use QR Code Instead" in the automatic fallback, but
+    /// "Check Again" when Tailscale owns the primary scan action.
+    private func handleSecondary() {
+        if connectionMethod == .tailscale, connectionPhase == .fallback {
+            analytics.capture("ios_onboarding_connection_retried", eventProperties)
+            onRetryConnection()
+            return
+        }
+        startFallbackPairing()
+    }
+
+    private func selectConnectionMethod(_ method: MobileConnectionMethod) {
+        guard method != connectionMethod else { return }
+        var properties = eventProperties
+        properties["connection_method"] = .string(method.rawValue)
+        analytics.capture("ios_onboarding_connection_method_selected", properties)
+        onSelectConnectionMethod(method)
+    }
+
+    private func startTailscalePairing() {
+        var properties = eventProperties
+        properties["source"] = .string("tailscale_choice")
+        analytics.capture("ios_onboarding_pairing_started", properties)
+        onStartFallbackPairing()
     }
 
     private func finishBeforeAuthentication() {

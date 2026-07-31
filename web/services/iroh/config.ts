@@ -2,17 +2,6 @@ import * as Context from "effect/Context";
 import * as Layer from "effect/Layer";
 import { env } from "../../app/env";
 
-export const DEFAULT_IROH_DEVICE_BINDING_LIMIT = 8;
-export const DEFAULT_IROH_DEV_ACCOUNT_BINDING_LIMIT = 256;
-export const DEFAULT_IROH_DEV_DEVICE_BINDING_LIMIT = 128;
-const MAX_IROH_CONFIGURED_BINDING_LIMIT = 4_096;
-
-export type IrohChallengeQuota = {
-  readonly account: number;
-  readonly deviceInstance: number;
-  readonly outstanding: number;
-};
-
 export type IrohTrustBrokerConfigShape = {
   readonly lanDiscoverySecretBase64?: string;
   readonly accountSubjectSecretBase64?: string;
@@ -22,12 +11,6 @@ export type IrohTrustBrokerConfigShape = {
   readonly relayMinterUrl?: string;
   readonly relayMinterHmacSecretBase64?: string;
   readonly relayMinterInsecureLoopbackOptIn: boolean;
-  readonly rateLimitId?: string;
-  readonly deviceLimitOverrideEnabled: boolean;
-  readonly deviceLimitOverrideUserIds: ReadonlySet<string>;
-  readonly deviceLimitOverrideEnvironments: ReadonlySet<string>;
-  readonly developmentAccountBindingLimit: number;
-  readonly developmentDeviceBindingLimit: number;
   readonly deploymentEnvironment: string;
   readonly isVercelDeployment: boolean;
 };
@@ -48,51 +31,8 @@ export function irohTrustBrokerConfigFromEnv(): IrohTrustBrokerConfigShape {
     relayMinterHmacSecretBase64: env.CMUX_IROH_MINT_HMAC_SECRET_B64,
     relayMinterInsecureLoopbackOptIn:
       env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER === "1",
-    rateLimitId: env.CMUX_IROH_RATE_LIMIT_ID,
-    deviceLimitOverrideEnabled: env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED === "1",
-    deviceLimitOverrideUserIds: csvSet(env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
-    deviceLimitOverrideEnvironments: csvSet(env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
-    developmentAccountBindingLimit: positiveLimit(
-      env.CMUX_IROH_DEV_BINDING_ACCOUNT_LIMIT,
-      DEFAULT_IROH_DEV_ACCOUNT_BINDING_LIMIT,
-    ),
-    developmentDeviceBindingLimit: positiveLimit(
-      env.CMUX_IROH_DEV_BINDING_DEVICE_LIMIT,
-      DEFAULT_IROH_DEV_DEVICE_BINDING_LIMIT,
-    ),
     deploymentEnvironment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
     isVercelDeployment: process.env.VERCEL === "1",
-  };
-}
-
-export function developmentBindingQuotaAllowed(
-  config: IrohTrustBrokerConfigShape,
-  authenticatedUserId: string,
-): boolean {
-  if (!config.deviceLimitOverrideEnabled) return false;
-  return config.deviceLimitOverrideUserIds.has(authenticatedUserId) &&
-    config.deviceLimitOverrideEnvironments.has(config.deploymentEnvironment);
-}
-
-export function challengeQuotaForUser(
-  config: IrohTrustBrokerConfigShape,
-  authenticatedUserId: string,
-): IrohChallengeQuota {
-  if (!developmentBindingQuotaAllowed(config, authenticatedUserId)) {
-    return { account: 120, deviceInstance: 6, outstanding: 32 };
-  }
-  return {
-    // Give tagged dev launch bursts the normal per-instance launch budget,
-    // while retaining one bounded account request-rate fence.
-    account: Math.max(
-      120,
-      Math.min(
-        MAX_IROH_CONFIGURED_BINDING_LIMIT,
-        config.developmentAccountBindingLimit * DEFAULT_IROH_DEVICE_BINDING_LIMIT,
-      ),
-    ),
-    deviceInstance: Math.max(6, config.developmentDeviceBindingLimit),
-    outstanding: Math.max(32, config.developmentAccountBindingLimit),
   };
 }
 
@@ -101,17 +41,3 @@ export const IrohTrustBrokerConfigLive = Layer.succeed(
   irohTrustBrokerConfigFromEnv(),
 );
 
-function csvSet(value: string | undefined): ReadonlySet<string> {
-  return new Set(
-    value?.split(",").map((entry) => entry.trim()).filter(Boolean) ?? [],
-  );
-}
-
-function positiveLimit(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) &&
-      parsed > 0 &&
-      parsed <= MAX_IROH_CONFIGURED_BINDING_LIMIT
-    ? parsed
-    : fallback;
-}
