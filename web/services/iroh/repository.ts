@@ -505,14 +505,27 @@ function makeLiveRepository(): IrohRepositoryShape {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        const [state] = await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoUpdate({
-            target: irohAccountSecurityStates.userId,
-            set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+        const [existingState] = await tx
+          .select({
+            generation: irohAccountSecurityStates.lanDiscoveryGeneration,
           })
-          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
+          .from(irohAccountSecurityStates)
+          .where(eq(irohAccountSecurityStates.userId, input.userId))
+          .limit(1);
+        const [insertedState] = existingState
+          ? []
+          : await tx
+            .insert(irohAccountSecurityStates)
+            .values({
+              userId: input.userId,
+              lanDiscoveryGeneration: 1,
+              createdAt: input.now,
+              updatedAt: input.now,
+            })
+            .returning({
+              generation: irohAccountSecurityStates.lanDiscoveryGeneration,
+            });
+        const state = existingState ?? insertedState;
         if (!state) throw new Error("account security state returned no row");
         if (input.cursor && input.cursor.generation !== state.generation) {
           throw new IrohConflictError({ code: "discovery_cursor_stale" });

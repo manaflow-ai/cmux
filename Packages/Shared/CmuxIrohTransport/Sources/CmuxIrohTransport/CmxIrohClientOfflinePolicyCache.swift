@@ -63,9 +63,10 @@ public actor CmxIrohClientOfflinePolicyCache {
            record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
            record.scopeDigest == Self.scopeDigest(for: expectation),
            Self.sameAuthority(record.localBinding, localBinding) {
+            let currentBindings = Self.bindingAuthorityIndex(discovery.bindings)
             for stored in record.targets {
                 guard let fresh = Self.uniqueBinding(
-                    in: discovery.bindings,
+                    in: currentBindings,
                     matchingAuthorityOf: stored.binding
                 ),
                     fresh.platform == .mac,
@@ -288,9 +289,10 @@ public actor CmxIrohClientOfflinePolicyCache {
         now: Date
     ) throws -> CmxIrohStoredClientPolicyRecord {
         var targets: [CmxIrohStoredClientPolicyTarget] = []
+        let currentBindings = Self.bindingAuthorityIndex(currentTargets)
         for stored in record.targets {
             guard let current = Self.uniqueBinding(
-                in: currentTargets,
+                in: currentBindings,
                 matchingAuthorityOf: stored.binding
             ),
                 current.platform == .mac,
@@ -417,12 +419,35 @@ public actor CmxIrohClientOfflinePolicyCache {
         }
     }
 
+    private static func bindingAuthorityIndex(
+        _ bindings: [CmxIrohBrokerBinding]
+    ) -> (
+        byBindingID: [String: CmxIrohBrokerBinding],
+        duplicateBindingIDs: Set<String>
+    ) {
+        var byBindingID: [String: CmxIrohBrokerBinding] = [:]
+        var duplicateBindingIDs: Set<String> = []
+        for binding in bindings {
+            if byBindingID.updateValue(binding, forKey: binding.bindingID) != nil {
+                duplicateBindingIDs.insert(binding.bindingID)
+            }
+        }
+        return (byBindingID, duplicateBindingIDs)
+    }
+
     private static func uniqueBinding(
-        in bindings: [CmxIrohBrokerBinding],
+        in index: (
+            byBindingID: [String: CmxIrohBrokerBinding],
+            duplicateBindingIDs: Set<String>
+        ),
         matchingAuthorityOf expected: CmxIrohBrokerBinding
     ) -> CmxIrohBrokerBinding? {
-        let matches = bindings.filter { sameAuthority($0, expected) }
-        return matches.count == 1 ? matches[0] : nil
+        guard !index.duplicateBindingIDs.contains(expected.bindingID),
+              let binding = index.byBindingID[expected.bindingID],
+              sameAuthority(binding, expected) else {
+            return nil
+        }
+        return binding
     }
 
     private static func sameAuthority(
