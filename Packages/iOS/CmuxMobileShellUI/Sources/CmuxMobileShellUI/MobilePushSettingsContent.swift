@@ -31,6 +31,8 @@ struct MobilePushSettingsContent: View {
     @State private var macForwardingEnabled: Bool
     @State private var macMode: MobileHostPhonePushStatus.Mode
     @State private var macHideContent: Bool
+    @State private var confirmedMacStatus: MobileHostPhonePushStatus?
+    @State private var isMutatingPhone = false
     @State private var isMutatingMac = false
     @State private var mutationFailed = false
     @State private var testStage: MobilePhonePushTestStage?
@@ -63,6 +65,7 @@ struct MobilePushSettingsContent: View {
         self._macHideContent = State(
             initialValue: macStatus?.hideContent ?? false
         )
+        self._confirmedMacStatus = State(initialValue: macStatus)
     }
 
     var body: some View {
@@ -76,6 +79,7 @@ struct MobilePushSettingsContent: View {
             isOn: phoneEnabledBinding
         )
         .accessibilityIdentifier("MobileSettingsNotifications")
+        .disabled(isMutatingPhone)
 
         if let repair = readiness.repair,
            let repairPresentation = repairPresentation(for: repair) {
@@ -93,6 +97,7 @@ struct MobilePushSettingsContent: View {
                 )
             }
             .accessibilityIdentifier(repairPresentation.identifier)
+            .disabled(isMutatingPhone || isMutatingMac)
         }
 
         if let macStatus {
@@ -187,7 +192,7 @@ struct MobilePushSettingsContent: View {
                     systemImage: "paperplane"
                 )
             }
-            .disabled(!supportsMacTest || isSendingTest)
+            .disabled(!supportsMacTest || isSendingTest || isMutatingMac)
             .accessibilityIdentifier("MobileSettingsPushSendTest")
 
             if let testStage {
@@ -219,6 +224,7 @@ struct MobilePushSettingsContent: View {
         .accessibilityIdentifier("MobileSettingsPushReadinessStatus")
         .onChange(of: macStatus) { _, confirmed in
             guard let confirmed else { return }
+            confirmedMacStatus = confirmed
             macForwardingEnabled = confirmed.forwardingEnabled
             macMode = confirmed.mode
             macHideContent = confirmed.hideContent
@@ -230,13 +236,16 @@ struct MobilePushSettingsContent: View {
         Binding(
             get: { phoneEnabled },
             set: { requested in
+                guard !isMutatingPhone else { return }
                 let confirmed = phoneEnabled
                 phoneEnabled = requested
+                isMutatingPhone = true
                 Task {
                     let succeeded = await onPhoneEnabledChange(requested)
                     if !succeeded {
                         phoneEnabled = confirmed
                     }
+                    isMutatingPhone = false
                 }
             }
         )
@@ -246,11 +255,8 @@ struct MobilePushSettingsContent: View {
         Binding(
             get: { macForwardingEnabled },
             set: { requested in
-                let prior = macForwardingEnabled
                 macForwardingEnabled = requested
-                performMacMutation(.forwardingEnabled(requested)) {
-                    macForwardingEnabled = prior
-                }
+                performMacMutation(.forwardingEnabled(requested))
             }
         )
     }
@@ -259,11 +265,8 @@ struct MobilePushSettingsContent: View {
         Binding(
             get: { macHideContent },
             set: { requested in
-                let prior = macHideContent
                 macHideContent = requested
-                performMacMutation(.hideContent(requested)) {
-                    macHideContent = prior
-                }
+                performMacMutation(.hideContent(requested))
             }
         )
     }
@@ -275,11 +278,8 @@ struct MobilePushSettingsContent: View {
     ) -> some View {
         Button {
             guard macMode != mode else { return }
-            let prior = macMode
             macMode = mode
-            performMacMutation(.mode(mode)) {
-                macMode = prior
-            }
+            performMacMutation(.mode(mode))
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: macMode == mode ? "checkmark.circle.fill" : "circle")
@@ -303,21 +303,26 @@ struct MobilePushSettingsContent: View {
         )
     }
 
-    private func performMacMutation(
-        _ mutation: MobilePushMacMutation,
-        rollback: @escaping @MainActor () -> Void
-    ) {
+    private func performMacMutation(_ mutation: MobilePushMacMutation) {
         mutationFailed = false
         isMutatingMac = true
         Task {
             let succeeded = await onMacMutation(mutation)
             isMutatingMac = false
             if !succeeded {
-                rollback()
+                if let confirmedMacStatus {
+                    macForwardingEnabled = confirmedMacStatus.forwardingEnabled
+                    macMode = confirmedMacStatus.mode
+                    macHideContent = confirmedMacStatus.hideContent
+                }
                 mutationFailed = true
             }
         }
     }
+
+}
+
+private extension MobilePushSettingsContent {
 
     private var readinessText: String {
         switch readiness {
@@ -367,7 +372,27 @@ struct MobilePushSettingsContent: View {
         }
     }
 
-    private func blockedText(_ blocker: MobilePushReadiness.Blocker) -> String {
+    func blockedText(_ blocker: MobilePushReadiness.Blocker) -> String {
+        switch blocker {
+        case .phoneOptInDisabled, .systemPermissionNotRequested,
+             .systemPermissionDenied, .systemNotificationsUnsupported,
+             .awaitingDeviceToken, .deviceTokenRegistrationFailed:
+            phoneBlockerText(blocker)
+        case .registeringDevice, .backendRegistrationRequired,
+             .authenticationRequired, .accountDeletionInProgress,
+             .registrationRateLimited, .deviceLimitReached,
+             .networkUnavailable, .pushServiceUnavailable,
+             .invalidServerResponse, .registrationRejected,
+             .invalidConfiguration:
+            registrationBlockerText(blocker)
+        case .macStatusUnavailable, .macAdmissionUnavailable,
+             .macAccountMismatch, .macForwardingDisabled,
+             .macCurrentlyActive, .apiOriginMismatch:
+            macBlockerText(blocker)
+        }
+    }
+
+    func phoneBlockerText(_ blocker: MobilePushReadiness.Blocker) -> String {
         switch blocker {
         case .phoneOptInDisabled:
             L10n.string(
@@ -399,6 +424,16 @@ struct MobilePushSettingsContent: View {
                 "mobile.notifications.status.tokenFailed",
                 defaultValue: "Blocked, APNs Registration Failed"
             )
+        default:
+            assertionFailure("Expected a phone-side push blocker")
+            return ""
+        }
+    }
+
+    func registrationBlockerText(
+        _ blocker: MobilePushReadiness.Blocker
+    ) -> String {
+        switch blocker {
         case .registeringDevice:
             L10n.string(
                 "mobile.notifications.status.registering",
@@ -448,6 +483,14 @@ struct MobilePushSettingsContent: View {
                 "mobile.notifications.status.invalidConfiguration",
                 defaultValue: "Blocked, Invalid Push Configuration"
             )
+        default:
+            assertionFailure("Expected a registration push blocker")
+            return ""
+        }
+    }
+
+    func macBlockerText(_ blocker: MobilePushReadiness.Blocker) -> String {
+        switch blocker {
         case .macStatusUnavailable, .macAdmissionUnavailable:
             L10n.string(
                 "mobile.notifications.status.macUnavailable",
@@ -473,6 +516,9 @@ struct MobilePushSettingsContent: View {
                 "mobile.notifications.status.originMismatch",
                 defaultValue: "Blocked, Mac and iPhone Servers Differ"
             )
+        default:
+            assertionFailure("Expected a Mac-side push blocker")
+            return ""
         }
     }
 
@@ -528,13 +574,16 @@ struct MobilePushSettingsContent: View {
         }
     }
 
-    private struct RepairPresentation {
+}
+
+private extension MobilePushSettingsContent {
+    struct RepairPresentation {
         let title: String
         let systemImage: String
         let identifier: String
     }
 
-    private func repairPresentation(
+    func repairPresentation(
         for repair: MobilePushReadiness.Repair
     ) -> RepairPresentation? {
         switch repair {
