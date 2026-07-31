@@ -149,7 +149,8 @@ final class BrowserAppSessionController {
         guard pendingCleanup == nil else { return }
         let id = UUID()
         let task = Task { @MainActor [weak self] in
-            await self?.performCleanup()
+            guard let self else { return }
+            await performCleanup()
         }
         pendingCleanup = (id: id, task: task)
     }
