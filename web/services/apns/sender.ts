@@ -45,19 +45,170 @@ export interface ApnsRetryOptions {
   ) => Promise<void>;
 }
 
-interface ApnsHttp2Session {
+export interface ApnsHttp2Session {
   request(headers: http2.OutgoingHttpHeaders): http2.ClientHttp2Stream;
   close(): void;
-  once(event: "error", listener: () => void): this;
+  readonly remoteSettings?: {
+    readonly maxConcurrentStreams?: number;
+  };
+  once(event: string, listener: (...args: unknown[]) => void): this;
 }
 
-interface ApnsTransport {
+export interface ApnsTransport {
   connect(host: string): ApnsHttp2Session;
 }
 
 const nodeApnsTransport: ApnsTransport = {
   connect: (host) => http2.connect(`https://${host}`),
 };
+
+export const APNS_MAX_PAYLOAD_BYTES = 4_096;
+const APNS_LOCAL_MAX_CONCURRENT_STREAMS = 32;
+const APNS_SESSION_IDLE_TIMEOUT_MS = 55_000;
+
+interface ApnsSessionEntry {
+  readonly key: string;
+  readonly client: ApnsHttp2Session;
+  readonly connectionError: Promise<null>;
+  readonly resolveConnectionError: () => void;
+  tail: Promise<void> | null;
+  invalid: boolean;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * Reuses authenticated APNs HTTP/2 connections and serializes logical groups
+ * per host/credential. Serializing groups lets one shared stream scheduler
+ * honor the provider's connection-wide concurrent-stream limit.
+ */
+export class ApnsSessionPool {
+  private readonly entries = new Map<string, ApnsSessionEntry>();
+
+  constructor(
+    private readonly transport: ApnsTransport,
+    private readonly idleTimeoutMs = APNS_SESSION_IDLE_TIMEOUT_MS,
+  ) {}
+
+  async withSession<T>(
+    host: string,
+    credentialIdentity: string,
+    operation: (
+      client: ApnsHttp2Session,
+      connectionError: Promise<null>,
+    ) => Promise<T>,
+  ): Promise<T> {
+    const key = `${host}\0${credentialIdentity}`;
+
+    // A queued operation can observe GOAWAY while it waits. Retry acquisition
+    // once so it moves to the replacement connection instead of failing before
+    // issuing a stream.
+    for (let acquisition = 0; acquisition < 2; acquisition += 1) {
+      const entry = this.acquire(key, host);
+      const execute = async (): Promise<T | null> => {
+        if (entry.invalid) return null;
+        if (entry.idleTimer) {
+          clearTimeout(entry.idleTimer);
+          entry.idleTimer = null;
+        }
+        try {
+          return await operation(entry.client, entry.connectionError);
+        } finally {
+          this.scheduleIdleClose(entry);
+        }
+      };
+      const predecessor = entry.tail;
+      const run = predecessor ? predecessor.then(execute) : execute();
+      const completion = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      entry.tail = completion;
+      void completion.then(() => {
+        if (entry.tail === completion) entry.tail = null;
+      });
+      const result = await run;
+      if (result !== null) return result;
+    }
+
+    throw new Error("APNs connection became unavailable");
+  }
+
+  closeAll(): void {
+    for (const entry of [...this.entries.values()]) {
+      this.invalidate(entry, true);
+    }
+  }
+
+  private acquire(key: string, host: string): ApnsSessionEntry {
+    const existing = this.entries.get(key);
+    if (existing && !existing.invalid) return existing;
+
+    const client = this.transport.connect(host);
+    let resolveConnectionError!: () => void;
+    const connectionError = new Promise<null>((resolve) => {
+      resolveConnectionError = () => resolve(null);
+    });
+    const entry: ApnsSessionEntry = {
+      key,
+      client,
+      connectionError,
+      resolveConnectionError,
+      tail: null,
+      invalid: false,
+      idleTimer: null,
+    };
+    this.entries.set(key, entry);
+
+    client.once("error", () => this.invalidate(entry, true));
+    client.once("goaway", () => this.invalidate(entry, true));
+    client.once("close", () => this.invalidate(entry, false));
+    return entry;
+  }
+
+  private scheduleIdleClose(entry: ApnsSessionEntry): void {
+    if (entry.invalid || this.entries.get(entry.key) !== entry) return;
+    if (entry.idleTimer) clearTimeout(entry.idleTimer);
+    entry.idleTimer = setTimeout(() => {
+      this.invalidate(entry, true);
+    }, Math.max(0, this.idleTimeoutMs));
+    entry.idleTimer.unref?.();
+  }
+
+  private invalidate(entry: ApnsSessionEntry, close: boolean): void {
+    if (entry.invalid) return;
+    entry.invalid = true;
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = null;
+    }
+    if (this.entries.get(entry.key) === entry) {
+      this.entries.delete(entry.key);
+    }
+    entry.resolveConnectionError();
+    if (close) {
+      try {
+        entry.client.close();
+      } catch {
+        // The connection is already unusable.
+      }
+    }
+  }
+}
+
+export function createApnsSessionPool(
+  transport: ApnsTransport,
+  idleTimeoutMs = APNS_SESSION_IDLE_TIMEOUT_MS,
+): ApnsSessionPool {
+  return new ApnsSessionPool(transport, idleTimeoutMs);
+}
+
+let productionSessionPool: ApnsSessionPool | null = null;
+
+function defaultSessionPool(transport: ApnsTransport): ApnsSessionPool | null {
+  if (transport !== nodeApnsTransport) return null;
+  productionSessionPool ??= createApnsSessionPool(nodeApnsTransport);
+  return productionSessionPool;
+}
 
 /** Normalize a .p8 that was stored with literal `\n` (common in env vars). */
 export function normalizeP8(keyP8: string): string {
@@ -145,6 +296,7 @@ export async function sendApnsNotification(
   timeoutMs = APNS_DEFAULT_TIMEOUT_MS,
   transport: ApnsTransport = nodeApnsTransport,
   forceProviderTokenRefresh = false,
+  sessionPool: ApnsSessionPool | null = defaultSessionPool(transport),
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
@@ -171,7 +323,7 @@ export async function sendApnsNotification(
   // Apple reserves for pushes that present UI immediately. Still push-type
   // `alert` because a badge update is user-facing in Apple's taxonomy and a
   // `background`-type push may not carry `badge`.
-  const priority = input.kind === "dismiss" ? "5" : undefined;
+  const priority = input.kind === "dismiss" ? "5" : "10";
 
   const byHost = new Map<string, ApnsTarget[]>();
   const invalidEnvironmentResults: ApnsSendResult[] = [];
@@ -192,6 +344,27 @@ export async function sendApnsNotification(
   }
 
   if (byHost.size === 0) return invalidEnvironmentResults;
+
+  if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
+    const oversizedResults = [...byHost.values()]
+      .flat()
+      .map((target): ApnsSendResult => ({
+        deviceToken: target.deviceToken,
+        status: 413,
+        reason: "PayloadTooLarge",
+        prune: false,
+      }));
+    const byToken = new Map(
+      [...oversizedResults, ...invalidEnvironmentResults].map((result) => [
+        result.deviceToken,
+        result,
+      ]),
+    );
+    return targets.flatMap((target) => {
+      const result = byToken.get(target.deviceToken);
+      return result ? [result] : [];
+    });
+  }
 
   let jwt: string;
   try {
@@ -230,6 +403,8 @@ export async function sendApnsNotification(
         priority,
         expiration,
         apnsId,
+        apnsCredentialIdentity(config),
+        sessionPool,
       ).catch(() => connectionErrorResults(hostTargets)),
     ),
   );
@@ -414,13 +589,13 @@ function canonicalApnsId(
   const value = correlationId?.trim();
   if (
     !value
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value,
     )
   ) {
     return undefined;
   }
-  return value;
+  return value.toLowerCase();
 }
 
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
@@ -443,36 +618,144 @@ async function sendHostGroup(
   priority: string | undefined,
   expiration: string | undefined,
   apnsId: string | undefined,
+  credentialIdentity: string,
+  sessionPool: ApnsSessionPool | null,
 ): Promise<ApnsSendResult[]> {
-  let client: ApnsHttp2Session | null = null;
+  const ownsPool = sessionPool == null;
+  const pool = sessionPool ?? createApnsSessionPool(transport);
   try {
-    const connectedClient = transport.connect(host);
-    client = connectedClient;
-    // A connection-level error fails every in-flight request for this host.
-    const connError: Promise<null> = new Promise((resolve) => {
-      connectedClient.once("error", () => resolve(null));
-    });
-    return await Promise.all(
-      hostTargets.map((t) =>
-        sendOne(
-          connectedClient,
+    return await pool.withSession(
+      host,
+      credentialIdentity,
+      (client, connectionError) =>
+        sendHostTargets(
+          client,
+          connectionError,
+          hostTargets,
           jwt,
-          t,
           body,
           timeoutMs,
-          connError,
           collapseId,
           priority,
           expiration,
           apnsId,
-        )
-      ),
+        ),
     );
   } catch {
     return connectionErrorResults(hostTargets);
   } finally {
-    client?.close();
+    if (ownsPool) pool.closeAll();
   }
+}
+
+async function sendHostTargets(
+  client: ApnsHttp2Session,
+  connectionError: Promise<null>,
+  hostTargets: readonly ApnsTarget[],
+  jwt: string,
+  body: Buffer,
+  timeoutMs: number,
+  collapseId: string | undefined,
+  priority: string | undefined,
+  expiration: string | undefined,
+  apnsId: string | undefined,
+): Promise<ApnsSendResult[]> {
+  if (hostTargets.length === 0) return [];
+  const deadlineMs = Date.now() + Math.max(1, timeoutMs);
+  const results = new Array<ApnsSendResult>(hostTargets.length);
+
+  // APNs token authentication permits only one stream on a new connection
+  // until the provider token has been validated. Completing the first request
+  // is the only portable bootstrap signal because stream limits vary by
+  // server and connection.
+  results[0] = await sendOneBeforeDeadline(
+    client,
+    jwt,
+    hostTargets[0]!,
+    body,
+    deadlineMs,
+    connectionError,
+    collapseId,
+    priority,
+    expiration,
+    apnsId,
+  );
+
+  let nextIndex = 1;
+  const workerCount = Math.min(
+    normalizedRemoteStreamLimit(client),
+    hostTargets.length - 1,
+  );
+  const worker = async () => {
+    while (nextIndex < hostTargets.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await sendOneBeforeDeadline(
+        client,
+        jwt,
+        hostTargets[index]!,
+        body,
+        deadlineMs,
+        connectionError,
+        collapseId,
+        priority,
+        expiration,
+        apnsId,
+      );
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+function normalizedRemoteStreamLimit(client: ApnsHttp2Session): number {
+  const advertised = client.remoteSettings?.maxConcurrentStreams;
+  if (
+    typeof advertised !== "number"
+    || !Number.isFinite(advertised)
+    || advertised < 1
+  ) {
+    return 1;
+  }
+  return Math.max(
+    1,
+    Math.min(Math.floor(advertised), APNS_LOCAL_MAX_CONCURRENT_STREAMS),
+  );
+}
+
+function sendOneBeforeDeadline(
+  client: ApnsHttp2Session,
+  jwt: string,
+  target: ApnsTarget,
+  body: Buffer,
+  deadlineMs: number,
+  connectionError: Promise<null>,
+  collapseId: string | undefined,
+  priority: string | undefined,
+  expiration: string | undefined,
+  apnsId: string | undefined,
+): Promise<ApnsSendResult> {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) {
+    return Promise.resolve({
+      deviceToken: target.deviceToken,
+      status: 0,
+      reason: "delivery_deadline_exceeded",
+      prune: false,
+    });
+  }
+  return sendOne(
+    client,
+    jwt,
+    target,
+    body,
+    Math.max(1, remainingMs),
+    connectionError,
+    collapseId,
+    priority,
+    expiration,
+    apnsId,
+  );
 }
 
 function sendOne(
@@ -481,7 +764,7 @@ function sendOne(
   target: ApnsTarget,
   body: Buffer,
   timeoutMs: number,
-  connError: Promise<null>,
+  connectionError: Promise<null>,
   collapseId: string | undefined,
   priority: string | undefined,
   expiration: string | undefined,
@@ -504,7 +787,7 @@ function sendOne(
         prune: shouldPruneToken(status, reason),
       });
     };
-    void connError.then(() => finish(0, "connection_error"));
+    void connectionError.then(() => finish(0, "connection_error"));
 
     let req: http2.ClientHttp2Stream;
     try {

@@ -137,7 +137,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   if (correlationId == null) return { ok: false, error: "correlation_id_too_long" };
   if (
     correlationId
-    && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       correlationId,
     )
   ) {
@@ -166,7 +166,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       surfaceId: surfaceId || null,
       macDeviceId: macDeviceId || null,
       notificationId: notificationId || null,
-      correlationId: correlationId || null,
+      correlationId: correlationId ? correlationId.toLowerCase() : null,
       expirationEpochSeconds,
       dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
       badgeCount: parseBadgeCount(body.badgeCount),

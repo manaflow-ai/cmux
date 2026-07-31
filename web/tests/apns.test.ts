@@ -1447,7 +1447,7 @@ describe("apns sender transport", () => {
         return new FakeSession();
       },
     } as unknown as Parameters<typeof sendApnsNotification>[4];
-    const pool = createApnsSessionPool(transport, 60_000);
+    const pool = createApnsSessionPool(transport!, 60_000);
     const { privateKey } = crypto.generateKeyPairSync(
       "ec",
       { namedCurve: "P-256" },
@@ -1531,7 +1531,7 @@ describe("apns sender transport", () => {
         return session;
       },
     } as unknown as Parameters<typeof sendApnsNotification>[4];
-    const pool = createApnsSessionPool(transport, 60_000);
+    const pool = createApnsSessionPool(transport!, 60_000);
     const { privateKey } = crypto.generateKeyPairSync(
       "ec",
       { namedCurve: "P-256" },
@@ -1621,11 +1621,11 @@ describe("apns sender transport", () => {
       environment: "production",
     };
     const inputAtSize = (targetBytes: number) => {
-      const baseInput = { title: "agent", body: "" };
+      const baseInput = { title: "agent", body: "a" };
       const baseBytes = Buffer.byteLength(
         JSON.stringify(buildApnsPayload(baseInput)),
       );
-      const remaining = targetBytes - baseBytes;
+      const remaining = targetBytes - baseBytes + 1;
       const body =
         "🙂".repeat(Math.floor(remaining / 4))
         + "a".repeat(remaining % 4);
