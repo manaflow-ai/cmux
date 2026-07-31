@@ -91,7 +91,12 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.vertical, 18)
                 .focused($isPromptFocused)
                 .disabled(isDisabled)
-                .scrollDismissesKeyboard(.interactively)
+                // .interactively resizes the editor on every drag frame while
+                // the keyboard tracks the finger; UITextView then re-scrolls
+                // to keep the caret visible, yanking long text back down as
+                // the user tries to scroll up. One immediate dismissal keeps
+                // manual scrolling stable.
+                .scrollDismissesKeyboard(.immediately)
                 .accessibilityLabel(L10n.string(
                     "mobile.taskComposer.prompt",
                     defaultValue: "Prompt"
@@ -128,26 +133,30 @@ struct TaskComposerMinimalLayout: View {
                 .padding(.horizontal, 16)
             }
 
-            HStack(spacing: 10) {
-                if showsAttachmentButton {
-                    TaskComposerAttachmentPickerMenu(
-                        style: .circularPlus,
-                        isDisabled: isDisabled,
-                        choosePhotos: chooseAttachmentPhotos,
-                        chooseFiles: chooseAttachmentFiles
-                    )
+            pillScroller
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        if showsAttachmentButton {
+                            TaskComposerAttachmentPickerMenu(
+                                style: .circularPlus,
+                                isDisabled: isDisabled,
+                                choosePhotos: chooseAttachmentPhotos,
+                                chooseFiles: chooseAttachmentFiles
+                            )
+                        }
+
+                        optionsButton
+                    }
+                    .padding(.leading, 16)
+                    .background(scrollEdgeNeighborBackground)
                 }
-
-                optionsButton
-
-                pillScroller
-                    .frame(maxWidth: .infinity)
-
-                submitButton
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+                .safeAreaInset(edge: .trailing, spacing: 0) {
+                    submitButton
+                        .padding(.trailing, 16)
+                        .background(scrollEdgeNeighborBackground)
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 6)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
@@ -155,10 +164,12 @@ struct TaskComposerMinimalLayout: View {
         .background(Color(uiColor: .systemBackground))
     }
 
-    /// The pill scroller fades its content into the bar background at both
-    /// horizontal edges so pills dissolve toward the neighboring buttons
-    /// instead of being cut off. iOS 26's native scroll edge effect provides
-    /// the progressive blur+fade; earlier systems get an alpha-mask fade.
+    /// The pill scroller spans the whole bar; the neighboring buttons sit in
+    /// its leading/trailing safe-area insets, so pills genuinely scroll
+    /// UNDER them. On iOS 26 the native soft scroll edge effect then blurs
+    /// and fades the passing content into the background at both edges (it
+    /// only renders where content goes beneath an inset). Earlier systems
+    /// occlude with an opaque button background instead.
     @ViewBuilder
     private var pillScroller: some View {
         let scroller = ScrollView(.horizontal) {
@@ -171,26 +182,22 @@ struct TaskComposerMinimalLayout: View {
             }
         }
         .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, 10, for: .scrollContent)
         if #available(iOS 26.0, *) {
             scroller.scrollEdgeEffectStyle(.soft, for: .all)
         } else {
-            scroller.mask {
-                HStack(spacing: 0) {
-                    LinearGradient(
-                        colors: [.clear, .black],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: 14)
-                    Rectangle().fill(.black)
-                    LinearGradient(
-                        colors: [.black, .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: 14)
-                }
-            }
+            scroller
+        }
+    }
+
+    /// Opaque only where the system cannot blur: iOS 26's edge effect wants
+    /// the passing content visible beneath the buttons.
+    @ViewBuilder
+    private var scrollEdgeNeighborBackground: some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+        } else {
+            Color(uiColor: .systemBackground)
         }
     }
 
