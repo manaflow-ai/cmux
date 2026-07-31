@@ -139,10 +139,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     func freshRelayBootstrapCredentialAvoidsSecondMint() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
 
-        await settleActivation(fixture) {
-            guard fixture.composition.runtime != nil else { return false }
-            return await fixture.broker.bootstrapRequestCount() >= 1
-        }
+        await fixture.broker.waitForBootstrapRequest()
 
         #expect(fixture.composition.runtime != nil)
         #expect(await fixture.broker.bootstrapRequestCount() >= 1)
@@ -155,9 +152,7 @@ struct MobileIrohRuntimeCompositionCooldownTests {
             suspendRelayBootstrap: true
         )
 
-        await settleActivation(fixture) {
-            await fixture.broker.bootstrapRequestCount() >= 1
-        }
+        await fixture.broker.waitForBootstrapRequest()
 
         #expect(fixture.composition.runtime != nil)
         #expect((await fixture.diagnosticLog.snapshot()).events.contains {
@@ -653,6 +648,7 @@ private actor MobileIrohCooldownBroker:
     private var relayTokenRequests = 0
     private var suspendRelayBootstrap: Bool
     private var relayBootstrapContinuation: CheckedContinuation<Void, Never>?
+    private var bootstrapRequestWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         registrationError: (any Error)?,
@@ -719,6 +715,9 @@ private actor MobileIrohCooldownBroker:
     ) async throws -> CmxIrohRelayBootstrapResponse {
         totalRequests += 1
         bootstrapRequests += 1
+        let waiters = bootstrapRequestWaiters
+        bootstrapRequestWaiters.removeAll()
+        waiters.forEach { $0.resume() }
         if suspendRelayBootstrap {
             await withCheckedContinuation { continuation in
                 relayBootstrapContinuation = continuation
@@ -756,6 +755,13 @@ private actor MobileIrohCooldownBroker:
     func discoveryRequestCount() -> Int { discoveryRequests }
     func bootstrapRequestCount() -> Int { bootstrapRequests }
     func relayTokenRequestCount() -> Int { relayTokenRequests }
+
+    func waitForBootstrapRequest() async {
+        guard bootstrapRequests == 0 else { return }
+        await withCheckedContinuation { continuation in
+            bootstrapRequestWaiters.append(continuation)
+        }
+    }
 }
 
 private actor MobileIrohCooldownEndpointFactory: CmxIrohEndpointFactory {

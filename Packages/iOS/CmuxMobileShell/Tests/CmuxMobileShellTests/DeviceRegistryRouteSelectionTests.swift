@@ -625,7 +625,9 @@ import Testing
         let springboardRelaunch = SimulatorDeviceIdentityStore(defaults: defaults)
 
         #expect(resolved != nil)
-        #expect(springboardRelaunch.read() == .found(resolved!))
+        if let resolved {
+            #expect(springboardRelaunch.read() == .found(resolved))
+        }
     }
 
     @Test func durableDeviceIDMintsAndPersistsOnFreshInstall() {
@@ -637,7 +639,9 @@ import Testing
         let resolved = DeviceRegistryService.durableDeviceID(store: store, defaults: defaults)
         // A fresh mint is durable only because the store confirmed the write.
         #expect(resolved != nil)
-        #expect(store.read() == .found(resolved!))
+        if let resolved {
+            #expect(store.read() == .found(resolved))
+        }
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == resolved)
     }
 
@@ -806,7 +810,9 @@ import Testing
             store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
         )
         #expect(resolved != nil)
-        #expect(store.read() == .found(resolved!))
+        if let resolved {
+            #expect(store.read() == .found(resolved))
+        }
     }
 
     @Test func durableDeviceIDAdoptsConcurrentWinnerInsteadOfMintingSecondID() {

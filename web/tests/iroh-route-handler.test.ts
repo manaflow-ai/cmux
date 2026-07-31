@@ -131,17 +131,13 @@ describe("Iroh route boundary", () => {
       return response;
     });
 
-    const responseBeforeTimeout = await Promise.race([
-      responsePromise,
-      new Promise<null>((resolve) => {
-        setTimeout(() => resolve(null), 100);
-      }),
-    ]);
-    const settledBeforePublication = responseSettled
-      && responseBeforeTimeout !== null;
+    for (let attempt = 0; attempt < 50 && !responseSettled; attempt += 1) {
+      await Promise.resolve();
+    }
+    const settledBeforePublication = responseSettled;
     releasePublication?.();
     await scheduledPublication?.();
-    const response = responseBeforeTimeout ?? await responsePromise;
+    const response = await responsePromise;
 
     expect(settledBeforePublication).toBe(true);
     expect(response.status).toBe(201);
