@@ -232333,6 +232333,23 @@
         }
       }
     },
+    "surfaceResumeApproval.proposal.applyToPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to all commands starting with “%@” in this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダで「%@」から始まるすべてのコマンドに適用"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {
@@ -232418,6 +232435,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again for this command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドについて今後確認しない"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.message": {
       "extractionState": "manual",
       "localizations": {
@@ -232452,6 +232486,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.runAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて実行"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.skip": {
       "extractionState": "manual",
       "localizations": {
@@ -232465,6 +232516,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skipAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてスキップ"
           }
         }
       }

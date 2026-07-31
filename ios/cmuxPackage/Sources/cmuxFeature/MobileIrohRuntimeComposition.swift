@@ -2774,9 +2774,8 @@ extension MobileIrohRuntimeComposition {
             if let instanceTag { return binding.tag == instanceTag }
             return true
         }
-        // Bound the WHOLE operation. A discovery snapshot allows up to 256
-        // bindings and each revoke request carries its own network timeout, so
-        // an unbounded sequential loop could keep the forget (and its UI
+        // Bound the WHOLE operation. Each revoke request carries its own network
+        // timeout, so a large sequential loop could keep the forget (and its UI
         // progress state) busy for tens of minutes. Past the deadline, stop and
         // surface the failure: already-applied revokes stand, and retrying the
         // forget re-discovers and revokes only what remains.
