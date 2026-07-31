@@ -1,4 +1,5 @@
 import Foundation
+internal import os
 import Security
 
 /// The outcome of reading the persisted device id.
@@ -70,7 +71,7 @@ final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Send
     // actor boundary. DeviceIdentityStoring has synchronous requirements, so
     // actor isolation is not a drop-in replacement. The lock protects only one
     // UserDefaults read/write pair.
-    private static let processLock = NSLock()
+    private static let processLock = OSAllocatedUnfairLock(initialState: ())
     private static let deviceIDKey = "cmux.deviceRegistry.iosDeviceID"
 
     private let defaults: UserDefaults
@@ -83,25 +84,24 @@ final class SimulatorDeviceIdentityStore: DeviceIdentityStoring, @unchecked Send
     }
 
     func read() -> DeviceIdentityReadResult {
-        Self.processLock.lock()
-        defer { Self.processLock.unlock() }
-        return readLocked()
+        Self.processLock.withLock { _ in
+            readLocked()
+        }
     }
 
     func createOrAdopt(_ desired: String) -> String? {
-        Self.processLock.lock()
-        defer { Self.processLock.unlock() }
-
-        switch readLocked() {
-        case .found(let winner):
-            return winner
-        case .absent:
-            guard let candidate = Self.usable(desired) else { return nil }
-            defaults.set(candidate, forKey: Self.deviceIDKey)
-            return Self.usable(defaults.string(forKey: Self.deviceIDKey))
-        case .unavailable:
-            // UserDefaults has no temporarily-locked state.
-            return nil
+        Self.processLock.withLock { _ in
+            switch readLocked() {
+            case .found(let winner):
+                return winner
+            case .absent:
+                guard let candidate = Self.usable(desired) else { return nil }
+                defaults.set(candidate, forKey: Self.deviceIDKey)
+                return Self.usable(defaults.string(forKey: Self.deviceIDKey))
+            case .unavailable:
+                // UserDefaults has no temporarily-locked state.
+                return nil
+            }
         }
     }
 
