@@ -414,7 +414,6 @@ final class BrowserScreenshotDOMProbeCollector {
               },
               foreground,
               background,
-              element,
               centerX,
               centerY
             });
@@ -435,71 +434,10 @@ final class BrowserScreenshotDOMProbeCollector {
             return { viewportWidth, viewportHeight, probes: [] };
           }
 
-          // elementFromPoint intentionally ignores pointer-events:none layers,
-          // even though they still paint. Audit geometry across a generously
-          // bounded DOM, but resolve styles only for boxes intersecting one of
-          // the at-most-12 selected probe points.
-          const maximumAuditedElements = 50000;
-          const maximumStyledIntersections = 512;
-          const overlayElements = document.body.querySelectorAll("*");
-          if (overlayElements.length > maximumAuditedElements) {
-            return { viewportWidth, viewportHeight, probes: [] };
-          }
-          const coveredProbes = new Set();
-          let styledIntersections = 0;
-          for (const element of overlayElements) {
-            const rect = element.getBoundingClientRect();
-            if (
-              rect.width <= 0
-              || rect.height <= 0
-              || rect.right <= 0
-              || rect.bottom <= 0
-              || rect.left >= viewportWidth
-              || rect.top >= viewportHeight
-            ) {
-              continue;
-            }
-            const intersectingProbes = probes.filter((probe) => (
-              !element.contains(probe.element)
-              && probe.centerX >= rect.left
-              && probe.centerX <= rect.right
-              && probe.centerY >= rect.top
-              && probe.centerY <= rect.bottom
-            ));
-            if (intersectingProbes.length === 0) continue;
-            styledIntersections += 1;
-            if (styledIntersections > maximumStyledIntersections) {
-              return { viewportWidth, viewportHeight, probes: [] };
-            }
-            const style = styleFor(element);
-            if (
-              style.pointerEvents !== "none"
-              || style.display === "none"
-              || style.visibility !== "visible"
-              || Number(style.opacity) < 0.001
-            ) {
-              continue;
-            }
-            const background = parseColor(style.backgroundColor);
-            const paintsBox = (
-              (background && background.alpha > 0.001)
-              || style.backgroundImage !== "none"
-              || style.boxShadow !== "none"
-              || style.filter !== "none"
-              || (style.backdropFilter && style.backdropFilter !== "none")
-            );
-            if (!paintsBox) continue;
-            for (const probe of intersectingProbes) {
-              coveredProbes.add(probe);
-            }
-          }
-
           return {
             viewportWidth,
             viewportHeight,
-            probes: probes
-              .filter((probe) => !coveredProbes.has(probe))
-              .map(({ element, centerX, centerY, ...probe }) => probe)
+            probes: probes.map(({ centerX, centerY, ...probe }) => probe)
           };
         })();
         """

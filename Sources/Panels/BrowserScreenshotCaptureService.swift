@@ -6,7 +6,7 @@ import WebKit
 @MainActor
 struct BrowserScreenshotCaptureService {
     enum Presentation: Equatable {
-        /// A genuinely visible view, where WebKit can wait for recent screen updates.
+        /// A view owned by a user-visible pane and left in its existing host.
         case onscreen
         /// A hidden view temporarily attached to the offscreen render host.
         ///
@@ -14,13 +14,12 @@ struct BrowserScreenshotCaptureService {
         /// no displayed window update to deliver.
         case offscreen
 
-        var afterScreenUpdates: Bool {
-            switch self {
-            case .onscreen:
-                true
-            case .offscreen:
-                false
-            }
+        func afterScreenUpdates(windowIsVisible: Bool) -> Bool {
+            self == .onscreen && windowIsVisible
+        }
+
+        var usesOffscreenRenderHost: Bool {
+            self == .offscreen
         }
 
         func waitsForAnimationFrame(isRetry: Bool) -> Bool {
@@ -37,12 +36,12 @@ struct BrowserScreenshotCaptureService {
 
         static func resolve(
             isVisibleInUI: Bool,
-            windowIsVisible: Bool,
+            isAttachedToWindow: Bool,
             isHiddenOrHasHiddenAncestor: Bool,
             boundsSize: NSSize
         ) -> Self {
             guard isVisibleInUI,
-                  windowIsVisible,
+                  isAttachedToWindow,
                   !isHiddenOrHasHiddenAncestor,
                   boundsSize.width > 1,
                   boundsSize.height > 1 else {
@@ -87,7 +86,9 @@ struct BrowserScreenshotCaptureService {
             snapshot: {
                 try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
-                    afterScreenUpdates: presentation.afterScreenUpdates
+                    afterScreenUpdates: presentation.afterScreenUpdates(
+                        windowIsVisible: webView.window?.occlusionState.contains(.visible) == true
+                    )
                 )
             },
             makePixelSource: {

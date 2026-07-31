@@ -125,14 +125,7 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             return nil
         }
 
-        let alphaFirst = bitmap.bitmapFormat.contains(.alphaFirst)
-        let littleEndian = bitmap.bitmapFormat.contains(.thirtyTwoBitLittleEndian)
-        if littleEndian {
-            return alphaFirst
-                ? ChannelOffsets(red: 2, green: 1, blue: 0, alpha: 3)
-                : ChannelOffsets(red: 3, green: 2, blue: 1, alpha: 0)
-        }
-        return alphaFirst
+        return bitmap.bitmapFormat.contains(.alphaFirst)
             ? ChannelOffsets(red: 1, green: 2, blue: 3, alpha: 0)
             : ChannelOffsets(red: 0, green: 1, blue: 2, alpha: 3)
     }
@@ -143,6 +136,8 @@ public struct BrowserScreenshotBitmapPixelSource: BrowserScreenshotFrameVerifier
             .floatingPointSamples,
             .sixteenBitLittleEndian,
             .sixteenBitBigEndian,
+            .thirtyTwoBitLittleEndian,
+            .thirtyTwoBitBigEndian,
         ]
         let samplesPerPixel = bitmap.samplesPerPixel
         return bitmap.pixelsWide > 0

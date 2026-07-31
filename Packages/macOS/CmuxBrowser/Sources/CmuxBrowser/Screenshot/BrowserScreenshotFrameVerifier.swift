@@ -3,7 +3,8 @@ public import AppKit
 /// Conservatively checks whether stable, high-contrast DOM text appears in a browser snapshot.
 ///
 /// The verifier accepts inconclusive frames and reports a mismatch only when
-/// multiple stable text probes each map to a uniform pixel region.
+/// multiple stable text probes each map to a uniform pixel region matching the
+/// opaque solid background expected by the DOM.
 public struct BrowserScreenshotFrameVerifier: Sendable {
     /// A normalized pixel color used by the frame verifier.
     public struct RGBA: Equatable, Sendable {
@@ -117,7 +118,7 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     public enum Outcome: Equatable, Sendable {
         /// The snapshot is valid or the available evidence is inconclusive.
         case accepted
-        /// At least the configured minimum number of stable probes were uniform.
+        /// At least the configured minimum number of stable probes matched their backgrounds.
         ///
         /// The associated probe identifies the first mismatching rectangle;
         /// `count` is the total number of mismatches found in the bounded set.
@@ -137,7 +138,8 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     ///   - minimumMismatchCount: Stable uniform probes required to reject a frame.
     ///   - maximumProbeCount: Maximum stable probes evaluated per frame.
     ///   - rectTolerance: Maximum CSS-point drift allowed between probe collections.
-    ///   - uniformityTolerance: Maximum normalized channel difference treated as uniform.
+    ///   - uniformityTolerance: Maximum normalized channel difference treated as uniform
+    ///     and as matching the DOM-derived solid background.
     ///   - minimumForegroundContrast: Minimum normalized text/background channel distance.
     ///   - maximumSamplesPerProbe: Approximate upper bound on sampled pixels per probe.
     public init(
@@ -212,8 +214,9 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
     }
 
     /// A painted glyph introduces color or alpha variation inside its range.
-    /// A missing layer stays uniform even when it reveals a different solid
-    /// color (or transparency) than the CSS background expected by the DOM.
+    /// A missing glyph reveals the solid CSS background expected by the DOM.
+    /// A different uniform color is inconclusive because an unobservable
+    /// pointer-events-none overlay may legitimately cover the text.
     private func pixelsAreUniform(
         _ probe: Probe,
         viewportSize: NSSize,
@@ -268,7 +271,8 @@ public struct BrowserScreenshotFrameVerifier: Sendable {
                 }
             }
         }
-        return referenceColor != nil
+        guard let referenceColor else { return false }
+        return referenceColor.distance(from: probe.background) <= uniformityTolerance
     }
 
     /// Maps a probe to one of sixteen viewport cells for independent mismatch evidence.

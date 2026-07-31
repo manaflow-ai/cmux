@@ -7392,7 +7392,7 @@ extension BrowserPanel {
         var timeoutTimer: Timer?
         var didFinish = false
         let presentation = visualAutomationPresentation
-        let usesOffscreenRenderHost = presentation == .offscreen
+        let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
         var operationTask: Task<Void, Never>?
 
         let finish: (Result<T, Error>) -> Void = { result in
@@ -7469,13 +7469,13 @@ extension BrowserPanel {
     }
 
     private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
-        visualAutomationPresentation == .offscreen
+        visualAutomationPresentation.usesOffscreenRenderHost
     }
 
     private var visualAutomationPresentation: BrowserScreenshotCaptureService.Presentation {
         BrowserScreenshotCaptureService.Presentation.resolve(
             isVisibleInUI: isWebViewVisibleInUI,
-            windowIsVisible: webView.window?.occlusionState.contains(.visible) == true,
+            isAttachedToWindow: webView.window != nil,
             isHiddenOrHasHiddenAncestor: webView.isHiddenOrHasHiddenAncestor,
             boundsSize: webView.bounds.size
         )

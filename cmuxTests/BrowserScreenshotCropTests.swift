@@ -180,11 +180,18 @@ struct BrowserScreenshotCropTests {
 
     @Test
     func screenshotPresentationUsesScreenUpdatesOnlyWhenVisible() {
-        #expect(BrowserScreenshotCaptureService.Presentation.onscreen.afterScreenUpdates)
-        #expect(!BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates)
+        let onscreen = BrowserScreenshotCaptureService.Presentation.onscreen
+        #expect(onscreen.afterScreenUpdates(windowIsVisible: true))
+        #expect(!onscreen.afterScreenUpdates(windowIsVisible: false))
+        #expect(!onscreen.usesOffscreenRenderHost)
+        #expect(BrowserScreenshotCaptureService.Presentation.offscreen.usesOffscreenRenderHost)
         #expect(
-            BrowserScreenshotCaptureService.Presentation.onscreen
-                .waitsForAnimationFrame(isRetry: false)
+            !BrowserScreenshotCaptureService.Presentation.offscreen.afterScreenUpdates(
+                windowIsVisible: true
+            )
+        )
+        #expect(
+            onscreen.waitsForAnimationFrame(isRetry: false)
         )
         #expect(
             !BrowserScreenshotCaptureService.Presentation.offscreen
@@ -197,24 +204,24 @@ struct BrowserScreenshotCropTests {
         #expect(
             BrowserScreenshotCaptureService.Presentation.resolve(
                 isVisibleInUI: true,
-                windowIsVisible: true,
+                isAttachedToWindow: true,
                 isHiddenOrHasHiddenAncestor: false,
                 boundsSize: NSSize(width: 1600, height: 1200)
-            ) == .onscreen
+            ) == onscreen
         )
         #expect(
             BrowserScreenshotCaptureService.Presentation.resolve(
                 isVisibleInUI: true,
-                windowIsVisible: false,
-                isHiddenOrHasHiddenAncestor: false,
+                isAttachedToWindow: true,
+                isHiddenOrHasHiddenAncestor: true,
                 boundsSize: NSSize(width: 1600, height: 1200)
             ) == .offscreen
         )
         #expect(
             BrowserScreenshotCaptureService.Presentation.resolve(
                 isVisibleInUI: true,
-                windowIsVisible: true,
-                isHiddenOrHasHiddenAncestor: true,
+                isAttachedToWindow: false,
+                isHiddenOrHasHiddenAncestor: false,
                 boundsSize: NSSize(width: 1600, height: 1200)
             ) == .offscreen
         )
@@ -425,7 +432,7 @@ struct BrowserScreenshotCropTests {
     }
 
     @Test
-    func verifierRejectsUniformBlankThatDiffersFromCSSBackground() {
+    func verifierAcceptsUniformPixelsThatDifferFromCSSBackground() {
         let probes = textProbeSet()
         let outcome = BrowserScreenshotFrameVerifier().verify(
             before: probes,
@@ -433,6 +440,21 @@ struct BrowserScreenshotCropTests {
             pixels: SolidPixelSource(
                 pixelSize: probes.viewportSize,
                 color: .white
+            )
+        )
+
+        #expect(outcome == .accepted)
+    }
+
+    @Test
+    func verifierRejectsUniformBlankMatchingCSSBackground() {
+        let probes = textProbeSet()
+        let outcome = BrowserScreenshotFrameVerifier().verify(
+            before: probes,
+            after: probes,
+            pixels: SolidPixelSource(
+                pixelSize: probes.viewportSize,
+                color: .black
             )
         )
 
@@ -568,6 +590,39 @@ struct BrowserScreenshotCropTests {
         #expect(top.red < 0.1)
         #expect(bottom.red > 0.9)
         #expect(bottom.blue < 0.1)
+    }
+
+    @Test
+    func bitmapPixelSourceReadsAlphaFirstPackedBytes() throws {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 1,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [.alphaFirst],
+            bytesPerRow: 4,
+            bitsPerPixel: 32
+        ))
+        let bytes = try #require(bitmap.bitmapData)
+        bytes[0] = 255
+        bytes[1] = 255
+        bytes[2] = 0
+        bytes[3] = 0
+        bitmap.size = NSSize(width: 1, height: 1)
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+
+        let source = try #require(BrowserScreenshotBitmapPixelSource(image: image))
+        let color = try #require(source.color(at: NSPoint(x: 0.5, y: 0.5)))
+
+        #expect(color.red > 0.9)
+        #expect(color.green < 0.1)
+        #expect(color.blue < 0.1)
+        #expect(color.alpha > 0.9)
     }
 
     @Test
