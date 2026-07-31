@@ -35,29 +35,33 @@ export type ProMetadataCustomer = {
 
 /**
  * Writes `cmuxPlan: "pro"` into the user's clientReadOnlyMetadata when Pro is
- * active, and removes it when Pro lapsed. No-op when already in sync.
+ * active, and removes it when Pro lapsed. Returns the normalized metadata
+ * snapshot that was written or observed.
  */
 export async function syncProPlanMetadata(
   user: ProMetadataCustomer,
   isPro: boolean,
-): Promise<void> {
+): Promise<ProMetadataJson> {
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
-  if (metadata.cmuxAccountDeleting === true) return;
+  if (metadata.cmuxAccountDeleting === true) {
+    return metadata as ProMetadataJson;
+  }
   const current = metadata.cmuxPlan;
 
   if (isPro) {
-    if (current === PRO_PLAN_ID) return;
+    if (current === PRO_PLAN_ID) return metadata as ProMetadataJson;
     metadata.cmuxPlan = PRO_PLAN_ID;
   } else {
-    if (current !== PRO_PLAN_ID) return;
+    if (current !== PRO_PLAN_ID) return metadata as ProMetadataJson;
     delete metadata.cmuxPlan;
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+  return metadata as ProMetadataJson;
 }
 
 export type ProReconcileUser = ProMetadataCustomer & {

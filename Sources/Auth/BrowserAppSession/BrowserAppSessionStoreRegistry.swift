@@ -52,6 +52,11 @@ final class BrowserAppSessionStoreRegistry {
         livePanels[ObjectIdentifier(panel)] = BrowserAppSessionWeakReference(panel)
     }
 
+    var hasOwnership: Bool {
+        pruneReleasedOwnership()
+        return !liveStores.isEmpty || !livePanels.isEmpty
+    }
+
     func panelsForCleanup() -> [BrowserPanel] {
         pruneReleasedOwnership()
         return livePanels.values.compactMap(\.value).filter {

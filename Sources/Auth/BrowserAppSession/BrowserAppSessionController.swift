@@ -17,8 +17,12 @@ final class BrowserAppSessionController {
     private let session: URLSession
     private let storeRegistry: BrowserAppSessionStoreRegistry
     private var generation: UInt64 = 0
-    private var acceptsHandoffs = true
+    private var admission = BrowserAppSessionAdmission()
     private var activeTasks: [UUID: Task<BrowserAppSessionRequestOutcome, Never>] = [:]
+    private var pendingCleanup: (
+        id: UUID,
+        task: Task<Void, Never>
+    )?
 
     init(
         coordinator: AuthCoordinator,
@@ -57,7 +61,10 @@ final class BrowserAppSessionController {
     func request(
         destinationURL: URL
     ) async -> BrowserAppSessionRequestOutcome {
-        guard acceptsHandoffs else { return .notAuthenticated }
+        guard let authOwner = currentAuthOwner,
+              admission.allows(authOwner) else {
+            return .notAuthenticated
+        }
         let websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let requestGeneration = generation
         let operationID = UUID()
@@ -79,7 +86,8 @@ final class BrowserAppSessionController {
         generation requestGeneration: UInt64,
         authSessionGeneration: UInt64
     ) -> Bool {
-        acceptsHandoffs
+        guard let authOwner = currentAuthOwner else { return false }
+        return admission.allows(authOwner)
             && requestGeneration == generation
             && authSessionGeneration == coordinator.authSessionGeneration
     }
@@ -88,23 +96,73 @@ final class BrowserAppSessionController {
         storeRegistry.register(panel)
     }
 
-    /// Synchronously closes the handoff admission gate and cancels every
-    /// exchange before sign-out performs its first await.
-    func beginSignOut() {
-        acceptsHandoffs = false
+    /// Synchronously closes the handoff admission gate before any auth
+    /// transition publishes or clears coordinator state. Cleanup runs once and
+    /// the next authenticated generation cannot reopen admission until it joins.
+    func beginAuthTransition() {
+        let hadAdmission = admission.beginTransition()
+        guard hadAdmission
+                || !activeTasks.isEmpty
+                || storeRegistry.hasOwnership else {
+            return
+        }
         generation &+= 1
         for task in activeTasks.values {
             task.cancel()
         }
+        startCleanupIfNeeded()
     }
 
-    func resumeAfterSignIn() {
-        acceptsHandoffs = true
+    func resumeAfterSignIn() async {
+        guard let expectedOwner = currentAuthOwner else { return }
+        if let admittedOwner = admission.owner,
+           admittedOwner != expectedOwner {
+            beginAuthTransition()
+        }
+        await awaitPendingCleanup()
+        guard !Task.isCancelled,
+              currentAuthOwner == expectedOwner else {
+            return
+        }
+        admission.resume(for: expectedOwner)
     }
 
     /// Joins cancelled exchanges before deleting the exact stores that received
     /// app-session cookies. No unrelated browser profile is swept.
     func clearCmuxWebSession() async {
+        beginAuthTransition()
+        await awaitPendingCleanup()
+    }
+
+    private var currentAuthOwner: BrowserAppSessionAuthOwner? {
+        guard coordinator.isAuthenticated,
+              let userID = coordinator.currentUser?.id else {
+            return nil
+        }
+        return BrowserAppSessionAuthOwner(
+            userID: userID,
+            authSessionGeneration: coordinator.authSessionGeneration
+        )
+    }
+
+    private func startCleanupIfNeeded() {
+        guard pendingCleanup == nil else { return }
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            await self?.performCleanup()
+        }
+        pendingCleanup = (id: id, task: task)
+    }
+
+    private func awaitPendingCleanup() async {
+        guard let cleanup = pendingCleanup else { return }
+        await cleanup.task.value
+        if pendingCleanup?.id == cleanup.id {
+            pendingCleanup = nil
+        }
+    }
+
+    private func performCleanup() async {
         let tasks = Array(activeTasks.values)
         for task in tasks {
             task.cancel()
@@ -198,7 +256,10 @@ final class BrowserAppSessionController {
     }
 
     private func localHandoffIsCurrent(_ requestGeneration: UInt64) -> Bool {
-        acceptsHandoffs && !Task.isCancelled && requestGeneration == generation
+        guard let authOwner = currentAuthOwner else { return false }
+        return admission.allows(authOwner)
+            && !Task.isCancelled
+            && requestGeneration == generation
     }
 
     private func handoffIsCurrent(

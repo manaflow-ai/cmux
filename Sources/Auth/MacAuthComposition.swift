@@ -139,6 +139,9 @@ struct MacAuthComposition {
             anchor: anchor,
             config: config,
             launch: launch,
+            onSessionWillTransition: {
+                browserAppSessionSignInRelay.sessionWillTransition()
+            },
             onSignedIn: {
                 await browserAppSessionSignInRelay.signedIn()
             }
@@ -151,9 +154,14 @@ struct MacAuthComposition {
             defaults: defaults
         )
         self.browserAppSession = browserAppSession
-        browserAppSessionSignInRelay.bind { [weak browserAppSession] in
-            browserAppSession?.resumeAfterSignIn()
-        }
+        browserAppSessionSignInRelay.bind(
+            beginTransition: { [weak browserAppSession] in
+                browserAppSession?.beginAuthTransition()
+            },
+            resume: { [weak browserAppSession] in
+                await browserAppSession?.resumeAfterSignIn()
+            }
+        )
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
@@ -167,7 +175,7 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
-                browserAppSession.beginSignOut()
+                browserAppSession.beginAuthTransition()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {

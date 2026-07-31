@@ -2,13 +2,22 @@
 /// controller without introducing a construction cycle.
 @MainActor
 final class BrowserAppSessionSignInRelay {
-    private var resume: (@MainActor () -> Void)?
+    private var beginTransition: (@MainActor () -> Void)?
+    private var resume: (@MainActor () async -> Void)?
 
-    func bind(_ resume: @escaping @MainActor () -> Void) {
+    func bind(
+        beginTransition: @escaping @MainActor () -> Void,
+        resume: @escaping @MainActor () async -> Void
+    ) {
+        self.beginTransition = beginTransition
         self.resume = resume
     }
 
-    func signedIn() {
-        resume?()
+    func sessionWillTransition() {
+        beginTransition?()
+    }
+
+    func signedIn() async {
+        await resume?()
     }
 }

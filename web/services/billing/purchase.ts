@@ -434,11 +434,12 @@ export async function applySubscriptionUpdate(
     stackUserId: lockedResult.stackUserId,
     stackApp: dependencies.stackApp ?? stackServerApp,
     sync: async (freshUser) => {
-      await syncProPlanMetadata(freshUser, isActive);
+      const currentMetadata = await syncProPlanMetadata(freshUser, isActive);
       if (!isActive) {
         await removeUserFromTestflightOnLapse(
           freshUser,
           lockedResult.stackUserId,
+          currentMetadata,
           dependencies,
         );
       }
@@ -596,6 +597,7 @@ async function loadStackTeam(
 async function removeUserFromTestflightOnLapse(
   user: StackBillingUser,
   stackUserId: string,
+  metadataAfterPlanLapse: ProMetadataJson,
   dependencies: BillingPurchaseDependencies,
 ): Promise<void> {
   const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
@@ -604,7 +606,7 @@ async function removeUserFromTestflightOnLapse(
   try {
     await removeProTesterAccess(
       user.primaryEmail,
-      user.clientReadOnlyMetadata,
+      metadataAfterPlanLapse,
       dependencies.testflight?.removeTester ?? removeTester,
       {
         updateMetadata: (clientReadOnlyMetadata) => user.update({

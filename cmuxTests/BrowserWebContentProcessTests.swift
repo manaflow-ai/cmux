@@ -351,18 +351,28 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func browserAppSessionSignInRelayReopensAdmissionAfterAnySuccessfulSignIn() {
+    func browserAppSessionSignInRelayClosesAndReopensAdmissionAcrossTransitions() async {
         let relay = BrowserAppSessionSignInRelay()
+        var transitionCount = 0
         var resumeCount = 0
 
-        relay.signedIn()
+        relay.sessionWillTransition()
+        await relay.signedIn()
+        #expect(transitionCount == 0)
         #expect(resumeCount == 0)
 
-        relay.bind {
-            resumeCount += 1
-        }
-        relay.signedIn()
+        relay.bind(
+            beginTransition: {
+                transitionCount += 1
+            },
+            resume: {
+                resumeCount += 1
+            }
+        )
+        relay.sessionWillTransition()
+        await relay.signedIn()
 
+        #expect(transitionCount == 1)
         #expect(resumeCount == 1)
     }
 

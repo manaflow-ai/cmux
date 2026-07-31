@@ -73,6 +73,7 @@ public final class AuthCoordinator {
     private let isOnline: @Sendable () async -> Bool
     /// Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
     let isTokenStorageAvailable: @Sendable () async -> Bool
+    private let onSessionWillTransition: @MainActor @Sendable () -> Void
     private let onSignedIn: @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
@@ -175,6 +176,8 @@ public final class AuthCoordinator {
     ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
     ///     Defaults to always-online so tests need not supply it.
     ///   - isTokenStorageAvailable: Reports whether the persisted token store is currently readable. On iOS the data-protection keychain is unreadable before the first unlock after boot (background push launch, prewarm); an empty token read while unavailable must be treated as transient, never as a signed-out verdict.
+    ///   - onSessionWillTransition: Synchronous hook invoked before the
+    ///     coordinator advances to a different auth-session generation.
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
@@ -190,6 +193,7 @@ public final class AuthCoordinator {
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
+        onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) {
         self.client = client
@@ -203,6 +207,7 @@ public final class AuthCoordinator {
         self.clock = clock
         self.isOnline = isOnline
         self.isTokenStorageAvailable = isTokenStorageAvailable
+        self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
@@ -498,7 +503,7 @@ public final class AuthCoordinator {
         // publish-driven generation bump even while `isAuthenticated` still
         // reads the old session's stale `true` (it flips only at the end of
         // the local clear below).
-        sessionGeneration &+= 1
+        advanceSessionGeneration()
         signOutEpoch &+= 1
         await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
 
@@ -611,10 +616,10 @@ public final class AuthCoordinator {
         // declaration — see ``SessionPublication``.
         switch publication {
         case .signIn:
-            sessionGeneration &+= 1
+            advanceSessionGeneration()
         case .revalidation:
             if !isAuthenticated || currentUser?.id != user.id {
-                sessionGeneration &+= 1
+                advanceSessionGeneration()
             }
         }
         let generation = sessionGeneration
@@ -671,7 +676,7 @@ public final class AuthCoordinator {
     }
 
     func clearAuthState(preservePendingCode: Bool = false) {
-        sessionGeneration &+= 1
+        advanceSessionGeneration()
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
@@ -679,6 +684,11 @@ public final class AuthCoordinator {
         availableTeams = []
         selectedTeamID = nil
         apply(.cleared())
+    }
+
+    private func advanceSessionGeneration() {
+        onSessionWillTransition()
+        sessionGeneration &+= 1
     }
 
     /// Whether one coordinator-owned transition can legitimately observe an

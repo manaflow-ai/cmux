@@ -1112,7 +1112,11 @@ describe("recordCheckoutCompletion", () => {
   });
 
   test("does not restore Pro metadata while removing recorded TestFlight ownership after a lapse", async () => {
-    const update = mock(async () => undefined);
+    const metadataWrites: unknown[] = [];
+    const update = mock(async (...args: unknown[]) => {
+      const [options] = args as [{ readonly clientReadOnlyMetadata: unknown }];
+      metadataWrites.push(options.clientReadOnlyMetadata);
+    });
     const removeTester = mock(async () => undefined);
     const user = {
       id: "user_123",
@@ -1140,9 +1144,6 @@ describe("recordCheckoutCompletion", () => {
       },
     );
 
-    const metadataWrites = update.mock.calls.map(
-      ([options]) => options.clientReadOnlyMetadata,
-    );
     expect(metadataWrites).toHaveLength(2);
     expect(metadataWrites[0]).not.toHaveProperty("cmuxPlan");
     expect(metadataWrites[1]).toEqual({});
