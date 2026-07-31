@@ -2217,14 +2217,7 @@ final class WindowTerminalPortal: NSObject {
         for hostedId: ObjectIdentifier,
         hostedView: GhosttySurfaceScrollView
     ) {
-        let isPresented =
-            entriesByHostedId[hostedId]?.visibleInUI == true &&
-            !hostedView.isHidden &&
-            hostedView.window === window &&
-            hostedView.superview === hostView &&
-            hostedView.bounds.width > Self.tinyHideThreshold &&
-            hostedView.bounds.height > Self.tinyHideThreshold
-        guard isPresented else {
+        guard isPresented(hostedView, hostedId: hostedId) else {
             presentedHostedIds.remove(hostedId)
             return
         }
@@ -2236,6 +2229,23 @@ final class WindowTerminalPortal: NSObject {
                 object: hostedView
             )
         }
+    }
+
+    func isPresented(
+        _ hostedView: GhosttySurfaceScrollView,
+        hostedId: ObjectIdentifier? = nil
+    ) -> Bool {
+        let hostedId = hostedId ?? ObjectIdentifier(hostedView)
+        guard let entry = entriesByHostedId[hostedId],
+              entry.hostedView === hostedView else {
+            return false
+        }
+        return entry.visibleInUI &&
+            !hostedView.isHidden &&
+            hostedView.window === window &&
+            hostedView.superview === hostView &&
+            hostedView.bounds.width > Self.tinyHideThreshold &&
+            hostedView.bounds.height > Self.tinyHideThreshold
     }
 
     private func pruneDeadEntries() {
@@ -2759,6 +2769,15 @@ enum TerminalWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard hostedToWindowId[hostedId] == windowId, let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
+    }
+
+    static func isPresented(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else {
+            return false
+        }
+        return portal.isPresented(hostedView, hostedId: hostedId)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {

@@ -3746,20 +3746,11 @@ struct ContentView: View {
            hostedView.window !== owningWindow {
             return
         }
-        guard Self.terminalPortalIsPresented(hostedView) else { return }
+        guard TerminalWindowPortalRegistry.isPresented(hostedView) else { return }
         tabManager.workspaceSwitchCoordinator.noteTerminalPortalPresented(
             surfaceID: surface.id,
             renderedFrameSequence: hostedView.surfaceView.renderedFrameSequence
         )
-    }
-
-    private static func terminalPortalIsPresented(_ hostedView: GhosttySurfaceScrollView) -> Bool {
-        hostedView.isVisibleInUI &&
-            !hostedView.isHidden &&
-            hostedView.window != nil &&
-            hostedView.superview != nil &&
-            hostedView.bounds.width > 1 &&
-            hostedView.bounds.height > 1
     }
 
     private var commandPaletteOverlay: some View {
