@@ -84,6 +84,7 @@ export class WebSocketTransport implements Transport {
   private readonly onPairingCredential: ((credential: string) => void) | undefined;
   private readonly onAuthenticationRejected: (() => void) | undefined;
   private pendingBytes = 0;
+  private flushing = false;
   private authenticated = false;
   private closed = false;
 
@@ -149,20 +150,22 @@ export class WebSocketTransport implements Transport {
         `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
       );
     }
-    if (this.authenticated && this.socket.readyState === 1) {
-      onDispatched();
-      this.socket.send(json);
-      return () => undefined;
-    }
+    const mustBuffer =
+      !this.authenticated
+      || this.socket.readyState !== 1
+      || this.flushing
+      || this.pending.length > 0;
     if (
-      this.pending.length >= this.maxPendingMessages
-      || bytes > this.maxPendingBytes - this.pendingBytes
+      mustBuffer
+      && (this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes)
     ) {
       throw new CmuxConnectionError("pending WebSocket message buffer is full");
     }
     const message = { json, bytes, onDispatched };
     this.pending.push(message);
     this.pendingBytes += bytes;
+    if (this.authenticated && this.socket.readyState === 1) this.flush();
     return () => {
       const index = this.pending.indexOf(message);
       if (index < 0) return;
@@ -207,11 +210,29 @@ export class WebSocketTransport implements Transport {
   }
 
   private flush(): void {
-    while (this.pending.length > 0) {
-      const message = this.pending.shift()!;
-      this.pendingBytes -= message.bytes;
-      message.onDispatched();
-      this.socket.send(message.json);
+    if (this.flushing || this.closed) return;
+    this.flushing = true;
+    try {
+      while (
+        !this.closed
+        && this.authenticated
+        && this.socket.readyState === 1
+        && this.pending.length > 0
+      ) {
+        const message = this.pending.shift()!;
+        this.pendingBytes -= message.bytes;
+        try {
+          message.onDispatched();
+          this.socket.send(message.json);
+        } catch (error) {
+          this.failAndClose(new CmuxConnectionError(
+            `WebSocket dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
+          ));
+          return;
+        }
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 
@@ -221,20 +242,24 @@ export class WebSocketTransport implements Transport {
         ? (event as { data: unknown }).data
         : event;
     if (typeof data !== "string") {
-      this.fail(new CmuxConnectionError("WebSocket server sent a non-text frame"));
-      this.socket.close(1003, "text frames required");
+      this.failAndClose(
+        new CmuxConnectionError("WebSocket server sent a non-text frame"),
+        1003,
+        "text frames required",
+      );
       return;
     }
     const maximum = this.authenticated
       ? this.maxInboundMessageBytes
       : this.maxPreauthenticationMessageBytes;
     if (utf8ByteLength(data) > maximum) {
-      this.fail(
+      this.failAndClose(
         new CmuxConnectionError(
           `WebSocket message exceeds ${maximum} bytes`,
         ),
+        1009,
+        "message too large",
       );
-      this.socket.close(1009, "message too large");
       return;
     }
     if (!this.authenticated) {
@@ -280,8 +305,12 @@ export class WebSocketTransport implements Transport {
       const credential = (message.paired as Record<string, unknown>).credential;
       if (typeof credential === "string") {
         this.authenticated = true;
-        this.flush();
-        this.onPairingCredential?.(credential);
+        invokeCallbacks([
+          () => this.flush(),
+          ...(this.onPairingCredential
+            ? [() => this.onPairingCredential!(credential)]
+            : []),
+        ]);
         return;
       }
     }
@@ -298,7 +327,16 @@ export class WebSocketTransport implements Transport {
   }
 
   private fail(error: Error): void {
-    for (const handler of this.errors) handler(error);
+    invokeCallbacks(
+      [...this.errors].map((handler) => () => handler(error)),
+    );
+  }
+
+  private failAndClose(error: Error, code?: number, reason?: string): void {
+    invokeCallbacks([
+      () => this.fail(error),
+      () => this.socket.close(code, reason),
+    ]);
   }
 
   private finish(event?: WebSocketEventMap["close"]): void {
@@ -306,24 +344,29 @@ export class WebSocketTransport implements Transport {
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
-    let callbackThrew = false;
-    let callbackError: unknown;
-    const invoke = (callback: () => void) => {
-      try {
-        callback();
-      } catch (error) {
-        if (!callbackThrew) {
-          callbackThrew = true;
-          callbackError = error;
-        }
-      }
-    };
+    const callbacks: Array<() => void> = [];
     if (event?.code === 1008 && event.reason === "authentication failed") {
-      if (this.onAuthenticationRejected) invoke(this.onAuthenticationRejected);
+      if (this.onAuthenticationRejected) callbacks.push(this.onAuthenticationRejected);
     }
-    for (const handler of this.closes) invoke(handler);
-    if (callbackThrew) throw callbackError;
+    callbacks.push(...this.closes);
+    invokeCallbacks(callbacks);
   }
+}
+
+function invokeCallbacks(callbacks: Iterable<() => void>): void {
+  let callbackThrew = false;
+  let callbackError: unknown;
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      if (!callbackThrew) {
+        callbackThrew = true;
+        callbackError = error;
+      }
+    }
+  }
+  if (callbackThrew) throw callbackError;
 }
 
 function globalWebSocket(): WebSocketConstructor {

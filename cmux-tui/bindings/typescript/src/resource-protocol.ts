@@ -63,8 +63,9 @@ interface RequestAbandonment {
 }
 
 interface TerminalWaitLease {
-  readonly expiresAt: number;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly durationMs: number;
+  expiresAt?: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface StreamCancellationConfirmation {
@@ -591,6 +592,7 @@ export class ResourceProtocol {
               () => {
                 if (dispatchStarted) return;
                 dispatchStarted = true;
+                this.startTerminalWaitLease(requestId);
                 const release = pending.cancelUndispatched;
                 pending.cancelUndispatched = undefined;
                 release?.();
@@ -608,6 +610,7 @@ export class ResourceProtocol {
             }
           } else {
             dispatchStarted = true;
+            this.startTerminalWaitLease(requestId);
             onDispatchStarted?.();
             this.transport.send(json);
             onDispatched?.();
@@ -1048,23 +1051,32 @@ export class ResourceProtocol {
   private reserveTerminalWait(requestId: string, timeoutMs: number): boolean {
     const now = Date.now();
     for (const [id, lease] of this.terminalWaitLeases) {
-      if (lease.expiresAt <= now) this.releaseTerminalWait(id);
+      if (lease.expiresAt !== undefined && lease.expiresAt <= now) {
+        this.releaseTerminalWait(id);
+      }
     }
     if (this.terminalWaitLeases.size >= TERMINAL_WAIT_CAPACITY) return false;
-    const leaseMs = timeoutMs + TERMINAL_WAIT_RELEASE_GRACE_MS;
-    const timer = setTimeout(() => this.releaseTerminalWait(requestId), leaseMs);
     this.terminalWaitLeases.set(requestId, {
-      expiresAt: now + leaseMs,
-      timer,
+      durationMs: timeoutMs + TERMINAL_WAIT_RELEASE_GRACE_MS,
     });
     return true;
+  }
+
+  private startTerminalWaitLease(requestId: string): void {
+    const lease = this.terminalWaitLeases.get(requestId);
+    if (!lease || lease.timer !== undefined) return;
+    lease.expiresAt = Date.now() + lease.durationMs;
+    lease.timer = setTimeout(
+      () => this.releaseTerminalWait(requestId),
+      lease.durationMs,
+    );
   }
 
   private releaseTerminalWait(requestId: string): void {
     const lease = this.terminalWaitLeases.get(requestId);
     if (!lease) return;
     this.terminalWaitLeases.delete(requestId);
-    clearTimeout(lease.timer);
+    if (lease.timer !== undefined) clearTimeout(lease.timer);
   }
 
   private fail(error: Error, attemptCleanup = true): void {
@@ -1109,7 +1121,9 @@ export class ResourceProtocol {
         }
       }
       this.pending.clear();
-      for (const lease of this.terminalWaitLeases.values()) clearTimeout(lease.timer);
+      for (const lease of this.terminalWaitLeases.values()) {
+        if (lease.timer !== undefined) clearTimeout(lease.timer);
+      }
       this.terminalWaitLeases.clear();
       for (const state of streams) {
         this.rejectStreamCancellation(state, error);

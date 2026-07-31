@@ -270,6 +270,7 @@ test("Unix finish fans out throwing close observers after lifecycle cleanup", as
   const fixture = await delayedUnixFixture();
   const transport = fixture.transport as unknown as { finish(): void };
   const calls: string[] = [];
+  await fixture.release();
   fixture.transport.onClose(() => {
     calls.push("close-one");
     fixture.transport.close();

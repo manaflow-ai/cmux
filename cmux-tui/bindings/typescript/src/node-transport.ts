@@ -199,12 +199,16 @@ export class UnixSocketTransport implements Transport {
   }
 
   private fail(error: Error): void {
-    for (const handler of this.errorHandlers) handler(error);
+    invokeCallbacks(
+      [...this.errorHandlers].map((handler) => () => handler(error)),
+    );
   }
 
   private failAndClose(error: Error): void {
-    this.fail(error);
-    this.socket.destroy();
+    invokeCallbacks([
+      () => this.fail(error),
+      () => this.socket.destroy(),
+    ]);
   }
 
   private finish(): void {
@@ -212,7 +216,25 @@ export class UnixSocketTransport implements Transport {
     this.closed = true;
     this.pending.length = 0;
     this.pendingBytes = 0;
-    this.inbound.dispose();
-    for (const handler of this.closeHandlers) handler();
+    invokeCallbacks([
+      () => this.inbound.dispose(),
+      ...this.closeHandlers,
+    ]);
   }
+}
+
+function invokeCallbacks(callbacks: Iterable<() => void>): void {
+  let callbackThrew = false;
+  let callbackError: unknown;
+  for (const callback of callbacks) {
+    try {
+      callback();
+    } catch (error) {
+      if (!callbackThrew) {
+        callbackThrew = true;
+        callbackError = error;
+      }
+    }
+  }
+  if (callbackThrew) throw callbackError;
 }
