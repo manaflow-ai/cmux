@@ -549,15 +549,17 @@ final class TerminalNotificationStore: ObservableObject {
         result.reserveCapacity(ids.count)
         for id in ids {
             let count = unreadCount(forTabId: id)
-            let latestText: String? = indexes.latestByTabId[id].flatMap { notification in
+            let latestNotification = indexes.latestByTabId[id]
+            let latestText: String? = latestNotification.flatMap { notification in
                 let text = notification.body.isEmpty ? notification.title : notification.body
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
             }
-            if count == 0, latestText == nil { continue }
+            if count == 0, latestNotification == nil { continue }
             result[id] = SidebarWorkspaceUnreadSummary(
                 unreadCount: count,
-                latestNotificationText: latestText
+                latestNotificationText: latestText,
+                hasLatestNotification: latestNotification != nil
             )
         }
         return result
@@ -2318,6 +2320,7 @@ final class TerminalNotificationStore: ObservableObject {
 struct SidebarWorkspaceUnreadSummary: Equatable {
     var unreadCount: Int
     var latestNotificationText: String?
+    var hasLatestNotification: Bool = false
 }
 
 /// Workspace + surface pair used to mirror the store's per-surface unread set.

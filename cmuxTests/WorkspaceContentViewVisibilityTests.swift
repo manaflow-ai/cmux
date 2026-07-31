@@ -278,7 +278,11 @@ final class WorkspaceContentViewVisibilityTests {
         let workspaceId = try #require(tabManager.selectedTabId)
         let unread = SidebarUnreadModel()
         let counts = MinimalModeBodyProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            windowId: UUID(),
+            sidebarUnread: unread
+        )
             .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(unread)

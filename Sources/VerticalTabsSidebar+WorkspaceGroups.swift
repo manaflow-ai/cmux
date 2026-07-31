@@ -31,24 +31,31 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        let unreadSnapshot = sidebarUnread.snapshot
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
                 return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
+                    partial + unreadSnapshot.unreadCount(forWorkspaceId: workspaceId)
                 }
             }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+            return unreadSnapshot.unreadCount(forWorkspaceId: group.anchorWorkspaceId)
         }()
         let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
-        let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
-        let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
+        let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
+        let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(forWorkspaceIds: anchorIds)
+        let anchorHasLatestNotification = unreadSnapshot
+            .summary(forWorkspaceId: group.anchorWorkspaceId)
+            .hasLatestNotification
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
-        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
+        let canMarkAllRead = unreadSnapshot.canMarkWorkspaceRead(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
+        let canMarkAllUnread = unreadSnapshot.canMarkWorkspaceUnread(
+            forWorkspaceIds: nonAnchorMemberIds
+        )
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -203,7 +210,36 @@ extension VerticalTabsSidebar {
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: actions,
-            environment: renderContext.environment
+            environment: renderContext.environment,
+            unreadDependencyWorkspaceIds: Set(memberWorkspaceIds)
+                .union([group.anchorWorkspaceId]),
+            unreadRebuild: {
+                [model, anchorWorkspaceId = group.anchorWorkspaceId,
+                 isCollapsed = group.isCollapsed, memberWorkspaceIds,
+                 nonAnchorMemberIds] snapshot in
+                var fresh = model
+                fresh.anchorUnreadCount = isCollapsed
+                    ? memberWorkspaceIds.reduce(0) {
+                        $0 + snapshot.unreadCount(forWorkspaceId: $1)
+                    }
+                    : snapshot.unreadCount(forWorkspaceId: anchorWorkspaceId)
+                fresh.canMarkRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: [anchorWorkspaceId]
+                )
+                fresh.canMarkUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: [anchorWorkspaceId]
+                )
+                fresh.hasLatestNotifications = snapshot
+                    .summary(forWorkspaceId: anchorWorkspaceId)
+                    .hasLatestNotification
+                fresh.canMarkAllRead = snapshot.canMarkWorkspaceRead(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
+                    forWorkspaceIds: nonAnchorMemberIds
+                )
+                return fresh
+            }
         )
     }
 

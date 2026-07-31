@@ -807,16 +807,19 @@ struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
     let featureFlags: CmuxFeatureFlags
+    let sidebarUnread: SidebarUnreadModel
 
     @MainActor
     init(
         updateViewModel: UpdateStateModel,
         windowId: UUID,
-        featureFlags: CmuxFeatureFlags? = nil
+        featureFlags: CmuxFeatureFlags? = nil,
+        sidebarUnread: SidebarUnreadModel? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
         self.featureFlags = featureFlags ?? .shared
+        self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -824,7 +827,6 @@ struct ContentView: View {
     // ContentView itself must not observe it: one agent notification would
     // otherwise rebuild the terminal, sidebar, and window chrome together.
     var notificationStore: TerminalNotificationStore { .shared }
-    var sidebarUnread: SidebarUnreadModel { notificationStore.sidebarUnread }
     @ObservedObject private var titlebarControlsLayoutModel = TitlebarControlsLayoutModel.shared
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
@@ -1695,6 +1697,7 @@ struct ContentView: View {
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
+            sidebarUnread: sidebarUnread,
             windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
@@ -10483,6 +10486,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.updateViewModel === rhs.updateViewModel
             && lhs.fileExplorerState === rhs.fileExplorerState
             && lhs.featureFlags === rhs.featureFlags
+            && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.isPresented == rhs.isPresented
     }
 
@@ -10490,6 +10494,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @ObservedObject var fileExplorerState: FileExplorerState
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
+    let sidebarUnread: SidebarUnreadModel
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
@@ -10497,11 +10502,8 @@ struct VerticalTabsSidebar: View, Equatable {
     let observedWindowReference: WeakWindowReference
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
-    // Observe the coalesced unread projection instead of the notification store
-    // so notification churn (terminal/agent activity) no longer reconstructs
-    // every workspace row. The store stays available as an unobserved singleton
-    // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
-    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    // Plain reference by design. Native row and titlebar subscribers own the
+    // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
@@ -10558,6 +10560,9 @@ struct VerticalTabsSidebar: View, Equatable {
     /// notifications) would otherwise stay unrendered until the next
     /// unrelated sidebar change. The bump forces one fresh rebuild.
     @State private var appKitPostResizeRefreshToken: UInt64 = 0
+    /// The legacy SwiftUI list still consumes unread state at its container
+    /// boundary. Kept separate so the default AppKit list never subscribes.
+    @State private var legacyUnreadRefreshToken: UInt64 = 0
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
@@ -11121,6 +11126,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 AnyView(
                     legacyWorkspaceScrollArea(renderContext: renderContext)
                         .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
+                        .onReceive(sidebarUnread.$snapshot.dropFirst()) { _ in
+                            legacyUnreadRefreshToken &+= 1
+                        }
                 )
             }
         }
@@ -11185,6 +11193,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func legacyWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        let _ = legacyUnreadRefreshToken
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
         return GeometryReader { viewport in
             // Keep viewport geometry as a downward-only layout input. Writing
@@ -11405,7 +11414,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
-            isPresented: isPresented
+            isPresented: isPresented,
+            unreadSource: sidebarUnread
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .mask(
@@ -11880,7 +11890,18 @@ struct VerticalTabsSidebar: View, Equatable {
             actions: rowActions,
             groupId: input.groupId,
             isPinned: input.workspace.isPinned,
-            environment: environment
+            environment: environment,
+            unreadRebuild: {
+                [model, workspaceId = tab.id,
+                 showsNotificationMessage = input.settings.showsNotificationMessage] snapshot in
+                let summary = snapshot.summary(forWorkspaceId: workspaceId)
+                var fresh = model
+                fresh.unreadCount = summary.unreadCount
+                fresh.latestNotificationText = showsNotificationMessage
+                    ? summary.latestNotificationText
+                    : nil
+                return fresh
+            }
         )
     }
 
@@ -11898,6 +11919,9 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
+            .onReceive(sidebarUnread.$snapshot.dropFirst()) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)

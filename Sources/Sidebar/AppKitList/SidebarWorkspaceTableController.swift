@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
@@ -31,6 +32,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    private weak var unreadSource: SidebarUnreadModel?
+    private var unreadSnapshot = SidebarUnreadSnapshot()
+    private var unreadCancellable: AnyCancellable?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
@@ -57,6 +61,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
         previewBailoutTask?.cancel()
+        unreadCancellable?.cancel()
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -156,6 +161,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let postUpdateActions = detachLoadedCells()
         workspaceDragSessionDidEnd()
         actions = nil
+        unreadCancellable?.cancel()
+        unreadCancellable = nil
+        unreadSource = nil
+        unreadSnapshot = SidebarUnreadSnapshot()
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -170,6 +179,63 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         container.tableView.delegate = nil
         containerView = nil
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
+    }
+
+    /// Installs one unread subscription for the native table. Snapshot changes
+    /// are projected directly into affected visible cells, bypassing SwiftUI's
+    /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
+    func setUnreadSource(_ source: SidebarUnreadModel) {
+        guard unreadSource !== source else { return }
+        unreadCancellable?.cancel()
+        unreadSource = source
+        unreadSnapshot = source.snapshot
+        unreadCancellable = source.$snapshot
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in
+                MainActor.assumeIsolated {
+                    self?.applyUnreadSnapshot(snapshot)
+                }
+            }
+    }
+
+    private func applyUnreadSnapshot(_ nextSnapshot: SidebarUnreadSnapshot) {
+        let previousSnapshot = unreadSnapshot
+        unreadSnapshot = nextSnapshot
+        guard isPresentationActive, let table = containerView?.tableView else { return }
+
+        let candidateIds = Set(previousSnapshot.summaryByWorkspaceId.keys)
+            .union(nextSnapshot.summaryByWorkspaceId.keys)
+        let changedWorkspaceIds = Set(candidateIds.filter {
+            previousSnapshot.summary(forWorkspaceId: $0)
+                != nextSnapshot.summary(forWorkspaceId: $0)
+        })
+        guard !changedWorkspaceIds.isEmpty else { return }
+
+        var changedRows = IndexSet()
+        for row in rows.indices {
+            let configuration = rows[row]
+            guard !configuration.appKitUnreadDependencyWorkspaceIds.isDisjoint(
+                with: changedWorkspaceIds
+            ) else {
+                continue
+            }
+            let updated = configuration.applyingUnreadSnapshot(nextSnapshot)
+            guard !configuration.hasEquivalentContent(to: updated) else { continue }
+            rows[row] = updated
+            changedRows.insert(row)
+        }
+        guard !changedRows.isEmpty else { return }
+
+        let heightChanges = rowHeightCache.prepareRows(
+            at: changedRows,
+            in: rows,
+            columnWidth: currentColumnWidth()
+        )
+        reconfigureVisibleRows(changedRows)
+        if !heightChanges.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, heightChanges)
+        }
     }
 
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
@@ -277,7 +343,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard isPresentationActive, let containerView else { return }
-        let nextRows = input.rows
+        let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
