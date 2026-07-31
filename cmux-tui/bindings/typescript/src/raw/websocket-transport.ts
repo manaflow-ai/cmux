@@ -1,4 +1,5 @@
 import type { Transport, Unsubscribe } from "../transport.js";
+import { WebSocketLifecycle } from "../internal/websocket-lifecycle.js";
 import {
   MAX_INBOUND_MESSAGE_BYTES,
   MAX_OUTBOUND_MESSAGE_BYTES,
@@ -8,7 +9,6 @@ import {
   positiveLimit,
   utf8ByteLength,
 } from "../transport-limits.js";
-import { parseWireJson } from "../wire-json.js";
 
 interface WebSocketEventMap {
   open: unknown;
@@ -65,36 +65,29 @@ export interface PairingChallenge {
   expiresIn: number;
 }
 
+interface PendingMessage {
+  readonly json: string;
+  readonly bytes: number;
+}
+
 /** Sends and receives one JSON message per WebSocket text frame. */
 export class WebSocketTransport implements Transport {
   private readonly socket: WebSocketLike;
-  private readonly pending: string[] = [];
+  private readonly lifecycle: WebSocketLifecycle;
+  private readonly pending: PendingMessage[] = [];
   private readonly messageHandlers = new Set<(json: string) => void>();
-  private readonly closeHandlers = new Set<() => void>();
-  private readonly errorHandlers = new Set<(error: Error) => void>();
-  private readonly authToken: string | undefined;
-  private readonly onPairingChallenge: ((challenge: PairingChallenge) => void) | undefined;
-  private readonly onPairingCredential: ((credential: string) => void) | undefined;
-  private readonly onAuthenticationRejected: (() => void) | undefined;
-  private readonly maxInboundMessageBytes: number;
   private readonly maxOutboundMessageBytes: number;
   private readonly maxPendingBytes: number;
   private readonly maxPendingMessages: number;
-  private readonly maxPreauthenticationMessageBytes: number;
   private pendingBytes = 0;
-  private authenticated = false;
-  private closed = false;
+  private flushing = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions | WebSocketConstructor = {}) {
     const normalized: WebSocketTransportOptions = typeof options === "function"
       ? { WebSocket: options }
       : options;
     const Constructor = normalized.WebSocket ?? this.globalConstructor();
-    this.authToken = normalized.authToken;
-    this.onPairingChallenge = normalized.onPairingChallenge;
-    this.onPairingCredential = normalized.onPairingCredential;
-    this.onAuthenticationRejected = normalized.onAuthenticationRejected;
-    this.maxInboundMessageBytes = positiveLimit(
+    const maxInboundMessageBytes = positiveLimit(
       "maxInboundMessageBytes",
       normalized.maxInboundMessageBytes,
       MAX_INBOUND_MESSAGE_BYTES,
@@ -114,35 +107,51 @@ export class WebSocketTransport implements Transport {
       normalized.maxPendingMessages,
       MAX_PENDING_MESSAGES,
     );
-    this.maxPreauthenticationMessageBytes = positiveLimit(
+    const maxPreauthenticationMessageBytes = positiveLimit(
       "maxPreauthenticationMessageBytes",
       normalized.maxPreauthenticationMessageBytes,
       MAX_PREAUTH_MESSAGE_BYTES,
     );
     this.socket = new Constructor(url, normalized.protocols);
-    this.listen("open", () => this.flush());
-    this.listen("message", (event) => this.receive(event));
-    this.listen("error", (event) => this.fail(this.eventError(event)));
-    this.listen("close", (event) => this.finish(event));
+    this.lifecycle = new WebSocketLifecycle({
+      socket: this.socket,
+      authToken: normalized.authToken,
+      maxInboundMessageBytes,
+      maxPreauthenticationMessageBytes,
+      createError: (message) => new Error(message),
+      flushPending: () => this.flushPending(),
+      clearPending: () => this.clearPending(),
+      deliverMessage: (json) => this.deliverMessage(json),
+      onPairingChallenge: normalized.onPairingChallenge,
+      onPairingCredential: normalized.onPairingCredential,
+      onAuthenticationRejected: normalized.onAuthenticationRejected,
+    });
+    this.listen("open", () => this.lifecycle.open());
+    this.listen("message", (event) => this.lifecycle.receive(event));
+    this.listen("error", (event) => this.lifecycle.receiveError(event));
+    this.listen("close", (event) => this.lifecycle.finish(event));
   }
 
   send(json: string): void {
-    if (this.closed) throw new Error("WebSocket transport is closed");
+    this.lifecycle.assertOpen();
     const bytes = utf8ByteLength(json);
     if (bytes > this.maxOutboundMessageBytes) {
       throw new Error(`outbound message exceeds ${this.maxOutboundMessageBytes} bytes`);
     }
-    if (this.socket.readyState === 1 && this.authenticated) this.socket.send(json);
-    else {
-      if (
-        this.pending.length >= this.maxPendingMessages
-        || bytes > this.maxPendingBytes - this.pendingBytes
-      ) {
-        throw new Error("pending WebSocket message buffer is full");
-      }
-      this.pending.push(json);
-      this.pendingBytes += bytes;
+    const mustBuffer =
+      !this.lifecycle.canDispatch
+      || this.flushing
+      || this.pending.length > 0;
+    if (
+      mustBuffer
+      && (this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes)
+    ) {
+      throw new Error("pending WebSocket message buffer is full");
     }
+    this.pending.push({ json, bytes });
+    this.pendingBytes += bytes;
+    if (this.lifecycle.canDispatch) this.flushPending();
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
@@ -151,19 +160,15 @@ export class WebSocketTransport implements Transport {
   }
 
   onClose(handler: () => void): Unsubscribe {
-    this.closeHandlers.add(handler);
-    if (this.closed) queueMicrotask(handler);
-    return () => this.closeHandlers.delete(handler);
+    return this.lifecycle.onClose(handler);
   }
 
   onError(handler: (error: Error) => void): Unsubscribe {
-    this.errorHandlers.add(handler);
-    return () => this.errorHandlers.delete(handler);
+    return this.lifecycle.onError(handler);
   }
 
   close(): void {
-    if (this.closed) return;
-    this.socket.close();
+    this.lifecycle.close();
   }
 
   private globalConstructor(): WebSocketConstructor {
@@ -187,118 +192,26 @@ export class WebSocketTransport implements Transport {
     throw new Error("injected WebSocket does not support event listeners");
   }
 
-  private flush(): void {
-    if (this.closed) return;
-    if (this.authToken !== undefined) {
-      this.socket.send(JSON.stringify({ auth: { token: this.authToken } }));
-      this.authenticated = true;
-      this.flushPending();
-    } else {
-      this.socket.send(JSON.stringify({ pair: { request: true } }));
-    }
-  }
-
   private flushPending(): void {
-    while (this.pending.length > 0) {
-      const message = this.pending.shift()!;
-      this.pendingBytes -= utf8ByteLength(message);
-      this.socket.send(message);
-    }
-  }
-
-  private receive(event: WebSocketEventMap["message"] | unknown): void {
-    const data = event && typeof event === "object" && "data" in event ? (event as { data: unknown }).data : event;
-    if (typeof data !== "string") {
-      this.fail(new Error("WebSocket server sent a non-text frame"));
-      return;
-    }
-    const maximum = this.authenticated
-      ? this.maxInboundMessageBytes
-      : this.maxPreauthenticationMessageBytes;
-    if (utf8ByteLength(data) > maximum) {
-      this.fail(new Error(`WebSocket message exceeds ${maximum} bytes`));
-      this.socket.close(1009, "message too large");
-      return;
-    }
-    if (!this.authenticated) {
-      this.receivePairing(data);
-      return;
-    }
-    for (const handler of this.messageHandlers) handler(data);
-  }
-
-  private receivePairing(json: string): void {
-    let value: unknown;
+    if (this.flushing || !this.lifecycle.canDispatch) return;
+    this.flushing = true;
     try {
-      value = parseWireJson(json);
-    } catch {
-      this.fail(new Error("WebSocket server sent invalid pairing data"));
-      return;
-    }
-    if (!value || typeof value !== "object") {
-      this.fail(new Error("WebSocket server sent invalid pairing data"));
-      return;
-    }
-    const message = value as Record<string, unknown>;
-    if (message.pairing && typeof message.pairing === "object") {
-      const pairing = message.pairing as Record<string, unknown>;
-      if (
-        (
-          typeof pairing.id === "bigint"
-          || (typeof pairing.id === "number" && Number.isSafeInteger(pairing.id))
-        )
-        && typeof pairing.code === "string"
-        && typeof pairing.peer === "string"
-        && typeof pairing.expires_in === "number"
-      ) {
-        this.onPairingChallenge?.({
-          id: typeof pairing.id === "bigint" ? pairing.id : BigInt(pairing.id),
-          code: pairing.code,
-          peer: pairing.peer,
-          expiresIn: pairing.expires_in,
-        });
-        return;
+      while (this.lifecycle.canDispatch && this.pending.length > 0) {
+        const message = this.pending.shift()!;
+        this.pendingBytes -= message.bytes;
+        if (!this.lifecycle.dispatch(message.json)) return;
       }
+    } finally {
+      this.flushing = false;
     }
-    if (message.paired && typeof message.paired === "object") {
-      const credential = (message.paired as Record<string, unknown>).credential;
-      if (typeof credential === "string") {
-        this.authenticated = true;
-        this.onPairingCredential?.(credential);
-        this.flushPending();
-        return;
-      }
-    }
-    if (message.pairing_error && typeof message.pairing_error === "object") {
-      const pairingError = message.pairing_error as Record<string, unknown>;
-      this.fail(new Error(
-        typeof pairingError.message === "string" ? pairingError.message : "Pairing failed",
-      ));
-      return;
-    }
-    this.fail(new Error("WebSocket server sent invalid pairing data"));
   }
 
-  private eventError(event: unknown): Error {
-    if (event instanceof Error) return event;
-    if (event && typeof event === "object" && "error" in event && (event as { error?: unknown }).error instanceof Error) {
-      return (event as { error: Error }).error;
-    }
-    return new Error("WebSocket transport error");
-  }
-
-  private fail(error: Error): void {
-    for (const handler of this.errorHandlers) handler(error);
-  }
-
-  private finish(event?: WebSocketEventMap["close"]): void {
-    if (this.closed) return;
-    this.closed = true;
+  private clearPending(): void {
     this.pending.length = 0;
     this.pendingBytes = 0;
-    if (event?.code === 1008 && event.reason === "authentication failed") {
-      this.onAuthenticationRejected?.();
-    }
-    for (const handler of this.closeHandlers) handler();
+  }
+
+  private deliverMessage(json: string): void {
+    for (const handler of this.messageHandlers) handler(json);
   }
 }
