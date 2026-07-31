@@ -64,13 +64,25 @@ jobs:
             // by which cron fired; dispatch runs use the variant input. Every
             // downstream job reads needs.decide.outputs.variant instead of
             // re-deriving it from event fields.
+            const internalCron = '7,27,47 * * * *';
             const demoCron = '37 5,17 * * *';
-            const isDemo =
-              (context.eventName === 'workflow_dispatch' &&
-                context.payload?.inputs?.variant === 'demo') ||
-              (context.eventName === 'schedule' && context.payload?.schedule === demoCron);
-            const variant = isDemo ? 'demo' : 'internal';
-            const canonicalArtifactName = isDemo
+            const requestedVariant = context.payload?.inputs?.variant;
+            const schedule = context.payload?.schedule;
+            let variant;
+            if (context.eventName === 'schedule' && schedule === internalCron) {
+              variant = 'internal';
+            } else if (context.eventName === 'schedule' && schedule === demoCron) {
+              variant = 'demo';
+            } else if (
+              context.eventName === 'workflow_dispatch' &&
+              ['internal', 'demo'].includes(requestedVariant)
+            ) {
+              variant = requestedVariant;
+            } else {
+              core.setFailed('unsupported TestFlight event, schedule, or variant');
+              return;
+            }
+            const canonicalArtifactName = variant === 'demo'
               ? 'ios-testflight-build-metadata-demo'
               : 'ios-testflight-build-metadata';
 
