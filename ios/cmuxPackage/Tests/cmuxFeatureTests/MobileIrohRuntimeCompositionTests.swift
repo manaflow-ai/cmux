@@ -199,7 +199,7 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(clock.readCount == 1)
         #expect(
             settledOutcome == .failed(MobileIrohRuntimePreparationError(
-                diagnosticFailureKind: .endpointUnavailable,
+                diagnosticFailureKind: .unknown,
                 retryAfterSeconds: 30
             ))
         )
@@ -972,7 +972,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.outboxStore.setWriteMode(.normal)
         await fixture.authClient.setUser(fixture.user)
         try await fixture.auth.signInWithPassword(email: "a@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await #expect(throws: MobileIrohRuntimePreparationError.self) {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -1445,7 +1445,7 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await #expect(throws: MobileIrohRuntimePreparationError.self) {
             _ = try await composition.transport(for: request)
         }
         let initialBindCount = await endpointFactory.bindCount()
