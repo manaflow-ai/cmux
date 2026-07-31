@@ -30,6 +30,8 @@ final class MarkdownCodespanRenderingTests {
 
                 Hostile inline: `<img src=x onerror=alert(1)>`
 
+                Hostile lifecycle: `<cmux-codespan-execution-probe></cmux-codespan-execution-probe>`
+
                 Fenced block:
                 ```bash
                 aws lambda invoke --function-name foo --payload '{"action":"db_state"}' /dev/stdout
@@ -55,9 +57,10 @@ final class MarkdownCodespanRenderingTests {
                     "`tick`",
                     "code",
                     #"<img src=x onerror=alert(1)>"#,
+                    #"<cmux-codespan-execution-probe></cmux-codespan-execution-probe>"#,
                 ]
             )
-            #expect(snapshot.inlineChildElementCounts == [0, 0, 0, 0, 0, 0, 0, 0])
+            #expect(snapshot.inlineChildElementCounts == [0, 0, 0, 0, 0, 0, 0, 0, 0])
             #expect(
                 snapshot.fencedTexts == [
                     #"aws lambda invoke --function-name foo --payload '{"action":"db_state"}' /dev/stdout"#,
@@ -66,7 +69,8 @@ final class MarkdownCodespanRenderingTests {
             )
             #expect(snapshot.fencedImageCounts == [0, 0])
             #expect(snapshot.documentImageCount == 0)
-            #expect(snapshot.hostileHandlerExecuted == false)
+            #expect(snapshot.hostileProbeElementCount == 0)
+            #expect(snapshot.hostileProbeConnected == false)
         }
     }
 
@@ -104,10 +108,18 @@ final class MarkdownCodespanRenderingTests {
         let result = try await webView.evaluateJavaScript(
             """
             (function(md) {
-              window.__cmuxCodespanHostileHandlerExecuted = false;
-              window.alert = function() {
-                window.__cmuxCodespanHostileHandlerExecuted = true;
-              };
+              var hostileProbeTag = 'cmux-codespan-execution-probe';
+              window.__cmuxCodespanHostileProbeConnected = false;
+              if (!window.customElements.get(hostileProbeTag)) {
+                window.customElements.define(
+                  hostileProbeTag,
+                  class extends HTMLElement {
+                    connectedCallback() {
+                      window.__cmuxCodespanHostileProbeConnected = true;
+                    }
+                  }
+                );
+              }
               window.__cmuxRenderMarkdown(md);
               var prose = document.querySelector('#content p');
               var inlineCodes = Array.prototype.slice.call(
@@ -126,7 +138,10 @@ final class MarkdownCodespanRenderingTests {
                   return code.querySelectorAll('img').length;
                 }),
                 documentImageCount: document.querySelectorAll('#content img').length,
-                hostileHandlerExecuted: !!window.__cmuxCodespanHostileHandlerExecuted
+                hostileProbeElementCount: document.querySelectorAll(
+                  '#content ' + hostileProbeTag
+                ).length,
+                hostileProbeConnected: !!window.__cmuxCodespanHostileProbeConnected
               };
             })(\(literal)[0]);
             """
@@ -139,7 +154,8 @@ final class MarkdownCodespanRenderingTests {
         let fencedTexts = try #require(raw["fencedTexts"] as? [String])
         let fencedImageCounts = try #require(raw["fencedImageCounts"] as? [NSNumber])
         let documentImageCount = try #require(raw["documentImageCount"] as? NSNumber)
-        let hostileHandlerExecuted = try #require(raw["hostileHandlerExecuted"] as? Bool)
+        let hostileProbeElementCount = try #require(raw["hostileProbeElementCount"] as? NSNumber)
+        let hostileProbeConnected = try #require(raw["hostileProbeConnected"] as? Bool)
 
         return MarkdownCodespanSnapshot(
             proseText: proseText,
@@ -149,7 +165,8 @@ final class MarkdownCodespanRenderingTests {
             fencedTexts: fencedTexts,
             fencedImageCounts: fencedImageCounts.map(\.intValue),
             documentImageCount: documentImageCount.intValue,
-            hostileHandlerExecuted: hostileHandlerExecuted
+            hostileProbeElementCount: hostileProbeElementCount.intValue,
+            hostileProbeConnected: hostileProbeConnected
         )
     }
 }
@@ -162,7 +179,8 @@ private struct MarkdownCodespanSnapshot {
     let fencedTexts: [String]
     let fencedImageCounts: [Int]
     let documentImageCount: Int
-    let hostileHandlerExecuted: Bool
+    let hostileProbeElementCount: Int
+    let hostileProbeConnected: Bool
 }
 
 private final class MarkdownCodespanShellLoadDelegate: NSObject, WKNavigationDelegate {

@@ -1009,6 +1009,10 @@ html { scroll-behavior: smooth; }
   }
 
   function normalizedCodespanText(token) {
+    // Invalid boundaries mean marked's token contract changed. Never fall back
+    // to token.text here: a future version may supply either raw or pre-escaped
+    // text. Throwing routes the whole document through the existing escaped
+    // render-error fallback instead of risking HTML injection.
     if (!token || typeof token.raw !== 'string') {
       throw new Error('marked codespan token is missing raw source');
     }
