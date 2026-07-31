@@ -150,6 +150,9 @@ jobs:
               test_list="$("$bin" --list 2>/dev/null || true)"
               test_scope=
               case "$test_list" in
+                *"browser_capture_scale_applies_to_metrics_screencast_and_input: test"*)
+                  test_scope=browser_runtime
+                  ;;
                 *"process_session::tests::"*) test_scope=cmux_tui_core ;;
                 *"app::tests::"*) test_scope=cmux_tui ;;
                 *"attach_stream_orders_resize_between_output_frames: test"*) test_scope=pty ;;
