@@ -437,6 +437,8 @@ extension ReconnectRouteSelectionTests {
     @Test func replacementValidationEmitsSuccessExactlyOnce() async throws {
         let log = DiagnosticLog(capacity: 32, role: .mobileClient)
         let store = MobileShellComposite(diagnosticLog: log)
+        let traceID = log.beginConnectionTrace()
+        store.connectionDiagnosticTraceID = traceID
         let generation = store.connectionGeneration
         let attempt = try #require(store.connectionRecoveryOwner.begin(
             trigger: "test",
@@ -458,7 +460,19 @@ extension ReconnectRouteSelectionTests {
         let successes = (await log.snapshot()).events.filter {
             $0.code == .recoverySucceeded
         }
+        let subscriptions = (await log.snapshot()).events.filter {
+            $0.code == .subscriptionValidated
+        }
+        let terminal = (await log.snapshot()).events.filter {
+            $0.code == .connectionTraceSucceeded
+                || $0.code == .connectionTraceFailed
+        }
         #expect(successes.count == 1)
+        #expect(subscriptions.count == 1)
+        #expect(subscriptions.first?.c == traceID)
+        #expect(terminal.count == 1)
+        #expect(terminal.first?.code == .connectionTraceSucceeded)
+        #expect(terminal.first?.c == traceID)
         #expect(store.connectionRecoveryOwner.phase == .idle)
     }
 

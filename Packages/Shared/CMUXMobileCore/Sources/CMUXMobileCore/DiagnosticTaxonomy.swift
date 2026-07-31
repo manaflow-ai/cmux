@@ -71,6 +71,13 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     /// event queue overflowed while the transport stopped draining (for
     /// example the peer's network path died mid-write).
     case sendQueueOverflow = 24
+    /// The broker explicitly rate-limited a request, including a bare HTTP 429.
+    case brokerRateLimited = 25
+    /// The broker returned a retryable HTTP 5xx response.
+    case brokerServerFailure = 26
+    /// Signed authority was reachable but did not match the expected local,
+    /// account, fleet, route-contract, or peer policy.
+    case policyMismatch = 27
     case unknown = 255
 
     /// Reduces a typed or system error to the bounded diagnostic vocabulary.
@@ -144,6 +151,16 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
 
         return .unknown
     }
+}
+
+/// Privacy-safe authority source selected before an Iroh connection dial.
+public enum DiagnosticConnectionPolicySource: Int, Sendable, Codable, CaseIterable {
+    /// A locally persisted, signed authority snapshot.
+    case verifiedCache = 1
+    /// A fresh, broker-verified authority snapshot.
+    case liveBroker = 2
+    /// A live admitted connection survived the lifecycle transition.
+    case existingSession = 3
 }
 
 /// Adopted by transport and policy errors that can provide a safe failure

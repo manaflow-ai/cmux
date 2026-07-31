@@ -51,7 +51,8 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .hostAuthenticationFailed,
             a: DiagnosticTransportKind(route.kind).rawValue,
-            b: failure.rawValue
+            b: failure.rawValue,
+            c: connectionDiagnosticTraceID
         ))
     }
 }

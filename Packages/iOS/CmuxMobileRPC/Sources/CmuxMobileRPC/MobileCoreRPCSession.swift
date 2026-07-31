@@ -76,6 +76,7 @@ actor MobileCoreRPCSession {
     let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
+    private let diagnosticCorrelationID: Int?
     private let transportConnectObserver: TransportConnectObserver?
     private let tearDownRegistrationHook: TearDownRegistrationHook?
     /// Current shell ownership role. Connected transports that support role
@@ -132,6 +133,7 @@ actor MobileCoreRPCSession {
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
+        diagnosticCorrelationID: Int? = nil,
         transportConnectObserver: TransportConnectObserver? = nil,
         initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil,
         tearDownRegistrationHook: TearDownRegistrationHook? = nil
@@ -146,6 +148,8 @@ actor MobileCoreRPCSession {
         self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
         self.diagnosticTransport = diagnosticTransport
+        precondition(diagnosticCorrelationID.map { $0 > 0 } ?? true)
+        self.diagnosticCorrelationID = diagnosticCorrelationID
         self.transportConnectObserver = transportConnectObserver
         self.transportSessionPurpose = initialTransportSessionPurpose
         self.tearDownRegistrationHook = tearDownRegistrationHook
@@ -494,7 +498,8 @@ actor MobileCoreRPCSession {
             case .cleanupBlocked:
                 throw MobileShellConnectionError.routeCleanupBlocked
             }
-            let connectAttemptID = Int.random(in: 1...Int.max)
+            let connectAttemptID = diagnosticCorrelationID
+                ?? Int.random(in: 1...Int.max)
             let connectStartedAt = ContinuousClock.now
             let diagnosticTransport = diagnosticTransport
             let transportConnectObserver = transportConnectObserver

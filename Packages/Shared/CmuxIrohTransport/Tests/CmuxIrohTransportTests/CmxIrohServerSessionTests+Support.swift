@@ -14,7 +14,8 @@ struct ServerFixture {
         decision: CmxIrohAdmissionDecision,
         clientReadyFrame: Data? = admissionFrame(status: 2),
         applicationBytes: Data = Data("rpc".utf8),
-        eventRecorder: TestIrohEventRecorder? = nil
+        eventRecorder: TestIrohEventRecorder? = nil,
+        connectionAttempt: CmxIrohConnectionAttempt? = nil
     ) throws {
         let peerID = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
         let admittedPeer = CmxIrohAdmittedPeer(
@@ -39,7 +40,11 @@ struct ServerFixture {
         )
         let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
         let header = try headerCodec.encode(
-            CmxIrohStreamHeader(lane: .control, credential: credential)
+            CmxIrohStreamHeader(
+                lane: .control,
+                credential: credential,
+                connectionAttempt: connectionAttempt
+            )
         )
         let readyFrame = if decision == .accepted {
             clientReadyFrame ?? Data()

@@ -27,6 +27,11 @@ internal import os
 /// let blob = await log.export()
 /// ```
 public final class DiagnosticLog: Sendable {
+    private struct ConnectionTraceState: Sendable {
+        var nextID: Int
+        var activeID: Int?
+    }
+
     /// The maximum number of retained events. Oldest are dropped past this.
     public let capacity: Int
 
@@ -41,6 +46,13 @@ public final class DiagnosticLog: Sendable {
     /// Synchronously orders record calls against rare clear operations while
     /// keeping every event segment bounded by ``capacity``.
     private let ingress: Ingress
+
+    /// Synchronous process-local authority for the foreground connection trace.
+    ///
+    /// Composition, shell, RPC, and transport layers share the same injected
+    /// log, so this tiny lock lets a lifecycle-started trace be adopted without
+    /// introducing an actor hop or embedding identity in its correlation value.
+    private let connectionTraceState: OSAllocatedUnfairLock<ConnectionTraceState>
 
     /// The inner actor owning the ring buffer and the wall-clock anchor.
     private let store: Store
@@ -78,6 +90,10 @@ public final class DiagnosticLog: Sendable {
         self.capacity = capacity
         self.buildStamp = buildStamp
         self.role = role
+        self.connectionTraceState = OSAllocatedUnfairLock(initialState: ConnectionTraceState(
+            nextID: Int.random(in: 1..<Int.max),
+            activeID: nil
+        ))
         let store = Store(
             capacity: capacity,
             buildStamp: buildStamp,
@@ -137,6 +153,73 @@ public final class DiagnosticLog: Sendable {
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
         ingress.record(event)
+    }
+
+    /// Begins a fresh foreground connection trace.
+    ///
+    /// Beginning a replacement first terminalizes the prior live trace as
+    /// superseded. A stale completion then returns `false`, ensuring each trace
+    /// has exactly one terminal outcome.
+    public nonisolated func beginConnectionTrace() -> Int {
+        let result = connectionTraceState.withLock { state -> (Int, Int?) in
+            let superseded = state.activeID
+            let traceID = state.nextID
+            state.nextID = traceID == Int.max - 1 ? 1 : traceID + 1
+            state.activeID = traceID
+            return (traceID, superseded)
+        }
+        if let superseded = result.1 {
+            record(DiagnosticEvent(
+                .connectionTraceFailed,
+                b: DiagnosticFailureKind.superseded.rawValue,
+                c: superseded
+            ))
+        }
+        return result.0
+    }
+
+    /// Reuses the lifecycle-owned trace, or creates one for a direct connect.
+    public nonisolated func adoptOrBeginConnectionTrace() -> Int {
+        connectionTraceState.withLock { state in
+            if let active = state.activeID {
+                return active
+            }
+            let traceID = state.nextID
+            state.nextID = traceID == Int.max - 1 ? 1 : traceID + 1
+            state.activeID = traceID
+            return traceID
+        }
+    }
+
+    /// Returns the active process-local foreground trace without creating one.
+    public nonisolated func currentConnectionTraceID() -> Int? {
+        connectionTraceState.withLock { $0.activeID }
+    }
+
+    /// Emits the trace's sole terminal outcome when `traceID` is still current.
+    ///
+    /// - Returns: `true` only for the caller that terminalized the trace.
+    @discardableResult
+    public nonisolated func finishConnectionTrace(
+        _ traceID: Int,
+        failure: DiagnosticFailureKind? = nil
+    ) -> Bool {
+        let finished = connectionTraceState.withLock { state in
+            guard state.activeID == traceID else { return false }
+            state.activeID = nil
+            return true
+        }
+        guard finished else { return false }
+        if let failure, failure != .none {
+            record(DiagnosticEvent(
+                .connectionTraceFailed,
+                b: failure.rawValue,
+                c: traceID
+            ))
+        } else {
+            record(DiagnosticEvent(.connectionTraceSucceeded, c: traceID))
+        }
+        return true
     }
 
     /// Snapshot the currently-drained ring and format a compact export blob.

@@ -91,5 +91,5 @@ public struct CmxIrohBrokerCooldownError: CmxRetryAfterProviding, Equatable {
 }
 
 extension CmxIrohBrokerCooldownError: DiagnosticFailureProviding {
-    public var diagnosticFailureKind: DiagnosticFailureKind { .policyUnavailable }
+    public var diagnosticFailureKind: DiagnosticFailureKind { .brokerRateLimited }
 }

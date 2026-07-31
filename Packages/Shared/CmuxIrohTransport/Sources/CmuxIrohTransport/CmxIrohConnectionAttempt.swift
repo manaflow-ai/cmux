@@ -13,17 +13,23 @@ public struct CmxIrohConnectionAttempt: Equatable, Hashable, Sendable {
 
     /// Nonzero monotonic generation for one peer within the engine generation.
     public let dialGeneration: UInt64
+    /// Optional positive process-local trace ID. This is deliberately unrelated
+    /// to the stable process incarnation, peer identity, route, or credential.
+    public let diagnosticCorrelationID: Int?
 
     /// Creates a validated attempt token.
     public init(
         processIncarnation: UUID,
         engineGeneration: UInt64,
-        dialGeneration: UInt64
+        dialGeneration: UInt64,
+        diagnosticCorrelationID: Int? = nil
     ) {
         precondition(engineGeneration > 0)
         precondition(dialGeneration > 0)
+        precondition(diagnosticCorrelationID.map { $0 > 0 } ?? true)
         self.processIncarnation = processIncarnation
         self.engineGeneration = engineGeneration
         self.dialGeneration = dialGeneration
+        self.diagnosticCorrelationID = diagnosticCorrelationID
     }
 }

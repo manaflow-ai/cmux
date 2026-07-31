@@ -229,6 +229,7 @@ public final class MobileIrohRuntimeComposition:
     private var sceneTransitionTask: Task<Void, Never>?
     private var foregroundRefreshTask: Task<Void, Never>?
     private var foregroundRevision: UInt64 = 0
+    private var appLifecycleIsActive = false
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
     // this production composition type. Runtime ownership remains private.
@@ -565,6 +566,7 @@ public final class MobileIrohRuntimeComposition:
     /// bounded pairing attempt. Transport creation calls the same entrypoint,
     /// so readiness policy cannot drift between automatic and interactive use.
     public func prepareForConnection() async {
+        _ = diagnosticLog?.adoptOrBeginConnectionTrace()
         await reconcileLiveAuthIfNeeded()
         await connectionReadiness.wait()
         await sceneTransitionTask?.value
@@ -785,6 +787,7 @@ public final class MobileIrohRuntimeComposition:
     /// never delivers a background transition still leaves the previous
     /// launch's events exportable.
     public func archiveDiagnostics() {
+        appLifecycleIsActive = false
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.inactive.rawValue
@@ -813,6 +816,7 @@ public final class MobileIrohRuntimeComposition:
     }
 
     public func didEnterBackground() {
+        appLifecycleIsActive = false
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
             a: DiagnosticAppLifecyclePhase.background.rawValue
@@ -835,9 +839,19 @@ public final class MobileIrohRuntimeComposition:
 
     /// Restores endpoint readiness while network policy refreshes independently.
     public func didBecomeActive() {
+        let wasAlreadyActive = appLifecycleIsActive
+        appLifecycleIsActive = true
+        let traceID: Int? = if signOutPhase.allowsLifecycle {
+            wasAlreadyActive
+                ? diagnosticLog?.currentConnectionTraceID()
+                : diagnosticLog?.beginConnectionTrace()
+        } else {
+            nil
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .appLifecycleChanged,
-            a: DiagnosticAppLifecyclePhase.active.rawValue
+            a: DiagnosticAppLifecyclePhase.active.rawValue,
+            c: traceID
         ))
         guard signOutPhase.allowsLifecycle else { return }
         foregroundRevision &+= 1
@@ -848,6 +862,13 @@ public final class MobileIrohRuntimeComposition:
         foregroundRefreshTask?.cancel()
         let auth = auth
         let runtime = runtime
+        if runtime != nil {
+            diagnosticLog?.record(DiagnosticEvent(
+                .connectionPolicySelected,
+                a: DiagnosticConnectionPolicySource.existingSession.rawValue,
+                c: traceID
+            ))
+        }
         let lanPeerDiscovery = lanPeerDiscovery
         sceneTransitionTask = Task { @MainActor [weak self] in
             guard let self,
@@ -1373,6 +1394,9 @@ public final class MobileIrohRuntimeComposition:
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
+        let traceID = targetAccountID == nil
+            ? nil
+            : diagnosticLog?.adoptOrBeginConnectionTrace()
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         foregroundRevision &+= 1
@@ -1393,7 +1417,8 @@ public final class MobileIrohRuntimeComposition:
                 targetAccountID: targetAccountID,
                 eraseAccountState: eraseAccountState,
                 restartActiveRuntime: restartActiveRuntime,
-                revision: revision
+                revision: revision,
+                diagnosticTraceID: traceID
             )
             if revision == self.lifecycleRevision {
                 self.transitionTask = nil
@@ -1408,7 +1433,8 @@ public final class MobileIrohRuntimeComposition:
         targetAccountID: String?,
         eraseAccountState: Bool,
         restartActiveRuntime: Bool,
-        revision: UInt64
+        revision: UInt64,
+        diagnosticTraceID: Int?
     ) async {
         if restartActiveRuntime
             || activeAccountID != targetAccountID
@@ -1462,7 +1488,8 @@ public final class MobileIrohRuntimeComposition:
               runtime == nil else { return }
         diagnosticLog?.record(DiagnosticEvent(
             .endpointStarting,
-            a: DiagnosticTransportKind.iroh.rawValue
+            a: DiagnosticTransportKind.iroh.rawValue,
+            c: diagnosticTraceID
         ))
         do {
             try await activate(accountID: targetAccountID, revision: revision)
@@ -1472,8 +1499,17 @@ public final class MobileIrohRuntimeComposition:
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
-                b: Self.diagnosticFailureKind(for: error).rawValue
+                b: Self.diagnosticFailureKind(for: error).rawValue,
+                c: diagnosticTraceID
             ))
+            if let diagnosticTraceID,
+               revision == lifecycleRevision,
+               !Task.isCancelled {
+                _ = diagnosticLog?.finishConnectionTrace(
+                    diagnosticTraceID,
+                    failure: Self.diagnosticFailureKind(for: error)
+                )
+            }
             mobileIrohLog.error(
                 "Iroh client activation failed: \(String(describing: error), privacy: .private)"
             )
@@ -1797,6 +1833,13 @@ public final class MobileIrohRuntimeComposition:
             await routeCatalog.deactivate(scope: revision)
             throw error
         }
+        if let policySource = await runtime.selectedStartupPolicySource() {
+            diagnosticLog?.record(DiagnosticEvent(
+                .connectionPolicySelected,
+                a: policySource.rawValue,
+                c: diagnosticLog?.currentConnectionTraceID()
+            ))
+        }
         guard revision == lifecycleRevision,
               !Task.isCancelled,
               signOutPhase.allowsLifecycle,
@@ -1810,7 +1853,11 @@ public final class MobileIrohRuntimeComposition:
         }
         self.runtime = runtime
         activeAccountID = accountID
-        diagnosticLog?.record(DiagnosticEvent(.endpointActive, a: DiagnosticTransportKind.iroh.rawValue))
+        diagnosticLog?.record(DiagnosticEvent(
+            .endpointActive,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            c: diagnosticLog?.currentConnectionTraceID()
+        ))
         relayPolicyService = resolvedPolicyService
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()

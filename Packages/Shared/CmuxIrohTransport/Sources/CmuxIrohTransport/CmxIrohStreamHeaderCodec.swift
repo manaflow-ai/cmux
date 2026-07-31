@@ -64,6 +64,9 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
                 append(attempt.processIncarnation, to: &payload)
                 append(attempt.engineGeneration, to: &payload)
                 append(attempt.dialGeneration, to: &payload)
+                if let diagnosticCorrelationID = attempt.diagnosticCorrelationID {
+                    append(UInt64(diagnosticCorrelationID), to: &payload)
+                }
             }
 
         case let .controlReplacement(epoch):
@@ -181,17 +184,28 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             switch payload.remainingByteCount {
             case 0:
                 attempt = nil
-            case 32:
+            case 32, 40:
                 let processIncarnation = try readUUID(from: &payload)
                 let engineGeneration = try payload.readUInt64()
                 let dialGeneration = try payload.readUInt64()
+                let diagnosticCorrelationID: Int?
+                if payload.remainingByteCount == 8 {
+                    let raw = try payload.readUInt64()
+                    guard raw > 0, let value = Int(exactly: raw) else {
+                        throw CmxIrohStreamHeaderCodecError.invalidPayload
+                    }
+                    diagnosticCorrelationID = value
+                } else {
+                    diagnosticCorrelationID = nil
+                }
                 guard engineGeneration > 0, dialGeneration > 0 else {
                     throw CmxIrohStreamHeaderCodecError.invalidPayload
                 }
                 attempt = CmxIrohConnectionAttempt(
                     processIncarnation: processIncarnation,
                     engineGeneration: engineGeneration,
-                    dialGeneration: dialGeneration
+                    dialGeneration: dialGeneration,
+                    diagnosticCorrelationID: diagnosticCorrelationID
                 )
             default:
                 throw CmxIrohStreamHeaderCodecError.invalidPayload

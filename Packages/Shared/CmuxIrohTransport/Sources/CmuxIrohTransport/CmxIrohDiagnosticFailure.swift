@@ -109,11 +109,13 @@ extension CmxIrohTrustBrokerClientError: DiagnosticFailureProviding {
         case .missingAuthentication, .invalidAuthentication:
             .authorizationFailed
         case .rateLimited:
-            .policyUnavailable
+            .brokerRateLimited
         case let .rejected(statusCode, _):
             switch statusCode {
             case 401, 403: .authorizationFailed
             case 408: .timedOut
+            case 429: .brokerRateLimited
+            case 500...599: .brokerServerFailure
             default: .policyUnavailable
             }
         case .invalidBaseURL, .nonHTTPResponse, .invalidResponse:
@@ -140,12 +142,12 @@ extension CmxIrohClientRuntimeError: DiagnosticFailureProviding {
         switch self {
         case .inactive, .alreadyActive:
             .endpointUnavailable
-        case .invalidLocalBinding, .localBindingMissingFromDiscovery:
+        case .invalidLocalBinding:
             .identityMismatch
-        case .relayFleetMismatch:
-            .policyUnavailable
-        case .routeContractMismatch:
-            .protocolViolation
+        case .localBindingMissingFromDiscovery,
+             .relayFleetMismatch,
+             .routeContractMismatch:
+            .policyMismatch
         case .superseded:
             .superseded
         }
@@ -157,12 +159,12 @@ extension CmxIrohHostRuntimeError: DiagnosticFailureProviding {
         switch self {
         case .inactive, .alreadyActive:
             .endpointUnavailable
-        case .invalidLocalBinding, .localBindingMissingFromDiscovery:
+        case .invalidLocalBinding:
             .identityMismatch
-        case .relayFleetMismatch:
-            .policyUnavailable
-        case .routeContractMismatch:
-            .protocolViolation
+        case .localBindingMissingFromDiscovery,
+             .relayFleetMismatch,
+             .routeContractMismatch:
+            .policyMismatch
         case .superseded:
             .superseded
         }
@@ -238,7 +240,7 @@ extension CmxIrohRelayPolicyServiceError: DiagnosticFailureProviding {
         switch self {
         case .brokerUnavailable: .policyUnavailable
         case .managedCredentialUnavailable: .credentialUnavailable
-        case .preferenceRollback: .policyUnavailable
+        case .preferenceRollback: .policyMismatch
         case .superseded: .superseded
         }
     }
@@ -248,7 +250,7 @@ extension CmxIrohRelayCredentialCoordinatorError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .inactive: .endpointUnavailable
-        case .relayFleetMismatch: .policyUnavailable
+        case .relayFleetMismatch: .policyMismatch
         }
     }
 }
@@ -259,9 +261,9 @@ extension CmxIrohRegistryContextError: DiagnosticFailureProviding {
         case .unsupportedRoute, .dialPlanUnavailable:
             .noRoute
         case .incompatibleContract:
-            .protocolViolation
+            .policyMismatch
         case .relayFleetMismatch, .invalidGrantExpiry:
-            .policyUnavailable
+            .policyMismatch
         case .localBindingUnavailable, .targetBindingUnavailable:
             .endpointUnavailable
         case .targetDeviceMismatch:
@@ -311,7 +313,7 @@ extension CmxIrohClientOfflinePolicyCacheError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .invalidExpectation, .invalidPolicy, .policyMismatch:
-            .policyUnavailable
+            .policyMismatch
         case .invalidGrantEnvelope:
             .protocolViolation
         }
@@ -322,7 +324,7 @@ extension CmxIrohHostPolicyCacheError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .invalidExpectation, .invalidPolicy, .policyMismatch:
-            .policyUnavailable
+            .policyMismatch
         case .invalidAttestationEnvelope:
             .protocolViolation
         }
@@ -330,5 +332,5 @@ extension CmxIrohHostPolicyCacheError: DiagnosticFailureProviding {
 }
 
 extension CmxIrohLocalBindingExpectationError: DiagnosticFailureProviding {
-    public var diagnosticFailureKind: DiagnosticFailureKind { .protocolViolation }
+    public var diagnosticFailureKind: DiagnosticFailureKind { .policyMismatch }
 }

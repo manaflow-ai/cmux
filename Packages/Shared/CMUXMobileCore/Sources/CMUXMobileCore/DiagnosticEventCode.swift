@@ -199,6 +199,18 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// showing this code with no nearby ``sessionClosed`` mean backpressure
     /// was absorbed without a connection death.
     case hostEventQueueShed = 56
+    /// The authority source selected for this connection trace. `a` is
+    /// ``DiagnosticConnectionPolicySource`` and `c` is the trace ID.
+    case connectionPolicySelected = 57
+    /// The host acknowledged the terminal event subscription. `c` is the
+    /// connection trace ID.
+    case subscriptionValidated = 58
+    /// The trace reached authenticated RPC and subscription readiness. `c` is
+    /// the connection trace ID. Exactly one terminal trace event is emitted.
+    case connectionTraceSucceeded = 59
+    /// The trace ended without readiness. `b` is ``DiagnosticFailureKind`` and
+    /// `c` is the connection trace ID. Exactly one terminal trace event is emitted.
+    case connectionTraceFailed = 60
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

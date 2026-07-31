@@ -313,7 +313,9 @@ public extension DiagnosticEventCode {
              .endpointActive,
              .relayPolicyRefreshSucceeded,
              .discoverySucceeded,
-             .admissionSucceeded:
+             .admissionSucceeded,
+             .subscriptionValidated,
+             .connectionTraceSucceeded:
             true
         default:
             false
@@ -334,7 +336,8 @@ public extension DiagnosticEventCode {
              .discoveryFailed,
              .admissionFailed,
              .hostAuthenticationFailed,
-             .rpcFailed:
+             .rpcFailed,
+             .connectionTraceFailed:
             true
         default:
             false
@@ -353,7 +356,8 @@ public extension DiagnosticEventCode {
              .discoveryFailed,
              .admissionFailed,
              .hostAuthenticationFailed,
-             .rpcFailed:
+             .rpcFailed,
+             .connectionTraceFailed:
             true
         default:
             false
@@ -377,7 +381,8 @@ public extension DiagnosticEventCode {
              .discoveryFailed,
              .admissionFailed,
              .hostAuthenticationFailed,
-             .rpcFailed:
+             .rpcFailed,
+             .connectionTraceFailed:
             .unknown
         default:
             nil

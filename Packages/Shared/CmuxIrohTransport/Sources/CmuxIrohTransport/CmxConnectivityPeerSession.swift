@@ -13,6 +13,7 @@ actor CmxConnectivityPeerSession {
 
     private struct PendingConnection {
         let id: UUID
+        let diagnosticID: Int
         let task: Task<any CmxConnectivitySession, any Error>
     }
 
@@ -210,7 +211,8 @@ actor CmxConnectivityPeerSession {
                 let attempt = CmxIrohConnectionAttempt(
                     processIncarnation: processIncarnation,
                     engineGeneration: engineGeneration,
-                    dialGeneration: connectionGeneration
+                    dialGeneration: connectionGeneration,
+                    diagnosticCorrelationID: request.diagnosticCorrelationID
                 )
                 let task = Task {
                     try Task.checkCancellation()
@@ -221,7 +223,12 @@ actor CmxConnectivityPeerSession {
                     }
                     return session
                 }
-                pending = PendingConnection(id: UUID(), task: task)
+                pending = PendingConnection(
+                    id: UUID(),
+                    diagnosticID: request.diagnosticCorrelationID
+                        ?? makeDiagnosticSessionID(),
+                    task: task
+                )
                 pendingConnection = pending
                 publishSnapshot()
             }
@@ -263,6 +270,7 @@ actor CmxConnectivityPeerSession {
             install(
                 connected,
                 id: pending.id,
+                diagnosticID: pending.diagnosticID,
                 purpose: request.sessionPurpose
             )
             return connected
@@ -332,9 +340,9 @@ actor CmxConnectivityPeerSession {
     private func install(
         _ connected: any CmxConnectivitySession,
         id: UUID,
+        diagnosticID: Int,
         purpose: CmxTransportSessionPurpose
     ) {
-        let diagnosticID = makeDiagnosticSessionID()
         let closureTask = Task { [weak self] in
             await connected.waitUntilClosed()
             guard !Task.isCancelled else { return }

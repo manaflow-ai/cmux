@@ -14,6 +14,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let transportRequest: CmxByteTransportRequest
+    /// Positive process-local trace shared with lifecycle, transport, and host
+    /// diagnostics. It never contains a device, account, route, or credential.
+    public let diagnosticCorrelationID: Int?
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
@@ -50,11 +53,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
         transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
-        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        diagnosticCorrelationID: Int? = nil
     ) {
+        precondition(diagnosticCorrelationID.map { $0 > 0 } ?? true)
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        self.diagnosticCorrelationID = diagnosticCorrelationID
         let authorizationMode: CmxTransportAuthorizationMode
         if route.kind == .iroh {
             authorizationMode = .transportAdmission
@@ -86,7 +92,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            diagnosticCorrelationID: diagnosticCorrelationID
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -124,6 +131,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             },
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
+            diagnosticCorrelationID: diagnosticCorrelationID,
             transportConnectObserver: transportConnectObserver,
             initialTransportSessionPurpose: sessionPurpose
         )

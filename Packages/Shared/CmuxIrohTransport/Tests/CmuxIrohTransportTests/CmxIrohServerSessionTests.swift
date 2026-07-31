@@ -6,6 +6,39 @@ import Testing
 @Suite
 struct CmxIrohServerSessionTests {
     @Test
+    func admittedHostSessionExposesClientDiagnosticCorrelation() async throws {
+        let attempt = CmxIrohConnectionAttempt(
+            processIncarnation: UUID(
+                uuidString: "00000000-0000-0000-0000-000000000043"
+            )!,
+            engineGeneration: 5,
+            dialGeneration: 11,
+            diagnosticCorrelationID: 7_007
+        )
+        let fixture = try ServerFixture(
+            decision: .accepted,
+            connectionAttempt: attempt
+        )
+        let server = try CmxIrohServerSession(
+            connection: TestIrohConnection(
+                remoteIdentity: fixture.peerID,
+                bidirectionalStreams: [fixture.controlStream]
+            ),
+            authorizer: fixture.authorizer
+        )
+        let peer = try await server.admit()
+        let decodedAttempt = try await server.admittedConnectionAttempt()
+        let admitted = CmxIrohAdmittedServerSession(
+            peer: peer,
+            session: server,
+            connectionAttempt: decodedAttempt
+        )
+
+        #expect(admitted.connectionAttempt == attempt)
+        #expect(admitted.connectionAttempt?.diagnosticCorrelationID == 7_007)
+    }
+
+    @Test
     func admittedHostSessionEmitsAttributedCloseAndPathEvents() async throws {
         let fixture = try ServerFixture(decision: .accepted)
         let connection = TestIrohConnection(

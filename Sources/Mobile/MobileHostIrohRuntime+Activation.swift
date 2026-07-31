@@ -239,11 +239,18 @@ extension MobileHostIrohRuntime {
                     await session.close()
                     return
                 }
-                let diagnosticSessionID = await self.makeDiagnosticSessionID()
+                let diagnosticSessionID: Int
+                if let correlation =
+                    session.connectionAttempt?.diagnosticCorrelationID {
+                    diagnosticSessionID = correlation
+                } else {
+                    diagnosticSessionID = await self.makeDiagnosticSessionID()
+                }
                 let diagnosticLog = self.diagnosticLog
                 diagnosticLog.record(DiagnosticEvent(
                     .admissionSucceeded,
-                    a: DiagnosticTransportKind.iroh.rawValue
+                    a: DiagnosticTransportKind.iroh.rawValue,
+                    c: diagnosticSessionID
                 ))
                 diagnosticLog.record(DiagnosticEvent(
                     .transportSessionLifecycle,

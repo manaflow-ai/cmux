@@ -109,7 +109,7 @@ struct CmxIrohBrokerCooldownTests {
     func cooldownErrorProvidesRetryAfterAndFailureKind() {
         let error = CmxIrohBrokerCooldownError(retryAfterSeconds: 42)
         #expect(error.retryAfterSeconds == 42)
-        #expect(error.diagnosticFailureKind == .policyUnavailable)
+        #expect(error.diagnosticFailureKind == .brokerRateLimited)
         #expect(CmxIrohBrokerCooldownError(retryAfterSeconds: 0).retryAfterSeconds == 1)
     }
 }

@@ -12,15 +12,20 @@ public struct CmxIrohAdmittedServerSession: Sendable {
 
     /// The existing mobile RPC byte stream on the connection's control lane.
     public let controlTransport: any CmxByteTransport
+    /// Modern client attempt metadata, including the optional privacy-safe
+    /// cross-process diagnostic trace. Legacy clients leave this nil.
+    public let connectionAttempt: CmxIrohConnectionAttempt?
 
     private let session: CmxIrohServerSession
 
     init(
         peer: CmxIrohAdmittedPeer,
-        session: CmxIrohServerSession
+        session: CmxIrohServerSession,
+        connectionAttempt: CmxIrohConnectionAttempt? = nil
     ) {
         self.peer = peer
         self.session = session
+        self.connectionAttempt = connectionAttempt
         controlTransport = CmxIrohServerByteTransport(session: session)
     }
 

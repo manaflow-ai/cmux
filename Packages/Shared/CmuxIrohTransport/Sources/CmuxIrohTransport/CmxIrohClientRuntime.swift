@@ -97,6 +97,7 @@ public actor CmxIrohClientRuntime {
 
     var lifecycleRevision: UInt64 = 0
     var lifecyclePhase = LifecyclePhase.inactive
+    private var startupPolicySource: DiagnosticConnectionPolicySource?
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var relayActivationTask: Task<Void, Never>?
@@ -506,6 +507,7 @@ public actor CmxIrohClientRuntime {
         lifecyclePhase = .starting
         foregroundActive = true
         lifecycleRevision &+= 1
+        startupPolicySource = nil
         let revision = lifecycleRevision
         registrationRefreshPending = false
         registrationRefreshEnabled = false
@@ -548,6 +550,9 @@ public actor CmxIrohClientRuntime {
                 )
             }
             let restoredFromCache = cachedPolicy != nil
+            startupPolicySource = restoredFromCache
+                ? .verifiedCache
+                : .liveBroker
             registrationRefreshAllowsBindingReplacement = restoredFromCache
             try requireCurrent(revision)
             try await install(
@@ -609,6 +614,12 @@ public actor CmxIrohClientRuntime {
             }
             throw error
         }
+    }
+
+    /// Returns the privacy-safe authority source selected by the last start.
+    public func selectedStartupPolicySource()
+        -> DiagnosticConnectionPolicySource? {
+        startupPolicySource
     }
 
     /// Records a background transition without closing the endpoint or streams.

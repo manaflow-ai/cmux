@@ -491,7 +491,11 @@ public actor CmxIrohHostRuntime {
             publishSelectedPathChange()
         }
         await handleTransport(
-            CmxIrohAdmittedServerSession(peer: peer, session: session),
+            CmxIrohAdmittedServerSession(
+                peer: peer,
+                session: session,
+                connectionAttempt: connectionAttempt
+            ),
             isCurrent
         )
     }

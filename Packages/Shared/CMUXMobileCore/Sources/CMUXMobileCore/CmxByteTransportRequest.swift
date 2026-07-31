@@ -25,18 +25,24 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     public let authorizationMode: CmxTransportAuthorizationMode
     /// The local owner whose network path this request represents.
     public let sessionPurpose: CmxTransportSessionPurpose
+    /// Positive, process-local ID spanning lifecycle through subscription
+    /// readiness. It contains no stable device, account, route, or credential data.
+    public let diagnosticCorrelationID: Int?
 
     /// Creates a route-bound transport request with explicit peer authority.
     public init(
         route: CmxAttachRoute,
         expectedPeerDeviceID: String?,
         authorizationMode: CmxTransportAuthorizationMode,
-        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl
+        sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
+        diagnosticCorrelationID: Int? = nil
     ) {
+        precondition(diagnosticCorrelationID.map { $0 > 0 } ?? true)
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
+        self.diagnosticCorrelationID = diagnosticCorrelationID
     }
 
     /// Returns the same route and authority with a different local owner role.
@@ -47,7 +53,8 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
             route: route,
             expectedPeerDeviceID: expectedPeerDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            diagnosticCorrelationID: diagnosticCorrelationID
         )
     }
 }

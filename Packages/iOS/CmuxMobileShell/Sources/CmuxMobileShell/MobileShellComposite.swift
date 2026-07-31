@@ -805,6 +805,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    /// Foreground trace adopted from app lifecycle and carried through the
+    /// request, wire admission, RPC, and terminal subscription acknowledgement.
+    var connectionDiagnosticTraceID: Int? = nil
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -7683,6 +7686,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client, otherwise the abandoned attempt briefly disconnects the
         // newer session even though every later adoption guard rejects it.
         guard ifStillCurrent?() ?? true else { return nil }
+        let diagnosticTraceID = diagnosticLog?.adoptOrBeginConnectionTrace()
+        connectionDiagnosticTraceID = diagnosticTraceID
         let generation = UUID()
         var liveConnectionGeneration = generation
         let ticketMacDeviceID = ticket.macDeviceID
@@ -7703,7 +7708,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = generation
         await releaseConnectionAttemptClientForReplacement()
         guard isConnectCurrent() else { return nil }
-        diagnosticLog?.record(DiagnosticEvent(.connect))
+        diagnosticLog?.record(DiagnosticEvent(.connect, c: diagnosticTraceID))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
@@ -7725,8 +7730,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             diagnosticLog?.record(DiagnosticEvent(
                 .routeUnavailable,
                 a: DiagnosticTransportKind.unknown.rawValue,
-                b: DiagnosticFailureKind.unsupportedRoute.rawValue
+                b: DiagnosticFailureKind.unsupportedRoute.rawValue,
+                c: diagnosticTraceID
             ))
+            if let diagnosticTraceID {
+                if diagnosticLog?.finishConnectionTrace(
+                    diagnosticTraceID,
+                    failure: .unsupportedRoute
+                ) == true {
+                    connectionDiagnosticTraceID = nil
+                }
+            }
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
@@ -7946,7 +7960,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
-                transportConnectObserver: transportConnectDiagnosticObserver
+                transportConnectObserver: transportConnectDiagnosticObserver,
+                diagnosticCorrelationID: diagnosticTraceID
             )
             if let previousAttemptClient =
                 replaceConnectionAttemptClientOwnership(with: client) {
@@ -8116,7 +8131,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
-                        a: DiagnosticTransportKind(route.kind).rawValue
+                        a: DiagnosticTransportKind(route.kind).rawValue,
+                        c: diagnosticTraceID
                     ))
                     guard isConnectCurrent() else {
                         await client.disconnect()
@@ -8275,7 +8291,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
-                        a: DiagnosticTransportKind(route.kind).rawValue
+                        a: DiagnosticTransportKind(route.kind).rawValue,
+                        c: diagnosticTraceID
                     ))
                     // Record this as the foreground entry in the per-Mac
                     // connection pool (P2). Anonymous (empty-id) tickets are not
@@ -8303,7 +8320,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if multiMacAggregationEnabled, !isReconnectingStoredMac {
                         self.scheduleSecondaryAggregation()
                     }
-                    diagnosticLog?.record(DiagnosticEvent(.pairOk))
+                    diagnosticLog?.record(DiagnosticEvent(
+                        .pairOk,
+                        c: diagnosticTraceID
+                    ))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
@@ -8334,15 +8354,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // adopted. Close its persistent transport before trying another
             // route so an Iroh session-pool owner cannot survive off-screen.
             await client.disconnect()
+            guard isConnectCurrent() else { return nil }
         }
 
-        diagnosticLog?.record(DiagnosticEvent(.pairFail))
+        guard isConnectCurrent() else { return nil }
+        diagnosticLog?.record(DiagnosticEvent(
+            .pairFail,
+            c: diagnosticTraceID
+        ))
+        let terminalFailure = Self.diagnosticFailureKind(for: lastError)
         diagnosticLog?.record(DiagnosticEvent(
             .rpcFailed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: Self.diagnosticFailureKind(for: lastError).rawValue
+            b: terminalFailure.rawValue,
+            c: diagnosticTraceID
         ))
+        if let diagnosticTraceID {
+            if diagnosticLog?.finishConnectionTrace(
+                diagnosticTraceID,
+                failure: terminalFailure
+            ) == true {
+                connectionDiagnosticTraceID = nil
+            }
+        }
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 

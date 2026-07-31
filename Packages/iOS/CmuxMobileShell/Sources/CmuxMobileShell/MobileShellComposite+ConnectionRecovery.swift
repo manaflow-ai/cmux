@@ -294,11 +294,14 @@ extension MobileShellComposite {
             probing: probeCurrentConnection
         )
         guard let attempt else { return }
+        let diagnosticTraceID = diagnosticLog?.adoptOrBeginConnectionTrace()
+        connectionDiagnosticTraceID = diagnosticTraceID
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: trigger.diagnosticCode
+            b: trigger.diagnosticCode,
+            c: diagnosticTraceID
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -321,6 +324,13 @@ extension MobileShellComposite {
                         return
                     }
                     if healthy {
+                        self.diagnosticLog?.record(DiagnosticEvent(
+                            .rpcReady,
+                            a: self.activeRoute.map {
+                                DiagnosticTransportKind($0.kind).rawValue
+                            } ?? DiagnosticTransportKind.unknown.rawValue,
+                            c: self.connectionDiagnosticTraceID
+                        ))
                         guard self.completeConnectionRecovery(attempt) else { return }
                         self.markMacConnectionHealthy()
                         if resyncAfterHealthy {
@@ -469,25 +479,47 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            c: connectionDiagnosticTraceID
         ))
     }
 
     private func recordConnectionRecoveryFailed(_ failure: DiagnosticFailureKind) {
+        let diagnosticTraceID = connectionDiagnosticTraceID
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: failure.rawValue
+            b: failure.rawValue,
+            c: diagnosticTraceID
         ))
+        if let diagnosticTraceID {
+            _ = diagnosticLog?.finishConnectionTrace(
+                diagnosticTraceID,
+                failure: failure
+            )
+            connectionDiagnosticTraceID = nil
+        }
     }
 
     func recordSuccessfulTerminalSubscription() {
         lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
         connectionRepairAttemptCount = 0
+        let diagnosticTraceID = connectionDiagnosticTraceID
+        if let diagnosticTraceID,
+           diagnosticLog?.currentConnectionTraceID() == diagnosticTraceID {
+            diagnosticLog?.record(DiagnosticEvent(
+                .subscriptionValidated,
+                c: diagnosticTraceID
+            ))
+        }
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()
+        }
+        if let diagnosticTraceID,
+           diagnosticLog?.finishConnectionTrace(diagnosticTraceID) == true {
+            connectionDiagnosticTraceID = nil
         }
     }
 
