@@ -6,7 +6,10 @@ import { notificationSendEvents } from "../../db/schema";
 type NotificationDb = ReturnType<typeof cloudDb>;
 
 const PUSH_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
-const PUSH_RATE_LIMIT_MAX_EVENTS = 60;
+// Per-user cap (keyed on user.id), so this only bounds a user's own phone — it is
+// a runaway-loop / APNs-volume guard, not anti-abuse (a user cannot spam others).
+// Power users running many agents legitimately exceed 60/10min, so allow 200/10min.
+const PUSH_RATE_LIMIT_MAX_EVENTS = 200;
 
 export class PushRateLimitExceededError extends Error {
   readonly retryAfterSeconds: number;
