@@ -376,6 +376,7 @@ private struct MobileIrohCooldownFixture {
                 deviceID: { stableDeviceID },
                 tag: tag,
                 now: { clock.now() },
+                connectionReadinessJitterUnitInterval: { 0 },
                 diagnosticLog: diagnosticLog,
                 debugDefaults: defaults
             )

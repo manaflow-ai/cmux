@@ -143,7 +143,7 @@ struct MobileIrohRuntimeCompositionTests {
 
         #expect(
             await readiness.wait(
-                now: Date(timeIntervalSince1970: 0)
+                now: { Date(timeIntervalSince1970: 0) }
             ) == .ready
         )
     }
@@ -167,7 +167,7 @@ struct MobileIrohRuntimeCompositionTests {
         #expect(readiness.isPending == false)
         #expect(
             await readiness.wait(
-                now: Date(timeIntervalSince1970: 0)
+                now: { Date(timeIntervalSince1970: 0) }
             ) == .inactive
         )
     }
@@ -181,7 +181,7 @@ struct MobileIrohRuntimeCompositionTests {
         )
         readiness.begin(revision: 1)
 
-        async let outcome = readiness.wait(now: startedAt)
+        async let outcome = readiness.wait(now: { settledAt })
         let failure = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",

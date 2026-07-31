@@ -190,7 +190,7 @@ public final class MobileIrohRuntimeComposition:
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
-    private let connectionReadiness = MobileIrohConnectionReadinessOwner()
+    private let connectionReadiness: MobileIrohConnectionReadinessOwner
     private var sceneTransitionTask: Task<Void, Never>?
     // Internal read access lets the dedicated DEBUG-only release-gate
     // extension inspect the exact runtime without shipping test entrypoints on
@@ -406,6 +406,9 @@ public final class MobileIrohRuntimeComposition:
         tag: String,
         discoveryCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         now: @escaping @Sendable () -> Date,
+        connectionReadinessJitterUnitInterval: @escaping @MainActor () -> Double = {
+            Double.random(in: 0 ... 1)
+        },
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
         lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
         startNetworkPathObservation: @escaping @Sendable () async -> Void = {},
@@ -437,6 +440,9 @@ public final class MobileIrohRuntimeComposition:
         self.tag = tag
         self.discoveryCompatibilityPolicy = discoveryCompatibilityPolicy
         self.now = now
+        self.connectionReadiness = MobileIrohConnectionReadinessOwner(
+            jitterUnitInterval: connectionReadinessJitterUnitInterval
+        )
         self.routeCatalog = routeCatalog
         self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
@@ -652,7 +658,7 @@ public final class MobileIrohRuntimeComposition:
         async -> MobileIrohConnectionReadinessOutcome
     {
         await reconcileLiveAuthIfNeeded()
-        let outcome = await connectionReadiness.wait(now: now())
+        let outcome = await connectionReadiness.wait(now: now)
         await sceneTransitionTask?.value
         return runtime == nil ? outcome : .ready
     }

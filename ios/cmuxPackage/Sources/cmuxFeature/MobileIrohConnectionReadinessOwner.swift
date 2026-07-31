@@ -55,6 +55,7 @@ final class MobileIrohConnectionReadinessOwner {
     var isPending: Bool { pendingRevision != nil }
 
     func begin(revision: UInt64) {
+        if let pendingRevision, revision < pendingRevision { return }
         pendingRevision = revision
     }
 
@@ -63,7 +64,9 @@ final class MobileIrohConnectionReadinessOwner {
         revision: UInt64,
         outcome: MobileIrohConnectionReadinessOutcome = .ready
     ) -> Bool {
-        guard pendingRevision == revision else { return false }
+        guard let pendingRevision, pendingRevision <= revision else {
+            return false
+        }
         pendingRevision = nil
         settledOutcome = outcome
         switch outcome {
@@ -119,7 +122,9 @@ final class MobileIrohConnectionReadinessOwner {
         return now >= retryAt
     }
 
-    func wait(now: Date) async -> MobileIrohConnectionReadinessOutcome {
+    func wait(
+        now: @MainActor () -> Date
+    ) async -> MobileIrohConnectionReadinessOutcome {
         if isPending {
             await withCheckedContinuation { continuation in
                 guard isPending else {
@@ -133,9 +138,10 @@ final class MobileIrohConnectionReadinessOwner {
               let retryAt else {
             return settledOutcome
         }
+        let currentDate = now()
         let remaining = max(
             1,
-            Int(retryAt.timeIntervalSince(now).rounded(.up))
+            Int(retryAt.timeIntervalSince(currentDate).rounded(.up))
         )
         return .failed(MobileIrohRuntimePreparationError(
             diagnosticFailureKind: failure.diagnosticFailureKind,
