@@ -72,3 +72,18 @@ def test_absolute_and_growth_limits_are_both_enforced() -> None:
         absolute_limit=200,
         growth_limit=90,
     ) is True
+
+
+def test_memory_growth_limit_is_ten_percent_or_thirty_megabytes() -> None:
+    monitor = load_resource_monitor_module()
+
+    assert monitor.memory_growth_limit_kb(
+        baseline_kb=100_000,
+        minimum_kb=30_720,
+        percent=10,
+    ) == 30_720
+    assert monitor.memory_growth_limit_kb(
+        baseline_kb=1_000_000,
+        minimum_kb=30_720,
+        percent=10,
+    ) == 100_000
