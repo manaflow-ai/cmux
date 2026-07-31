@@ -1791,20 +1791,10 @@ async fn run_daemon(
             .transpose()
             .context(catalog().remote.inspect_authorization_schema)?;
         if matches!(auth_state_schema, Some(PersistedAuthStateSchema::Legacy))
-            || (!lifecycle_fenced
-                && matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing)))
+            || matches!(auth_state_schema, Some(PersistedAuthStateSchema::Missing))
+            || (lifecycle_fenced && !auth_state_preexisting)
         {
             return Err(anyhow!(catalog().remote.legacy_authorization_requires_migration));
-        }
-        // Publish the fresh-state marker before AuthDatabase can create any
-        // path that a retry would otherwise mistake for legacy state.
-        if !auth_state_preexisting && !lifecycle_fenced {
-            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
-                .context(catalog().remote.prepare_lifecycle_state)?;
-            #[cfg(test)]
-            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
-            persist_daemon_lifecycle_fence(&state_dir)?;
-            lifecycle_fenced = true;
         }
         let auth = load_daemon_auth_during_handoff(
             &auth_state_dir,
@@ -1813,6 +1803,17 @@ async fn run_daemon(
             DAEMON_AUTH_LEASE_RETRY_TIMEOUT,
         )
         .await?;
+        // Version 2 authorization state is the rollback fence understood by
+        // older binaries. Publish the lifecycle marker only after that state
+        // is durable and while its exclusive lease is still held.
+        if !auth_state_preexisting && !lifecycle_fenced {
+            ensure_secure_directory(&state_dir, DirectoryAccess::OwnerControlled)
+                .context(catalog().remote.prepare_lifecycle_state)?;
+            #[cfg(test)]
+            pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeLifecycleFence);
+            persist_daemon_lifecycle_fence(&state_dir)?;
+            lifecycle_fenced = true;
+        }
         verify_previous_shutdown_outcome(&state_dir, lifecycle_fenced)?;
         if !lifecycle_fenced {
             persist_daemon_lifecycle_fence(&state_dir)?;
@@ -1827,7 +1828,7 @@ async fn run_daemon(
         )?;
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
-        persist_runtime_info(
+        let preliminary_runtime = persist_runtime_info(
             &state_dir,
             &DaemonRuntimeInfo {
                 session: options.session.clone(),
@@ -1841,7 +1842,14 @@ async fn run_daemon(
                 lifecycle_id: Some(lifecycle_id.clone()),
                 replaceable_sidecar: options.replaceable_sidecar,
             },
-        )?;
+        );
+        if let Err(error) = preliminary_runtime {
+            if error.downcast_ref::<CommittedRuntimeInfoError>().is_some() {
+                return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
+                    .await;
+            }
+            return Err(error);
+        }
         let transport_setup: anyhow::Result<_> = async {
             #[cfg(test)]
             pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeListenerStartup);
@@ -2157,6 +2165,25 @@ async fn shutdown_relay(registration: RelayDaemonRegistration) {
     registration.shutdown().await;
 }
 
+#[derive(Debug)]
+struct CommittedRuntimeInfoError(IdentityError);
+
+impl fmt::Display for CommittedRuntimeInfoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "remote runtime metadata was committed but durability confirmation failed: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for CommittedRuntimeInfoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
 fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::Result<()> {
     use std::io::Write as _;
 
@@ -2184,7 +2211,9 @@ fn persist_runtime_info(state_dir: &Path, info: &DaemonRuntimeInfo) -> anyhow::R
         file.write_all(&encoded)?;
         file.sync_all()?;
         fs::rename(&temporary, &path)?;
-        sync_state_directory(state_dir)?;
+        if let Err(error) = sync_state_directory(state_dir) {
+            return Err(anyhow::Error::new(CommittedRuntimeInfoError(error)));
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -2389,16 +2418,14 @@ pub(crate) fn inactive_daemon_needs_legacy_acknowledgement(
     state_dir: &Path,
 ) -> anyhow::Result<bool> {
     let auth_state_dir = state_dir.join("auth");
+    let lifecycle_fenced =
+        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
     if !auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)? {
-        return Ok(false);
+        return Ok(lifecycle_fenced);
     }
-    if persisted_auth_state_schema(&auth_state_dir)
-        .context(catalog().remote.inspect_authorization_schema)?
-        == PersistedAuthStateSchema::Legacy
-    {
-        return Ok(true);
-    }
-    Ok(!read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?)
+    let auth_schema = persisted_auth_state_schema(&auth_state_dir)
+        .context(catalog().remote.inspect_authorization_schema)?;
+    Ok(auth_schema != PersistedAuthStateSchema::Current || !lifecycle_fenced)
 }
 
 fn read_shutdown_outcome(state_dir: &Path) -> Result<Option<DaemonShutdownOutcome>, IdentityError> {
@@ -2423,16 +2450,10 @@ pub(crate) async fn complete_verified_daemon_stop(
     daemon_name: &str,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    if !auth_state_dir
-        .try_exists()
-        .context("could not inspect stopped daemon authorization state")?
-    {
-        return persist_daemon_lifecycle_fence(state_dir)
-            .context(catalog().remote.persist_stopped_lifecycle_fence);
-    }
+    auth_state_dir.try_exists().context(catalog().remote.inspect_stopped_authorization_state)?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
-        .context("could not acquire the stopped daemon authorization lease")?;
+        .context(catalog().remote.acquire_stopped_authorization_lease)?;
     let cleanup_state_dir = state_dir.to_path_buf();
     auth.shutdown_with_cleanup(move |finalization| {
         if finalization.is_err() {
@@ -2441,7 +2462,7 @@ pub(crate) async fn complete_verified_daemon_stop(
         persist_daemon_lifecycle_fence(&cleanup_state_dir)
     })
     .await
-    .context("could not finalize stopped daemon authorization migration")
+    .context(catalog().remote.finalize_stopped_authorization_migration)
 }
 
 #[cfg(unix)]
@@ -2533,11 +2554,13 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    if !auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)? {
+    let auth_state_preexisting =
+        auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)?;
+    let lifecycle_fenced =
+        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
+    if !auth_state_preexisting && !lifecycle_fenced {
         return Err(anyhow!(catalog().remote.no_legacy_authorization_state));
     }
-    let _lifecycle_fenced =
-        read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
 
     let runtime_path = state_dir.join("runtime.json");
     let outcome_path = state_dir.join("shutdown.json");
@@ -3344,6 +3367,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn daemon_startup_refuses_lifecycle_marker_without_authorization_state() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "marker-without-auth";
+        let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        let error = match start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        ) {
+            Err(error) => error,
+            Ok(runtime) => {
+                runtime.shutdown().unwrap();
+                panic!("lifecycle marker created missing authorization state");
+            }
+        };
+
+        assert!(error.to_string().contains("explicit migration"), "{error:#}");
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            None,
+            "rejected marker-only state created authorization state"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn daemon_startup_refuses_lifecycle_fenced_lock_only_auth_initialization() {
         use std::os::unix::fs::OpenOptionsExt as _;
 
@@ -3402,7 +3466,7 @@ mod tests {
         let (state_dir, _, _) = daemon_paths(session, Some(&state_root)).unwrap();
         let auth_state_dir = state_dir.join("auth");
         let mut pause = DaemonCleanupPauseHandle::install(
-            state_dir.clone(),
+            state_dir,
             DaemonCleanupPausePhase::BeforeLifecycleFence,
         );
 
@@ -3638,6 +3702,64 @@ mod tests {
         .expect("lifecycle-fenced startup retry was rejected");
 
         runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_recovery_makes_marker_only_state_safe_to_restart() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_root = directory.path().join("state");
+        let session = "recover-marker-only-state";
+        let (state_dir, link_socket, admin_socket) =
+            daemon_paths(session, Some(&state_root)).unwrap();
+        fs::create_dir_all(&state_dir).unwrap();
+        persist_daemon_lifecycle_fence(&state_dir).unwrap();
+
+        assert!(inactive_daemon_needs_legacy_acknowledgement(&state_dir).unwrap());
+        acknowledge_legacy_shutdown_state(&state_dir, session, &link_socket, &admin_socket)
+            .await
+            .unwrap();
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
+        assert!(!inactive_daemon_needs_legacy_acknowledgement(&state_dir).unwrap());
+
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: session.into(),
+                state_dir: Some(state_root),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+            },
+        )
+        .expect("explicit marker-only recovery did not make startup safe");
+        runtime.shutdown().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn verified_stop_creates_current_authorization_when_state_is_missing() {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let state_dir = directory.path().join("missing-state");
+
+        complete_verified_daemon_stop(&state_dir, "verified-missing-state")
+            .await
+            .expect("verified stop did not initialize rollback-fenced authorization state");
+
+        assert_eq!(
+            cmux_remote::identity::persisted_auth_state_version(&state_dir.join("auth")).unwrap(),
+            Some(cmux_remote::identity::AUTH_STATE_VERSION)
+        );
+        assert!(read_daemon_lifecycle_fence(&state_dir).unwrap());
     }
 
     #[cfg(unix)]
