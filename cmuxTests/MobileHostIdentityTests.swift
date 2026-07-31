@@ -86,6 +86,7 @@ struct MobileHostIdentityTests {
             routes: [],
             phonePushDefaults: defaults,
             phonePushAdmission: .suppressedMacActive,
+            phonePushQueuePersistenceStatus: .saveFailed,
             phonePushAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!
         )
         let phonePush = try #require(payload["phone_push"] as? [String: Any])
@@ -93,6 +94,7 @@ struct MobileHostIdentityTests {
         #expect(phonePush["forwarding_enabled"] as? Bool == true)
         #expect(phonePush["mode"] as? String == "onlyWhenAway")
         #expect(phonePush["admission"] as? String == "suppressed_mac_active")
+        #expect(phonePush["queue_persistence"] as? String == "save_failed")
         #expect(phonePush["hide_content"] as? Bool == false)
         #expect(phonePush["api_origin"] as? String == "https://cmux-staging.vercel.app")
         #expect(phonePush["account_scope"] as? String == "verified_same_account")
