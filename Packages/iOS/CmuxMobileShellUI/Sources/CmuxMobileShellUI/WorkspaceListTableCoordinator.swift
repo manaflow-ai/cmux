@@ -46,6 +46,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private let sizingCell = UITableViewCell(style: .default, reuseIdentifier: nil)
     private var heightCache = WorkspaceListRowHeightCache<HeightCacheKey>()
     private var configuredItemsByID: [String: WorkspaceListTableItem]
+    #if DEBUG
+    /// The most recent configuration-update route, exposed to package tests.
+    var lastPayloadApplyRoute: PayloadApplyRoute?
+    #endif
     /// The row whose swipe controls UIKit is currently presenting.
     private var editedItemID: String?
     /// Native-action payloads that changed while their row was being swiped.
