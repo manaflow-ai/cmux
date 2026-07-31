@@ -468,6 +468,24 @@ actor HostRuntimeBindingRecorder {
     func count() -> Int { recordedCount }
 }
 
+actor HostRuntimeRouteRecorder {
+    struct Value: Equatable, Sendable {
+        let binding: CmxIrohBrokerBindingMetadata
+        let pathHints: [CmxIrohPathHint]
+    }
+
+    private var recorded: [Value] = []
+
+    func record(
+        binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint]
+    ) {
+        recorded.append(Value(binding: binding, pathHints: pathHints))
+    }
+
+    func values() -> [Value] { recorded }
+}
+
 actor HostRuntimeLANRefreshRecorder {
     private var recordedCount = 0
     private var waiters: [

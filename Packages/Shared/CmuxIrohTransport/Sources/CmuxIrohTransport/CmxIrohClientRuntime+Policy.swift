@@ -14,8 +14,7 @@ extension CmxIrohClientRuntime {
         try requireCurrent(revision)
         try await broker.preflight(operation: .discovery)
         try requireCurrent(revision)
-        let endpoint = try await supervisor.activeEndpoint()
-        let address = await endpoint.address()
+        let address = try await connectivityEngine.endpointAddress()
         guard address.identity == expectedEndpointID else {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
@@ -23,7 +22,7 @@ extension CmxIrohClientRuntime {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
         let directPorts = CmxIrohDirectPorts(
-            localDirectAddresses: await endpoint.localDirectAddresses()
+            localDirectAddresses: try await connectivityEngine.localDirectAddresses()
         )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
@@ -97,7 +96,7 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            discovery = try await broker.discover()
+            discovery = try await discoverAuthoritatively()
         } catch {
             guard let registration,
                   Self.isConnectivity(error),
@@ -140,6 +139,27 @@ extension CmxIrohClientRuntime {
         )
     }
 
+    func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
+        guard let authority = broker as? any CmxConnectivityAuthorityServing else {
+            let discovery = try await broker.discover()
+            authoritativeDiscovery = discovery
+            return discovery
+        }
+        let knownRevision = authoritativeDiscovery?.revision
+        let response = try await authority.syncConnectivity(
+            knownRevision: knownRevision
+        )
+        if let snapshot = response.snapshot {
+            authoritativeDiscovery = snapshot
+            return snapshot
+        }
+        guard let authoritativeDiscovery,
+              authoritativeDiscovery.revision == response.revision else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return authoritativeDiscovery
+    }
+
     func offlineBootstrap(
         expectation: CmxIrohClientOfflinePolicyExpectation?,
         confirmedLocalBinding: CmxIrohBrokerBinding?
@@ -180,7 +200,9 @@ extension CmxIrohClientRuntime {
             provider = registryContextProvider
         } else {
             provider = CmxIrohRegistryContextProvider(
-                supervisor: supervisor,
+                localEndpointIdentity: { [connectivityEngine] in
+                    try await connectivityEngine.localEndpointIdentity()
+                },
                 broker: broker,
                 localBindingExpectation: policy.expectation,
                 managedRelayURLs: managedRelayURLs,
@@ -209,7 +231,7 @@ extension CmxIrohClientRuntime {
             coordinator = relayCoordinator
         } else {
             coordinator = CmxIrohRelayCredentialCoordinator(
-                supervisor: supervisor,
+                supervisor: connectivityEngine,
                 broker: broker,
                 managedRelayURLs: managedRelayURLs,
                 selectedRelayURLs: endpointRelayProfile.allowedRelayURLs,

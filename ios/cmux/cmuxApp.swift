@@ -32,7 +32,15 @@ struct cmuxApp: App {
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        iroh.configure(auth: auth.coordinator)
+        let connectivityInvalidationBaseURL = PresenceClient
+            .resolvedServiceBaseURL(
+                isDevelopmentAuthChannel: auth.authEnvironment == .development
+            )
+            .flatMap { URL(string: $0) }
+        iroh.configure(
+            auth: auth.coordinator,
+            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        )
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can

@@ -1,7 +1,11 @@
 public import CMUXMobileCore
 
 /// Operation-gated client broker used by an account-owned runtime.
-public struct CmxIrohBackpressuredClientBroker: CmxIrohClientBrokerServing, Sendable {
+public struct CmxIrohBackpressuredClientBroker:
+    CmxIrohClientBrokerServing,
+    CmxConnectivityAuthorityServing,
+    Sendable
+{
     private let broker: any CmxIrohClientBrokerServing
     private let gate: CmxIrohBrokerBackpressureGate
     private let accountID: String
@@ -38,6 +42,22 @@ public struct CmxIrohBackpressuredClientBroker: CmxIrohClientBrokerServing, Send
         }
     }
 
+    public func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        try await gate.perform(accountID: accountID, operation: .discovery) {
+            if let authority = broker as? any CmxConnectivityAuthorityServing {
+                return try await authority.syncConnectivity(
+                    knownRevision: knownRevision
+                )
+            }
+            return CmxConnectivitySyncResponse(
+                legacySnapshot: try await broker.discover(),
+                knownRevision: knownRevision
+            )
+        }
+    }
+
     public func issuePairGrant(
         initiatorBindingID: String,
         acceptorBindingID: String
@@ -70,7 +90,11 @@ public struct CmxIrohBackpressuredClientBroker: CmxIrohClientBrokerServing, Send
 }
 
 /// Operation-gated host broker used by an account-owned Mac runtime.
-public struct CmxIrohBackpressuredHostBroker: CmxIrohHostBrokerServing, Sendable {
+public struct CmxIrohBackpressuredHostBroker:
+    CmxIrohHostBrokerServing,
+    CmxConnectivityAuthorityServing,
+    Sendable
+{
     private let broker: any CmxIrohHostBrokerServing
     private let gate: CmxIrohBrokerBackpressureGate
     private let accountID: String
@@ -101,6 +125,22 @@ public struct CmxIrohBackpressuredHostBroker: CmxIrohHostBrokerServing, Sendable
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await gate.perform(accountID: accountID, operation: .discovery) {
             try await broker.discover()
+        }
+    }
+
+    public func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        try await gate.perform(accountID: accountID, operation: .discovery) {
+            if let authority = broker as? any CmxConnectivityAuthorityServing {
+                return try await authority.syncConnectivity(
+                    knownRevision: knownRevision
+                )
+            }
+            return CmxConnectivitySyncResponse(
+                legacySnapshot: try await broker.discover(),
+                knownRevision: knownRevision
+            )
         }
     }
 

@@ -5,6 +5,102 @@ import Testing
 @Suite
 struct CmxIrohClientRuntimeTests {
     @Test
+    func pushedRevisionReconcilesReadOnlyAndSkipsObsoleteHints() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let revisionOne = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let revisionTwo = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 2
+        )
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [revisionOne, revisionTwo],
+            relay: fixture.relayResponse()
+        )
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now },
+            handleBinding: { _, _ in
+                await recorder.recordBinding()
+                return true
+            }
+        )
+        try await runtime.start()
+
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 1)
+        #expect(
+            await runtime.reconcileConnectivityRevision(2) == .refreshed
+        )
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 2)
+        #expect(await recorder.observedBindingCount() == 2)
+        #expect(
+            await runtime.connectivityEngine.snapshot().routeRevision == 2
+        )
+
+        #expect(
+            await runtime.reconcileConnectivityRevision(1) == .refreshed
+        )
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 2)
+        await runtime.stop()
+    }
+
+    @Test
+    func pushedRevisionCoalescingCannotLoseTheNewestHint() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let discoveries = try (1...3).map {
+            try ClientRuntimeTestFixture.discovery(
+                binding: fixture.binding,
+                revision: UInt64($0)
+            )
+        }
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: discoveries,
+            relay: fixture.relayResponse(),
+            blockedSyncCount: 2
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+
+        async let revisionTwo = runtime.reconcileConnectivityRevision(2)
+        await broker.waitUntilSyncCount(2)
+        async let revisionThree = runtime.reconcileConnectivityRevision(3)
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        await broker.releaseBlockedSync()
+
+        #expect(await revisionTwo == .refreshed)
+        #expect(await revisionThree == .refreshed)
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 3)
+        #expect(
+            await runtime.connectivityEngine.snapshot().routeRevision == 3
+        )
+        await runtime.stop()
+    }
+
+    @Test
     func startInstallsExactIOSBindingAndManagedRelays() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -734,6 +830,96 @@ struct CmxIrohClientRuntimeTests {
                 accountID: fixture.configuration.accountID
             ) == [pending]
         )
+    }
+
+}
+
+private actor TestRevisionedClientBroker:
+    CmxIrohClientBrokerServing,
+    CmxConnectivityAuthorityServing
+{
+    private let binding: CmxIrohBrokerBinding
+    private var discoveries: [CmxIrohDiscoveryResponse]
+    private let relay: CmxIrohRelayTokenResponse
+    private let blockedSyncCount: Int?
+    private(set) var registrationCount = 0
+    private(set) var syncCount = 0
+    private var blockedSyncReleased = false
+
+    init(
+        binding: CmxIrohBrokerBinding,
+        discoveries: [CmxIrohDiscoveryResponse],
+        relay: CmxIrohRelayTokenResponse,
+        blockedSyncCount: Int? = nil
+    ) {
+        self.binding = binding
+        self.discoveries = discoveries
+        self.relay = relay
+        self.blockedSyncCount = blockedSyncCount
+    }
+
+    func register(
+        prepared _: CmxIrohPreparedRegistration,
+        signer _: CmxIrohRegistrationSigner
+    ) -> CmxIrohRegistrationResponse {
+        registrationCount += 1
+        return CmxIrohRegistrationResponse(
+            revision: discoveries.first?.revision,
+            binding: binding,
+            relay: .issued(relay)
+        )
+    }
+
+    func syncConnectivity(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        syncCount += 1
+        if syncCount == blockedSyncCount {
+            while !blockedSyncReleased {
+                await Task.yield()
+            }
+        }
+        guard !discoveries.isEmpty else {
+            throw TestIrohTransportError.unsupported
+        }
+        let discovery = discoveries.removeFirst()
+        return CmxConnectivitySyncResponse(
+            legacySnapshot: discovery,
+            knownRevision: knownRevision
+        )
+    }
+
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        guard let discovery = discoveries.first else {
+            throw TestIrohTransportError.unsupported
+        }
+        return discovery
+    }
+
+    func issuePairGrant(
+        initiatorBindingID _: String,
+        acceptorBindingID _: String
+    ) throws -> CmxIrohPairGrantResponse {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func issueRelayToken(
+        bindingID _: String,
+        endpointID _: CmxIrohPeerIdentity
+    ) -> CmxIrohRelayTokenResponse {
+        relay
+    }
+
+    func revoke(bindingID _: String) {}
+
+    func waitUntilSyncCount(_ minimum: Int) async {
+        while syncCount < minimum {
+            await Task.yield()
+        }
+    }
+
+    func releaseBlockedSync() {
+        blockedSyncReleased = true
     }
 
 }

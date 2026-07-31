@@ -3,7 +3,7 @@ import Foundation
 
 extension CmxIrohHostRuntime {
     func resolveInitialPolicy(
-        supervisor: CmxIrohEndpointSupervisor,
+        engine: CmxConnectivityEngine,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
     ) async throws -> ResolvedPolicy {
@@ -14,7 +14,7 @@ extension CmxIrohHostRuntime {
             try requireCurrent(revision)
             do {
                 return try await resolvePolicyAfterPendingRevocations(
-                    supervisor: supervisor,
+                    engine: engine,
                     expectedEndpointID: expectedEndpointID,
                     revision: revision,
                     allowCachedFallback: true
@@ -43,7 +43,7 @@ extension CmxIrohHostRuntime {
     }
 
     func resolvePolicy(
-        supervisor: CmxIrohEndpointSupervisor,
+        engine: CmxConnectivityEngine,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
         allowCachedFallback: Bool
@@ -51,7 +51,7 @@ extension CmxIrohHostRuntime {
         try await revokePendingBeforeRegistration()
         try requireCurrent(revision)
         return try await resolvePolicyAfterPendingRevocations(
-            supervisor: supervisor,
+            engine: engine,
             expectedEndpointID: expectedEndpointID,
             revision: revision,
             allowCachedFallback: allowCachedFallback
@@ -67,13 +67,12 @@ extension CmxIrohHostRuntime {
     }
 
     private func resolvePolicyAfterPendingRevocations(
-        supervisor: CmxIrohEndpointSupervisor,
+        engine: CmxConnectivityEngine,
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
         allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
-        let endpoint = try await supervisor.activeEndpoint()
-        let address = await endpoint.address()
+        let address = try await engine.endpointAddress()
         guard address.identity == expectedEndpointID else {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
         }
@@ -96,7 +95,7 @@ extension CmxIrohHostRuntime {
             $0.publicDisclosure(at: now())
         }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
         let directPorts = CmxIrohDirectPorts(
-            localDirectAddresses: await endpoint.localDirectAddresses()
+            localDirectAddresses: try await engine.localDirectAddresses()
         )
         let payload = try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
@@ -133,7 +132,7 @@ extension CmxIrohHostRuntime {
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            discovery = try await broker.discover()
+            discovery = try await discoverAuthoritatively()
         } catch {
             return try cachedPolicy(
                 after: error,
@@ -169,8 +168,30 @@ extension CmxIrohHostRuntime {
             grantVerificationKeys: discovery.grantVerificationKeys,
             attestation: attestation,
             relayBootstrap: configuration.cachedRelayCredential,
-            lanRendezvous: discovery.lanRendezvous
+            lanRendezvous: discovery.lanRendezvous,
+            routePathHints: discovered.pathHints,
+            registrationRetryAfterSeconds: nil
         )
+    }
+
+    func discoverAuthoritatively() async throws -> CmxIrohDiscoveryResponse {
+        guard let authority = broker as? any CmxConnectivityAuthorityServing else {
+            let discovery = try await broker.discover()
+            authoritativeDiscovery = discovery
+            return discovery
+        }
+        let response = try await authority.syncConnectivity(
+            knownRevision: authoritativeDiscovery?.revision
+        )
+        if let snapshot = response.snapshot {
+            authoritativeDiscovery = snapshot
+            return snapshot
+        }
+        guard let authoritativeDiscovery,
+              authoritativeDiscovery.revision == response.revision else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+        return authoritativeDiscovery
     }
 
     func cachedPolicy(
@@ -207,7 +228,11 @@ extension CmxIrohHostRuntime {
             grantVerificationKeys: cached.grantVerificationKeys,
             attestation: cached.endpointAttestation,
             relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential,
-            lanRendezvous: cached.lanRendezvous
+            lanRendezvous: cached.lanRendezvous,
+            routePathHints: [],
+            registrationRetryAfterSeconds: (
+                error as? any CmxRetryAfterProviding
+            )?.retryAfterSeconds
         )
     }
 
@@ -269,26 +294,21 @@ extension CmxIrohHostRuntime {
         return (try? cached.relayConfigurations(now: now())) ?? []
     }
 
-    func startSupervisorObservation(
-        supervisor: CmxIrohEndpointSupervisor,
+    func startConnectivityObservation(
+        engine: CmxConnectivityEngine,
         revision: UInt64
     ) async {
-        supervisorEventTask?.cancel()
-        let events = await supervisor.events()
-        supervisorEventTask = Task { [weak self] in
-            for await event in events {
+        connectivityEventTask?.cancel()
+        let events = await engine.networkChanges()
+        connectivityEventTask = Task { [weak self] in
+            for await _ in events {
                 guard !Task.isCancelled else { return }
-                switch event {
-                case .networkChanged, .recovered:
-                    await self?.handleSupervisorNetworkChange(revision: revision)
-                case .snapshot:
-                    break
-                }
+                await self?.handleConnectivityNetworkChange(revision: revision)
             }
         }
     }
 
-    func handleSupervisorNetworkChange(revision: UInt64) async {
+    func handleConnectivityNetworkChange(revision: UInt64) async {
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
         await handleLANRefresh()
@@ -353,16 +373,15 @@ extension CmxIrohHostRuntime {
         await registrationRefreshTask?.value
     }
 
-    private func scheduleRegistrationRetry(
+    func scheduleRegistrationRetry(
         revision: UInt64,
-        error: any Error
+        retryAfterSeconds: Int?
     ) {
         guard lifecyclePhase == .active,
               lifecycleRevision == revision else { return }
         let delay = registrationRetrySchedule.delay(
             failureCount: registrationRefreshFailureCount,
-            retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
-                .retryAfterSeconds,
+            retryAfterSeconds: retryAfterSeconds,
             jitterUnitInterval: registrationRetryJitter()
         )
         registrationRefreshFailureCount = min(
@@ -404,14 +423,13 @@ extension CmxIrohHostRuntime {
         }
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
-              let supervisor,
+              let connectivityEngine,
               let admissionController,
               let previousBinding = localBinding else { return }
         do {
-            let endpoint = try await supervisor.activeEndpoint()
-            let endpointID = await endpoint.identity()
+            let endpointID = try await connectivityEngine.localEndpointIdentity()
             let policy = try await resolvePolicy(
-                supervisor: supervisor,
+                engine: connectivityEngine,
                 expectedEndpointID: endpointID,
                 revision: revision,
                 allowCachedFallback: false
@@ -434,10 +452,15 @@ extension CmxIrohHostRuntime {
             }
             await handleBinding(registration, discovery, policy.attestation)
             try requireCurrent(revision)
+            await handleRoute(policy.binding, policy.routePathHints)
+            try requireCurrent(revision)
+            if let routeRevision = discovery.revision {
+                await connectivityEngine.didInstallRouteRevision(routeRevision)
+            }
             scheduleLANPublication(
                 binding: policy.binding,
                 rendezvous: policy.lanRendezvous,
-                supervisor: supervisor,
+                engine: connectivityEngine,
                 revision: revision
             )
             registrationRefreshFailureCount = 0
@@ -473,7 +496,12 @@ extension CmxIrohHostRuntime {
             // endpoint, so address changes observed during this failed round are
             // already included without an immediate duplicate broker request.
             registrationRefreshPending = false
-            scheduleRegistrationRetry(revision: revision, error: error)
+            scheduleRegistrationRetry(
+                revision: revision,
+                retryAfterSeconds: (
+                    error as? any CmxRetryAfterProviding
+                )?.retryAfterSeconds
+            )
         }
     }
 
