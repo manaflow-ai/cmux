@@ -81,7 +81,10 @@ describe("app session handoff", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(getUser).toHaveBeenCalledWith({
-      tokenStore: { refreshToken: "native-refresh" },
+      tokenStore: {
+        accessToken: "native-access",
+        refreshToken: "native-refresh",
+      },
     });
     expect(getCurrentSessionTokens).toHaveBeenCalledTimes(1);
 
@@ -134,19 +137,18 @@ describe("app session handoff", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  test("accepts refresh-only handoff", async () => {
+  test("rejects a torn handoff without the matching access token", async () => {
     const response = await POST(handoffRequest({
       refresh_token: "native-refresh",
       after: "/dashboard/testflight",
     }));
 
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(
-      "https://cmux.test/dashboard/testflight",
+    expect(new URL(response.headers.get("location")!).pathname).toBe(
+      "/handler/sign-in",
     );
-    expect(getUser).toHaveBeenCalledWith({
-      tokenStore: { refreshToken: "native-refresh" },
-    });
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
   });
 
   test("does not set cookies when Stack rejects the native session", async () => {

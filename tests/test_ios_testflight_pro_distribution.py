@@ -1,9 +1,22 @@
+import importlib.util
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+DISTRIBUTION_HELPER = ROOT / "ios" / "scripts" / "resolve_testflight_distribution.py"
+
+
+def load_distribution_helper():
+    spec = importlib.util.spec_from_file_location(
+        "resolve_testflight_distribution",
+        DISTRIBUTION_HELPER,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def workflow_text() -> str:
@@ -25,56 +38,55 @@ def workflow_job(text: str, name: str) -> str:
     return text[start:]
 
 
-def test_external_override_assigns_founders_and_pro_groups() -> None:
-    upload_job = workflow_job(workflow_text(), "upload")
+def test_distribution_helper_resolves_automatic_internal_upload() -> None:
+    helper = load_distribution_helper()
 
-    assert (
-        "CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: "
-        "${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}"
-    ) in upload_job
-    assert (
-        "CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: "
-        "${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}"
-    ) in upload_job
-    assert (
-        "CMUX_TESTFLIGHT_PRO_GROUP_ID: "
-        "${{ vars.IOS_TESTFLIGHT_PRO_GROUP_ID }}"
-    ) in upload_job
-    assert (
-        "CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "
-        "${{ github.event.inputs.marketing_version_override != '' && '1' || '0' }}"
-    ) in upload_job
+    decision = helper.resolve_distribution("internal", "")
 
-    job_env = upload_job.split("    steps:\n", 1)[0]
-    install_profile = upload_job.split(
-        "      - name: Install beta provisioning profile\n", 1
-    )[1].split("\n      - name:", 1)[0]
-    assert (
-        "IOS_BETA_BUNDLE_ID: "
-        "${{ needs.decide.outputs.variant == 'demo' "
-        "&& 'dev.cmux.app.demo' || 'dev.cmux.app.internal' }}"
-    ) in job_env
-    assert (
-        "IOS_BETA_DISPLAY_NAME: "
-        "${{ needs.decide.outputs.variant == 'demo' "
-        "&& 'cmux DEMO' || 'cmux INTERNAL' }}"
-    ) in job_env
-    assert (
-        "INPUT_MARKETING_VERSION_OVERRIDE: "
-        "${{ github.event.inputs.marketing_version_override }}"
-    ) in install_profile
-    assert 'if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then' in install_profile
-    assert 'EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.beta"' in install_profile
+    assert decision.bundle_id == "dev.cmux.app.internal"
+    assert decision.display_name == "cmux INTERNAL"
+    assert decision.profile_type == "internal"
+    assert decision.assign_external_group is False
+    assert decision.assign_internal_group is True
+    assert decision.metadata_artifact == "ios-testflight-build-metadata"
 
 
-def test_external_override_skips_internal_group_assignment() -> None:
-    assign_job = workflow_job(workflow_text(), "assign-internal-group")
+def test_distribution_helper_resolves_demo_upload() -> None:
+    helper = load_distribution_helper()
 
-    assert (
-        "if: github.ref == 'refs/heads/main' "
-        "&& needs.upload.result == 'success' "
-        "&& github.event.inputs.marketing_version_override == ''"
-    ) in assign_job
+    decision = helper.resolve_distribution("demo", "")
+
+    assert decision.bundle_id == "dev.cmux.app.demo"
+    assert decision.display_name == "cmux DEMO"
+    assert decision.profile_type == "demo"
+    assert decision.assign_external_group is False
+    assert decision.assign_internal_group is True
+    assert decision.metadata_artifact == "ios-testflight-build-metadata-demo"
+
+
+def test_distribution_helper_resolves_manual_external_override() -> None:
+    helper = load_distribution_helper()
+
+    decision = helper.resolve_distribution("internal", "1.2.3")
+
+    assert decision.bundle_id == "dev.cmux.app.beta"
+    assert decision.display_name == "cmux BETA"
+    assert decision.profile_type == "beta"
+    assert decision.assign_external_group is True
+    assert decision.assign_internal_group is False
+    assert decision.metadata_artifact == "ios-testflight-build-metadata-override"
+
+
+def test_workflow_executes_distribution_helper_and_consumes_its_outputs() -> None:
+    text = workflow_text()
+    upload_job = workflow_job(text, "upload")
+    assign_job = workflow_job(text, "assign-internal-group")
+
+    assert "python3 ./ios/scripts/resolve_testflight_distribution.py" in upload_job
+    assert "IOS_BETA_BUNDLE_ID: ${{ steps.distribution.outputs.bundle_id }}" in upload_job
+    assert "name: ${{ steps.distribution.outputs.metadata_artifact }}" in upload_job
+    assert "needs.upload.outputs.assign_internal_group == '1'" in assign_job
+    assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assign_job
 
 
 def test_ci_executes_this_testflight_workflow_guard() -> None:
@@ -84,7 +96,9 @@ def test_ci_executes_this_testflight_workflow_guard() -> None:
 
 
 if __name__ == "__main__":
-    test_external_override_assigns_founders_and_pro_groups()
-    test_external_override_skips_internal_group_assignment()
+    test_distribution_helper_resolves_automatic_internal_upload()
+    test_distribution_helper_resolves_demo_upload()
+    test_distribution_helper_resolves_manual_external_override()
+    test_workflow_executes_distribution_helper_and_consumes_its_outputs()
     test_ci_executes_this_testflight_workflow_guard()
     print("all iOS TestFlight Pro distribution tests passed")

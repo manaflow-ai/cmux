@@ -34,7 +34,7 @@ struct BrowserAppSessionHandoffTests {
         #expect(BrowserAppLinkOpenRequest(url: unmarked, webOrigin: origin) == nil)
     }
 
-    @Test("handoff posts only the refresh credential and preserves the destination path")
+    @Test("handoff posts a coherent credential pair and preserves the destination path")
     func buildsHandoffRequest() throws {
         let origin = try #require(URL(string: "https://cmux.test"))
         let destination = try #require(URL(
@@ -45,6 +45,7 @@ struct BrowserAppSessionHandoffTests {
         let request = try #require(handoff.request(
             destinationURL: destination,
             tokens: BrowserAppSessionTokens(
+                accessToken: "native&access",
                 refreshToken: "native&refresh"
             )
         ))
@@ -56,7 +57,7 @@ struct BrowserAppSessionHandoffTests {
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Handoff") == "1")
         #expect(request.value(forHTTPHeaderField: "X-Cmux-App-Session-Response") == "cookies")
         #expect(request.value(forHTTPHeaderField: "Referrer-Policy") == nil)
-        #expect(!body.contains("access_token="))
+        #expect(body.contains("access_token=native%26access"))
         #expect(body.contains("refresh_token=native%26refresh"))
         #expect(body.contains("after=%2Fdashboard%2Ftestflight%3Fplan%3Dpro%23join"))
         #expect(request.url?.query == nil)
@@ -129,7 +130,7 @@ struct BrowserAppSessionHandoffTests {
 
         #expect(handoff.request(
             destinationURL: destination,
-            tokens: BrowserAppSessionTokens(refreshToken: "")
+            tokens: BrowserAppSessionTokens(accessToken: "access", refreshToken: "")
         ) == nil)
     }
 
@@ -138,6 +139,7 @@ struct BrowserAppSessionHandoffTests {
         let origin = try #require(URL(string: "https://cmux.test"))
         let handoff = BrowserAppSessionHandoff(webOrigin: origin)
         let tokens = BrowserAppSessionTokens(
+            accessToken: "native-access",
             refreshToken: "native-refresh"
         )
         let offOrigin = try #require(URL(string: "https://example.test/dashboard"))

@@ -129,6 +129,37 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
+  test("reloads metadata inside the account mutation lease before reconciling Pro", async () => {
+    const staleUser = metadataUser({}, "user-racing-testflight");
+    const freshUser = metadataUser({
+      cmuxProTestflightEnrollmentEmails: ["owner@example.com"],
+      cmuxProTestflightGrants: [
+        { email: "owner@example.com", source: "user" },
+      ],
+    }, "user-racing-testflight");
+    let refreshedLeaseCount = 0;
+
+    await resolveProPlanStatus(staleUser, {
+      hasActiveStripeSubscription: async () => true,
+      withFreshMetadataUser: async (_userId, operation) =>
+        await operation(freshUser, {
+          refresh: async () => {
+            refreshedLeaseCount += 1;
+          },
+        }),
+    } as unknown as Parameters<typeof resolveProPlanStatus>[1]);
+
+    expect(staleUser.updates).toEqual([]);
+    expect(freshUser.updates).toEqual([{
+      cmuxProTestflightEnrollmentEmails: ["owner@example.com"],
+      cmuxProTestflightGrants: [
+        { email: "owner@example.com", source: "user" },
+      ],
+      cmuxPlan: PRO_PLAN_ID,
+    }]);
+    expect(refreshedLeaseCount).toBeGreaterThan(0);
+  });
+
   test("returns pro and syncs metadata only for an active Stripe subscription row", async () => {
     const user = metadataUser({}, "user-stripe-pro");
     await expect(

@@ -171,6 +171,63 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserAppSessionCallbackWaitTimesOutWhenWebKitDropsCompletion() async {
+        let outcome = await awaitBrowserAppSessionCallback(
+            timeout: .milliseconds(20)
+        ) { _ in
+            // Reproduce a WebKit API that never invokes its completion handler.
+        }
+
+        #expect(outcome == .timedOut)
+    }
+
+    @Test
+    func browserAppSessionCallbackWaitCompletesWhenItsTaskIsCancelled() async {
+        let task = Task { @MainActor in
+            await awaitBrowserAppSessionCallback(timeout: .seconds(30)) { _ in
+                // Keep the callback parked until cancellation wins the race.
+            }
+        }
+        await Task.yield()
+
+        task.cancel()
+
+        #expect(await task.value == .cancelled)
+    }
+
+    @Test
+    func appLinkHandoffRegistryCoalescesDuplicateSourceDestinations() async throws {
+        let registry = BrowserAppLinkHandoffRegistry()
+        let sourcePanelID = UUID()
+        let destinationURL = try #require(
+            URL(string: "https://cmux.test/dashboard/testflight")
+        )
+        var startCount = 0
+
+        #expect(registry.start(
+            sourcePanelID: sourcePanelID,
+            destinationURL: destinationURL
+        ) {
+            startCount += 1
+            try? await Task.sleep(for: .seconds(30))
+        })
+        #expect(!registry.start(
+            sourcePanelID: sourcePanelID,
+            destinationURL: destinationURL
+        ) {
+            startCount += 1
+        })
+        await Task.yield()
+
+        #expect(startCount == 1)
+        #expect(registry.activeCount == 1)
+
+        registry.cancel(sourcePanelID: sourcePanelID)
+        await Task.yield()
+        #expect(registry.activeCount == 0)
+    }
+
+    @Test
     func browserAppSessionOutcomesSeparateMissingAuthFromTransientFailure() {
         let notAuthenticated = BrowserAppSessionRequestOutcome.notAuthenticated
         let transientFailure = BrowserAppSessionRequestOutcome.transientFailure
