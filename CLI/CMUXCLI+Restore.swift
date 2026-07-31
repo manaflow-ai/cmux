@@ -109,7 +109,7 @@ extension CMUXCLI {
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
         )
-        let effectiveWorkingDirectory =
+        let effectiveWorkingDirectory: String? =
             if requestedWorkingDirectory?.isEmpty == false {
                 appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
             } else {
