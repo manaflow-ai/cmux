@@ -298,7 +298,7 @@ extension TerminalController {
                 ]
             )
         }
-        guard !terminalPanel.humanComposerIsBusy(
+        guard !terminalPanel.terminalComposerIsBusy(
             agentInputScope: agentInputScope
         ) else {
             return .err(

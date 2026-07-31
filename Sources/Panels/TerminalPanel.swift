@@ -725,7 +725,7 @@ final class TerminalPanel: Panel, ObservableObject {
         hookConfirmsHumanInput: Bool = false
     ) -> TerminalSurface.PromptSubmissionSendResult {
         if rejectIfHumanComposerBusy,
-           humanComposerIsBusy(agentInputScope: agentInputScope) {
+           terminalComposerIsBusy(agentInputScope: agentInputScope) {
             return .composerBusy
         } else if !rejectIfHumanComposerBusy {
             surface.synchronizePromptInputAgentScope(agentInputScope)
@@ -740,23 +740,16 @@ final class TerminalPanel: Panel, ObservableObject {
         )
     }
 
-    /// Synchronizes the agent ownership epoch and reports whether either
-    /// human composer can contain a draft.
+    /// Synchronizes the agent ownership epoch and reports whether the terminal
+    /// TUI composer can contain a human draft.
     ///
-    /// Callers that stage more than one terminal input use this as their
-    /// admission boundary before the first write. The check and subsequent
-    /// synchronous writes must remain in one non-suspending main-actor turn.
-    func humanComposerIsBusy(agentInputScope: String?) -> Bool {
+    /// The native TextBox is separate app-owned state: a compound terminal
+    /// submission bypasses it and therefore preserves that draft as its own
+    /// future submission. The terminal composer cannot be extracted safely, so
+    /// unconfirmed input there must reject automation.
+    func terminalComposerIsBusy(agentInputScope: String?) -> Bool {
         surface.synchronizePromptInputAgentScope(agentInputScope)
-        return hasHumanTextBoxDraft
-            || surface.hasUnconfirmedHumanPromptInput
-    }
-
-    var hasHumanTextBoxDraft: Bool {
-        if textBoxInputView?.string.isEmpty == false {
-            return true
-        }
-        return !textBoxContent.isEmpty || !textBoxAttachments.isEmpty
+        return surface.hasUnconfirmedHumanPromptInput
     }
 
     @discardableResult

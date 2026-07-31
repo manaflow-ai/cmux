@@ -53,7 +53,7 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func nativeHumanDraftIsUnchangedAndNoPromptIsQueued() {
+    @Test func nativeHumanDraftIsPreservedAsASeparateFutureSubmission() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
         panel.surface.releaseSurfaceForTesting()
@@ -67,23 +67,23 @@ struct AgentPromptSubmissionTests {
             hookRecordingSource: "workspace.agent_submit"
         )
 
-        #expect(result == .composerBusy)
+        #expect(result == .queued)
         #expect(panel.textBoxContent == "human draft")
-        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 1)
     }
 
     @MainActor
-    @Test func mobileChatAdmissionLeavesNativeHumanDraftUnchanged() {
+    @Test func nativeHumanDraftDoesNotMakeTerminalComposerBusy() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
         panel.surface.releaseSurfaceForTesting()
         panel.textBoxContent = "human draft"
 
-        let isBusy = panel.humanComposerIsBusy(
+        let isBusy = panel.terminalComposerIsBusy(
             agentInputScope: "agentPIDKey:codex.session"
         )
 
-        #expect(isBusy)
+        #expect(!isBusy)
         #expect(panel.textBoxContent == "human draft")
         #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
@@ -97,7 +97,7 @@ struct AgentPromptSubmissionTests {
         panel.surface.synchronizePromptInputAgentScope(agentScope)
         panel.surface.recordHumanPromptInput(.unknown)
 
-        let isBusy = panel.humanComposerIsBusy(
+        let isBusy = panel.terminalComposerIsBusy(
             agentInputScope: agentScope
         )
 
@@ -203,6 +203,26 @@ struct AgentPromptSubmissionTests {
 
         #expect(panel.surface.currentPromptInputAgentScope == originalScope)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+    }
+
+    @MainActor
+    @Test func hooklessAgentDoesNotOwnRecoverableComposerState() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        defer { panel.surface.releaseSurfaceForTesting() }
+
+        workspace.recordAgentPID(
+            key: "ollama",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
+        #expect(panel.surface.currentPromptInputAgentScope == nil)
     }
 
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {

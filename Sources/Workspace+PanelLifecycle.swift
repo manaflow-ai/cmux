@@ -130,43 +130,37 @@ extension Workspace {
     ///
     /// Process identity is part of the scope so replacing an agent under the
     /// same session key cannot inherit the prior process's draft boundaries.
-    /// The current owner remains stable while unrelated process metadata comes
-    /// and goes; structured hook ownership takes precedence when it appears.
+    /// Only agents with a structured prompt-submit hook qualify because that
+    /// hook is the sole safe recovery signal after physical input. The current
+    /// owner remains stable while unrelated process metadata comes and goes.
     func agentPromptInputScope(forPanelId panelId: UUID) -> String? {
         let candidates = (agentPIDKeysByPanelId[panelId] ?? [])
             .sorted()
-            .compactMap { key -> (key: String, scope: String)? in
+            .compactMap { key -> String? in
                 let context = "agentPIDKey:\(key)"
-                guard TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                    context: context
-                ) else {
+                guard isStructuredAgentHookPIDKey(key),
+                      TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                          context: context
+                      ) else {
                     return nil
                 }
                 guard let identity = agentPIDProcessIdentitiesByKey[key] else {
-                    return (key, context)
+                    return context
                 }
-                return (key, [
+                return [
                     context,
                     "pid:\(identity.pid)",
                     "start:\(identity.startSeconds).\(identity.startMicroseconds)",
-                ].joined(separator: "|"))
+                ].joined(separator: "|")
             }
-        guard !candidates.isEmpty else { return nil }
+        guard let firstCandidate = candidates.first else { return nil }
 
         let currentScope = terminalPanel(for: panelId)?.surface
             .currentPromptInputAgentScope
-        let currentCandidate = candidates.first {
-            $0.scope == currentScope
+        if let currentScope, candidates.contains(currentScope) {
+            return currentScope
         }
-        let structuredCandidate = candidates.first {
-            isStructuredAgentHookPIDKey($0.key)
-        }
-        if let currentCandidate,
-           isStructuredAgentHookPIDKey(currentCandidate.key)
-                || structuredCandidate == nil {
-            return currentCandidate.scope
-        }
-        return structuredCandidate?.scope ?? candidates[0].scope
+        return firstCandidate
     }
 
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
