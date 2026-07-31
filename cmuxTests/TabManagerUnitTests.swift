@@ -2697,46 +2697,6 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertTrue(duplicateTab.isAudioMuted)
     }
 
-    func testDuplicateBrowserPreservesExplicitEphemeralWebsiteDataStore() throws {
-        let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        let browserPanel = try XCTUnwrap(
-            workspace.newBrowserSurface(
-                inPane: paneId,
-                url: URL(string: "https://example.com/authenticated-handoff"),
-                focus: true,
-                websiteDataStore: websiteDataStore
-            )
-        )
-
-        let duplicate = try XCTUnwrap(
-            workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false)
-        )
-
-        XCTAssertTrue(duplicate.websiteDataStore === websiteDataStore)
-        XCTAssertTrue(duplicate.webView.configuration.websiteDataStore === websiteDataStore)
-    }
-
-    func testDockBrowserSurfaceAcceptsExplicitEphemeralWebsiteDataStore() throws {
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        let paneId = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
-        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        let panelId = try XCTUnwrap(
-            dock.newSurface(
-                kind: .browser,
-                inPane: paneId,
-                url: URL(string: "https://example.com/authenticated-handoff"),
-                focus: false,
-                websiteDataStore: websiteDataStore
-            )
-        )
-        let panel = try XCTUnwrap(dock.browserPanel(for: panelId))
-
-        XCTAssertTrue(panel.websiteDataStore === websiteDataStore)
-        XCTAssertTrue(panel.webView.configuration.websiteDataStore === websiteDataStore)
-    }
-
     func testBrowserAudioMuteContextActionTogglesPanelAndTabState() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
@@ -3576,32 +3536,6 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
 
         XCTAssertNil(closedSnapshot)
-    }
-
-    func testEphemeralBrowserTabCloseIsNotRecordedForRestore() throws {
-        ClosedItemHistoryStore.shared.removeAll()
-        defer { ClosedItemHistoryStore.shared.removeAll() }
-
-        let workspace = Workspace()
-        let expectedURL = try XCTUnwrap(URL(string: "https://example.com/authenticated-handoff"))
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
-            inPane: paneId,
-            url: expectedURL,
-            focus: false,
-            websiteDataStore: .nonPersistent()
-        ))
-        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
-        let tab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
-        var legacySnapshot: ClosedBrowserPanelRestoreSnapshot?
-        workspace.onClosedBrowserPanel = { legacySnapshot = $0 }
-        workspace.markCloseHistoryEligible(panelId: browserPanel.id)
-
-        XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
-        workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
-
-        XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
-        XCTAssertNil(legacySnapshot)
     }
 
     func testBrowserWebViewDidCloseClosesPanelAndCmdShiftTRestoresIt() {

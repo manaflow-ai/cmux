@@ -355,36 +355,3 @@ public struct AuthenticatedSessionSnapshot: Sendable, Equatable,
 
     public var debugDescription: String { description }
 }
-
-/// Immutable refresh-token snapshot pinned to one authenticated account and
-/// session generation. Its textual representations redact both identity and
-/// credential values.
-public struct AuthenticatedRefreshTokenSnapshot:
-    Sendable,
-    Equatable,
-    CustomStringConvertible,
-    CustomDebugStringConvertible
-{
-    public let generation: UInt64
-    public let accountID: String
-    public let refreshToken: String
-
-    public init(
-        generation: UInt64,
-        accountID: String,
-        refreshToken: String
-    ) {
-        self.generation = generation
-        self.accountID = accountID
-        self.refreshToken = refreshToken
-    }
-
-    public var description: String {
-        "AuthenticatedRefreshTokenSnapshot("
-            + "generation: \(generation), "
-            + "accountID: <redacted>, "
-            + "refreshToken: <redacted>)"
-    }
-
-    public var debugDescription: String { description }
-}

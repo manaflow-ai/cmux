@@ -694,7 +694,7 @@ fi
 # undistributed build behind.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "error: external TestFlight distribution requires an ASC API key (JWT) for subscriber-group assignment and Beta App Review. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) before rerunning the external lane." >&2
+    echo "error: external TestFlight distribution requires configured App Store Connect credentials for subscriber-group assignment and Beta App Review. Configure the external distribution credentials before rerunning the external lane." >&2
     exit 2
   fi
 fi
@@ -1533,7 +1533,7 @@ fi
 # lane tracked main when either subscriber group missed the build.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "error: no ASC API key (JWT) available; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64), then rerun the external lane." >&2
+    echo "error: App Store Connect credentials are unavailable; the external build uploaded but was not assigned to subscriber groups or submitted for Beta App Review. Configure the external distribution credentials, then rerun the external lane." >&2
     exit 1
   fi
   EXTERNAL_GROUP_SELECTOR=()

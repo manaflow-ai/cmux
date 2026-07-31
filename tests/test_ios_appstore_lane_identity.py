@@ -797,7 +797,8 @@ def test_external_beta_upload_fails_without_group_assignment_credentials(
 
     _check(result.returncode != 0, "external beta upload fails when group assignment cannot run")
     _check(
-        "external TestFlight distribution requires an ASC API key" in result.stderr,
+        "external TestFlight distribution requires configured App Store Connect credentials"
+        in result.stderr,
         "external beta upload explains the missing distribution credentials",
     )
 

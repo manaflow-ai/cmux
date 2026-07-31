@@ -186,11 +186,3 @@ struct BrowserAppSessionHandoffTests {
         ))
     }
 }
-
-private final class LowercaseHeaderHTTPURLResponse: HTTPURLResponse, @unchecked Sendable {
-    override var allHeaderFields: [AnyHashable: Any] {
-        super.allHeaderFields.reduce(into: [:]) { result, entry in
-            result[AnyHashable(String(describing: entry.key).lowercased())] = entry.value
-        }
-    }
-}

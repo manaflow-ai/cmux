@@ -4,19 +4,6 @@ import AppKit
 import Foundation
 import StackAuth
 
-@MainActor
-final class BrowserAppSessionSignInRelay {
-    private var resume: (@MainActor () -> Void)?
-
-    func bind(_ resume: @escaping @MainActor () -> Void) {
-        self.resume = resume
-    }
-
-    func signedIn() {
-        resume?()
-    }
-}
-
 /// The macOS auth composition root.
 ///
 /// Constructs the de-singletonized auth graph once at app startup, mirroring

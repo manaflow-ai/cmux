@@ -161,19 +161,18 @@ export async function removeProTesterAccess(
   } = {},
 ): Promise<number> {
   const targets = proTestflightRemovalTargets(currentEmail, metadata);
+  const recordedEmails = new Set([
+    ...proTestflightEnrollmentEmails(metadata),
+    ...proTestflightGrants(metadata).map((grant) => grant.email),
+    ...proOwnedLegacyTestflightEmails(metadata),
+  ]);
   let workingMetadata = metadata;
   for (const target of targets) {
     options.beforeExternalMutation?.();
     await remover(target.email, {
       ownedLegacyGroupIDs: target.ownedLegacyGroupIDs,
     });
-    const ownsRecordedEmail =
-      proTestflightEnrollmentEmails(workingMetadata).includes(target.email) ||
-      proTestflightGrants(workingMetadata).some(
-        (grant) => grant.email === target.email,
-      ) ||
-      proOwnedLegacyTestflightEmails(workingMetadata).includes(target.email);
-    if (ownsRecordedEmail && options.updateMetadata) {
+    if (recordedEmails.delete(target.email) && options.updateMetadata) {
       workingMetadata = metadataAfterProTestflightRemoval(
         workingMetadata,
         target.email,
