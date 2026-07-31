@@ -145,41 +145,48 @@ async function sendPush(
     correlationId,
     expirationEpochSeconds,
   };
-  const service = makePushDeliveryService({
-    db: cloudDb(),
-    config: apnsConfig(),
-    send: dependencies.send,
-    recordOutcome: recordApnsRouteOutcome,
-  });
-  const program = Effect.gen(function* () {
-    const delivery = yield* PushDeliveryService;
-    return yield* delivery.deliver({
-      userId: user.id,
-      correlationId,
-      payloadFingerprint,
-      nowEpochSeconds,
-      expirationEpochSeconds,
-      payload: deliveryPayload,
+  try {
+    const service = makePushDeliveryService({
+      db: cloudDb(),
+      config: apnsConfig(),
+      send: dependencies.send,
+      recordOutcome: recordApnsRouteOutcome,
     });
-  }).pipe(
-    Effect.provide(Layer.succeed(PushDeliveryService, service)),
-  );
-  const result = await Effect.runPromise(Effect.either(program)).catch(
-    (error) => {
-      recordApnsRouteFailure(correlationId, "unexpected");
-      throw error;
-    },
-  );
-  if (result._tag === "Left") {
-    return deliveryErrorResponse(result.left, correlationId);
+    const program = Effect.gen(function* () {
+      const delivery = yield* PushDeliveryService;
+      return yield* delivery.deliver({
+        userId: user.id,
+        correlationId,
+        payloadFingerprint,
+        nowEpochSeconds,
+        expirationEpochSeconds,
+        payload: deliveryPayload,
+      });
+    }).pipe(
+      Effect.provide(Layer.succeed(PushDeliveryService, service)),
+    );
+    const result = await Effect.runPromise(Effect.either(program));
+    if (result._tag === "Left") {
+      return deliveryErrorResponse(result.left, correlationId);
+    }
+    return summaryResponse(
+      result.right.summary,
+      correlationId,
+      result.right.replayed
+        ? { "x-cmux-push-replayed": "true" }
+        : {},
+    );
+  } catch {
+    // At this point the request has a safe, validated correlation id. Preserve
+    // it for support without returning or recording payload, token, database,
+    // or provider details from the unexpected exception.
+    recordApnsRouteFailure(correlationId, "unexpected");
+    return correlatedErrorResponse(
+      { error: "push_internal_error", correlationId },
+      500,
+      correlationId,
+    );
   }
-  return summaryResponse(
-    result.right.summary,
-    correlationId,
-    result.right.replayed
-      ? { "x-cmux-push-replayed": "true" }
-      : {},
-  );
 }
 
 function deliveryErrorResponse(
