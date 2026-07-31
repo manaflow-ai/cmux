@@ -29,6 +29,7 @@ on:
         options:
           - macos
           - ios
+          - ios-simulator
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -115,7 +116,7 @@ jobs:
       # source refs that predate the crate are a no-op (scripts come from
       # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
-        if: ${{ inputs.platform == 'ios' }}
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-simulator' }}
         run: |
           set -euo pipefail
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
@@ -177,6 +178,33 @@ jobs:
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
           mkdir -p artifact
           ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
+
+      # --- iOS Simulator: build the tagged app through the shared reload path ---
+      - name: Build tagged iOS simulator app
+        if: ${{ inputs.platform == 'ios-simulator' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          CMUX_IOS_API_BASE_URL: https://cmux-staging.vercel.app
+          CMUX_IOS_IROH_BROKER_BASE_URL: https://cmux-staging.vercel.app
+        run: |
+          set -euo pipefail
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            xcodebuild -downloadPlatform iOS
+            ios_ready || { echo "iOS simulator runtime is unavailable" >&2; exit 1; }
+          fi
+
+          ./ios/scripts/reload.sh \
+            --tag "$BUILD_TAG" \
+            --simulator-only \
+            --no-launch \
+            --swift-frontend-workaround
+
+          slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          app="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$slug/Build/Products/Debug-iphonesimulator/cmux.app"
+          [ -d "$app" ] || { echo "simulator app not produced: $app" >&2; exit 1; }
+          mkdir -p artifact
+          ditto -c -k --sequesterRsrc --keepParent "$app" artifact/simulator-app.zip
 
       - name: Write timings.json
         if: ${{ always() }}
