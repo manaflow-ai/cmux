@@ -766,6 +766,9 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),
     index("iroh_endpoint_bindings_user_revoked_idx")

@@ -42,6 +42,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
+        userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -67,6 +68,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                   ) {
             authorizationMode = .legacyTailscaleBearer(
                 legacyTailscaleAuthorizationEvidence
+            )
+        } else if route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint,
+                  let userTailscalePairingAuthorization,
+                  userTailscalePairingAuthorization.authorizes(
+                      host: host,
+                      port: port
+                  ) {
+            authorizationMode = .userAuthorizedTailscalePairing(
+                userTailscalePairingAuthorization
             )
         } else {
             authorizationMode = .stackBearer
@@ -575,7 +586,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private var transportUsesStackBearer: Bool {
         switch transportRequest.authorizationMode {
-        case .stackBearer, .legacyTailscaleBearer:
+        case .stackBearer, .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
             true
         case .transportAdmission:
             false
@@ -600,6 +611,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 host: host,
                 port: port
             )
+        case let .userAuthorizedTailscalePairing(authorization):
+            guard route.kind == .tailscale,
+                  case let .hostPort(host, port) = route.endpoint else {
+                return false
+            }
+            return authorization.authorizes(host: host, port: port)
         case .transportAdmission:
             return false
         }
