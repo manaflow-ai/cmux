@@ -199,6 +199,60 @@ import Testing
         #expect(readiness.repair == .openSystemSettings)
     }
 
+    @Test(arguments: [
+        MobileHostPhonePushStatus.QueuePersistence.loadFailed,
+        .saveFailed,
+        .clearFailed,
+    ])
+    func retryQueuePersistenceFailuresDegradeRatherThanClaimFullReadiness(
+        queuePersistence: MobileHostPhonePushStatus.QueuePersistence
+    ) {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                admission: .allowed,
+                queuePersistence: queuePersistence,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(
+            readiness == .reliabilityLimited(
+                mode: .always,
+                queuePersistence: queuePersistence
+            )
+        )
+        #expect(readiness.repair == nil)
+    }
+
+    @Test func uninitializedRetryQueueIsReportedAsUnconfirmed() {
+        let readiness = MobilePushReadiness.resolve(
+            authorization: .authorized,
+            registration: registered,
+            mac: .init(
+                forwardingEnabled: true,
+                mode: .always,
+                admission: .allowed,
+                queuePersistence: .unknown,
+                apiOrigin: "https://cmux.com",
+                accountVerified: true
+            ),
+            phoneAPIOrigin: "https://cmux.com"
+        )
+
+        #expect(
+            readiness == .reliabilityLimited(
+                mode: .always,
+                queuePersistence: .unknown
+            )
+        )
+    }
+
     @Test func authenticatedConnectionAccountMismatchIsDistinctFromUnavailableMac() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,
